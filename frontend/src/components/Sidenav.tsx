@@ -1,0 +1,66 @@
+import { NavLink } from 'react-router-dom'
+import { useAuth } from '../context/useAuth'
+
+const linkClass =
+  'block rounded-lg px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800'
+
+const activeClass =
+  'bg-violet-100 text-violet-900 dark:bg-violet-950/60 dark:text-violet-100'
+
+export function Sidenav() {
+  const { user, logout } = useAuth()
+
+  return (
+    <aside className="flex min-h-svh w-56 shrink-0 flex-col border-r border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+      <div className="border-b border-slate-200 px-3 py-4 dark:border-slate-800">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          The Bag Hub ERP
+        </p>
+      </div>
+      <nav
+        className="flex flex-1 flex-col gap-0.5 p-2"
+        aria-label="Main"
+      >
+        <NavLink
+          to="/"
+          className={({ isActive }) =>
+            [linkClass, isActive ? activeClass : ''].join(' ')
+          }
+          end
+        >
+          Home
+        </NavLink>
+        <NavLink
+          to="/inquiry"
+          className={({ isActive }) =>
+            [linkClass, isActive ? activeClass : ''].join(' ')
+          }
+        >
+          Inquiry
+        </NavLink>
+        {user?.isAdmin && (
+          <NavLink
+            to="/register"
+            className={({ isActive }) =>
+              [linkClass, isActive ? activeClass : ''].join(' ')
+            }
+          >
+            Register
+          </NavLink>
+        )}
+      </nav>
+      <div className="border-t border-slate-200 p-2 dark:border-slate-800">
+        <p className="mb-2 truncate px-2 text-xs text-slate-500" title={user?.username}>
+          {user?.username}
+        </p>
+        <button
+          type="button"
+          onClick={() => logout()}
+          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-left text-sm font-medium text-slate-800 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+        >
+          Log out
+        </button>
+      </div>
+    </aside>
+  )
+}
