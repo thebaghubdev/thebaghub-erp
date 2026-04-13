@@ -6,7 +6,7 @@ import { Employee } from '../employees/entities/employee.entity';
 import { UserType } from '../enums/user-type.enum';
 import { User } from '../users/entities/user.entity';
 
-const ADMIN_USERNAME = 'tbh-adminstrator';
+const ADMIN_USERNAME = 'tbh-administrator';
 const ADMIN_PASSWORD = 'Thebaghub@2026';
 
 @Injectable()

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import { HireDatePicker } from '../components/HireDatePicker'
+import { PasswordField } from '../components/PasswordField'
 import { useAuth } from '../context/useAuth'
 import { apiFetch } from '../lib/api'
 
@@ -74,7 +75,7 @@ export function RegisterPage() {
   }, [user?.isAdmin, token])
 
   if (!user?.isAdmin) {
-    return <Navigate to="/" replace />
+    return <Navigate to="/inquiries" replace />
   }
 
   async function onSubmit(e: React.FormEvent) {
@@ -134,9 +135,6 @@ export function RegisterPage() {
 
   return (
     <div className="w-full min-w-0">
-      <h2 className="mb-2 text-lg font-semibold tracking-tight">
-        Register employee
-      </h2>
       <p className="mb-6 text-sm text-slate-600 dark:text-slate-400">
         Creates a new user (employee) and linked employee profile.
       </p>
@@ -160,17 +158,15 @@ export function RegisterPage() {
             />
           </div>
           <div className="sm:col-span-2">
-            <label className="mb-1 block text-xs font-medium" htmlFor="reg-password">
-              Password
-            </label>
-            <input
+            <PasswordField
               id="reg-password"
-              type="password"
-              className={field}
+              label="Password"
+              labelClassName="mb-1 block text-xs font-medium"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={setPassword}
               minLength={8}
               required
+              autoComplete="new-password"
             />
           </div>
           <div>

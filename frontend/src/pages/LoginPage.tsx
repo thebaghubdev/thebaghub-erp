@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
+import { PasswordField } from "../components/PasswordField";
 import { useAuth } from "../context/useAuth";
 
 export function LoginPage() {
@@ -7,7 +8,7 @@ export function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const redirectTo =
-    (location.state as { from?: string } | undefined)?.from ?? "/";
+    (location.state as { from?: string } | undefined)?.from ?? "/inquiries";
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -23,7 +24,7 @@ export function LoginPage() {
       const target =
         redirectTo.startsWith("/") && redirectTo !== "/login"
           ? redirectTo
-          : "/";
+          : "/inquiries";
       navigate(target, { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
@@ -41,7 +42,7 @@ export function LoginPage() {
   }
 
   if (token) {
-    return <Navigate to="/" replace />;
+    return <Navigate to="/inquiries" replace />;
   }
 
   return (
@@ -71,23 +72,14 @@ export function LoginPage() {
               required
             />
           </div>
-          <div>
-            <label
-              htmlFor="login-password"
-              className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300"
-            >
-              Password
-            </label>
-            <input
-              id="login-password"
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-violet-500 focus:ring-2 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
-              required
-            />
-          </div>
+          <PasswordField
+            id="login-password"
+            label="Password"
+            value={password}
+            onChange={setPassword}
+            autoComplete="current-password"
+            required
+          />
 
           {error && (
             <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">

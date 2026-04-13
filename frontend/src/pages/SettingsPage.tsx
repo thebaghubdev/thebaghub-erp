@@ -306,8 +306,6 @@ export function SettingsPage() {
 
   return (
     <div className="w-full min-w-0">
-      <h2 className="mb-6 text-lg font-semibold tracking-tight">Settings</h2>
-
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <label className="min-w-0 flex-1">
           <span className="sr-only">Search settings</span>

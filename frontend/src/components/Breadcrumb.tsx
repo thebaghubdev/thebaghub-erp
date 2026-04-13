@@ -1,41 +1,48 @@
 import { Link, useLocation } from "react-router-dom";
 
+/** Top-level sections (align with sidenav / main app areas). */
 const pathLabels: Record<string, string> = {
-  '/': 'Home',
-  '/inquiry': 'Inquiry',
-  '/settings': 'Settings',
-  '/register': 'Register',
-}
+  "/inquiries": "Consignment Inquiries",
+  "/settings": "Settings",
+  "/accounts": "Manage Accounts",
+  "/accounts/register": "Register",
+};
 
 type Crumb = { label: string; to: string; current: boolean };
 
 function crumbsForPath(pathname: string): Crumb[] {
   const normalized = pathname === "" ? "/" : pathname;
-  const out: Crumb[] = [];
 
-  out.push({
-    label: pathLabels["/"] ?? "Home",
-    to: "/",
-    current: normalized === "/",
-  });
-
-  if (normalized !== "/") {
-    const label = pathLabels[normalized];
-    if (label) {
-      out.push({
-        label,
+  if (normalized === "/accounts/register") {
+    return [
+      {
+        label: pathLabels["/accounts"] ?? "Manage Accounts",
+        to: "/accounts",
+        current: false,
+      },
+      {
+        label: pathLabels["/accounts/register"] ?? "Register",
         to: normalized,
         current: true,
-      });
-    }
+      },
+    ];
   }
 
-  return out;
+  const label = pathLabels[normalized];
+  if (label) {
+    return [{ label, to: normalized, current: true }];
+  }
+
+  return [];
 }
 
 export function Breadcrumb() {
   const { pathname } = useLocation();
   const crumbs = crumbsForPath(pathname);
+
+  if (crumbs.length === 0) {
+    return null;
+  }
 
   return (
     <nav

@@ -41,7 +41,6 @@ export function InquiryPage() {
 
   return (
     <div className="w-full min-w-0">
-      <h2 className="mb-6 text-lg font-semibold tracking-tight">Inquiry</h2>
       <div
         className="mb-6 flex gap-2 border-b border-slate-200 dark:border-slate-800"
         role="tablist"

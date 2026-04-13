@@ -16,6 +16,7 @@ import { ItemsModule } from './items/items.module';
 import { User } from './users/entities/user.entity';
 import { SettingsModule } from './settings/settings.module';
 import { Setting } from './settings/entities/setting.entity';
+import { AccountsModule } from './accounts/accounts.module';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { Setting } from './settings/entities/setting.entity';
     ItemsModule,
     InquiriesModule,
     SettingsModule,
+    AccountsModule,
   ],
   controllers: [AppController],
   providers: [
