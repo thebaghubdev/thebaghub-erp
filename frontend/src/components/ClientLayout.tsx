@@ -41,24 +41,24 @@ export function ClientLayout() {
       >
         <div className="mx-auto flex max-w-lg justify-around gap-1 px-2">
           <NavLink
-            to="/consign-items"
+            to="/consignments"
             className={({ isActive }) =>
               [navLinkClass, isActive ? navActiveClass : 'hover:bg-slate-100'].join(
                 ' ',
               )
             }
           >
-            Consign items
+            Consignments
           </NavLink>
           <NavLink
-            to="/purchase-items"
+            to="/purchases"
             className={({ isActive }) =>
               [navLinkClass, isActive ? navActiveClass : 'hover:bg-slate-100'].join(
                 ' ',
               )
             }
           >
-            Purchase items
+            Purchases
           </NavLink>
           <NavLink
             to="/my-account"

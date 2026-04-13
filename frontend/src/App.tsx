@@ -42,8 +42,8 @@ function ClientRoutes() {
         <Route path="login" element={<ClientLoginPage />} />
         <Route path="create-account" element={<ClientCreateAccountPage />} />
         <Route element={<RequireClientAuth><ClientLayout /></RequireClientAuth>}>
-          <Route path="consign-items" element={<ConsignItemsPage />} />
-          <Route path="purchase-items" element={<PurchaseItemsPage />} />
+          <Route path="consignments" element={<ConsignItemsPage />} />
+          <Route path="purchases" element={<PurchaseItemsPage />} />
           <Route path="my-account" element={<ClientMyAccountPage />} />
         </Route>
       </Routes>

@@ -15,7 +15,7 @@ export function ClientCreateAccountPage() {
   const [submitting, setSubmitting] = useState(false);
 
   if (token) {
-    return <Navigate to="/consign-items" replace />;
+    return <Navigate to="/consignments" replace />;
   }
 
   async function onSubmit(e: React.FormEvent) {

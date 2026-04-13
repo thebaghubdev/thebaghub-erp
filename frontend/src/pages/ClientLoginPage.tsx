@@ -8,7 +8,7 @@ export function ClientLoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const redirectTo =
-    (location.state as { from?: string } | undefined)?.from ?? "/consign-items";
+    (location.state as { from?: string } | undefined)?.from ?? "/consignments";
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -26,7 +26,7 @@ export function ClientLoginPage() {
         redirectTo !== "/login" &&
         redirectTo !== "/create-account"
           ? redirectTo
-          : "/consign-items";
+          : "/consignments";
       navigate(target, { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
@@ -44,7 +44,7 @@ export function ClientLoginPage() {
   }
 
   if (token) {
-    return <Navigate to="/consign-items" replace />;
+    return <Navigate to="/consignments" replace />;
   }
 
   return (
