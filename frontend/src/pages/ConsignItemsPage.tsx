@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { ConsignmentInquiryWizard } from '../components/ConsignmentInquiryWizard'
 
 type ConsignmentsTab = 'mine' | 'consign'
 
@@ -68,9 +69,11 @@ export function ConsignItemsPage() {
           aria-labelledby="tab-consignments-items"
         >
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <p className="text-sm leading-relaxed text-slate-600">
-              Start a new consignment and add items you want to send in.
+            <p className="mb-4 text-sm leading-relaxed text-slate-600">
+              Start a consignment inquiry: enter details, add photos, then review
+              before submitting.
             </p>
+            <ConsignmentInquiryWizard />
           </div>
         </section>
       )}

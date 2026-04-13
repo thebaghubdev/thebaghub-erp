@@ -1,0 +1,32 @@
+
+<ul>
+    <li>
+        A drop-off appointment will be scheduled. Once the item passes authentication, payment will be made via bank transfer or deposit within 1–2 business days.
+    </li>
+    <li>
+    The Client declares and warrants that all submitted items are 100% authentic. If an item is proven counterfeit, the consignor must issue a full refund at any time, regardless of when it is discovered. The client must also retrieve the item
+within sixty (60) days. If the Client fails to claim their item within the said period, The Bag Hub reserves the right to dispose of the item at its discretion.
+    </li>
+    <li>
+    The direct purchase price is subject to change upon inspection. If undeclared flaws are discovered, the price may be adjusted accordingly. Should the item not meet our criteria and the Client declines the final direct purchase offer,
+consignment terms and conditions will apply if they choose to proceed with consignment instead.
+    </li>
+    <li>
+    The final agreed appraisal price, as communicated via Viber, WhatsApp, Telegram, SMS, or similar platforms, overrides the amount stated on the Direct Purchase Form. If a new price is agreed upon, The Bag Hub will update the form
+accordingly and send it to the Client for confirmation. The Client must reply with “I confirm” to proceed.
+    </li>
+    <li>
+    The Bag Hub reserves the right to request additional authentication, such as an Entrupy Authentication Certificate. If the item meets our standards and is purchased, The Bag Hub will cover the Entrupy fee. However, if the Client
+withdraws the item before completion of the process, a non-refundable authentication fee applies: ₱2,000 for branded bags, wallets, and select belts, or ₱8,000 for Hermès bags. An additional ₱1,000 penalty will be charged if the
+authentication result is “Unidentified.
+    </li>
+    <li>
+    All direct purchases are final. Sold items cannot be reclaimed.
+    </li>
+    <li>
+    The Bag Hub reserves the right to reject any item that does not meet our standards for quality, authenticity, or market demand.
+    </li>
+    <li>
+    By submitting an item for direct purchase, the Client agrees to these terms and conditions.
+    </li>
+</ul>
