@@ -1,9 +1,11 @@
-import { Body, Controller, Get, Post, Req } from '@nestjs/common';
+import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
 import { JwtUser } from '../auth/jwt-user';
+import { StaffOnlyGuard } from '../auth/staff-only.guard';
 import { CreateItemDto } from './dto/create-item.dto';
 import { ItemsService } from './items.service';
 
 @Controller('items')
+@UseGuards(StaffOnlyGuard)
 export class ItemsController {
   constructor(private readonly itemsService: ItemsService) {}
 

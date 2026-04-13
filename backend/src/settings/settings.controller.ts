@@ -1,8 +1,10 @@
-import { Body, Controller, Get, Param, Patch } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, UseGuards } from '@nestjs/common';
+import { StaffOnlyGuard } from '../auth/staff-only.guard';
 import { UpdateSettingDto } from './dto/update-setting.dto';
 import { SettingsService } from './settings.service';
 
 @Controller('settings')
+@UseGuards(StaffOnlyGuard)
 export class SettingsController {
   constructor(private readonly settingsService: SettingsService) {}
 

@@ -1,35 +1,36 @@
-import { useState } from "react";
-import { Navigate, useLocation, useNavigate } from "react-router-dom";
-import { PasswordField } from "../components/PasswordField";
-import { useAuth } from "../context/useAuth";
+import { useState } from 'react'
+import { Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { PasswordField } from '../components/PasswordField'
+import { usePortalAuth } from '../context/portal-auth'
 
-export function LoginPage() {
-  const { login, token, loading: authLoading } = useAuth();
-  const navigate = useNavigate();
-  const location = useLocation();
+export function PortalLoginPage() {
+  const { login, token, user, loading: authLoading } = usePortalAuth()
+  const navigate = useNavigate()
+  const location = useLocation()
   const redirectTo =
-    (location.state as { from?: string } | undefined)?.from ?? "/inquiries";
+    (location.state as { from?: string } | undefined)?.from ??
+    '/portal/inquiries'
 
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
 
   async function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setSubmitting(true);
+    e.preventDefault()
+    setError(null)
+    setSubmitting(true)
     try {
-      await login(username.trim(), password);
+      await login(username.trim(), password)
       const target =
-        redirectTo.startsWith("/") && redirectTo !== "/login"
+        redirectTo.startsWith('/portal') && redirectTo !== '/portal/login'
           ? redirectTo
-          : "/inquiries";
-      navigate(target, { replace: true });
+          : '/portal/inquiries'
+      navigate(target, { replace: true })
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Login failed");
+      setError(err instanceof Error ? err.message : 'Login failed')
     } finally {
-      setSubmitting(false);
+      setSubmitting(false)
     }
   }
 
@@ -38,11 +39,15 @@ export function LoginPage() {
       <div className="flex min-h-svh items-center justify-center bg-slate-50 text-slate-600 dark:bg-slate-950 dark:text-slate-400">
         <p className="text-sm">Loading…</p>
       </div>
-    );
+    )
   }
 
-  if (token) {
-    return <Navigate to="/inquiries" replace />;
+  if (user?.userType === 'client') {
+    return <Navigate to="/login" replace />
+  }
+
+  if (token && user && user.userType !== 'client') {
+    return <Navigate to="/portal/inquiries" replace />
   }
 
   return (
@@ -58,13 +63,13 @@ export function LoginPage() {
         <form onSubmit={onSubmit} className="flex flex-col gap-4">
           <div>
             <label
-              htmlFor="login-username"
+              htmlFor="portal-login-username"
               className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300"
             >
               Username
             </label>
             <input
-              id="login-username"
+              id="portal-login-username"
               autoComplete="username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
@@ -73,7 +78,7 @@ export function LoginPage() {
             />
           </div>
           <PasswordField
-            id="login-password"
+            id="portal-login-password"
             label="Password"
             value={password}
             onChange={setPassword}
@@ -92,10 +97,10 @@ export function LoginPage() {
             disabled={submitting}
             className="rounded-lg bg-violet-600 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-violet-700 disabled:opacity-50"
           >
-            {submitting ? "Signing in…" : "Sign in"}
+            {submitting ? 'Signing in…' : 'Sign in'}
           </button>
         </form>
       </div>
     </div>
-  );
+  )
 }

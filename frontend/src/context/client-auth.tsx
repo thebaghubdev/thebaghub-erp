@@ -1,32 +1,55 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from 'react'
 import { apiFetch } from '../lib/api'
-import { AuthContext, type AuthUser } from './auth-context'
+import type { AuthUser } from './auth-user'
 
-const STORAGE_TOKEN = 'baghub_access_token'
-const STORAGE_USER = 'baghub_user'
+const STORAGE_TOKEN = 'baghub_client_token'
+const STORAGE_USER = 'baghub_client_user'
 
-export function AuthProvider({ children }: { children: ReactNode }) {
+type ClientAuthContextValue = {
+  token: string | null
+  user: AuthUser | null
+  loading: boolean
+  login: (username: string, password: string) => Promise<void>
+  logout: () => void
+}
+
+const ClientAuthContext = createContext<ClientAuthContextValue | null>(null)
+
+function parseStoredUser(raw: string | null): AuthUser | null {
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw) as Partial<AuthUser>
+    if (!parsed.id || !parsed.username) return null
+    return {
+      id: parsed.id,
+      username: parsed.username,
+      userType: parsed.userType ?? 'client',
+      isAdmin: Boolean(parsed.isAdmin),
+      employee: parsed.employee ?? null,
+      client: parsed.client ?? null,
+    }
+  } catch {
+    return null
+  }
+}
+
+export function ClientAuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(() =>
     typeof window !== 'undefined' ? localStorage.getItem(STORAGE_TOKEN) : null,
   )
-  const [user, setUser] = useState<AuthUser | null>(() => {
-    if (typeof window === 'undefined') return null
-    const raw = localStorage.getItem(STORAGE_USER)
-    if (!raw) return null
-    try {
-      const parsed = JSON.parse(raw) as Partial<AuthUser>
-      if (!parsed.id || !parsed.username) return null
-      return {
-        id: parsed.id,
-        username: parsed.username,
-        userType: parsed.userType ?? 'employee',
-        isAdmin: Boolean(parsed.isAdmin),
-        employee: parsed.employee ?? null,
-      }
-    } catch {
-      return null
-    }
-  })
+  const [user, setUser] = useState<AuthUser | null>(() =>
+    typeof window !== 'undefined'
+      ? parseStoredUser(localStorage.getItem(STORAGE_USER))
+      : null,
+  )
   const [loading, setLoading] = useState(!!token)
 
   const logout = useCallback(() => {
@@ -76,13 +99,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const body = await res.json().catch(() => null)
     if (!res.ok) {
       throw new Error(
-        typeof body?.message === 'string'
-          ? body.message
-          : 'Login failed',
+        typeof body?.message === 'string' ? body.message : 'Login failed',
       )
     }
     const accessToken = body.access_token as string
     const u = body.user as AuthUser
+    if (u.userType !== 'client') {
+      throw new Error('This account cannot sign in here. Use the staff portal.')
+    }
     localStorage.setItem(STORAGE_TOKEN, accessToken)
     localStorage.setItem(STORAGE_USER, JSON.stringify(u))
     setToken(accessToken)
@@ -101,6 +125,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   )
 
   return (
-    <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+    <ClientAuthContext.Provider value={value}>
+      {children}
+    </ClientAuthContext.Provider>
   )
+}
+
+export function useClientAuth() {
+  const ctx = useContext(ClientAuthContext)
+  if (!ctx) {
+    throw new Error('useClientAuth must be used within ClientAuthProvider')
+  }
+  return ctx
 }

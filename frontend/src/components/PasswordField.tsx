@@ -1,7 +1,8 @@
 import { useState } from 'react'
 
+/** `password-field-input`: autofill + color-scheme fixes in index.css */
 const inputBase =
-  'w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm text-slate-900 outline-none ring-violet-500 focus:ring-2 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100'
+  'password-field-input w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm text-slate-900 caret-slate-900 outline-none ring-violet-500 focus:ring-2 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100 dark:caret-slate-100'
 
 function EyeIcon({ className }: { className?: string }) {
   return (

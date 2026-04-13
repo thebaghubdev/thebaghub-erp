@@ -6,3 +6,33 @@ body {
   margin: 0;
   min-height: 100svh;
 }
+
+/**
+ * Password fields: Chrome/Safari autofill and native color-scheme can paint a
+ * dark background in light theme — force light styling when not in .dark.
+ */
+.password-field-input {
+  color-scheme: light;
+}
+
+.dark .password-field-input {
+  color-scheme: dark;
+}
+
+.password-field-input:-webkit-autofill,
+.password-field-input:-webkit-autofill:hover,
+.password-field-input:-webkit-autofill:focus,
+.password-field-input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 1000px rgb(255 255 255) inset;
+  box-shadow: 0 0 0 1000px rgb(255 255 255) inset;
+  -webkit-text-fill-color: rgb(15 23 42);
+}
+
+.dark .password-field-input:-webkit-autofill,
+.dark .password-field-input:-webkit-autofill:hover,
+.dark .password-field-input:-webkit-autofill:focus,
+.dark .password-field-input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 1000px rgb(2 6 23) inset;
+  box-shadow: 0 0 0 1000px rgb(2 6 23) inset;
+  -webkit-text-fill-color: rgb(241 245 249);
+}

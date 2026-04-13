@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { useAuth } from "../context/useAuth";
+import { usePortalAuth } from "../context/portal-auth";
 
 const linkClass =
   "block rounded-lg px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800";
@@ -8,7 +8,7 @@ const activeClass =
   "bg-violet-100 text-violet-900 dark:bg-violet-950/60 dark:text-violet-100";
 
 export function Sidenav() {
-  const { user, logout } = useAuth();
+  const { user, logout } = usePortalAuth();
 
   return (
     <aside className="flex min-h-svh w-56 shrink-0 flex-col border-r border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
@@ -19,7 +19,7 @@ export function Sidenav() {
       </div>
       <nav className="flex flex-1 flex-col gap-0.5 p-2" aria-label="Main">
         <NavLink
-          to="/inquiries"
+          to="/portal/inquiries"
           className={({ isActive }) =>
             [linkClass, isActive ? activeClass : ""].join(" ")
           }
@@ -28,7 +28,7 @@ export function Sidenav() {
         </NavLink>
         {user?.isAdmin && (
           <NavLink
-            to="/accounts"
+            to="/portal/accounts"
             className={({ isActive }) =>
               [linkClass, isActive ? activeClass : ""].join(" ")
             }

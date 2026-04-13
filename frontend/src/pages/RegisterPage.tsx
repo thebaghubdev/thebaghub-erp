@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import { HireDatePicker } from '../components/HireDatePicker'
 import { PasswordField } from '../components/PasswordField'
-import { useAuth } from '../context/useAuth'
+import { usePortalAuth } from '../context/portal-auth'
 import { apiFetch } from '../lib/api'
 
 const JOB_TITLES_SETTING_KEY = 'jobTitles'
@@ -27,7 +27,7 @@ function parseJobTitlesFromSettings(settings: SettingApiRow[]): string[] {
 }
 
 export function RegisterPage() {
-  const { token, user } = useAuth()
+  const { token, user } = usePortalAuth()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [firstName, setFirstName] = useState('')
@@ -75,7 +75,7 @@ export function RegisterPage() {
   }, [user?.isAdmin, token])
 
   if (!user?.isAdmin) {
-    return <Navigate to="/inquiries" replace />
+    return <Navigate to="/portal/inquiries" replace />
   }
 
   async function onSubmit(e: React.FormEvent) {

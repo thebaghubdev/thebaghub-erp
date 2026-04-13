@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from "react-router-dom";
-import { useAuth } from "../context/useAuth";
+import { usePortalAuth } from "../context/portal-auth";
 import { Breadcrumb } from "./Breadcrumb";
 import { Sidenav } from "./Sidenav";
 
@@ -31,7 +31,7 @@ function CogIcon({ className }: { className?: string }) {
 function SettingsNavButton() {
   return (
     <NavLink
-      to="/settings"
+      to="/portal/settings"
       title="Settings"
       aria-label="Settings"
       className={({ isActive }) =>
@@ -51,7 +51,7 @@ function SettingsNavButton() {
 }
 
 function HeaderUser() {
-  const { user } = useAuth();
+  const { user } = usePortalAuth();
   const emp = user?.employee;
 
   return (

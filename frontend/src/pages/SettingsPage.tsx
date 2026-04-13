@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useApp } from '../context/useApp'
-import { useAuth } from '../context/useAuth'
+import { usePortalAuth } from '../context/portal-auth'
 import { apiFetch } from '../lib/api'
 
 const GENERAL_CATEGORY = 'General'
@@ -52,7 +52,7 @@ function buildStringArrayValue(state: StringArrayEditState): string {
 }
 
 export function SettingsPage() {
-  const { token } = useAuth()
+  const { token } = usePortalAuth()
   const { theme, toggleTheme } = useApp()
   const [rows, setRows] = useState<SettingRow[]>([])
   const [loading, setLoading] = useState(false)

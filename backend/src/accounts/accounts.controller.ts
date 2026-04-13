@@ -8,12 +8,13 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { AdminGuard } from '../auth/admin.guard';
+import { StaffOnlyGuard } from '../auth/staff-only.guard';
 import { JwtUser } from '../auth/jwt-user';
 import { AccountsService } from './accounts.service';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
 
 @Controller('accounts')
-@UseGuards(AdminGuard)
+@UseGuards(StaffOnlyGuard, AdminGuard)
 export class AccountsController {
   constructor(private readonly accountsService: AccountsService) {}
 

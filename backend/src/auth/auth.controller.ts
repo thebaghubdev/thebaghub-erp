@@ -2,6 +2,7 @@ import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
 import { AdminGuard } from './admin.guard';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
+import { RegisterClientDto } from './dto/register-client.dto';
 import { RegisterEmployeeDto } from './dto/register-employee.dto';
 import { JwtUser } from './jwt-user';
 import { Public } from '../decorators/public.decorator';
@@ -14,6 +15,12 @@ export class AuthController {
   @Post('login')
   login(@Body() dto: LoginDto) {
     return this.authService.login(dto);
+  }
+
+  @Public()
+  @Post('register/client')
+  registerClient(@Body() dto: RegisterClientDto) {
+    return this.authService.registerClient(dto);
   }
 
   @Get('me')

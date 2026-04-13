@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { useAuth } from '../context/useAuth'
+import { usePortalAuth } from '../context/portal-auth'
 import { apiFetch } from '../lib/api'
 
 type InquiryRow = {
@@ -12,7 +12,7 @@ type InquiryRow = {
 type InquiryTab = 'all' | 'create'
 
 export function InquiryPage() {
-  const { token } = useAuth()
+  const { token } = usePortalAuth()
   const [tab, setTab] = useState<InquiryTab>('all')
   const [rows, setRows] = useState<InquiryRow[]>([])
   const [loading, setLoading] = useState(false)

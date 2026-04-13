@@ -7,10 +7,12 @@ import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
 import { Repository } from 'typeorm';
+import { Client } from '../clients/entities/client.entity';
 import { Employee } from '../employees/entities/employee.entity';
 import { UserType } from '../enums/user-type.enum';
 import { User } from '../users/entities/user.entity';
 import { LoginDto } from './dto/login.dto';
+import { RegisterClientDto } from './dto/register-client.dto';
 import { RegisterEmployeeDto } from './dto/register-employee.dto';
 import { JwtUser } from './jwt-user';
 
@@ -21,8 +23,57 @@ export class AuthService {
     private readonly usersRepo: Repository<User>,
     @InjectRepository(Employee)
     private readonly employeesRepo: Repository<Employee>,
+    @InjectRepository(Client)
+    private readonly clientsRepo: Repository<Client>,
     private readonly jwtService: JwtService,
   ) {}
+
+  async registerClient(dto: RegisterClientDto) {
+    const username = dto.email.trim().toLowerCase();
+    const existing = await this.usersRepo.findOne({ where: { username } });
+    if (existing) {
+      throw new ConflictException('An account with this email already exists');
+    }
+    const passwordHash = await bcrypt.hash(dto.password, 10);
+
+    await this.usersRepo.manager.transaction(async (em) => {
+      const user = em.create(User, {
+        username,
+        passwordHash,
+        userType: UserType.CLIENT,
+        isAdmin: false,
+        createdById: null,
+        updatedById: null,
+      });
+      await em.save(user);
+      const client = em.create(Client, {
+        userId: user.id,
+        firstName: dto.firstName.trim(),
+        lastName: dto.lastName.trim(),
+        email: dto.email.trim().toLowerCase(),
+        contactNumber: dto.contactNumber.trim(),
+        createdById: null,
+        updatedById: null,
+      });
+      await em.save(client);
+    });
+
+    const created = await this.usersRepo.findOneOrFail({ where: { username } });
+    const clientRow = await this.clientsRepo.findOneOrFail({
+      where: { userId: created.id },
+    });
+    return {
+      id: created.id,
+      username: created.username,
+      userType: created.userType,
+      client: {
+        id: clientRow.id,
+        firstName: clientRow.firstName,
+        lastName: clientRow.lastName,
+        email: clientRow.email,
+      },
+    };
+  }
 
   async login(dto: LoginDto) {
     const user = await this.usersRepo.findOne({
@@ -117,6 +168,11 @@ export class AuthService {
         lastName: string;
         position: string;
       } | null,
+      client: null as {
+        firstName: string;
+        lastName: string;
+        email: string;
+      } | null,
     };
 
     if (user.userType === UserType.EMPLOYEE) {
@@ -128,6 +184,19 @@ export class AuthService {
           firstName: emp.firstName,
           lastName: emp.lastName,
           position: emp.position,
+        };
+      }
+    }
+
+    if (user.userType === UserType.CLIENT) {
+      const cli = await this.clientsRepo.findOne({
+        where: { userId: user.id },
+      });
+      if (cli) {
+        base.client = {
+          firstName: cli.firstName,
+          lastName: cli.lastName,
+          email: cli.email,
         };
       }
     }
