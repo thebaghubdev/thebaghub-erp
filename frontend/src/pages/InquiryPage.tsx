@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
+import { SubmittedAtCell } from '../components/SubmittedAtCell'
 import { usePortalAuth } from '../context/portal-auth'
 import { apiFetch } from '../lib/api'
 
 type InquiryRow = {
   id: string
-  subject: string
+  sku: string
+  itemLabel: string
   status: string
   createdAt: string
 }
@@ -86,18 +88,32 @@ export function InquiryPage() {
             </p>
           )}
 
-          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[640px] text-left text-sm">
+          <div className="max-w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+            <table className="w-full table-fixed border-collapse text-left text-sm">
                 <thead className="border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-600 dark:border-slate-800 dark:bg-slate-950/50 dark:text-slate-400">
                   <tr>
-                    <th scope="col" className="px-4 py-3">
-                      Subject
+                    <th
+                      scope="col"
+                      className="min-w-0 w-[22%] px-2 py-2.5 sm:w-[20%] sm:px-4 sm:py-3"
+                    >
+                      SKU
                     </th>
-                    <th scope="col" className="px-4 py-3">
+                    <th
+                      scope="col"
+                      className="min-w-0 w-[38%] px-2 py-2.5 sm:w-[40%] sm:px-4 sm:py-3"
+                    >
+                      Item
+                    </th>
+                    <th
+                      scope="col"
+                      className="w-[18%] px-2 py-2.5 sm:px-4 sm:py-3"
+                    >
                       Status
                     </th>
-                    <th scope="col" className="px-4 py-3">
+                    <th
+                      scope="col"
+                      className="min-w-0 w-[22%] px-2 py-2.5 sm:w-[20%] sm:px-4 sm:py-3"
+                    >
                       Created
                     </th>
                   </tr>
@@ -106,7 +122,7 @@ export function InquiryPage() {
                   {loading && rows.length === 0 && (
                     <tr>
                       <td
-                        colSpan={3}
+                        colSpan={4}
                         className="px-4 py-8 text-center text-slate-500"
                       >
                         Loading…
@@ -116,7 +132,7 @@ export function InquiryPage() {
                   {!loading && rows.length === 0 && !error && (
                     <tr>
                       <td
-                        colSpan={3}
+                        colSpan={4}
                         className="px-4 py-8 text-center text-slate-500"
                       >
                         No inquiries yet.
@@ -128,20 +144,22 @@ export function InquiryPage() {
                       key={row.id}
                       className="hover:bg-slate-50 dark:hover:bg-slate-800/50"
                     >
-                      <td className="px-4 py-3 font-medium text-slate-900 dark:text-slate-100">
-                        {row.subject}
+                      <td className="min-w-0 break-all px-2 py-2.5 align-top font-mono text-[0.7rem] leading-snug text-slate-900 sm:px-4 sm:py-3 sm:text-xs dark:text-slate-100">
+                        {row.sku}
                       </td>
-                      <td className="px-4 py-3 capitalize text-slate-700 dark:text-slate-300">
+                      <td className="min-w-0 break-words px-2 py-2.5 align-top font-medium text-slate-900 sm:px-4 sm:py-3 dark:text-slate-100">
+                        {row.itemLabel}
+                      </td>
+                      <td className="px-2 py-2.5 align-top capitalize text-slate-700 sm:px-4 sm:py-3 dark:text-slate-300">
                         {row.status}
                       </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-slate-600 dark:text-slate-400">
-                        {new Date(row.createdAt).toLocaleString()}
+                      <td className="min-w-0 px-2 py-2.5 align-top sm:px-4 sm:py-3">
+                        <SubmittedAtCell iso={row.createdAt} />
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-            </div>
           </div>
         </section>
       )}

@@ -9,6 +9,6 @@ export class InquiriesController {
 
   @Get()
   findAll() {
-    return this.inquiriesService.findAll();
+    return this.inquiriesService.findAllForStaff();
   }
 }

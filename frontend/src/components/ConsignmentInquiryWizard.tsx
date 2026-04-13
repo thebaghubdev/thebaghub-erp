@@ -1,4 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useBlocker, type BlockerFunction } from 'react-router-dom'
+import { useClientAuth } from '../context/client-auth'
+import { apiFetch } from '../lib/api'
 import { ConsignItemForm } from './ConsignItemForm'
 import { ConsignItemPhotoStep } from './ConsignItemPhotoStep'
 import { TermsHtmlModal } from './TermsHtmlModal'
@@ -35,6 +38,13 @@ function cloneItem(it: DraftConsignItem): DraftConsignItem {
   }
 }
 
+function isConsignFormPristine(form: ConsignItemFormData): boolean {
+  const empty = emptyConsignItemForm()
+  return (Object.keys(empty) as (keyof ConsignItemFormData)[]).every(
+    (k) => form[k] === empty[k],
+  )
+}
+
 function formatDate(iso: string) {
   if (!iso.trim()) return ''
   try {
@@ -67,7 +77,18 @@ function ReviewChevron({ expanded }: { expanded: boolean }) {
   )
 }
 
-export function ConsignmentInquiryWizard() {
+type ConsignmentInquiryWizardProps = {
+  /** Called after a successful submit (e.g. switch to “All inquiries”). */
+  onSubmitted?: () => void
+  /** True when the user has entered data that would be lost if they leave. */
+  onDirtyChange?: (dirty: boolean) => void
+}
+
+export function ConsignmentInquiryWizard({
+  onSubmitted,
+  onDirtyChange,
+}: ConsignmentInquiryWizardProps = {}) {
+  const { token } = useClientAuth()
   const [step, setStep] = useState<Step>(1)
   const [draftForm, setDraftForm] = useState<ConsignItemFormData>(() =>
     emptyConsignItemForm(),
@@ -90,6 +111,9 @@ export function ConsignmentInquiryWizard() {
   const [consignmentTermsModalOpen, setConsignmentTermsModalOpen] =
     useState(false)
 
+  const [submitting, setSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
+
   const draftImagesRef = useRef<LocalConsignImage[]>([])
   const itemsRef = useRef<DraftConsignItem[]>([])
   useEffect(() => {
@@ -105,6 +129,61 @@ export function ConsignmentInquiryWizard() {
       for (const it of itemsRef.current) revokeAll(it.images)
     }
   }, [])
+
+  const isWizardDirty = useMemo(() => {
+    if (items.length > 0) return true
+    if (!isConsignFormPristine(draftForm)) return true
+    if (draftImages.length > 0) return true
+    if (step !== 1) return true
+    if (editingItemId != null || editBackup != null) return true
+    return false
+  }, [
+    items.length,
+    draftForm,
+    draftImages.length,
+    step,
+    editingItemId,
+    editBackup,
+  ])
+
+  useEffect(() => {
+    onDirtyChange?.(isWizardDirty)
+  }, [isWizardDirty, onDirtyChange])
+
+  useEffect(() => {
+    return () => {
+      onDirtyChange?.(false)
+    }
+  }, [onDirtyChange])
+
+  useEffect(() => {
+    if (!isWizardDirty) return
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [isWizardDirty])
+
+  const shouldBlockRouterNavigation = useCallback<BlockerFunction>(
+    ({ currentLocation, nextLocation }) =>
+      isWizardDirty &&
+      !submitting &&
+      currentLocation.pathname !== nextLocation.pathname,
+    [isWizardDirty, submitting],
+  )
+
+  const blocker = useBlocker(shouldBlockRouterNavigation)
+
+  useEffect(() => {
+    if (blocker.state !== 'blocked') return
+    const leave = window.confirm(
+      'You have unsaved changes to this consignment inquiry. Leave this page?',
+    )
+    if (leave) blocker.proceed()
+    else blocker.reset()
+  }, [blocker])
 
   const clearDraft = useCallback((revoke: boolean) => {
     if (revoke) revokeAll(draftImages)
@@ -235,10 +314,93 @@ export function ConsignmentInquiryWizard() {
     editingItemId,
   ])
 
-  const onSubmitInquiry = useCallback((e: React.FormEvent) => {
-    e.preventDefault()
-    // Submission logic will be added later.
-  }, [])
+  const onSubmitInquiry = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault()
+      if (!inquiryConsignmentTermsAccepted) return
+      if (items.length === 0) {
+        setSubmitError('Add at least one item before submitting.')
+        return
+      }
+      if (!token) {
+        setSubmitError('You must be signed in to submit an inquiry.')
+        return
+      }
+
+      setSubmitError(null)
+      setSubmitting(true)
+      try {
+        const payload = {
+          items: items.map((item) => ({
+            clientItemId: item.id,
+            form: item.form,
+            imageCount: item.images.length,
+          })),
+        }
+        const fd = new FormData()
+        fd.append('payload', JSON.stringify(payload))
+        for (const item of items) {
+          for (const img of item.images) {
+            fd.append('file', img.file)
+          }
+        }
+        const res = await apiFetch(
+          '/api/client/consignment-inquiry',
+          { method: 'POST', body: fd },
+          token,
+        )
+        const raw = await res.text()
+        if (!res.ok) {
+          let msg = `Request failed (${res.status})`
+          try {
+            const j = JSON.parse(raw) as {
+              message?: string | string[]
+            }
+            if (typeof j.message === 'string') msg = j.message
+            else if (Array.isArray(j.message))
+              msg = j.message.map((m) => String(m)).join(', ')
+          } catch {
+            if (raw) msg = raw
+          }
+          throw new Error(msg)
+        }
+
+        let submittedCount = 1
+        try {
+          const data = JSON.parse(raw) as {
+            inquiries?: { id: string; status: string }[]
+          }
+          submittedCount = data.inquiries?.length ?? 1
+        } catch {
+          /* ignore */
+        }
+
+        for (const it of items) revokeAll(it.images)
+        setItems([])
+        setReviewExpandedById({})
+        setStep(1)
+        setInquiryConsignmentTermsAccepted(false)
+        onSubmitted?.()
+        window.alert(
+          submittedCount <= 1
+            ? 'Your inquiry was submitted successfully.'
+            : `${submittedCount} inquiries were submitted successfully (one per item).`,
+        )
+      } catch (err) {
+        setSubmitError(
+          err instanceof Error ? err.message : 'Submission failed.',
+        )
+      } finally {
+        setSubmitting(false)
+      }
+    },
+    [
+      inquiryConsignmentTermsAccepted,
+      items,
+      token,
+      onSubmitted,
+    ],
+  )
 
   const isEditing = editingItemId != null
   const atItemLimit = items.length >= MAX_ITEMS_PER_INQUIRY
@@ -589,6 +751,14 @@ export function ConsignmentInquiryWizard() {
           </div>
 
           <form onSubmit={onSubmitInquiry} className="flex flex-col gap-3 pt-2">
+            {submitError && (
+              <p
+                className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"
+                role="alert"
+              >
+                {submitError}
+              </p>
+            )}
             <label className="flex cursor-pointer items-start gap-3 text-sm leading-snug text-slate-800">
               <input
                 type="checkbox"
@@ -618,18 +788,21 @@ export function ConsignmentInquiryWizard() {
             <button
               type="submit"
               className={btnPrimary}
-              disabled={!inquiryConsignmentTermsAccepted}
+              disabled={
+                !inquiryConsignmentTermsAccepted ||
+                submitting ||
+                items.length === 0
+              }
               title={
                 !inquiryConsignmentTermsAccepted
                   ? 'Accept consignment terms to submit'
-                  : undefined
+                  : items.length === 0
+                    ? 'Add at least one item'
+                    : undefined
               }
             >
-              Submit inquiry
+              {submitting ? 'Submitting…' : 'Submit inquiry'}
             </button>
-            <p className="text-center text-xs text-slate-500">
-              Submission is not processed yet — this button is a placeholder.
-            </p>
           </form>
         </section>
       )}
