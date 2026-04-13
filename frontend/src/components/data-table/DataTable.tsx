@@ -71,6 +71,10 @@ export type DataTableProps<TData extends object> = {
   tableClassName?: string;
   /** Stable row id for React keys (defaults to JSON index — pass if rows have id) */
   getRowId?: (originalRow: TData, index: number) => string;
+  /** When set, each body row is clickable (e.g. navigate to detail). Filter inputs stay in the header only. */
+  onRowClick?: (row: TData) => void;
+  /** Accessible name for clickable rows (defaults to a generic label). */
+  getRowAriaLabel?: (row: TData) => string;
 };
 
 export function DataTable<TData extends object>({
@@ -83,6 +87,8 @@ export function DataTable<TData extends object>({
   searchPlaceholder = "Search all columns…",
   tableClassName = "w-full min-w-[640px] table-fixed border-collapse text-left",
   getRowId,
+  onRowClick,
+  getRowAriaLabel,
 }: DataTableProps<TData>) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [globalFilter, setGlobalFilter] = useState("");
@@ -232,7 +238,31 @@ export function DataTable<TData extends object>({
               filteredRows.map((row) => (
                 <tr
                   key={row.id}
-                  className="hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                  className={
+                    onRowClick
+                      ? "cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                      : "hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                  }
+                  onClick={
+                    onRowClick ? () => onRowClick(row.original) : undefined
+                  }
+                  tabIndex={onRowClick ? 0 : undefined}
+                  aria-label={
+                    onRowClick
+                      ? (getRowAriaLabel?.(row.original) ??
+                        "Open row details")
+                      : undefined
+                  }
+                  onKeyDown={
+                    onRowClick
+                      ? (e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            onRowClick(row.original);
+                          }
+                        }
+                      : undefined
+                  }
                 >
                   {row.getVisibleCells().map((cell) => (
                     <td key={cell.id} className={tdBase}>

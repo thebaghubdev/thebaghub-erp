@@ -14,6 +14,7 @@ import { ClientCreateAccountPage } from './pages/ClientCreateAccountPage'
 import { ClientLoginPage } from './pages/ClientLoginPage'
 import { ClientMyAccountPage } from './pages/ClientMyAccountPage'
 import { ConsignItemsPage } from './pages/ConsignItemsPage'
+import { InquiryDetailPage } from './pages/InquiryDetailPage'
 import { InquiryPage } from './pages/InquiryPage'
 import { ManageAccountsPage } from './pages/ManageAccountsPage'
 import { PortalLoginPage } from './pages/PortalLoginPage'
@@ -40,6 +41,7 @@ const router = createBrowserRouter([
         children: [
           { index: true, element: <Navigate to="inquiries" replace /> },
           { path: 'inquiries', element: <InquiryPage /> },
+          { path: 'inquiries/:id', element: <InquiryDetailPage /> },
           { path: 'settings', element: <SettingsPage /> },
           { path: 'accounts/register', element: <RegisterPage /> },
           { path: 'accounts', element: <ManageAccountsPage /> },

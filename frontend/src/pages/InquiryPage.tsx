@@ -1,5 +1,6 @@
 import { createColumnHelper } from '@tanstack/react-table'
 import { useCallback, useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { DataTable } from '../components/data-table/DataTable'
 import { SubmittedAtCell } from '../components/SubmittedAtCell'
 import { usePortalAuth } from '../context/portal-auth'
@@ -147,6 +148,7 @@ const inquiryColumns = [
 ]
 
 export function InquiryPage() {
+  const navigate = useNavigate()
   const { token } = usePortalAuth()
   const [tab, setTab] = useState<InquiryTab>('all')
   const [rows, setRows] = useState<InquiryRow[]>([])
@@ -205,7 +207,7 @@ export function InquiryPage() {
           className={`${tabBtn} ${
             tab === 'create'
               ? 'border-b-2 border-violet-600 text-violet-700 dark:text-violet-300'
-              : 'text-slate-600 hover:text-slate-900 dark:sate-400 dark:hover:text-slate-100'
+              : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100'
           }`}
           onClick={() => setTab('create')}
         >
@@ -228,6 +230,10 @@ export function InquiryPage() {
             emptyMessage="No inquiries yet."
             hideEmptyState={!!error}
             getRowId={(row) => row.id}
+            onRowClick={(row) => navigate(`/portal/inquiries/${row.id}`)}
+            getRowAriaLabel={(row) =>
+              `Inquiry ${row.sku}, ${row.itemLabel || 'item'}`
+            }
             tableClassName="w-full min-w-[1020px] table-fixed border-collapse text-left"
           />
         </section>

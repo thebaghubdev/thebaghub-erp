@@ -119,6 +119,15 @@ export type StaffInquiryRow = {
   photoCount: number;
 };
 
+export type StaffInquiryDetail = StaffInquiryRow & {
+  updatedAt: Date;
+  itemSnapshot: {
+    clientItemId: string;
+    form: Record<string, unknown>;
+    images: Array<{ key: string; url: string }>;
+  };
+};
+
 @Injectable()
 export class InquiriesService {
   constructor(
@@ -129,44 +138,72 @@ export class InquiriesService {
     private readonly s3: S3StorageService,
   ) {}
 
+  private mapInquiryToStaffRow(r: Inquiry): StaffInquiryRow {
+    const form = (r.itemSnapshot?.form ?? {}) as Record<string, unknown>;
+    const c = r.consignor;
+    const name = c ? `${c.firstName ?? ''} ${c.lastName ?? ''}`.trim() : '';
+    return {
+      id: r.id,
+      sku: r.sku,
+      itemLabel: itemLabelFromSnapshot(r.itemSnapshot),
+      status: r.status,
+      createdAt: r.createdAt,
+      consignorName: name || '—',
+      consignorEmail: c?.email?.trim() ?? '—',
+      consignorPhone: c?.contactNumber?.trim() ?? '—',
+      brand: snapshotFormString(form, 'brand') || '—',
+      category: snapshotFormString(form, 'category') || '—',
+      itemModel: snapshotFormString(form, 'itemModel') || '—',
+      serialNumber: snapshotFormString(form, 'serialNumber') || '—',
+      condition: snapshotFormString(form, 'condition') || '—',
+      inclusions: snapshotFormString(form, 'inclusions') || '—',
+      consignmentSellingPrice:
+        snapshotFormString(form, 'consignmentSellingPrice') || '—',
+      directPurchaseSellingPrice:
+        snapshotFormString(form, 'directPurchaseSellingPrice') || '—',
+      consentDirectPurchase: Boolean(form.consentDirectPurchase),
+      consentPriceNomination: Boolean(form.consentPriceNomination),
+      photoCount: Array.isArray(r.itemSnapshot?.images)
+        ? r.itemSnapshot.images.length
+        : 0,
+    };
+  }
+
   /** Staff list: inquiry row + consignor + item snapshot fields for triage. */
   async findAllForStaff(): Promise<StaffInquiryRow[]> {
     const rows = await this.inquiriesRepo.find({
       order: { createdAt: 'DESC' },
       relations: { consignor: true },
     });
-    return rows.map((r) => {
-      const form = (r.itemSnapshot?.form ?? {}) as Record<string, unknown>;
-      const c = r.consignor;
-      const name = c
-        ? `${c.firstName ?? ''} ${c.lastName ?? ''}`.trim()
-        : '';
-      return {
-        id: r.id,
-        sku: r.sku,
-        itemLabel: itemLabelFromSnapshot(r.itemSnapshot),
-        status: r.status,
-        createdAt: r.createdAt,
-        consignorName: name || '—',
-        consignorEmail: c?.email?.trim() ?? '—',
-        consignorPhone: c?.contactNumber?.trim() ?? '—',
-        brand: snapshotFormString(form, 'brand') || '—',
-        category: snapshotFormString(form, 'category') || '—',
-        itemModel: snapshotFormString(form, 'itemModel') || '—',
-        serialNumber: snapshotFormString(form, 'serialNumber') || '—',
-        condition: snapshotFormString(form, 'condition') || '—',
-        inclusions: snapshotFormString(form, 'inclusions') || '—',
-        consignmentSellingPrice:
-          snapshotFormString(form, 'consignmentSellingPrice') || '—',
-        directPurchaseSellingPrice:
-          snapshotFormString(form, 'directPurchaseSellingPrice') || '—',
-        consentDirectPurchase: Boolean(form.consentDirectPurchase),
-        consentPriceNomination: Boolean(form.consentPriceNomination),
-        photoCount: Array.isArray(r.itemSnapshot?.images)
-          ? r.itemSnapshot.images.length
-          : 0,
-      };
+    return rows.map((r) => this.mapInquiryToStaffRow(r));
+  }
+
+  /** Full inquiry with snapshot and image URLs (refreshed from stored keys). */
+  async findOneForStaff(id: string): Promise<StaffInquiryDetail> {
+    const r = await this.inquiriesRepo.findOne({
+      where: { id },
+      relations: { consignor: true },
     });
+    if (!r) {
+      throw new NotFoundException('Inquiry not found');
+    }
+    const base = this.mapInquiryToStaffRow(r);
+    const rawImages = Array.isArray(r.itemSnapshot?.images)
+      ? r.itemSnapshot.images
+      : [];
+    const images = rawImages.map((img) => ({
+      key: img.key,
+      url: this.s3.getPublicUrl(img.key),
+    }));
+    return {
+      ...base,
+      updatedAt: r.updatedAt,
+      itemSnapshot: {
+        clientItemId: r.itemSnapshot.clientItemId,
+        form: (r.itemSnapshot.form ?? {}) as Record<string, unknown>,
+        images,
+      },
+    };
   }
 
   async findMineForClient(user: JwtUser): Promise<
