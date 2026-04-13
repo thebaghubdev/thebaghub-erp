@@ -91,12 +91,32 @@ function itemLabelFromSnapshot(
   return `${brand} — ${model}`;
 }
 
+function snapshotFormString(form: Record<string, unknown>, key: string): string {
+  const v = form[key];
+  if (v == null) return '';
+  return String(v).trim();
+}
+
 export type StaffInquiryRow = {
   id: string;
   sku: string;
   itemLabel: string;
   status: InquiryStatus;
   createdAt: Date;
+  consignorName: string;
+  consignorEmail: string;
+  consignorPhone: string;
+  brand: string;
+  category: string;
+  itemModel: string;
+  serialNumber: string;
+  condition: string;
+  inclusions: string;
+  consignmentSellingPrice: string;
+  directPurchaseSellingPrice: string;
+  consentDirectPurchase: boolean;
+  consentPriceNomination: boolean;
+  photoCount: number;
 };
 
 @Injectable()
@@ -109,19 +129,44 @@ export class InquiriesService {
     private readonly s3: S3StorageService,
   ) {}
 
-  /** Staff list: one row per item inquiry with display label (no subject column). */
+  /** Staff list: inquiry row + consignor + item snapshot fields for triage. */
   async findAllForStaff(): Promise<StaffInquiryRow[]> {
     const rows = await this.inquiriesRepo.find({
       order: { createdAt: 'DESC' },
       relations: { consignor: true },
     });
-    return rows.map((r) => ({
-      id: r.id,
-      sku: r.sku,
-      itemLabel: itemLabelFromSnapshot(r.itemSnapshot),
-      status: r.status,
-      createdAt: r.createdAt,
-    }));
+    return rows.map((r) => {
+      const form = (r.itemSnapshot?.form ?? {}) as Record<string, unknown>;
+      const c = r.consignor;
+      const name = c
+        ? `${c.firstName ?? ''} ${c.lastName ?? ''}`.trim()
+        : '';
+      return {
+        id: r.id,
+        sku: r.sku,
+        itemLabel: itemLabelFromSnapshot(r.itemSnapshot),
+        status: r.status,
+        createdAt: r.createdAt,
+        consignorName: name || '—',
+        consignorEmail: c?.email?.trim() ?? '—',
+        consignorPhone: c?.contactNumber?.trim() ?? '—',
+        brand: snapshotFormString(form, 'brand') || '—',
+        category: snapshotFormString(form, 'category') || '—',
+        itemModel: snapshotFormString(form, 'itemModel') || '—',
+        serialNumber: snapshotFormString(form, 'serialNumber') || '—',
+        condition: snapshotFormString(form, 'condition') || '—',
+        inclusions: snapshotFormString(form, 'inclusions') || '—',
+        consignmentSellingPrice:
+          snapshotFormString(form, 'consignmentSellingPrice') || '—',
+        directPurchaseSellingPrice:
+          snapshotFormString(form, 'directPurchaseSellingPrice') || '—',
+        consentDirectPurchase: Boolean(form.consentDirectPurchase),
+        consentPriceNomination: Boolean(form.consentPriceNomination),
+        photoCount: Array.isArray(r.itemSnapshot?.images)
+          ? r.itemSnapshot.images.length
+          : 0,
+      };
+    });
   }
 
   async findMineForClient(user: JwtUser): Promise<

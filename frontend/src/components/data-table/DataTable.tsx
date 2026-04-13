@@ -1,0 +1,252 @@
+import { useMemo, useState } from "react";
+import {
+  type ColumnDef,
+  type ColumnFiltersState,
+  type FilterFn,
+  type SortingState,
+  flexRender,
+  getCoreRowModel,
+  getFilteredRowModel,
+  getSortedRowModel,
+  useReactTable,
+} from "@tanstack/react-table";
+
+const inputClass =
+  "w-full min-h-8 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-900 placeholder:text-slate-400 focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500";
+
+const thBase =
+  "px-2 py-2 text-left text-[0.65rem] font-semibold uppercase tracking-wide sm:px-3 sm:py-2.5 sm:text-xs text-slate-600 dark:text-slate-400";
+
+const tdBase =
+  "min-w-0 px-2 py-2 align-top text-xs sm:px-3 sm:py-2.5 sm:text-sm";
+
+/** Case-insensitive substring match on stringified cell value. */
+const includesStringFilter: FilterFn<unknown> = (
+  row,
+  columnId,
+  filterValue,
+) => {
+  const q = String(filterValue ?? "")
+    .trim()
+    .toLowerCase();
+  if (!q) return true;
+  const v = row.getValue(columnId);
+  if (v == null) return false;
+  return String(v).toLowerCase().includes(q);
+};
+
+/**
+ * Search across all primitive values on the row (for global search box).
+ */
+function globalMultiColumnFilter<T extends object>(
+  row: { original: T },
+  _columnId: string,
+  filterValue: unknown,
+): boolean {
+  const q = String(filterValue ?? "")
+    .trim()
+    .toLowerCase();
+  if (!q) return true;
+  const obj = row.original as Record<string, unknown>;
+  return Object.values(obj).some((v) => {
+    if (v == null) return false;
+    if (typeof v === "object") return false;
+    return String(v).toLowerCase().includes(q);
+  });
+}
+
+export type DataTableProps<TData extends object> = {
+  data: TData[];
+  /** Use `any` for cell value type so string/boolean columns type-check with `createColumnHelper`. */
+  columns: ColumnDef<TData, any>[];
+  /** Shown while loading and data is empty */
+  isLoading?: boolean;
+  emptyMessage?: string;
+  /** When true, no “empty” row is shown when `data` is empty (e.g. parent shows only an error). */
+  hideEmptyState?: boolean;
+  /** When filters/search yield no rows */
+  noResultsMessage?: string;
+  searchPlaceholder?: string;
+  /** Applied to <table> e.g. min-w-[1020px] */
+  tableClassName?: string;
+  /** Stable row id for React keys (defaults to JSON index — pass if rows have id) */
+  getRowId?: (originalRow: TData, index: number) => string;
+};
+
+export function DataTable<TData extends object>({
+  data,
+  columns,
+  isLoading = false,
+  emptyMessage = "No data.",
+  hideEmptyState = false,
+  noResultsMessage = "No rows match your search or filters.",
+  searchPlaceholder = "Search all columns…",
+  tableClassName = "w-full min-w-[640px] table-fixed border-collapse text-left",
+  getRowId,
+}: DataTableProps<TData>) {
+  const [sorting, setSorting] = useState<SortingState>([]);
+  const [globalFilter, setGlobalFilter] = useState("");
+  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
+
+  const defaultColumn = useMemo(
+    () => ({
+      filterFn: includesStringFilter as FilterFn<TData>,
+    }),
+    [],
+  );
+
+  const table = useReactTable<TData>({
+    data,
+    columns,
+    defaultColumn,
+    state: { sorting, globalFilter, columnFilters },
+    onSortingChange: setSorting,
+    onGlobalFilterChange: setGlobalFilter,
+    onColumnFiltersChange: setColumnFilters,
+    getCoreRowModel: getCoreRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    globalFilterFn: globalMultiColumnFilter as FilterFn<TData>,
+    getRowId: getRowId
+      ? (original, index) => getRowId(original as TData, index)
+      : undefined,
+  });
+
+  const showEmpty = !hideEmptyState && !isLoading && data.length === 0;
+  const filteredRows = table.getRowModel().rows;
+  const showNoResults =
+    !isLoading && data.length > 0 && filteredRows.length === 0;
+
+  const filterHeaderGroup = table.getHeaderGroups()[0];
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <label className="sr-only" htmlFor="data-table-global-search">
+          Search table
+        </label>
+        <input
+          id="data-table-global-search"
+          type="search"
+          value={globalFilter ?? ""}
+          onChange={(e) => setGlobalFilter(e.target.value)}
+          placeholder={searchPlaceholder}
+          className={`${inputClass} max-w-md`}
+          autoComplete="off"
+        />
+      </div>
+
+      <div className="min-w-0 overflow-x-auto overscroll-x-contain rounded-xl border border-slate-200 bg-white shadow-sm [-webkit-overflow-scrolling:touch] dark:border-slate-800 dark:bg-slate-900">
+        <table className={tableClassName}>
+          <thead className="border-b border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950/50">
+            {table.getHeaderGroups().map((headerGroup) => (
+              <tr key={headerGroup.id}>
+                {headerGroup.headers.map((header) => (
+                  <th key={header.id} scope="col" className={thBase}>
+                    {header.isPlaceholder ? null : (
+                      <button
+                        type="button"
+                        className={
+                          header.column.getCanSort()
+                            ? "flex w-full cursor-pointer select-none items-center gap-1 text-left font-semibold hover:text-violet-700 dark:hover:text-violet-300"
+                            : "block w-full text-left"
+                        }
+                        onClick={header.column.getToggleSortingHandler()}
+                        disabled={!header.column.getCanSort()}
+                      >
+                        {flexRender(
+                          header.column.columnDef.header,
+                          header.getContext(),
+                        )}
+                        {header.column.getCanSort() ? (
+                          <span className="inline-block w-4 text-violet-600 dark:text-violet-400">
+                            {{
+                              asc: "↑",
+                              desc: "↓",
+                            }[header.column.getIsSorted() as string] ?? "↕"}
+                          </span>
+                        ) : null}
+                      </button>
+                    )}
+                  </th>
+                ))}
+              </tr>
+            ))}
+            <tr className="border-b border-slate-200 bg-slate-50/90 dark:border-slate-800 dark:bg-slate-950/40">
+              {filterHeaderGroup?.headers.map((header) => (
+                <th
+                  key={`f-${header.id}`}
+                  className={`${thBase} pb-2 pt-0 font-normal normal-case`}
+                >
+                  {header.column.getCanFilter() ? (
+                    <input
+                      type="search"
+                      value={(header.column.getFilterValue() ?? "") as string}
+                      onChange={(e) =>
+                        header.column.setFilterValue(e.target.value)
+                      }
+                      placeholder="Filter…"
+                      className={inputClass}
+                      aria-label={`Filter ${header.column.id}`}
+                    />
+                  ) : (
+                    <span className="block h-8" aria-hidden />
+                  )}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+            {isLoading && data.length === 0 && (
+              <tr>
+                <td
+                  colSpan={columns.length}
+                  className="px-4 py-8 text-center text-slate-500 dark:text-slate-400"
+                >
+                  Loading…
+                </td>
+              </tr>
+            )}
+            {showEmpty && (
+              <tr>
+                <td
+                  colSpan={columns.length}
+                  className="px-4 py-8 text-center text-slate-500 dark:text-slate-400"
+                >
+                  {emptyMessage}
+                </td>
+              </tr>
+            )}
+            {showNoResults && (
+              <tr>
+                <td
+                  colSpan={columns.length}
+                  className="px-4 py-8 text-center text-slate-500 dark:text-slate-400"
+                >
+                  {noResultsMessage}
+                </td>
+              </tr>
+            )}
+            {!isLoading &&
+              !showEmpty &&
+              filteredRows.map((row) => (
+                <tr
+                  key={row.id}
+                  className="hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                >
+                  {row.getVisibleCells().map((cell) => (
+                    <td key={cell.id} className={tdBase}>
+                      {flexRender(
+                        cell.column.columnDef.cell,
+                        cell.getContext(),
+                      )}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}

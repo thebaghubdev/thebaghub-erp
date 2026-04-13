@@ -1,4 +1,6 @@
+import { createColumnHelper } from '@tanstack/react-table'
 import { useCallback, useEffect, useState } from 'react'
+import { DataTable } from '../components/data-table/DataTable'
 import { SubmittedAtCell } from '../components/SubmittedAtCell'
 import { usePortalAuth } from '../context/portal-auth'
 import { apiFetch } from '../lib/api'
@@ -9,9 +11,140 @@ type InquiryRow = {
   itemLabel: string
   status: string
   createdAt: string
+  consignorName: string
+  brand: string
+  category: string
+  itemModel: string
+  serialNumber: string
+  condition: string
+  inclusions: string
+  consignmentSellingPrice: string
+  directPurchaseSellingPrice: string
+  consentDirectPurchase: boolean
 }
 
 type InquiryTab = 'all' | 'create'
+
+function formatInquiryStatus(status: string) {
+  return status.replace(/_/g, ' ')
+}
+
+function yesNo(v: boolean) {
+  return v ? 'Yes' : 'No'
+}
+
+const columnHelper = createColumnHelper<InquiryRow>()
+
+const inquiryColumns = [
+  columnHelper.accessor('sku', {
+    header: 'SKU',
+    cell: ({ getValue }) => (
+      <span className="break-all font-mono text-[0.65rem] leading-snug text-slate-900 sm:text-xs dark:text-slate-100">
+        {getValue()}
+      </span>
+    ),
+  }),
+  columnHelper.accessor('consignorName', {
+    header: 'Consignor',
+    cell: ({ getValue }) => (
+      <span className="break-words font-medium text-slate-900 dark:text-slate-100">
+        {getValue()}
+      </span>
+    ),
+  }),
+  columnHelper.accessor('brand', {
+    header: 'Brand',
+    cell: ({ getValue }) => (
+      <span className="break-words text-slate-800 dark:text-slate-200">{getValue()}</span>
+    ),
+  }),
+  columnHelper.accessor('category', {
+    header: 'Category',
+    cell: ({ getValue }) => (
+      <span className="break-words text-slate-800 dark:text-slate-200">{getValue()}</span>
+    ),
+  }),
+  columnHelper.accessor('itemModel', {
+    header: 'Model',
+    cell: ({ getValue }) => (
+      <span className="break-words text-slate-800 dark:text-slate-200">{getValue()}</span>
+    ),
+  }),
+  columnHelper.accessor('serialNumber', {
+    header: 'Serial',
+    cell: ({ getValue }) => (
+      <span className="break-all font-mono text-[0.7rem] text-slate-700 dark:text-slate-300">
+        {getValue()}
+      </span>
+    ),
+  }),
+  columnHelper.accessor('condition', {
+    header: 'Condition',
+    cell: ({ row }) => (
+      <span
+        className="max-w-[10rem] break-words text-slate-700 dark:text-slate-300"
+        title={row.original.condition !== '—' ? row.original.condition : undefined}
+      >
+        {row.original.condition}
+      </span>
+    ),
+  }),
+  columnHelper.accessor('inclusions', {
+    header: 'Inclusions',
+    cell: ({ row }) => (
+      <span
+        className="max-w-[12rem] min-w-[7rem] whitespace-pre-wrap break-words text-slate-700 dark:text-slate-300"
+        title={row.original.inclusions !== '—' ? row.original.inclusions : undefined}
+      >
+        {row.original.inclusions}
+      </span>
+    ),
+  }),
+  columnHelper.accessor((row) => formatInquiryStatus(row.status), {
+    id: 'status',
+    header: 'Status',
+    cell: ({ getValue }) => (
+      <span className="capitalize text-slate-700 dark:text-slate-300">{getValue()}</span>
+    ),
+  }),
+  columnHelper.accessor('consignmentSellingPrice', {
+    header: () => (
+      <span title="Consignment selling price">Consign $</span>
+    ),
+    cell: ({ getValue }) => (
+      <span className="tabular-nums text-slate-800 dark:text-slate-200">{getValue()}</span>
+    ),
+  }),
+  columnHelper.accessor('directPurchaseSellingPrice', {
+    header: () => (
+      <span title="Direct purchase price">Direct $</span>
+    ),
+    cell: ({ getValue }) => (
+      <span className="tabular-nums text-slate-800 dark:text-slate-200">{getValue()}</span>
+    ),
+  }),
+  columnHelper.accessor((row) => yesNo(row.consentDirectPurchase), {
+    id: 'consentDirectPurchase',
+    header: () => (
+      <span className="whitespace-normal leading-tight">Allow Direct Purchase</span>
+    ),
+    cell: ({ getValue }) => (
+      <span className="block text-center text-slate-700 dark:text-slate-300">
+        {getValue()}
+      </span>
+    ),
+  }),
+  columnHelper.accessor('createdAt', {
+    id: 'submitted',
+    header: 'Submitted',
+    sortingFn: 'alphanumeric',
+    cell: ({ row }) => (
+      <span className="text-slate-600 dark:text-slate-400">
+        <SubmittedAtCell iso={row.original.createdAt} />
+      </span>
+    ),
+  }),
+]
 
 export function InquiryPage() {
   const { token } = usePortalAuth()
@@ -72,7 +205,7 @@ export function InquiryPage() {
           className={`${tabBtn} ${
             tab === 'create'
               ? 'border-b-2 border-violet-600 text-violet-700 dark:text-violet-300'
-              : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100'
+              : 'text-slate-600 hover:text-slate-900 dark:sate-400 dark:hover:text-slate-100'
           }`}
           onClick={() => setTab('create')}
         >
@@ -88,79 +221,15 @@ export function InquiryPage() {
             </p>
           )}
 
-          <div className="max-w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
-            <table className="w-full table-fixed border-collapse text-left text-sm">
-                <thead className="border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-600 dark:border-slate-800 dark:bg-slate-950/50 dark:text-slate-400">
-                  <tr>
-                    <th
-                      scope="col"
-                      className="min-w-0 w-[22%] px-2 py-2.5 sm:w-[20%] sm:px-4 sm:py-3"
-                    >
-                      SKU
-                    </th>
-                    <th
-                      scope="col"
-                      className="min-w-0 w-[38%] px-2 py-2.5 sm:w-[40%] sm:px-4 sm:py-3"
-                    >
-                      Item
-                    </th>
-                    <th
-                      scope="col"
-                      className="w-[18%] px-2 py-2.5 sm:px-4 sm:py-3"
-                    >
-                      Status
-                    </th>
-                    <th
-                      scope="col"
-                      className="min-w-0 w-[22%] px-2 py-2.5 sm:w-[20%] sm:px-4 sm:py-3"
-                    >
-                      Created
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                  {loading && rows.length === 0 && (
-                    <tr>
-                      <td
-                        colSpan={4}
-                        className="px-4 py-8 text-center text-slate-500"
-                      >
-                        Loading…
-                      </td>
-                    </tr>
-                  )}
-                  {!loading && rows.length === 0 && !error && (
-                    <tr>
-                      <td
-                        colSpan={4}
-                        className="px-4 py-8 text-center text-slate-500"
-                      >
-                        No inquiries yet.
-                      </td>
-                    </tr>
-                  )}
-                  {rows.map((row) => (
-                    <tr
-                      key={row.id}
-                      className="hover:bg-slate-50 dark:hover:bg-slate-800/50"
-                    >
-                      <td className="min-w-0 break-all px-2 py-2.5 align-top font-mono text-[0.7rem] leading-snug text-slate-900 sm:px-4 sm:py-3 sm:text-xs dark:text-slate-100">
-                        {row.sku}
-                      </td>
-                      <td className="min-w-0 break-words px-2 py-2.5 align-top font-medium text-slate-900 sm:px-4 sm:py-3 dark:text-slate-100">
-                        {row.itemLabel}
-                      </td>
-                      <td className="px-2 py-2.5 align-top capitalize text-slate-700 sm:px-4 sm:py-3 dark:text-slate-300">
-                        {row.status}
-                      </td>
-                      <td className="min-w-0 px-2 py-2.5 align-top sm:px-4 sm:py-3">
-                        <SubmittedAtCell iso={row.createdAt} />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-          </div>
+          <DataTable<InquiryRow>
+            data={rows}
+            columns={inquiryColumns}
+            isLoading={loading}
+            emptyMessage="No inquiries yet."
+            hideEmptyState={!!error}
+            getRowId={(row) => row.id}
+            tableClassName="w-full min-w-[1020px] table-fixed border-collapse text-left"
+          />
         </section>
       )}
 
