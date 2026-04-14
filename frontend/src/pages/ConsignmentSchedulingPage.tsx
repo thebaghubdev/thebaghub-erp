@@ -35,7 +35,7 @@ const columns = [
     sortingFn: "alphanumeric",
     cell: ({ row }) => (
       <span className="text-slate-600 dark:text-slate-400">
-        <SubmittedAtCell iso={row.original.deliveryDate} />
+        <SubmittedAtCell iso={row.original.deliveryDate} showTime={false} />
       </span>
     ),
   }),

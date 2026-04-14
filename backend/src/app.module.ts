@@ -17,6 +17,7 @@ import { User } from './users/entities/user.entity';
 import { SettingsModule } from './settings/settings.module';
 import { Setting } from './settings/entities/setting.entity';
 import { AccountsModule } from './accounts/accounts.module';
+import { ClientsModule } from './clients/clients.module';
 import { ConsignmentSchedulesModule } from './consignment-schedules/consignment-schedules.module';
 import {
   ConsignmentSchedule,
@@ -52,6 +53,7 @@ import {
     }),
     DatabaseModule,
     AuthModule,
+    ClientsModule,
     ItemsModule,
     InquiriesModule,
     SettingsModule,

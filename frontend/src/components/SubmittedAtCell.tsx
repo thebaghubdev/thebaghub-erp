@@ -1,5 +1,11 @@
 /** Date on first line, time on second — avoids clipping in narrow table columns. */
-export function SubmittedAtCell({ iso }: { iso: string }) {
+export function SubmittedAtCell({
+  iso,
+  showTime = true,
+}: {
+  iso: string
+  showTime?: boolean
+}) {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) {
     return <span className="break-all">{iso}</span>
@@ -10,6 +16,14 @@ export function SubmittedAtCell({ iso }: { iso: string }) {
     month: 'short',
     day: 'numeric',
   })
+  if (!showTime) {
+    return (
+      <span className="leading-tight text-slate-900 dark:text-slate-100">
+        {dateLine}
+      </span>
+    )
+  }
+
   const timeLine = d.toLocaleTimeString(undefined, {
     hour: 'numeric',
     minute: '2-digit',

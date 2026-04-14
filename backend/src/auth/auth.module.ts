@@ -7,6 +7,7 @@ import { Client } from '../clients/entities/client.entity';
 import { Employee } from '../employees/entities/employee.entity';
 import { User } from '../users/entities/user.entity';
 import { AdminGuard } from './admin.guard';
+import { ClientOnlyGuard } from './client-only.guard';
 import { StaffOnlyGuard } from './staff-only.guard';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
@@ -26,7 +27,13 @@ import { JwtStrategy } from './jwt.strategy';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, AdminGuard, StaffOnlyGuard],
-  exports: [AuthService],
+  providers: [
+    AuthService,
+    JwtStrategy,
+    AdminGuard,
+    StaffOnlyGuard,
+    ClientOnlyGuard,
+  ],
+  exports: [AuthService, ClientOnlyGuard],
 })
 export class AuthModule {}

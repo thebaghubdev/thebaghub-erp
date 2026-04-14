@@ -172,6 +172,11 @@ export class AuthService {
         firstName: string;
         lastName: string;
         email: string;
+        contactNumber: string;
+        bankAccountNumber: string | null;
+        bankAccountName: string | null;
+        bankCode: string | null;
+        bankBranch: string | null;
       } | null,
     };
 
@@ -197,6 +202,11 @@ export class AuthService {
           firstName: cli.firstName,
           lastName: cli.lastName,
           email: cli.email,
+          contactNumber: cli.contactNumber,
+          bankAccountNumber: cli.bankAccountNumber,
+          bankAccountName: cli.bankAccountName,
+          bankCode: cli.bankCode,
+          bankBranch: cli.bankBranch,
         };
       }
     }

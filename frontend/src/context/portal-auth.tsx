@@ -8,7 +8,7 @@ import {
   type ReactNode,
 } from 'react'
 import { apiFetch } from '../lib/api'
-import type { AuthUser } from './auth-user'
+import { normalizeClientProfile, type AuthUser } from './auth-user'
 
 const STORAGE_TOKEN = 'baghub_portal_token'
 const STORAGE_USER = 'baghub_portal_user'
@@ -34,7 +34,7 @@ function parseStoredUser(raw: string | null): AuthUser | null {
       userType: parsed.userType ?? 'employee',
       isAdmin: Boolean(parsed.isAdmin),
       employee: parsed.employee ?? null,
-      client: parsed.client ?? null,
+      client: normalizeClientProfile(parsed.client),
     }
   } catch {
     return null
@@ -90,7 +90,10 @@ export function PortalAuthProvider({ children }: { children: ReactNode }) {
           return
         }
         if (!cancelled) {
-          setUser(me)
+          setUser({
+            ...me,
+            client: normalizeClientProfile(me.client),
+          })
           localStorage.setItem(STORAGE_USER, JSON.stringify(me))
         }
       } catch {
@@ -125,7 +128,10 @@ export function PortalAuthProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(STORAGE_TOKEN, accessToken)
     localStorage.setItem(STORAGE_USER, JSON.stringify(u))
     setToken(accessToken)
-    setUser(u)
+    setUser({
+      ...u,
+      client: normalizeClientProfile(u.client),
+    })
   }, [])
 
   const value = useMemo(

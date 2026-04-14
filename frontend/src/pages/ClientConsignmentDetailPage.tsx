@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { Link, useParams } from "react-router-dom";
+import type { ClientProfile } from "../context/auth-user";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { OfferSignatureField } from "../components/OfferSignatureField";
 import { TermsScrollAgreeModal } from "../components/TermsScrollAgreeModal";
@@ -62,10 +63,10 @@ function isAwaitingOfferConfirmation(status: string): boolean {
   return status.trim().toLowerCase() === "for_offer_confirmation";
 }
 
-/** Allow extra photos for any non-terminal inquiry. */
+/** Extra photos only while the inquiry is still triage / offer phase. */
 function canClientAddPhotos(status: string): boolean {
   const s = status.trim().toLowerCase();
-  return !["declined", "cancelled"].includes(s);
+  return s === "pending" || s === "for_offer_confirmation";
 }
 
 function formatClientPaymentMethod(
@@ -83,6 +84,25 @@ function formatClientBank(
   if (b === "bdo") return "BDO";
   if (b === "bpi") return "BPI";
   return "Other";
+}
+
+/** Bank details from My account profile, ready for confirm-offer API. */
+function bankDetailsFromProfile(
+  c: ClientProfile | null | undefined,
+): NonNullable<ClientOfferConfirmation["bankDetails"]> | null {
+  if (!c) return null;
+  const bank = c.bankCode;
+  if (bank !== "bdo" && bank !== "bpi" && bank !== "other") return null;
+  const accountNumber = (c.bankAccountNumber ?? "").trim();
+  const accountName = (c.bankAccountName ?? "").trim();
+  const branch = (c.bankBranch ?? "").trim();
+  if (!accountNumber || !accountName || !branch) return null;
+  return { bank, accountNumber, accountName, branch };
+}
+
+function displayOrDash(v: string | null | undefined): string {
+  const t = v?.trim();
+  return t ? t : "—";
 }
 
 async function readApiErrorMessage(res: Response): Promise<string> {
@@ -126,7 +146,7 @@ const CONSIGNMENT_TERMS_URL = "/terms/consignment.txt";
 
 export function ClientConsignmentDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { token } = useClientAuth();
+  const { token, user } = useClientAuth();
   const [detail, setDetail] = useState<ClientInquiryDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -142,10 +162,6 @@ export function ClientConsignmentDetailPage() {
   const [paymentMethod, setPaymentMethod] = useState<
     "check_pickup" | "cash_pickup" | "direct_deposit"
   >("check_pickup");
-  const [accountNumber, setAccountNumber] = useState("");
-  const [accountName, setAccountName] = useState("");
-  const [bank, setBank] = useState<"bdo" | "bpi" | "other">("bdo");
-  const [branch, setBranch] = useState("");
   const [consignmentTermsAccepted, setConsignmentTermsAccepted] =
     useState(false);
   const [termsAgreementModalOpen, setTermsAgreementModalOpen] = useState(false);
@@ -240,10 +256,6 @@ export function ClientConsignmentDetailPage() {
   const openConfirmOfferModal = useCallback(() => {
     setConfirmFormError(null);
     setPaymentMethod("check_pickup");
-    setAccountNumber("");
-    setAccountName("");
-    setBank("bdo");
-    setBranch("");
     setConsignmentTermsAccepted(false);
     setOfferSignatureFile(null);
     setSignatureFieldKey((k) => k + 1);
@@ -266,13 +278,15 @@ export function ClientConsignmentDetailPage() {
         );
         return;
       }
+      let savedBankDetails: NonNullable<
+        ClientOfferConfirmation["bankDetails"]
+      > | null = null;
       if (paymentMethod === "direct_deposit") {
-        if (
-          !accountNumber.trim() ||
-          !accountName.trim() ||
-          !branch.trim()
-        ) {
-          setConfirmFormError("Please fill in all bank details.");
+        savedBankDetails = bankDetailsFromProfile(user?.client);
+        if (!savedBankDetails) {
+          setConfirmFormError(
+            "Your saved bank details are incomplete. Add or update them on My account, then return here to confirm.",
+          );
           return;
         }
       }
@@ -280,13 +294,8 @@ export function ClientConsignmentDetailPage() {
       setConfirmBusy(true);
       try {
         const payload: Record<string, unknown> = { paymentMethod };
-        if (paymentMethod === "direct_deposit") {
-          payload.bankDetails = {
-            accountNumber: accountNumber.trim(),
-            accountName: accountName.trim(),
-            bank,
-            branch: branch.trim(),
-          };
+        if (paymentMethod === "direct_deposit" && savedBankDetails) {
+          payload.bankDetails = savedBankDetails;
         }
         const fd = new FormData();
         fd.append("payload", JSON.stringify(payload));
@@ -308,17 +317,7 @@ export function ClientConsignmentDetailPage() {
         setConfirmBusy(false);
       }
     },
-    [
-      id,
-      token,
-      paymentMethod,
-      accountNumber,
-      accountName,
-      bank,
-      branch,
-      consignmentTermsAccepted,
-      offerSignatureFile,
-    ],
+    [id, token, paymentMethod, user, consignmentTermsAccepted, offerSignatureFile],
   );
 
   const form = detail?.itemSnapshot.form ?? {};
@@ -705,84 +704,65 @@ export function ClientConsignmentDetailPage() {
 
                   {paymentMethod === "direct_deposit" ? (
                     <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/80 p-3">
-                      <p className="text-xs font-medium text-slate-600">
-                        Bank details
+                      <p className="text-sm text-slate-700">
+                        Direct deposit uses the bank account saved on{" "}
+                        <Link
+                          to="/my-account"
+                          className="font-medium text-violet-700 hover:underline"
+                        >
+                          My account
+                        </Link>
+                        . Make sure these details are up to date before
+                        confirming; you can only change them there.
                       </p>
-                      <div>
-                        <label
-                          htmlFor="confirm-bank"
-                          className="block text-xs font-medium text-slate-600"
+                      <dl className="space-y-2 text-sm">
+                        <div>
+                          <dt className="text-slate-500">Bank</dt>
+                          <dd className="font-medium text-slate-900">
+                            {(() => {
+                              const bc = user?.client?.bankCode;
+                              return bc === "bdo" ||
+                                bc === "bpi" ||
+                                bc === "other"
+                                ? formatClientBank(bc)
+                                : "—";
+                            })()}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="text-slate-500">Account name</dt>
+                          <dd className="text-slate-900">
+                            {displayOrDash(user?.client?.bankAccountName)}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="text-slate-500">Account number</dt>
+                          <dd className="font-mono text-xs text-slate-900">
+                            {displayOrDash(user?.client?.bankAccountNumber)}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="text-slate-500">Branch</dt>
+                          <dd className="text-slate-900">
+                            {displayOrDash(user?.client?.bankBranch)}
+                          </dd>
+                        </div>
+                      </dl>
+                      {!bankDetailsFromProfile(user?.client) ? (
+                        <p
+                          className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"
+                          role="status"
                         >
-                          Bank
-                        </label>
-                        <select
-                          id="confirm-bank"
-                          value={bank}
-                          onChange={(e) =>
-                            setBank(e.target.value as typeof bank)
-                          }
-                          disabled={confirmBusy}
-                          className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
-                        >
-                          <option value="bdo">BDO</option>
-                          <option value="bpi">BPI</option>
-                          <option value="other">Other</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label
-                          htmlFor="confirm-account-name"
-                          className="block text-xs font-medium text-slate-600"
-                        >
-                          Account name
-                        </label>
-                        <input
-                          id="confirm-account-name"
-                          type="text"
-                          autoComplete="name"
-                          value={accountName}
-                          onChange={(e) => setAccountName(e.target.value)}
-                          disabled={confirmBusy}
-                          required={paymentMethod === "direct_deposit"}
-                          className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
-                        />
-                      </div>
-                      <div>
-                        <label
-                          htmlFor="confirm-account-number"
-                          className="block text-xs font-medium text-slate-600"
-                        >
-                          Account number
-                        </label>
-                        <input
-                          id="confirm-account-number"
-                          type="text"
-                          inputMode="numeric"
-                          autoComplete="off"
-                          value={accountNumber}
-                          onChange={(e) => setAccountNumber(e.target.value)}
-                          disabled={confirmBusy}
-                          required={paymentMethod === "direct_deposit"}
-                          className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
-                        />
-                      </div>
-                      <div>
-                        <label
-                          htmlFor="confirm-branch"
-                          className="block text-xs font-medium text-slate-600"
-                        >
-                          Branch
-                        </label>
-                        <input
-                          id="confirm-branch"
-                          type="text"
-                          value={branch}
-                          onChange={(e) => setBranch(e.target.value)}
-                          disabled={confirmBusy}
-                          required={paymentMethod === "direct_deposit"}
-                          className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
-                        />
-                      </div>
+                          Your bank details are incomplete.{" "}
+                          <Link
+                            to="/my-account"
+                            className="font-medium text-amber-950 underline"
+                          >
+                            Open My account
+                          </Link>{" "}
+                          to add or update them, then return here to confirm.
+                        </p>
+                      ) : null}
                     </div>
                   ) : null}
 

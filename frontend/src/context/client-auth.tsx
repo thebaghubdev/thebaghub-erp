@@ -8,7 +8,7 @@ import {
   type ReactNode,
 } from 'react'
 import { apiFetch } from '../lib/api'
-import type { AuthUser } from './auth-user'
+import { normalizeClientProfile, type AuthUser } from './auth-user'
 
 const STORAGE_TOKEN = 'baghub_client_token'
 const STORAGE_USER = 'baghub_client_user'
@@ -19,6 +19,7 @@ type ClientAuthContextValue = {
   loading: boolean
   login: (username: string, password: string) => Promise<void>
   logout: () => void
+  refreshUser: () => Promise<void>
 }
 
 const ClientAuthContext = createContext<ClientAuthContextValue | null>(null)
@@ -34,7 +35,7 @@ function parseStoredUser(raw: string | null): AuthUser | null {
       userType: parsed.userType ?? 'client',
       isAdmin: Boolean(parsed.isAdmin),
       employee: parsed.employee ?? null,
-      client: parsed.client ?? null,
+      client: normalizeClientProfile(parsed.client),
     }
   } catch {
     return null
@@ -59,6 +60,22 @@ export function ClientAuthProvider({ children }: { children: ReactNode }) {
     setUser(null)
   }, [])
 
+  const refreshUser = useCallback(async () => {
+    if (!token) return
+    try {
+      const res = await apiFetch('/api/auth/me', {}, token)
+      if (!res.ok) return
+      const me = (await res.json()) as AuthUser
+      setUser({
+        ...me,
+        client: normalizeClientProfile(me.client),
+      })
+      localStorage.setItem(STORAGE_USER, JSON.stringify(me))
+    } catch {
+      // ignore; keep stale user until next navigation
+    }
+  }, [token])
+
   useEffect(() => {
     if (!token) {
       setLoading(false)
@@ -75,7 +92,10 @@ export function ClientAuthProvider({ children }: { children: ReactNode }) {
         }
         const me = (await res.json()) as AuthUser
         if (!cancelled) {
-          setUser(me)
+          setUser({
+            ...me,
+            client: normalizeClientProfile(me.client),
+          })
           localStorage.setItem(STORAGE_USER, JSON.stringify(me))
         }
       } catch {
@@ -110,7 +130,10 @@ export function ClientAuthProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(STORAGE_TOKEN, accessToken)
     localStorage.setItem(STORAGE_USER, JSON.stringify(u))
     setToken(accessToken)
-    setUser(u)
+    setUser({
+      ...u,
+      client: normalizeClientProfile(u.client),
+    })
   }, [])
 
   const value = useMemo(
@@ -120,8 +143,9 @@ export function ClientAuthProvider({ children }: { children: ReactNode }) {
       loading,
       login,
       logout,
+      refreshUser,
     }),
-    [token, user, loading, login, logout],
+    [token, user, loading, login, logout, refreshUser],
   )
 
   return (
