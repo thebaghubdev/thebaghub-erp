@@ -1,23 +1,20 @@
-import { NavLink, Outlet } from 'react-router-dom'
-import { useClientAuth } from '../context/client-auth'
+import { NavLink, Outlet } from "react-router-dom";
+import { useClientAuth } from "../context/client-auth";
 
 const navLinkClass =
-  'flex min-h-12 flex-1 flex-col items-center justify-center gap-0.5 rounded-lg px-2 py-1.5 text-xs font-medium text-slate-600 transition-colors sm:min-h-14 sm:text-sm'
+  "flex min-h-12 flex-1 flex-col items-center justify-center gap-0.5 rounded-lg px-2 py-1.5 text-xs font-medium text-slate-600 transition-colors sm:min-h-14 sm:text-sm";
 
-const navActiveClass = 'bg-violet-100 text-violet-900'
+const navActiveClass = "bg-violet-100 text-violet-900";
 
 export function ClientLayout() {
-  const { user, logout } = useClientAuth()
-  const name = user?.client
-    ? `${user.client.firstName} ${user.client.lastName}`
-    : user?.username
+  const { logout } = useClientAuth();
 
   return (
     <div className="flex min-h-svh flex-col bg-slate-50 text-slate-900">
       <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-white/80">
         <div className="mx-auto flex max-w-lg items-center justify-between gap-2">
           <p className="truncate text-sm font-semibold text-slate-900">
-            {name ?? 'Client'}
+            The Bag Hub
           </p>
           <button
             type="button"
@@ -43,9 +40,10 @@ export function ClientLayout() {
           <NavLink
             to="/consignments"
             className={({ isActive }) =>
-              [navLinkClass, isActive ? navActiveClass : 'hover:bg-slate-100'].join(
-                ' ',
-              )
+              [
+                navLinkClass,
+                isActive ? navActiveClass : "hover:bg-slate-100",
+              ].join(" ")
             }
           >
             Consignments
@@ -53,9 +51,10 @@ export function ClientLayout() {
           <NavLink
             to="/purchases"
             className={({ isActive }) =>
-              [navLinkClass, isActive ? navActiveClass : 'hover:bg-slate-100'].join(
-                ' ',
-              )
+              [
+                navLinkClass,
+                isActive ? navActiveClass : "hover:bg-slate-100",
+              ].join(" ")
             }
           >
             Purchases
@@ -63,9 +62,10 @@ export function ClientLayout() {
           <NavLink
             to="/my-account"
             className={({ isActive }) =>
-              [navLinkClass, isActive ? navActiveClass : 'hover:bg-slate-100'].join(
-                ' ',
-              )
+              [
+                navLinkClass,
+                isActive ? navActiveClass : "hover:bg-slate-100",
+              ].join(" ")
             }
           >
             My account
@@ -73,5 +73,5 @@ export function ClientLayout() {
         </div>
       </nav>
     </div>
-  )
+  );
 }

@@ -2,8 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useBlocker, type BlockerFunction } from 'react-router-dom'
 import { useClientAuth } from '../context/client-auth'
 import { apiFetch } from '../lib/api'
+import { formatPhpDisplay } from '../lib/format-php'
 import { ConsignItemForm } from './ConsignItemForm'
 import { ConsignItemPhotoStep } from './ConsignItemPhotoStep'
+import { NoticeDialog } from './NoticeDialog'
 import { TermsHtmlModal } from './TermsHtmlModal'
 import {
   emptyConsignItemForm,
@@ -113,6 +115,11 @@ export function ConsignmentInquiryWizard({
 
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<{
+    open: boolean
+    title: string
+    message: string
+  }>({ open: false, title: 'Notice', message: '' })
 
   const draftImagesRef = useRef<LocalConsignImage[]>([])
   const itemsRef = useRef<DraftConsignItem[]>([])
@@ -272,9 +279,12 @@ export function ConsignmentInquiryWizard({
     if (!editingItemId && items.length >= MAX_ITEMS_PER_INQUIRY) return
 
     if (draftImages.length === 0) {
-      window.alert(
-        'Please add at least one photo for this item before continuing to review.',
-      )
+      setNotice({
+        open: true,
+        title: 'Photos required',
+        message:
+          'Please add at least one photo for this item before continuing to review.',
+      })
       return
     }
 
@@ -381,11 +391,14 @@ export function ConsignmentInquiryWizard({
         setStep(1)
         setInquiryConsignmentTermsAccepted(false)
         onSubmitted?.()
-        window.alert(
-          submittedCount <= 1
-            ? 'Your inquiry was submitted successfully.'
-            : `${submittedCount} inquiries were submitted successfully (one per item).`,
-        )
+        setNotice({
+          open: true,
+          title: 'Submitted',
+          message:
+            submittedCount === 1
+              ? '1 inquiry submitted.'
+              : `${submittedCount} inquiries submitted.`,
+        })
       } catch (err) {
         setSubmitError(
           err instanceof Error ? err.message : 'Submission failed.',
@@ -408,6 +421,12 @@ export function ConsignmentInquiryWizard({
 
   return (
     <div className="flex flex-col gap-5">
+      <NoticeDialog
+        open={notice.open}
+        title={notice.title}
+        message={notice.message}
+        onClose={() => setNotice((n) => ({ ...n, open: false }))}
+      />
       <TermsHtmlModal
         open={consignmentTermsModalOpen}
         onClose={() => setConsignmentTermsModalOpen(false)}
@@ -670,7 +689,9 @@ export function ConsignmentInquiryWizard({
                               <dt className="text-slate-500">
                                 Consignment selling price
                               </dt>
-                              <dd>{it.form.consignmentSellingPrice}</dd>
+                              <dd className="tabular-nums">
+                                {formatPhpDisplay(it.form.consignmentSellingPrice)}
+                              </dd>
                             </div>
                           ) : null}
                           {it.form.directPurchaseSellingPrice.trim() ? (
@@ -678,7 +699,9 @@ export function ConsignmentInquiryWizard({
                               <dt className="text-slate-500">
                                 Direct purchase selling price
                               </dt>
-                              <dd>{it.form.directPurchaseSellingPrice}</dd>
+                              <dd className="tabular-nums">
+                                {formatPhpDisplay(it.form.directPurchaseSellingPrice)}
+                              </dd>
                             </div>
                           ) : null}
                           {it.form.specialInstructions ? (

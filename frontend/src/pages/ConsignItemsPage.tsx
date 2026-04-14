@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { ConsignmentInquiryWizard } from '../components/ConsignmentInquiryWizard'
 import { SubmittedAtCell } from '../components/SubmittedAtCell'
 import { useClientAuth } from '../context/client-auth'
@@ -14,16 +15,19 @@ type MyInquiryRow = {
 }
 
 const tabBtn =
-  'rounded-lg px-3 py-2 text-sm font-medium transition-colors focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500 sm:px-4'
+  '-mb-px border-b-2 border-transparent px-3 py-2 text-sm font-medium transition-colors focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500 sm:px-4'
 
 function formatInquiryStatus(status: string) {
-  return status.replace(/_/g, ' ')
+  const s = status.replace(/_/g, ' ').trim()
+  if (!s) return status
+  return s.replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
 const LEAVE_TAB_MSG =
   'You have unsaved changes to this consignment inquiry. Switch tabs anyway?'
 
 export function ConsignItemsPage() {
+  const navigate = useNavigate()
   const { token } = useClientAuth()
   const [tab, setTab] = useState<ConsignmentsTab>('mine')
   const [wizardDirty, setWizardDirty] = useState(false)
@@ -62,7 +66,7 @@ export function ConsignItemsPage() {
   return (
     <div className="w-full min-w-0">
       <div
-        className="mb-4 flex gap-1 border-b border-slate-200 sm:gap-2"
+        className="mb-4 flex items-end gap-1 border-b border-slate-200 sm:gap-2"
         role="tablist"
         aria-label="Consignments sections"
       >
@@ -74,7 +78,7 @@ export function ConsignItemsPage() {
           aria-controls="panel-consignments-mine"
           className={`${tabBtn} ${
             tab === 'mine'
-              ? 'border-b-2 border-violet-600 text-violet-700'
+              ? 'border-violet-600 text-violet-700'
               : 'text-slate-600 hover:text-slate-900'
           }`}
           onClick={() => requestTab('mine')}
@@ -89,7 +93,7 @@ export function ConsignItemsPage() {
           aria-controls="panel-consignments-items"
           className={`${tabBtn} ${
             tab === 'consign'
-              ? 'border-b-2 border-violet-600 text-violet-700'
+              ? 'border-violet-600 text-violet-700'
               : 'text-slate-600 hover:text-slate-900'
           }`}
           onClick={() => requestTab('consign')}
@@ -166,7 +170,17 @@ export function ConsignItemsPage() {
                   {rows.map((row) => (
                     <tr
                       key={row.id}
-                      className="hover:bg-slate-50"
+                      role="link"
+                      tabIndex={0}
+                      aria-label={`View inquiry ${row.itemLabel}`}
+                      className="cursor-pointer hover:bg-slate-50 focus-visible:bg-slate-50 focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2"
+                      onClick={() => navigate(`/consignments/${row.id}`)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          navigate(`/consignments/${row.id}`)
+                        }
+                      }}
                     >
                       <td className="px-4 py-3 font-medium text-slate-900">
                         {row.itemLabel}

@@ -133,6 +133,16 @@ export type StaffInquiryDetail = StaffInquiryRow & {
   };
 };
 
+/** Client-facing inquiry detail (no internal staff notes). */
+export type ClientInquiryDetail = Omit<StaffInquiryRow, 'notes'> & {
+  updatedAt: Date;
+  itemSnapshot: {
+    clientItemId: string;
+    form: Record<string, unknown>;
+    images: Array<{ key: string; url: string }>;
+  };
+};
+
 @Injectable()
 export class InquiriesService {
   constructor(
@@ -247,6 +257,75 @@ export class InquiriesService {
       status: r.status,
       createdAt: r.createdAt,
     }));
+  }
+
+  /** Single inquiry for the logged-in consignor (excludes staff-only notes). */
+  async findOneForClient(
+    user: JwtUser,
+    id: string,
+  ): Promise<ClientInquiryDetail> {
+    const client = await this.clientsRepo.findOne({
+      where: { userId: user.userId },
+    });
+    if (!client) {
+      throw new NotFoundException('Client profile not found');
+    }
+    const r = await this.inquiriesRepo.findOne({
+      where: { id, consignorId: client.id },
+      relations: { consignor: true },
+    });
+    if (!r) {
+      throw new NotFoundException('Inquiry not found');
+    }
+    const base = this.mapInquiryToStaffRow(r);
+    const { notes: _notes, ...rest } = base;
+    const rawImages = Array.isArray(r.itemSnapshot?.images)
+      ? r.itemSnapshot.images
+      : [];
+    const images = rawImages.map((img) => ({
+      key: img.key,
+      url: this.s3.getPublicUrl(img.key),
+    }));
+    return {
+      ...rest,
+      updatedAt: r.updatedAt,
+      itemSnapshot: {
+        clientItemId: r.itemSnapshot.clientItemId,
+        form: (r.itemSnapshot.form ?? {}) as Record<string, unknown>,
+        images,
+      },
+    };
+  }
+
+  /** Consignor withdraws the inquiry; only while still active (not terminal). */
+  async cancelInquiryForClient(
+    user: JwtUser,
+    id: string,
+  ): Promise<ClientInquiryDetail> {
+    const client = await this.clientsRepo.findOne({
+      where: { userId: user.userId },
+    });
+    if (!client) {
+      throw new NotFoundException('Client profile not found');
+    }
+    const r = await this.inquiriesRepo.findOne({
+      where: { id, consignorId: client.id },
+    });
+    if (!r) {
+      throw new NotFoundException('Inquiry not found');
+    }
+    if (
+      r.status !== InquiryStatus.PENDING &&
+      r.status !== InquiryStatus.UNDER_REVIEW &&
+      r.status !== InquiryStatus.FOR_OFFER_CONFIRMATION
+    ) {
+      throw new BadRequestException(
+        'Only active inquiries can be cancelled by the consignor',
+      );
+    }
+    r.status = InquiryStatus.CANCELLED;
+    await this.inquiriesRepo.save(r);
+    return this.findOneForClient(user, id);
   }
 
   async submitConsignmentInquiry(
@@ -404,9 +483,7 @@ export class InquiriesService {
 
     r.offerTransactionType = dto.transactionType;
     r.offerPrice = dto.offerPrice.toFixed(2);
-    if (r.status === InquiryStatus.PENDING) {
-      r.status = InquiryStatus.UNDER_REVIEW;
-    }
+    r.status = InquiryStatus.FOR_OFFER_CONFIRMATION;
     await this.inquiriesRepo.save(r);
     return this.findOneForStaff(id);
   }

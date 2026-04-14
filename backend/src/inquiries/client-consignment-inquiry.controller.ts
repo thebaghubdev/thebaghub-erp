@@ -2,6 +2,8 @@ import {
   Body,
   Controller,
   Get,
+  Param,
+  ParseUUIDPipe,
   Post,
   Req,
   UploadedFiles,
@@ -26,6 +28,15 @@ export class ClientConsignmentInquiryController {
     return this.inquiriesService.findMineForClient(req.user);
   }
 
+  /** One inquiry owned by the logged-in client (full snapshot, no staff notes). */
+  @Get(':id')
+  getOne(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.inquiriesService.findOneForClient(req.user, id);
+  }
+
   @Post()
   @UseInterceptors(
     FilesInterceptor('file', 100, {
@@ -42,5 +53,14 @@ export class ClientConsignmentInquiryController {
       payload,
       files,
     );
+  }
+
+  /** Consignor cancels their own inquiry while it is still active. */
+  @Post(':id/cancel')
+  cancel(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.inquiriesService.cancelInquiryForClient(req.user, id);
   }
 }

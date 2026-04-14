@@ -3,7 +3,7 @@ import { useState } from 'react'
 type PurchasesTab = 'mine' | 'purchase'
 
 const tabBtn =
-  'rounded-lg px-3 py-2 text-sm font-medium transition-colors focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500 sm:px-4'
+  '-mb-px border-b-2 border-transparent px-3 py-2 text-sm font-medium transition-colors focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500 sm:px-4'
 
 export function PurchaseItemsPage() {
   const [tab, setTab] = useState<PurchasesTab>('mine')
@@ -38,7 +38,7 @@ export function PurchaseItemsPage() {
           aria-controls="panel-purchases-items"
           className={`${tabBtn} ${
             tab === 'purchase'
-              ? 'border-b-2 border-violet-600 text-violet-700'
+              ? 'border-violet-600 text-violet-700'
               : 'text-slate-600 hover:text-slate-900'
           }`}
           onClick={() => setTab('purchase')}

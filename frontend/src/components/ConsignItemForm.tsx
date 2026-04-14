@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useClientAuth } from "../context/client-auth";
 import { apiFetch } from "../lib/api";
 import type { ConsignItemFormData } from "../types/consign-inquiry";
+import { PhpPriceInput } from "./PhpPriceInput";
 import { TermsHtmlModal } from "./TermsHtmlModal";
 
 const DIRECT_PURCHASE_TERMS_URL = "/terms/direct-purchase.txt";
@@ -298,18 +299,11 @@ export function ConsignItemForm({
               <label htmlFor="consign-price-consignment" className={label}>
                 Consignment selling price{optionalHint}
               </label>
-              <input
+              <PhpPriceInput
                 id="consign-price-consignment"
-                type="number"
-                min="0"
-                step="any"
-                inputMode="decimal"
-                autoComplete="off"
                 value={value.consignmentSellingPrice}
-                onChange={(e) =>
-                  patch({ consignmentSellingPrice: e.target.value })
-                }
-                className={field}
+                onChange={(v) => patch({ consignmentSellingPrice: v })}
+                className={field.replace("px-3", "pr-3")}
                 placeholder="0.00"
               />
             </div>
@@ -317,18 +311,11 @@ export function ConsignItemForm({
               <label htmlFor="consign-price-direct" className={label}>
                 Direct purchase selling price{optionalHint}
               </label>
-              <input
+              <PhpPriceInput
                 id="consign-price-direct"
-                type="number"
-                min="0"
-                step="any"
-                inputMode="decimal"
-                autoComplete="off"
                 value={value.directPurchaseSellingPrice}
-                onChange={(e) =>
-                  patch({ directPurchaseSellingPrice: e.target.value })
-                }
-                className={field}
+                onChange={(v) => patch({ directPurchaseSellingPrice: v })}
+                className={field.replace("px-3", "pr-3")}
                 placeholder="0.00"
               />
             </div>
@@ -348,7 +335,8 @@ export function ConsignItemForm({
               }
             />
             <span>
-              {optionalHint} I allow this item for direct purchase and read its{" "}
+              {optionalHint} I allow this item for <b>direct purchase</b> and
+              read its{" "}
               <button
                 type="button"
                 className="font-medium text-violet-700 underline decoration-violet-400 underline-offset-2 hover:text-violet-900"

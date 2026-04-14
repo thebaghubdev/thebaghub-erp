@@ -1,0 +1,384 @@
+import { useCallback, useEffect, useState } from "react";
+import { Link, useParams } from "react-router-dom";
+import { ConfirmDialog } from "../components/ConfirmDialog";
+import { useClientAuth } from "../context/client-auth";
+import { apiFetch } from "../lib/api";
+import { formatPhpDisplay } from "../lib/format-php";
+
+type TransactionType = "consignment" | "direct_purchase";
+
+type ClientInquiryDetail = {
+  id: string;
+  sku: string;
+  itemLabel: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  consignorName: string;
+  consignorEmail: string;
+  consignorPhone: string;
+  brand: string;
+  category: string;
+  itemModel: string;
+  serialNumber: string;
+  condition: string;
+  inclusions: string;
+  consignmentSellingPrice: string;
+  directPurchaseSellingPrice: string;
+  consentDirectPurchase: boolean;
+  consentPriceNomination: boolean;
+  photoCount: number;
+  offerTransactionType: TransactionType | null;
+  offerPrice: string | null;
+  itemSnapshot: {
+    clientItemId: string;
+    form: Record<string, unknown>;
+    images: Array<{ key: string; url: string }>;
+  };
+};
+
+function formatInquiryStatus(status: string) {
+  const s = status.replace(/_/g, " ").trim();
+  if (!s) return status;
+  return s.replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function canClientCancelInquiry(status: string): boolean {
+  const s = status.trim().toLowerCase();
+  return (
+    s === "pending" ||
+    s === "under_review" ||
+    s === "for_offer_confirmation"
+  );
+}
+
+async function readApiErrorMessage(res: Response): Promise<string> {
+  try {
+    const j = (await res.json()) as { message?: string | string[] };
+    if (Array.isArray(j.message)) return j.message.join("; ");
+    if (typeof j.message === "string") return j.message;
+  } catch {
+    /* ignore */
+  }
+  return `Request failed (${res.status})`;
+}
+
+function formatOfferTransactionLabel(t: TransactionType | null): string {
+  if (t === "direct_purchase") return "Direct purchase";
+  if (t === "consignment") return "Consignment";
+  return "—";
+}
+
+function formatDatePurchased(raw: unknown): string {
+  if (raw == null) return "";
+  const s = String(raw).trim();
+  if (!s) return "";
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return s;
+  return d.toLocaleDateString(undefined, { dateStyle: "medium" });
+}
+
+function str(v: unknown): string {
+  if (v == null) return "";
+  return String(v).trim();
+}
+
+function yesNo(v: unknown): string {
+  return v === true || v === "true" ? "Yes" : "No";
+}
+
+const cardClass = "rounded-xl border border-slate-200 bg-white p-4 shadow-sm";
+
+export function ClientConsignmentDetailPage() {
+  const { id } = useParams<{ id: string }>();
+  const { token } = useClientAuth();
+  const [detail, setDetail] = useState<ClientInquiryDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
+  const [cancelBusy, setCancelBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    if (!id) return;
+    setError(null);
+    setLoading(true);
+    try {
+      const res = await apiFetch(
+        `/api/client/consignment-inquiry/${id}`,
+        {},
+        token,
+      );
+      if (res.status === 404) {
+        setError("Inquiry not found.");
+        setDetail(null);
+        return;
+      }
+      if (!res.ok) throw new Error(`Request failed (${res.status})`);
+      const data = (await res.json()) as ClientInquiryDetail;
+      setDetail(data);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load inquiry");
+      setDetail(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [id, token]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const confirmCancelInquiry = useCallback(async () => {
+    if (!id || !token) return;
+    setActionError(null);
+    setCancelBusy(true);
+    try {
+      const res = await apiFetch(
+        `/api/client/consignment-inquiry/${id}/cancel`,
+        { method: "POST" },
+        token,
+      );
+      if (!res.ok) throw new Error(await readApiErrorMessage(res));
+      const data = (await res.json()) as ClientInquiryDetail;
+      setDetail(data);
+      setCancelConfirmOpen(false);
+    } catch (e) {
+      setActionError(
+        e instanceof Error ? e.message : "Could not cancel inquiry",
+      );
+    } finally {
+      setCancelBusy(false);
+    }
+  }, [id, token]);
+
+  const form = detail?.itemSnapshot.form ?? {};
+
+  return (
+    <div className="w-full min-w-0 space-y-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <Link
+          to="/consignments"
+          className="text-sm font-medium text-violet-700 hover:text-violet-900"
+        >
+          ← Back to consignments
+        </Link>
+      </div>
+
+      {error && (
+        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+          {error}
+        </p>
+      )}
+
+      {actionError && !cancelConfirmOpen ? (
+        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+          {actionError}
+        </p>
+      ) : null}
+
+      {loading && <p className="text-sm text-slate-600">Loading…</p>}
+
+      {!loading && detail && (
+        <>
+          <div className={cardClass}>
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h1 className="text-xl font-semibold text-slate-900">
+                {detail.sku}
+              </h1>
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium capitalize text-slate-700">
+                {formatInquiryStatus(detail.status)}
+              </span>
+            </div>
+            {detail.itemLabel && detail.itemLabel !== "Item" ? (
+              <p className="mt-1 text-sm text-slate-600">{detail.itemLabel}</p>
+            ) : null}
+
+            {canClientCancelInquiry(detail.status) ? (
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={cancelBusy}
+                  onClick={() => {
+                    setActionError(null);
+                    setCancelConfirmOpen(true);
+                  }}
+                  className="rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-800 shadow-sm hover:bg-red-50 disabled:opacity-50"
+                >
+                  {cancelBusy ? "Cancelling…" : "Cancel"}
+                </button>
+              </div>
+            ) : null}
+
+            {detail.offerPrice != null && detail.offerPrice !== "" ? (
+              <dl className="mt-4 rounded-lg border border-slate-100 bg-slate-50/80 p-3 text-sm">
+                <div className="flex flex-wrap gap-x-6 gap-y-1">
+                  <div>
+                    <dt className="text-slate-500">Offer type</dt>
+                    <dd className="font-medium text-slate-900">
+                      {formatOfferTransactionLabel(detail.offerTransactionType)}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500">Offer price</dt>
+                    <dd className="tabular-nums font-medium text-slate-900">
+                      {formatPhpDisplay(detail.offerPrice)}
+                    </dd>
+                  </div>
+                </div>
+              </dl>
+            ) : null}
+          </div>
+
+          <div className={cardClass}>
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600">
+              Item details
+            </h2>
+            <dl className="mt-4 grid grid-cols-1 gap-x-8 gap-y-4 text-sm text-slate-800 sm:grid-cols-2">
+              <div>
+                <dt className="text-slate-500">Model</dt>
+                <dd className="font-medium">{str(form.itemModel) || "—"}</dd>
+              </div>
+              <div>
+                <dt className="text-slate-500">Brand</dt>
+                <dd>{str(form.brand) || "—"}</dd>
+              </div>
+              <div>
+                <dt className="text-slate-500">Category</dt>
+                <dd>{str(form.category) || "—"}</dd>
+              </div>
+              {str(form.serialNumber) ? (
+                <div>
+                  <dt className="text-slate-500">Serial number</dt>
+                  <dd className="break-all font-mono text-xs sm:text-sm">
+                    {str(form.serialNumber)}
+                  </dd>
+                </div>
+              ) : null}
+              {str(form.color) ? (
+                <div>
+                  <dt className="text-slate-500">Color</dt>
+                  <dd>{str(form.color)}</dd>
+                </div>
+              ) : null}
+              {str(form.material) ? (
+                <div>
+                  <dt className="text-slate-500">Material</dt>
+                  <dd>{str(form.material)}</dd>
+                </div>
+              ) : null}
+              <div>
+                <dt className="text-slate-500">Condition</dt>
+                <dd>{str(form.condition) || "—"}</dd>
+              </div>
+              <div className="sm:col-span-2">
+                <dt className="text-slate-500">Inclusions</dt>
+                <dd className="whitespace-pre-wrap">
+                  {str(form.inclusions) || "—"}
+                </dd>
+              </div>
+              {form.datePurchased ? (
+                <div>
+                  <dt className="text-slate-500">Date purchased</dt>
+                  <dd>{formatDatePurchased(form.datePurchased)}</dd>
+                </div>
+              ) : null}
+              {str(form.sourceOfPurchase) ? (
+                <div>
+                  <dt className="text-slate-500">Source of purchase</dt>
+                  <dd>{str(form.sourceOfPurchase)}</dd>
+                </div>
+              ) : null}
+              {str(form.consignmentSellingPrice) ? (
+                <div>
+                  <dt className="text-slate-500">Consignment selling price</dt>
+                  <dd className="tabular-nums">
+                    {formatPhpDisplay(str(form.consignmentSellingPrice))}
+                  </dd>
+                </div>
+              ) : null}
+              {str(form.directPurchaseSellingPrice) ? (
+                <div>
+                  <dt className="text-slate-500">
+                    Direct purchase selling price
+                  </dt>
+                  <dd className="tabular-nums">
+                    {formatPhpDisplay(str(form.directPurchaseSellingPrice))}
+                  </dd>
+                </div>
+              ) : null}
+              {str(form.specialInstructions) ? (
+                <div className="sm:col-span-2">
+                  <dt className="text-slate-500">Special instructions</dt>
+                  <dd className="whitespace-pre-wrap">
+                    {str(form.specialInstructions)}
+                  </dd>
+                </div>
+              ) : null}
+              <div className="sm:col-span-2">
+                <dt className="text-slate-500">Consents</dt>
+                <dd className="text-sm">
+                  Allow direct purchase: {yesNo(form.consentDirectPurchase)}
+                </dd>
+              </div>
+            </dl>
+          </div>
+
+          <div className={cardClass}>
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600">
+              Photos
+              {detail.photoCount > 0 ? (
+                <span className="ml-2 font-normal normal-case text-slate-500">
+                  ({detail.photoCount})
+                </span>
+              ) : null}
+            </h2>
+            {detail.itemSnapshot.images.length === 0 ? (
+              <p className="mt-2 text-sm text-slate-500">No photos uploaded.</p>
+            ) : (
+              <ul className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
+                {detail.itemSnapshot.images.map((img) => (
+                  <li
+                    key={img.key}
+                    className="overflow-hidden rounded-lg border border-slate-200 bg-slate-50"
+                  >
+                    <a
+                      href={img.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500"
+                    >
+                      <img
+                        src={img.url}
+                        alt=""
+                        className="aspect-square w-full object-cover"
+                        loading="lazy"
+                      />
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </>
+      )}
+
+      <ConfirmDialog
+        open={cancelConfirmOpen}
+        title="Cancel this inquiry?"
+        description="Your inquiry will be marked as cancelled. You can still view it here, but The Bag Hub will treat it as withdrawn."
+        cancelLabel="Keep inquiry"
+        confirmLabel="Yes, cancel"
+        danger
+        busy={cancelBusy}
+        errorMessage={actionError}
+        onCancel={() => {
+          if (cancelBusy) return;
+          setActionError(null);
+          setCancelConfirmOpen(false);
+        }}
+        onConfirm={confirmCancelInquiry}
+      />
+    </div>
+  );
+}

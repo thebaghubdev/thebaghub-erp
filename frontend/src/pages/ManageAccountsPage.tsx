@@ -53,7 +53,7 @@ type ClientRow = {
 type Tab = 'employees' | 'clients'
 
 const tabBtn =
-  'rounded-lg px-4 py-2 text-sm font-medium transition-colors focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500'
+  '-mb-px border-b-2 border-transparent px-4 py-2 text-sm font-medium transition-colors focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500'
 
 const field =
   'box-border h-10 min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 py-0 text-sm leading-5 text-slate-900 outline-none ring-violet-500 focus:ring-2 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100'
@@ -252,7 +252,7 @@ export function ManageAccountsPage() {
           aria-controls="panel-clients"
           className={`${tabBtn} ${
             tab === 'clients'
-              ? 'border-b-2 border-violet-600 text-violet-700 dark:text-violet-300'
+              ? 'border-violet-600 text-violet-700 dark:text-violet-300'
               : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100'
           }`}
           onClick={() => setTab('clients')}

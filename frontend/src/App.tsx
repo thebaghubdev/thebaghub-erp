@@ -15,6 +15,7 @@ import { RequirePortalAuth } from './components/RequirePortalAuth'
 import { ClientCreateAccountPage } from './pages/ClientCreateAccountPage'
 import { ClientLoginPage } from './pages/ClientLoginPage'
 import { ClientMyAccountPage } from './pages/ClientMyAccountPage'
+import { ClientConsignmentDetailPage } from './pages/ClientConsignmentDetailPage'
 import { ConsignItemsPage } from './pages/ConsignItemsPage'
 import { InquiryDetailPage } from './pages/InquiryDetailPage'
 import { InquiryPage } from './pages/InquiryPage'
@@ -88,6 +89,7 @@ const router = createBrowserRouter([
           </RequireClientAuth>
         ),
         children: [
+          { path: 'consignments/:id', element: <ClientConsignmentDetailPage /> },
           { path: 'consignments', element: <ConsignItemsPage /> },
           { path: 'purchases', element: <PurchaseItemsPage /> },
           { path: 'my-account', element: <ClientMyAccountPage /> },

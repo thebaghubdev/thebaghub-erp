@@ -4,7 +4,9 @@ import { Link, useParams } from "react-router-dom";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { usePortalAuth } from "../context/portal-auth";
+import { PhpPriceInput } from "../components/PhpPriceInput";
 import { apiFetch } from "../lib/api";
+import { formatPhpDisplay, parsePhpStringToNumber } from "../lib/format-php";
 
 type TransactionType = "consignment" | "direct_purchase";
 
@@ -41,12 +43,22 @@ type InquiryDetail = {
 };
 
 function formatInquiryStatus(status: string) {
-  return status.replace(/_/g, " ");
+  const s = status.replace(/_/g, " ").trim();
+  if (!s) return status;
+  return s.replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 function canShowStaffActions(status: string): boolean {
   const s = status.trim().toLowerCase();
-  return s === "pending" || s === "under_review";
+  return (
+    s === "pending" ||
+    s === "under_review" ||
+    s === "for_offer_confirmation"
+  );
+}
+
+function isForOfferConfirmation(status: string): boolean {
+  return status.trim().toLowerCase() === "for_offer_confirmation";
 }
 
 function formatOfferTransactionLabel(t: TransactionType | null): string {
@@ -112,7 +124,7 @@ function OfferModalAskingPrices({ detail }: { detail: InquiryDetail }) {
               Consignment selling price
             </dt>
             <dd className="tabular-nums font-medium text-slate-900 dark:text-slate-100">
-              {consignmentAsk}
+              {formatPhpDisplay(consignmentAsk)}
             </dd>
           </div>
         ) : null}
@@ -122,7 +134,7 @@ function OfferModalAskingPrices({ detail }: { detail: InquiryDetail }) {
               Direct purchase selling price
             </dt>
             <dd className="tabular-nums font-medium text-slate-900 dark:text-slate-100">
-              {directAsk}
+              {formatPhpDisplay(directAsk)}
             </dd>
           </div>
         ) : null}
@@ -230,7 +242,10 @@ export function InquiryDetailPage() {
     setTxnType("consignment");
     setOfferPriceInput(
       detail.offerPrice != null && detail.offerPrice !== ""
-        ? detail.offerPrice
+        ? (() => {
+            const n = parsePhpStringToNumber(String(detail.offerPrice));
+            return n != null ? n.toFixed(2) : String(detail.offerPrice);
+          })()
         : "",
     );
     setOfferModalOpen(true);
@@ -240,8 +255,8 @@ export function InquiryDetailPage() {
     async (e: FormEvent) => {
       e.preventDefault();
       if (!id || !token || !detail) return;
-      const price = Number(offerPriceInput);
-      if (!Number.isFinite(price) || price <= 0) {
+      const price = parsePhpStringToNumber(offerPriceInput);
+      if (price == null || price <= 0) {
         setActionError("Enter a valid offer price greater than zero.");
         return;
       }
@@ -391,7 +406,9 @@ export function InquiryDetailPage() {
                     onClick={openOfferModal}
                     className="rounded-lg bg-violet-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-violet-700 disabled:opacity-50 dark:bg-violet-600 dark:hover:bg-violet-500"
                   >
-                    Make an Offer
+                    {isForOfferConfirmation(detail.status)
+                      ? "Update the offer"
+                      : "Make an Offer"}
                   </button>
                 </>
               ) : null}
@@ -407,8 +424,7 @@ export function InquiryDetailPage() {
                 </p>
               ) : (
                 <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-                  No notes yet. Use Update Notes to add internal notes for your
-                  team.
+                  -
                 </p>
               )}
             </div>
@@ -429,7 +445,7 @@ export function InquiryDetailPage() {
                       Offer price
                     </dt>
                     <dd className="tabular-nums font-medium text-slate-900 dark:text-slate-100">
-                      {detail.offerPrice}
+                      {formatPhpDisplay(detail.offerPrice)}
                     </dd>
                   </div>
                 </div>
@@ -559,7 +575,7 @@ export function InquiryDetailPage() {
                     Consignment selling price
                   </dt>
                   <dd className="tabular-nums">
-                    {str(form.consignmentSellingPrice)}
+                    {formatPhpDisplay(str(form.consignmentSellingPrice))}
                   </dd>
                 </div>
               ) : null}
@@ -569,7 +585,7 @@ export function InquiryDetailPage() {
                     Direct purchase selling price
                   </dt>
                   <dd className="tabular-nums">
-                    {str(form.directPurchaseSellingPrice)}
+                    {formatPhpDisplay(str(form.directPurchaseSellingPrice))}
                   </dd>
                 </div>
               ) : null}
@@ -656,7 +672,9 @@ export function InquiryDetailPage() {
                       id={offerModalTitleId}
                       className="text-base font-semibold text-slate-900 dark:text-slate-100"
                     >
-                      Make an offer
+                      {isForOfferConfirmation(detail.status)
+                        ? "Update the offer"
+                        : "Make an offer"}
                     </h2>
                     <form
                       onSubmit={(e) => void submitOffer(e)}
@@ -707,21 +725,19 @@ export function InquiryDetailPage() {
                           htmlFor="offer-price"
                           className="block text-sm font-medium text-slate-700 dark:text-slate-300"
                         >
-                          Offer price
+                          Offer price (PHP)
                         </label>
-                        <input
-                          id="offer-price"
-                          type="number"
-                          inputMode="decimal"
-                          min={0.01}
-                          step="0.01"
-                          required
-                          value={offerPriceInput}
-                          onChange={(e) => setOfferPriceInput(e.target.value)}
-                          disabled={actionBusy !== null}
-                          className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
-                          placeholder="0.00"
-                        />
+                        <div className="mt-1">
+                          <PhpPriceInput
+                            id="offer-price"
+                            value={offerPriceInput}
+                            onChange={setOfferPriceInput}
+                            disabled={actionBusy !== null}
+                            required
+                            className="w-full rounded-lg border border-slate-300 bg-white py-2 pr-3 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
+                            placeholder="0.00"
+                          />
+                        </div>
                       </div>
                       <div className="flex flex-wrap justify-end gap-2 pt-2">
                         <button
@@ -737,7 +753,11 @@ export function InquiryDetailPage() {
                           disabled={actionBusy !== null}
                           className="rounded-lg bg-violet-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-violet-700 disabled:opacity-50 dark:bg-violet-600 dark:hover:bg-violet-500"
                         >
-                          {actionBusy === "offer" ? "Saving…" : "Submit offer"}
+                          {actionBusy === "offer"
+                            ? "Saving…"
+                            : isForOfferConfirmation(detail.status)
+                              ? "Update the offer"
+                              : "Submit offer"}
                         </button>
                       </div>
                     </form>
