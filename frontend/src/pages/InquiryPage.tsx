@@ -5,6 +5,7 @@ import { DataTable } from "../components/data-table/DataTable";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
+import { formatInquiryStatus } from "../lib/format-inquiry-status";
 import { formatPhpDisplay } from "../lib/format-php";
 
 type InquiryRow = {
@@ -26,12 +27,6 @@ type InquiryRow = {
 };
 
 type InquiryTab = "all" | "create";
-
-function formatInquiryStatus(status: string) {
-  const s = status.replace(/_/g, " ").trim();
-  if (!s) return status;
-  return s.replace(/\b\w/g, (c) => c.toUpperCase());
-}
 
 function yesNo(v: boolean) {
   return v ? "Yes" : "No";
@@ -194,6 +189,7 @@ export function InquiryPage() {
       setLoading(false);
     }
   }, [token]);
+
   useEffect(() => {
     if (tab === "all") void loadInquiries();
   }, [tab, loadInquiries]);

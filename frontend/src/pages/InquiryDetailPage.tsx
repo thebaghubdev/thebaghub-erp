@@ -6,6 +6,7 @@ import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { usePortalAuth } from "../context/portal-auth";
 import { PhpPriceInput } from "../components/PhpPriceInput";
 import { apiFetch } from "../lib/api";
+import { formatInquiryStatus } from "../lib/format-inquiry-status";
 import { formatPhpDisplay, parsePhpStringToNumber } from "../lib/format-php";
 
 type TransactionType = "consignment" | "direct_purchase";
@@ -54,18 +55,19 @@ type InquiryDetail = {
   };
 };
 
-function formatInquiryStatus(status: string) {
-  const s = status.replace(/_/g, " ").trim();
-  if (!s) return status;
-  return s.replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
 function canShowStaffActions(status: string): boolean {
   const s = status.trim().toLowerCase();
+  if (
+    s === "for_delivery_scheduled" ||
+    s === "for_pullout_scheduled"
+  ) {
+    return false;
+  }
   return (
     s === "pending" ||
     s === "for_offer_confirmation" ||
-    s === "for_delivery"
+    s === "for_delivery" ||
+    s === "for_pullout"
   );
 }
 

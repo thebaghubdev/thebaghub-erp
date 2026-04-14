@@ -4,6 +4,7 @@ import { ConsignmentInquiryWizard } from '../components/ConsignmentInquiryWizard
 import { SubmittedAtCell } from '../components/SubmittedAtCell'
 import { useClientAuth } from '../context/client-auth'
 import { apiFetch } from '../lib/api'
+import { formatInquiryStatus } from '../lib/format-inquiry-status'
 
 type ConsignmentsTab = 'mine' | 'consign'
 
@@ -16,12 +17,6 @@ type MyInquiryRow = {
 
 const tabBtn =
   '-mb-px border-b-2 border-transparent px-3 py-2 text-sm font-medium transition-colors focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500 sm:px-4'
-
-function formatInquiryStatus(status: string) {
-  const s = status.replace(/_/g, ' ').trim()
-  if (!s) return status
-  return s.replace(/\b\w/g, (c) => c.toUpperCase())
-}
 
 const LEAVE_TAB_MSG =
   'You have unsaved changes to this consignment inquiry. Switch tabs anyway?'

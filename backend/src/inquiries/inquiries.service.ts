@@ -249,12 +249,26 @@ export class InquiriesService {
   }
 
   /** Staff list: inquiry row + consignor + item snapshot fields for triage. */
-  async findAllForStaff(): Promise<StaffInquiryRow[]> {
+  async findAllForStaff(statusFilter?: string): Promise<StaffInquiryRow[]> {
+    const where =
+      statusFilter != null && String(statusFilter).trim() !== ''
+        ? { status: this.parseInquiryStatusFilter(statusFilter) }
+        : {};
     const rows = await this.inquiriesRepo.find({
+      where,
       order: { createdAt: 'DESC' },
       relations: { consignor: true },
     });
     return rows.map((r) => this.mapInquiryToStaffRow(r));
+  }
+
+  private parseInquiryStatusFilter(raw: string): InquiryStatus {
+    const v = raw.trim().toLowerCase();
+    const allowed = Object.values(InquiryStatus) as string[];
+    if (!allowed.includes(v)) {
+      throw new BadRequestException(`Invalid status filter: ${raw}`);
+    }
+    return v as InquiryStatus;
   }
 
   /** Full inquiry with snapshot and image URLs (refreshed from stored keys). */

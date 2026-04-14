@@ -17,6 +17,11 @@ import { User } from './users/entities/user.entity';
 import { SettingsModule } from './settings/settings.module';
 import { Setting } from './settings/entities/setting.entity';
 import { AccountsModule } from './accounts/accounts.module';
+import { ConsignmentSchedulesModule } from './consignment-schedules/consignment-schedules.module';
+import {
+  ConsignmentSchedule,
+  ConsignmentScheduleItem,
+} from './consignment-schedules/entities/consignment-schedule.entities';
 
 @Module({
   imports: [
@@ -31,7 +36,16 @@ import { AccountsModule } from './accounts/accounts.module';
         username: config.get<string>('DB_USERNAME', 'baghub'),
         password: config.get<string>('DB_PASSWORD', 'baghub'),
         database: config.get<string>('DB_DATABASE', 'baghub'),
-        entities: [Item, Inquiry, User, Employee, Client, Setting],
+        entities: [
+          Item,
+          Inquiry,
+          User,
+          Employee,
+          Client,
+          Setting,
+          ConsignmentSchedule,
+          ConsignmentScheduleItem,
+        ],
         synchronize:
           config.get<string>('NODE_ENV', 'development') !== 'production',
       }),
@@ -42,6 +56,7 @@ import { AccountsModule } from './accounts/accounts.module';
     InquiriesModule,
     SettingsModule,
     AccountsModule,
+    ConsignmentSchedulesModule,
   ],
   controllers: [AppController],
   providers: [

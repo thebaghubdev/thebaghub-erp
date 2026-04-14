@@ -2,6 +2,7 @@ import { Link, useLocation } from "react-router-dom";
 
 const pathLabels: Record<string, string> = {
   "/portal/inquiries": "Consignment Inquiries",
+  "/portal/consignment-scheduling": "Consignment Scheduling",
   "/portal/settings": "Settings",
   "/portal/accounts": "Manage Accounts",
   "/portal/accounts/register": "Register",

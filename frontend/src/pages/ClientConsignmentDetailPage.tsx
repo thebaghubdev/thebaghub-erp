@@ -6,6 +6,7 @@ import { OfferSignatureField } from "../components/OfferSignatureField";
 import { TermsScrollAgreeModal } from "../components/TermsScrollAgreeModal";
 import { useClientAuth } from "../context/client-auth";
 import { apiFetch } from "../lib/api";
+import { formatInquiryStatus } from "../lib/format-inquiry-status";
 import { formatPhpDisplay } from "../lib/format-php";
 
 type TransactionType = "consignment" | "direct_purchase";
@@ -51,12 +52,6 @@ type ClientInquiryDetail = {
     images: Array<{ key: string; url: string }>;
   };
 };
-
-function formatInquiryStatus(status: string) {
-  const s = status.replace(/_/g, " ").trim();
-  if (!s) return status;
-  return s.replace(/\b\w/g, (c) => c.toUpperCase());
-}
 
 function canClientCancelInquiry(status: string): boolean {
   const s = status.trim().toLowerCase();

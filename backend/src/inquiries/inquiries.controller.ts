@@ -6,6 +6,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { StaffOnlyGuard } from '../auth/staff-only.guard';
@@ -19,8 +20,8 @@ export class InquiriesController {
   constructor(private readonly inquiriesService: InquiriesService) {}
 
   @Get()
-  findAll() {
-    return this.inquiriesService.findAllForStaff();
+  findAll(@Query('status') status?: string) {
+    return this.inquiriesService.findAllForStaff(status);
   }
 
   @Get(':id')
