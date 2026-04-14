@@ -13,8 +13,13 @@ import { InquiryStatus } from '../enums/inquiry-status.enum';
 import { JwtUser } from '../auth/jwt-user';
 import { UpdateInquiryNotesDto } from './dto/update-inquiry-notes.dto';
 import { SubmitOfferDto } from './dto/submit-offer.dto';
+import { ConfirmOfferDto } from './dto/confirm-offer.dto';
 import { SubmitConsignmentInquiryDto } from './dto/submit-consignment-inquiry.dto';
-import { Inquiry, InquiryItemSnapshot } from './entities/inquiry.entity';
+import {
+  ClientOfferConfirmationData,
+  Inquiry,
+  InquiryItemSnapshot,
+} from './entities/inquiry.entity';
 import type { MulterFile } from './multer-file.type';
 import { S3StorageService } from './s3-storage.service';
 
@@ -121,7 +126,15 @@ export type StaffInquiryRow = {
   photoCount: number;
   offerTransactionType: 'consignment' | 'direct_purchase' | null;
   offerPrice: string | null;
+  clientOfferConfirmation: ClientOfferConfirmationView | null;
   notes: string | null;
+};
+
+/** Client/staff API shape (public URL for signature image). */
+export type ClientOfferConfirmationView = {
+  paymentMethod: ClientOfferConfirmationData['paymentMethod'];
+  bankDetails: ClientOfferConfirmationData['bankDetails'];
+  signatureUrl: string;
 };
 
 export type StaffInquiryDetail = StaffInquiryRow & {
@@ -152,6 +165,46 @@ export class InquiriesService {
     private readonly clientsRepo: Repository<Client>,
     private readonly s3: S3StorageService,
   ) {}
+
+  /** Builds API view from inquiry columns + client bank fields, or legacy JSONB. */
+  private mapClientOfferConfirmationForApi(
+    r: Inquiry,
+  ): ClientOfferConfirmationView | null {
+    if (r.preferredPaymentMethod && r.offerSignatureKey) {
+      const consignor = r.consignor;
+      let bankDetails: ClientOfferConfirmationData['bankDetails'] = null;
+      if (r.preferredPaymentMethod === 'direct_deposit' && consignor) {
+        const num = consignor.bankAccountNumber?.trim();
+        const name = consignor.bankAccountName?.trim();
+        const code = consignor.bankCode?.trim();
+        const branch = consignor.bankBranch?.trim();
+        if (num && name && code && branch) {
+          bankDetails = {
+            accountNumber: num,
+            accountName: name,
+            bank: code as 'bdo' | 'bpi' | 'other',
+            branch,
+          };
+        }
+      }
+      return {
+        paymentMethod: r.preferredPaymentMethod,
+        bankDetails,
+        signatureUrl: this.s3.getPublicUrl(r.offerSignatureKey),
+      };
+    }
+    const legacy = r.clientOfferConfirmation;
+    if (!legacy) {
+      return null;
+    }
+    return {
+      paymentMethod: legacy.paymentMethod,
+      bankDetails: legacy.bankDetails,
+      signatureUrl: legacy.signatureKey
+        ? this.s3.getPublicUrl(legacy.signatureKey)
+        : '',
+    };
+  }
 
   private mapInquiryToStaffRow(r: Inquiry): StaffInquiryRow {
     const form = (r.itemSnapshot?.form ?? {}) as Record<string, unknown>;
@@ -186,6 +239,7 @@ export class InquiriesService {
         r.offerPrice != null && r.offerPrice !== ''
           ? String(r.offerPrice)
           : null,
+      clientOfferConfirmation: this.mapClientOfferConfirmationForApi(r),
       notes: (() => {
         if (r.notes == null) return null;
         const t = String(r.notes).trim();
@@ -316,7 +370,6 @@ export class InquiriesService {
     }
     if (
       r.status !== InquiryStatus.PENDING &&
-      r.status !== InquiryStatus.UNDER_REVIEW &&
       r.status !== InquiryStatus.FOR_OFFER_CONFIRMATION
     ) {
       throw new BadRequestException(
@@ -384,6 +437,100 @@ export class InquiriesService {
       form: r.itemSnapshot.form ?? {},
       images: existing,
     };
+    await this.inquiriesRepo.save(r);
+    return this.findOneForClient(user, inquiryId);
+  }
+
+  /** Consignor confirms the staff offer, payment preference, and signature image. */
+  async confirmOfferForClient(
+    user: JwtUser,
+    inquiryId: string,
+    payloadRaw: string | undefined,
+    signatureFile: MulterFile | undefined,
+  ): Promise<ClientInquiryDetail> {
+    if (payloadRaw == null || payloadRaw.trim() === '') {
+      throw new BadRequestException('Missing payload');
+    }
+    if (!signatureFile?.buffer?.length) {
+      throw new BadRequestException('Signature image is required');
+    }
+
+    let dto: ConfirmOfferDto;
+    try {
+      dto = plainToInstance(
+        ConfirmOfferDto,
+        JSON.parse(payloadRaw) as object,
+        { enableImplicitConversion: true },
+      );
+      await validateOrReject(dto);
+    } catch {
+      throw new BadRequestException('Invalid offer confirmation payload');
+    }
+
+    const mime = signatureFile.mimetype?.toLowerCase() ?? '';
+    if (!ALLOWED_IMAGE_MIMES.has(mime)) {
+      throw new BadRequestException(
+        `Signature must be an image file (${signatureFile.mimetype || 'unknown'})`,
+      );
+    }
+
+    const client = await this.clientsRepo.findOne({
+      where: { userId: user.userId },
+    });
+    if (!client) {
+      throw new NotFoundException('Client profile not found');
+    }
+    const r = await this.inquiriesRepo.findOne({
+      where: { id: inquiryId, consignorId: client.id },
+    });
+    if (!r) {
+      throw new NotFoundException('Inquiry not found');
+    }
+    if (r.status !== InquiryStatus.FOR_OFFER_CONFIRMATION) {
+      throw new BadRequestException(
+        'The offer can only be confirmed while it is awaiting your confirmation',
+      );
+    }
+    if (r.offerPrice == null || String(r.offerPrice).trim() === '') {
+      throw new BadRequestException('No offer is available to confirm');
+    }
+
+    let bankDetails: ClientOfferConfirmationData['bankDetails'] = null;
+    if (dto.paymentMethod === 'direct_deposit') {
+      if (!dto.bankDetails) {
+        throw new BadRequestException(
+          'Bank details are required for direct deposit',
+        );
+      }
+      bankDetails = {
+        accountNumber: dto.bankDetails.accountNumber.trim(),
+        accountName: dto.bankDetails.accountName.trim(),
+        bank: dto.bankDetails.bank,
+        branch: dto.bankDetails.branch.trim(),
+      };
+    }
+
+    const ext = extFromMime(mime);
+    const signatureKey = `inquiries/${inquiryId}/offer-signature-${randomUUID()}.${ext}`;
+    await this.s3.putObject(signatureKey, signatureFile.buffer, mime);
+
+    if (dto.paymentMethod === 'direct_deposit' && bankDetails) {
+      client.bankAccountNumber = bankDetails.accountNumber;
+      client.bankAccountName = bankDetails.accountName;
+      client.bankCode = bankDetails.bank;
+      client.bankBranch = bankDetails.branch;
+    } else {
+      client.bankAccountNumber = null;
+      client.bankAccountName = null;
+      client.bankCode = null;
+      client.bankBranch = null;
+    }
+    await this.clientsRepo.save(client);
+
+    r.preferredPaymentMethod = dto.paymentMethod;
+    r.offerSignatureKey = signatureKey;
+    r.clientOfferConfirmation = null;
+    r.status = InquiryStatus.FOR_DELIVERY;
     await this.inquiriesRepo.save(r);
     return this.findOneForClient(user, inquiryId);
   }
@@ -502,8 +649,6 @@ export class InquiriesService {
   }
 
   private static readonly terminalInquiryStatuses = new Set<InquiryStatus>([
-    InquiryStatus.APPROVED,
-    InquiryStatus.REJECTED,
     InquiryStatus.DECLINED,
     InquiryStatus.CANCELLED,
   ]);
@@ -544,6 +689,9 @@ export class InquiriesService {
     r.offerTransactionType = dto.transactionType;
     r.offerPrice = dto.offerPrice.toFixed(2);
     r.status = InquiryStatus.FOR_OFFER_CONFIRMATION;
+    r.clientOfferConfirmation = null;
+    r.preferredPaymentMethod = null;
+    r.offerSignatureKey = null;
     await this.inquiriesRepo.save(r);
     return this.findOneForStaff(id);
   }

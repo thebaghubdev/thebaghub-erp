@@ -1,11 +1,25 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from "react";
+import { createPortal } from "react-dom";
 import { Link, useParams } from "react-router-dom";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { OfferSignatureField } from "../components/OfferSignatureField";
+import { TermsScrollAgreeModal } from "../components/TermsScrollAgreeModal";
 import { useClientAuth } from "../context/client-auth";
 import { apiFetch } from "../lib/api";
 import { formatPhpDisplay } from "../lib/format-php";
 
 type TransactionType = "consignment" | "direct_purchase";
+
+type ClientOfferConfirmation = {
+  paymentMethod: "check_pickup" | "cash_pickup" | "direct_deposit";
+  bankDetails: {
+    accountNumber: string;
+    accountName: string;
+    bank: "bdo" | "bpi" | "other";
+    branch: string;
+  } | null;
+  signatureUrl: string;
+};
 
 type ClientInquiryDetail = {
   id: string;
@@ -30,6 +44,7 @@ type ClientInquiryDetail = {
   photoCount: number;
   offerTransactionType: TransactionType | null;
   offerPrice: string | null;
+  clientOfferConfirmation?: ClientOfferConfirmation | null;
   itemSnapshot: {
     clientItemId: string;
     form: Record<string, unknown>;
@@ -45,9 +60,34 @@ function formatInquiryStatus(status: string) {
 
 function canClientCancelInquiry(status: string): boolean {
   const s = status.trim().toLowerCase();
-  return (
-    s === "pending" || s === "under_review" || s === "for_offer_confirmation"
-  );
+  return s === "pending" || s === "for_offer_confirmation";
+}
+
+function isAwaitingOfferConfirmation(status: string): boolean {
+  return status.trim().toLowerCase() === "for_offer_confirmation";
+}
+
+/** Allow extra photos for any non-terminal inquiry. */
+function canClientAddPhotos(status: string): boolean {
+  const s = status.trim().toLowerCase();
+  return !["declined", "cancelled"].includes(s);
+}
+
+function formatClientPaymentMethod(
+  m: ClientOfferConfirmation["paymentMethod"],
+): string {
+  if (m === "check_pickup") return "Check pickup";
+  if (m === "cash_pickup") return "Cash pickup";
+  if (m === "direct_deposit") return "Direct deposit";
+  return m;
+}
+
+function formatClientBank(
+  b: NonNullable<ClientOfferConfirmation["bankDetails"]>["bank"],
+): string {
+  if (b === "bdo") return "BDO";
+  if (b === "bpi") return "BPI";
+  return "Other";
 }
 
 async function readApiErrorMessage(res: Response): Promise<string> {
@@ -87,6 +127,8 @@ function yesNo(v: unknown): string {
 
 const cardClass = "rounded-xl border border-slate-200 bg-white p-4 shadow-sm";
 
+const CONSIGNMENT_TERMS_URL = "/terms/consignment.txt";
+
 export function ClientConsignmentDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { token } = useClientAuth();
@@ -99,6 +141,24 @@ export function ClientConsignmentDetailPage() {
   const [uploadBusy, setUploadBusy] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
+  const [confirmModalOpen, setConfirmModalOpen] = useState(false);
+  const [confirmBusy, setConfirmBusy] = useState(false);
+  const [confirmFormError, setConfirmFormError] = useState<string | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState<
+    "check_pickup" | "cash_pickup" | "direct_deposit"
+  >("check_pickup");
+  const [accountNumber, setAccountNumber] = useState("");
+  const [accountName, setAccountName] = useState("");
+  const [bank, setBank] = useState<"bdo" | "bpi" | "other">("bdo");
+  const [branch, setBranch] = useState("");
+  const [consignmentTermsAccepted, setConsignmentTermsAccepted] =
+    useState(false);
+  const [termsAgreementModalOpen, setTermsAgreementModalOpen] = useState(false);
+  const [offerSignatureFile, setOfferSignatureFile] = useState<File | null>(
+    null,
+  );
+  const [signatureFieldKey, setSignatureFieldKey] = useState(0);
+  const confirmOfferTitleId = useId();
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -182,6 +242,90 @@ export function ClientConsignmentDetailPage() {
     [id, token],
   );
 
+  const openConfirmOfferModal = useCallback(() => {
+    setConfirmFormError(null);
+    setPaymentMethod("check_pickup");
+    setAccountNumber("");
+    setAccountName("");
+    setBank("bdo");
+    setBranch("");
+    setConsignmentTermsAccepted(false);
+    setOfferSignatureFile(null);
+    setSignatureFieldKey((k) => k + 1);
+    setConfirmModalOpen(true);
+  }, []);
+
+  const submitConfirmOffer = useCallback(
+    async (e: FormEvent) => {
+      e.preventDefault();
+      if (!id || !token) return;
+      if (!consignmentTermsAccepted) {
+        setConfirmFormError(
+          "You must read and agree to The Bag Hub Consignment Terms and Conditions.",
+        );
+        return;
+      }
+      if (!offerSignatureFile) {
+        setConfirmFormError(
+          "Please add your signature by drawing or uploading an image.",
+        );
+        return;
+      }
+      if (paymentMethod === "direct_deposit") {
+        if (
+          !accountNumber.trim() ||
+          !accountName.trim() ||
+          !branch.trim()
+        ) {
+          setConfirmFormError("Please fill in all bank details.");
+          return;
+        }
+      }
+      setConfirmFormError(null);
+      setConfirmBusy(true);
+      try {
+        const payload: Record<string, unknown> = { paymentMethod };
+        if (paymentMethod === "direct_deposit") {
+          payload.bankDetails = {
+            accountNumber: accountNumber.trim(),
+            accountName: accountName.trim(),
+            bank,
+            branch: branch.trim(),
+          };
+        }
+        const fd = new FormData();
+        fd.append("payload", JSON.stringify(payload));
+        fd.append("signature", offerSignatureFile);
+        const res = await apiFetch(
+          `/api/client/consignment-inquiry/${id}/confirm-offer`,
+          { method: "POST", body: fd },
+          token,
+        );
+        if (!res.ok) throw new Error(await readApiErrorMessage(res));
+        const data = (await res.json()) as ClientInquiryDetail;
+        setDetail(data);
+        setConfirmModalOpen(false);
+      } catch (err) {
+        setConfirmFormError(
+          err instanceof Error ? err.message : "Could not confirm offer",
+        );
+      } finally {
+        setConfirmBusy(false);
+      }
+    },
+    [
+      id,
+      token,
+      paymentMethod,
+      accountNumber,
+      accountName,
+      bank,
+      branch,
+      consignmentTermsAccepted,
+      offerSignatureFile,
+    ],
+  );
+
   const form = detail?.itemSnapshot.form ?? {};
 
   return (
@@ -224,19 +368,35 @@ export function ClientConsignmentDetailPage() {
               <p className="mt-1 text-sm text-slate-600">{detail.itemLabel}</p>
             ) : null}
 
-            {canClientCancelInquiry(detail.status) ? (
+            {canClientCancelInquiry(detail.status) ||
+            isAwaitingOfferConfirmation(detail.status) ? (
               <div className="mt-4 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  disabled={cancelBusy}
-                  onClick={() => {
-                    setActionError(null);
-                    setCancelConfirmOpen(true);
-                  }}
-                  className="rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-800 shadow-sm hover:bg-red-50 disabled:opacity-50"
-                >
-                  {cancelBusy ? "Cancelling…" : "Cancel"}
-                </button>
+                {canClientCancelInquiry(detail.status) ? (
+                  <button
+                    type="button"
+                    disabled={cancelBusy}
+                    onClick={() => {
+                      setActionError(null);
+                      setCancelConfirmOpen(true);
+                    }}
+                    className="rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-800 shadow-sm hover:bg-red-50 disabled:opacity-50"
+                  >
+                    {cancelBusy ? "Cancelling…" : "Cancel"}
+                  </button>
+                ) : null}
+                {isAwaitingOfferConfirmation(detail.status) ? (
+                  <button
+                    type="button"
+                    disabled={confirmBusy}
+                    onClick={() => {
+                      setActionError(null);
+                      openConfirmOfferModal();
+                    }}
+                    className="rounded-lg bg-violet-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-violet-700 disabled:opacity-50"
+                  >
+                    Confirm offer
+                  </button>
+                ) : null}
               </div>
             ) : null}
 
@@ -257,6 +417,70 @@ export function ClientConsignmentDetailPage() {
                   </div>
                 </div>
               </dl>
+            ) : null}
+
+            {detail.clientOfferConfirmation ? (
+              <div className="mt-4 rounded-lg border border-emerald-100 bg-emerald-50/80 p-3 text-sm">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-emerald-800">
+                  Your payment preference
+                </h3>
+                <dl className="mt-2 space-y-2 text-slate-800">
+                  <div>
+                    <dt className="text-slate-500">Preferred payment method</dt>
+                    <dd className="font-medium">
+                      {formatClientPaymentMethod(
+                        detail.clientOfferConfirmation.paymentMethod,
+                      )}
+                    </dd>
+                  </div>
+                  {detail.clientOfferConfirmation.paymentMethod ===
+                    "direct_deposit" &&
+                  detail.clientOfferConfirmation.bankDetails ? (
+                    <>
+                      <div>
+                        <dt className="text-slate-500">Bank</dt>
+                        <dd>
+                          {formatClientBank(
+                            detail.clientOfferConfirmation.bankDetails.bank,
+                          )}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-slate-500">Account name</dt>
+                        <dd>
+                          {detail.clientOfferConfirmation.bankDetails.accountName}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-slate-500">Account number</dt>
+                        <dd className="font-mono text-xs">
+                          {
+                            detail.clientOfferConfirmation.bankDetails
+                              .accountNumber
+                          }
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-slate-500">Branch</dt>
+                        <dd>{detail.clientOfferConfirmation.bankDetails.branch}</dd>
+                      </div>
+                    </>
+                  ) : null}
+                  {detail.clientOfferConfirmation.signatureUrl ? (
+                    <div>
+                      <dt className="text-slate-500">Signature</dt>
+                      <dd className="mt-1">
+                        <img
+                          src={detail.clientOfferConfirmation.signatureUrl}
+                          alt="Your signature"
+                          className="max-h-36 max-w-full rounded border border-slate-200 bg-white object-contain"
+                          loading="lazy"
+                        />
+                      </dd>
+                    </div>
+                  ) : null}
+                </dl>
+              </div>
             ) : null}
           </div>
 
@@ -363,7 +587,7 @@ export function ClientConsignmentDetailPage() {
                 </span>
               ) : null}
             </h2>
-            {canClientCancelInquiry(detail.status) ? (
+            {canClientAddPhotos(detail.status) ? (
               <div className="mt-3">
                 <input
                   ref={photoInputRef}
@@ -397,7 +621,7 @@ export function ClientConsignmentDetailPage() {
             ) : null}
             {detail.itemSnapshot.images.length === 0 ? (
               <p className="mt-2 text-sm text-slate-500">
-                {canClientCancelInquiry(detail.status)
+                {canClientAddPhotos(detail.status)
                   ? "No photos yet — add some above."
                   : "No photos uploaded."}
               </p>
@@ -428,6 +652,233 @@ export function ClientConsignmentDetailPage() {
           </div>
         </>
       )}
+
+      {confirmModalOpen && detail && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-[100] flex items-end justify-center p-4 sm:items-center"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby={confirmOfferTitleId}
+            >
+              <button
+                type="button"
+                className="absolute inset-0 bg-slate-900/50"
+                aria-label="Close confirm offer form"
+                onClick={() => {
+                  if (confirmBusy) return;
+                  setConfirmModalOpen(false);
+                }}
+              />
+              <div className="relative z-10 max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-slate-200 bg-white p-4 shadow-xl">
+                <h2
+                  id={confirmOfferTitleId}
+                  className="text-base font-semibold text-slate-900"
+                >
+                  Confirm offer
+                </h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  Choose how you would like to receive payment for this offer.
+                </p>
+                <form
+                  onSubmit={(e) => void submitConfirmOffer(e)}
+                  className="mt-4 space-y-4"
+                >
+                  <div>
+                    <label
+                      htmlFor="client-payment-method"
+                      className="block text-sm font-medium text-slate-700"
+                    >
+                      Your preferred payment method
+                    </label>
+                    <select
+                      id="client-payment-method"
+                      value={paymentMethod}
+                      onChange={(e) =>
+                        setPaymentMethod(
+                          e.target.value as typeof paymentMethod,
+                        )
+                      }
+                      disabled={confirmBusy}
+                      className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 disabled:bg-slate-100"
+                    >
+                      <option value="check_pickup">Check pickup</option>
+                      <option value="cash_pickup">Cash pickup</option>
+                      <option value="direct_deposit">Direct deposit</option>
+                    </select>
+                  </div>
+
+                  {paymentMethod === "direct_deposit" ? (
+                    <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/80 p-3">
+                      <p className="text-xs font-medium text-slate-600">
+                        Bank details
+                      </p>
+                      <div>
+                        <label
+                          htmlFor="confirm-bank"
+                          className="block text-xs font-medium text-slate-600"
+                        >
+                          Bank
+                        </label>
+                        <select
+                          id="confirm-bank"
+                          value={bank}
+                          onChange={(e) =>
+                            setBank(e.target.value as typeof bank)
+                          }
+                          disabled={confirmBusy}
+                          className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
+                        >
+                          <option value="bdo">BDO</option>
+                          <option value="bpi">BPI</option>
+                          <option value="other">Other</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label
+                          htmlFor="confirm-account-name"
+                          className="block text-xs font-medium text-slate-600"
+                        >
+                          Account name
+                        </label>
+                        <input
+                          id="confirm-account-name"
+                          type="text"
+                          autoComplete="name"
+                          value={accountName}
+                          onChange={(e) => setAccountName(e.target.value)}
+                          disabled={confirmBusy}
+                          required={paymentMethod === "direct_deposit"}
+                          className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
+                        />
+                      </div>
+                      <div>
+                        <label
+                          htmlFor="confirm-account-number"
+                          className="block text-xs font-medium text-slate-600"
+                        >
+                          Account number
+                        </label>
+                        <input
+                          id="confirm-account-number"
+                          type="text"
+                          inputMode="numeric"
+                          autoComplete="off"
+                          value={accountNumber}
+                          onChange={(e) => setAccountNumber(e.target.value)}
+                          disabled={confirmBusy}
+                          required={paymentMethod === "direct_deposit"}
+                          className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
+                        />
+                      </div>
+                      <div>
+                        <label
+                          htmlFor="confirm-branch"
+                          className="block text-xs font-medium text-slate-600"
+                        >
+                          Branch
+                        </label>
+                        <input
+                          id="confirm-branch"
+                          type="text"
+                          value={branch}
+                          onChange={(e) => setBranch(e.target.value)}
+                          disabled={confirmBusy}
+                          required={paymentMethod === "direct_deposit"}
+                          className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
+                        />
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <div className="flex items-start gap-2 pt-1">
+                    <input
+                      id="offer-consignment-terms"
+                      type="checkbox"
+                      checked={consignmentTermsAccepted}
+                      onChange={(e) => {
+                        if (!e.target.checked) {
+                          setConsignmentTermsAccepted(false);
+                        }
+                      }}
+                      onClick={(e) => {
+                        if (!consignmentTermsAccepted) {
+                          e.preventDefault();
+                          setConfirmFormError(null);
+                          setTermsAgreementModalOpen(true);
+                        }
+                      }}
+                      disabled={confirmBusy}
+                      className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 text-violet-600 focus:ring-violet-500 disabled:opacity-50"
+                    />
+                    <label
+                      htmlFor="offer-consignment-terms"
+                      className="text-sm leading-snug text-slate-700"
+                    >
+                      I agree to The Bag Hub Consignment Terms and Conditions.
+                    </label>
+                  </div>
+
+                  <div>
+                    <p className="text-sm font-medium text-slate-700">
+                      Signature
+                    </p>
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      Draw your signature or upload a clear image of it.
+                    </p>
+                    <div className="mt-2">
+                      <OfferSignatureField
+                        key={signatureFieldKey}
+                        disabled={confirmBusy}
+                        onSignatureChange={setOfferSignatureFile}
+                      />
+                    </div>
+                  </div>
+
+                  {confirmFormError ? (
+                    <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                      {confirmFormError}
+                    </p>
+                  ) : null}
+
+                  <div className="flex flex-wrap justify-end gap-2 pt-2">
+                    <button
+                      type="button"
+                      disabled={confirmBusy}
+                      onClick={() => setConfirmModalOpen(false)}
+                      className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={
+                        confirmBusy ||
+                        !consignmentTermsAccepted ||
+                        !offerSignatureFile
+                      }
+                      className="rounded-lg bg-violet-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {confirmBusy ? "Submitting…" : "Submit"}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+
+      <TermsScrollAgreeModal
+        open={termsAgreementModalOpen}
+        onClose={() => setTermsAgreementModalOpen(false)}
+        onAgree={() => {
+          setConsignmentTermsAccepted(true);
+          setTermsAgreementModalOpen(false);
+        }}
+        url={CONSIGNMENT_TERMS_URL}
+        title="Consignment — terms and conditions"
+      />
 
       <ConfirmDialog
         open={cancelConfirmOpen}

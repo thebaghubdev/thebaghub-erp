@@ -6,11 +6,12 @@ import {
   ParseUUIDPipe,
   Post,
   Req,
+  UploadedFile,
   UploadedFiles,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
-import { FilesInterceptor } from '@nestjs/platform-express';
+import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { JwtUser } from '../auth/jwt-user';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ClientOnlyGuard } from '../auth/client-only.guard';
@@ -52,6 +53,27 @@ export class ClientConsignmentInquiryController {
       req.user,
       payload,
       files,
+    );
+  }
+
+  /** Consignor confirms the staff offer (multipart: `payload` JSON + `signature` image). */
+  @Post(':id/confirm-offer')
+  @UseInterceptors(
+    FileInterceptor('signature', {
+      limits: { fileSize: 5 * 1024 * 1024 },
+    }),
+  )
+  confirmOffer(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body('payload') payload: string,
+    @UploadedFile() signature: MulterFile | undefined,
+  ) {
+    return this.inquiriesService.confirmOfferForClient(
+      req.user,
+      id,
+      payload,
+      signature,
     );
   }
 

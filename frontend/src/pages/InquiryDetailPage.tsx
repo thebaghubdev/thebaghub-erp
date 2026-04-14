@@ -10,6 +10,17 @@ import { formatPhpDisplay, parsePhpStringToNumber } from "../lib/format-php";
 
 type TransactionType = "consignment" | "direct_purchase";
 
+type ClientOfferConfirmation = {
+  paymentMethod: "check_pickup" | "cash_pickup" | "direct_deposit";
+  bankDetails: {
+    accountNumber: string;
+    accountName: string;
+    bank: "bdo" | "bpi" | "other";
+    branch: string;
+  } | null;
+  signatureUrl: string;
+};
+
 type InquiryDetail = {
   id: string;
   sku: string;
@@ -33,6 +44,7 @@ type InquiryDetail = {
   photoCount: number;
   offerTransactionType: TransactionType | null;
   offerPrice: string | null;
+  clientOfferConfirmation?: ClientOfferConfirmation | null;
   /** Staff-only notes persisted on the inquiry row. */
   notes: string | null;
   itemSnapshot: {
@@ -52,19 +64,36 @@ function canShowStaffActions(status: string): boolean {
   const s = status.trim().toLowerCase();
   return (
     s === "pending" ||
-    s === "under_review" ||
-    s === "for_offer_confirmation"
+    s === "for_offer_confirmation" ||
+    s === "for_delivery"
   );
 }
 
-function isForOfferConfirmation(status: string): boolean {
-  return status.trim().toLowerCase() === "for_offer_confirmation";
+function isPending(status: string): boolean {
+  return status.trim().toLowerCase() === "pending";
 }
 
 function formatOfferTransactionLabel(t: TransactionType | null): string {
   if (t === "direct_purchase") return "Direct purchase";
   if (t === "consignment") return "Consignment";
   return "—";
+}
+
+function formatClientPaymentMethod(
+  m: ClientOfferConfirmation["paymentMethod"],
+): string {
+  if (m === "check_pickup") return "Check pickup";
+  if (m === "cash_pickup") return "Cash pickup";
+  if (m === "direct_deposit") return "Direct deposit";
+  return m;
+}
+
+function formatClientBank(
+  b: NonNullable<ClientOfferConfirmation["bankDetails"]>["bank"],
+): string {
+  if (b === "bdo") return "BDO";
+  if (b === "bpi") return "BPI";
+  return "Other";
 }
 
 async function readApiErrorMessage(res: Response): Promise<string> {
@@ -406,9 +435,9 @@ export function InquiryDetailPage() {
                     onClick={openOfferModal}
                     className="rounded-lg bg-violet-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-violet-700 disabled:opacity-50 dark:bg-violet-600 dark:hover:bg-violet-500"
                   >
-                    {isForOfferConfirmation(detail.status)
-                      ? "Update the offer"
-                      : "Make an Offer"}
+                    {isPending(detail.status)
+                      ? "Make an offer"
+                      : "Update the offer"}
                   </button>
                 </>
               ) : null}
@@ -450,6 +479,79 @@ export function InquiryDetailPage() {
                   </div>
                 </div>
               </dl>
+            ) : null}
+
+            {detail.clientOfferConfirmation ? (
+              <div className="mt-4 rounded-lg border border-emerald-100 bg-emerald-50/80 p-3 text-sm dark:border-emerald-900/50 dark:bg-emerald-950/30">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-emerald-800 dark:text-emerald-200">
+                  Client confirmed offer
+                </h3>
+                <dl className="mt-2 space-y-2 text-slate-800 dark:text-slate-200">
+                  <div>
+                    <dt className="text-slate-500 dark:text-slate-400">
+                      Preferred payment method
+                    </dt>
+                    <dd className="font-medium">
+                      {formatClientPaymentMethod(
+                        detail.clientOfferConfirmation.paymentMethod,
+                      )}
+                    </dd>
+                  </div>
+                  {detail.clientOfferConfirmation.paymentMethod ===
+                    "direct_deposit" &&
+                  detail.clientOfferConfirmation.bankDetails ? (
+                    <>
+                      <div>
+                        <dt className="text-slate-500 dark:text-slate-400">
+                          Bank
+                        </dt>
+                        <dd>
+                          {formatClientBank(
+                            detail.clientOfferConfirmation.bankDetails.bank,
+                          )}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-slate-500 dark:text-slate-400">
+                          Account name
+                        </dt>
+                        <dd>
+                          {detail.clientOfferConfirmation.bankDetails.accountName}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-slate-500 dark:text-slate-400">
+                          Account number
+                        </dt>
+                        <dd className="font-mono text-xs">
+                          {detail.clientOfferConfirmation.bankDetails.accountNumber}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-slate-500 dark:text-slate-400">
+                          Branch
+                        </dt>
+                        <dd>{detail.clientOfferConfirmation.bankDetails.branch}</dd>
+                      </div>
+                    </>
+                  ) : null}
+                  {detail.clientOfferConfirmation.signatureUrl ? (
+                    <div>
+                      <dt className="text-slate-500 dark:text-slate-400">
+                        Signature
+                      </dt>
+                      <dd className="mt-1">
+                        <img
+                          src={detail.clientOfferConfirmation.signatureUrl}
+                          alt="Client signature"
+                          className="max-h-36 max-w-full rounded border border-slate-200 bg-white object-contain dark:border-slate-600 dark:bg-slate-950"
+                          loading="lazy"
+                        />
+                      </dd>
+                    </div>
+                  ) : null}
+                </dl>
+              </div>
             ) : null}
 
             <dl className="mt-4 grid gap-2 text-sm sm:grid-cols-2">
@@ -672,9 +774,9 @@ export function InquiryDetailPage() {
                       id={offerModalTitleId}
                       className="text-base font-semibold text-slate-900 dark:text-slate-100"
                     >
-                      {isForOfferConfirmation(detail.status)
-                        ? "Update the offer"
-                        : "Make an offer"}
+                      {isPending(detail.status)
+                        ? "Make an offer"
+                        : "Update the offer"}
                     </h2>
                     <form
                       onSubmit={(e) => void submitOffer(e)}
@@ -755,9 +857,9 @@ export function InquiryDetailPage() {
                         >
                           {actionBusy === "offer"
                             ? "Saving…"
-                            : isForOfferConfirmation(detail.status)
-                              ? "Update the offer"
-                              : "Submit offer"}
+                            : isPending(detail.status)
+                              ? "Submit offer"
+                              : "Update the offer"}
                         </button>
                       </div>
                     </form>

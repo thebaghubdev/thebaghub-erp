@@ -31,4 +31,27 @@ export class Client extends AuditedEntity {
 
   @Column({ name: 'contact_number', length: 64 })
   contactNumber: string;
+
+  /** Last bank details submitted when confirming an offer (direct deposit). */
+  @Column({
+    name: 'bank_account_number',
+    type: 'varchar',
+    length: 64,
+    nullable: true,
+  })
+  bankAccountNumber: string | null;
+
+  @Column({
+    name: 'bank_account_name',
+    type: 'varchar',
+    length: 200,
+    nullable: true,
+  })
+  bankAccountName: string | null;
+
+  @Column({ name: 'bank_code', type: 'varchar', length: 16, nullable: true })
+  bankCode: string | null;
+
+  @Column({ name: 'bank_branch', type: 'varchar', length: 200, nullable: true })
+  bankBranch: string | null;
 }
