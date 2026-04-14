@@ -3,5 +3,6 @@ export enum InquiryStatus {
   UNDER_REVIEW = 'under_review',
   APPROVED = 'approved',
   REJECTED = 'rejected',
+  DECLINED = 'declined',
   CANCELLED = 'cancelled',
 }

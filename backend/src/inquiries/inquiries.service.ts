@@ -11,6 +11,8 @@ import { Between, Repository } from 'typeorm';
 import { Client } from '../clients/entities/client.entity';
 import { InquiryStatus } from '../enums/inquiry-status.enum';
 import { JwtUser } from '../auth/jwt-user';
+import { UpdateInquiryNotesDto } from './dto/update-inquiry-notes.dto';
+import { SubmitOfferDto } from './dto/submit-offer.dto';
 import { SubmitConsignmentInquiryDto } from './dto/submit-consignment-inquiry.dto';
 import { Inquiry, InquiryItemSnapshot } from './entities/inquiry.entity';
 import type { MulterFile } from './multer-file.type';
@@ -117,6 +119,9 @@ export type StaffInquiryRow = {
   consentDirectPurchase: boolean;
   consentPriceNomination: boolean;
   photoCount: number;
+  offerTransactionType: 'consignment' | 'direct_purchase' | null;
+  offerPrice: string | null;
+  notes: string | null;
 };
 
 export type StaffInquiryDetail = StaffInquiryRow & {
@@ -166,6 +171,16 @@ export class InquiriesService {
       photoCount: Array.isArray(r.itemSnapshot?.images)
         ? r.itemSnapshot.images.length
         : 0,
+      offerTransactionType: r.offerTransactionType ?? null,
+      offerPrice:
+        r.offerPrice != null && r.offerPrice !== ''
+          ? String(r.offerPrice)
+          : null,
+      notes: (() => {
+        if (r.notes == null) return null;
+        const t = String(r.notes).trim();
+        return t === '' ? null : t;
+      })(),
     };
   }
 
@@ -345,5 +360,71 @@ export class InquiriesService {
 
       return { inquiries: results };
     });
+  }
+
+  private static readonly terminalInquiryStatuses = new Set<InquiryStatus>([
+    InquiryStatus.APPROVED,
+    InquiryStatus.REJECTED,
+    InquiryStatus.DECLINED,
+    InquiryStatus.CANCELLED,
+  ]);
+
+  async declineInquiry(id: string): Promise<StaffInquiryDetail> {
+    const r = await this.inquiriesRepo.findOne({ where: { id } });
+    if (!r) {
+      throw new NotFoundException('Inquiry not found');
+    }
+    if (InquiriesService.terminalInquiryStatuses.has(r.status)) {
+      throw new BadRequestException('This inquiry cannot be declined');
+    }
+    r.status = InquiryStatus.DECLINED;
+    await this.inquiriesRepo.save(r);
+    return this.findOneForStaff(id);
+  }
+
+  async submitOffer(id: string, dto: SubmitOfferDto): Promise<StaffInquiryDetail> {
+    const r = await this.inquiriesRepo.findOne({
+      where: { id },
+      relations: { consignor: true },
+    });
+    if (!r) {
+      throw new NotFoundException('Inquiry not found');
+    }
+    if (InquiriesService.terminalInquiryStatuses.has(r.status)) {
+      throw new BadRequestException('Cannot submit an offer for this inquiry');
+    }
+
+    const form = (r.itemSnapshot?.form ?? {}) as Record<string, unknown>;
+    const consentDirectPurchase = Boolean(form.consentDirectPurchase);
+    if (!consentDirectPurchase && dto.transactionType === 'direct_purchase') {
+      throw new BadRequestException(
+        'Direct purchase is not available for this inquiry',
+      );
+    }
+
+    r.offerTransactionType = dto.transactionType;
+    r.offerPrice = dto.offerPrice.toFixed(2);
+    if (r.status === InquiryStatus.PENDING) {
+      r.status = InquiryStatus.UNDER_REVIEW;
+    }
+    await this.inquiriesRepo.save(r);
+    return this.findOneForStaff(id);
+  }
+
+  async updateNotes(
+    id: string,
+    dto: UpdateInquiryNotesDto,
+  ): Promise<StaffInquiryDetail> {
+    const r = await this.inquiriesRepo.findOne({
+      where: { id },
+      relations: { consignor: true },
+    });
+    if (!r) {
+      throw new NotFoundException('Inquiry not found');
+    }
+    const trimmed = dto.notes.trim();
+    r.notes = trimmed === '' ? null : trimmed;
+    await this.inquiriesRepo.save(r);
+    return this.findOneForStaff(id);
   }
 }

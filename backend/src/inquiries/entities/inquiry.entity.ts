@@ -41,6 +41,17 @@ export class Inquiry extends AuditedEntity {
   })
   status: InquiryStatus;
 
+  /** Staff offer: consignment vs direct purchase (requires client consent for direct). */
+  @Column({ name: 'offer_transaction_type', type: 'varchar', length: 32, nullable: true })
+  offerTransactionType: 'consignment' | 'direct_purchase' | null;
+
+  @Column({ name: 'offer_price', type: 'numeric', precision: 12, scale: 2, nullable: true })
+  offerPrice: string | null;
+
+  /** Internal staff notes (not shown to clients). */
+  @Column({ type: 'text', nullable: true })
+  notes: string | null;
+
   /** One line item per inquiry row (form + uploaded image locations). */
   @Column({ type: 'jsonb', name: 'item_snapshot' })
   itemSnapshot: InquiryItemSnapshot;
