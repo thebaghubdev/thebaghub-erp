@@ -63,4 +63,23 @@ export class ClientConsignmentInquiryController {
   ) {
     return this.inquiriesService.cancelInquiryForClient(req.user, id);
   }
+
+  /** Append more item photos (multipart field `photos`, active inquiries only). */
+  @Post(':id/photos')
+  @UseInterceptors(
+    FilesInterceptor('photos', 20, {
+      limits: { fileSize: 25 * 1024 * 1024 },
+    }),
+  )
+  appendPhotos(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+    @UploadedFiles() files: MulterFile[],
+  ) {
+    return this.inquiriesService.appendInquiryPhotosForClient(
+      req.user,
+      id,
+      files,
+    );
+  }
 }

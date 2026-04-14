@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { useClientAuth } from "../context/client-auth";
@@ -46,9 +46,7 @@ function formatInquiryStatus(status: string) {
 function canClientCancelInquiry(status: string): boolean {
   const s = status.trim().toLowerCase();
   return (
-    s === "pending" ||
-    s === "under_review" ||
-    s === "for_offer_confirmation"
+    s === "pending" || s === "under_review" || s === "for_offer_confirmation"
   );
 }
 
@@ -98,6 +96,9 @@ export function ClientConsignmentDetailPage() {
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
   const [cancelBusy, setCancelBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [uploadBusy, setUploadBusy] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -151,6 +152,35 @@ export function ClientConsignmentDetailPage() {
       setCancelBusy(false);
     }
   }, [id, token]);
+
+  const uploadMorePhotos = useCallback(
+    async (files: File[]) => {
+      if (files.length === 0 || !id || !token) return;
+      setUploadError(null);
+      setUploadBusy(true);
+      try {
+        const fd = new FormData();
+        for (const file of files) {
+          fd.append("photos", file);
+        }
+        const res = await apiFetch(
+          `/api/client/consignment-inquiry/${id}/photos`,
+          { method: "POST", body: fd },
+          token,
+        );
+        if (!res.ok) throw new Error(await readApiErrorMessage(res));
+        const data = (await res.json()) as ClientInquiryDetail;
+        setDetail(data);
+      } catch (e) {
+        setUploadError(
+          e instanceof Error ? e.message : "Could not upload photos",
+        );
+      } finally {
+        setUploadBusy(false);
+      }
+    },
+    [id, token],
+  );
 
   const form = detail?.itemSnapshot.form ?? {};
 
@@ -333,8 +363,44 @@ export function ClientConsignmentDetailPage() {
                 </span>
               ) : null}
             </h2>
+            {canClientCancelInquiry(detail.status) ? (
+              <div className="mt-3">
+                <input
+                  ref={photoInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="sr-only"
+                  aria-label="Add more photos"
+                  disabled={uploadBusy}
+                  onChange={(e) => {
+                    // Copy files before clearing the input — clearing invalidates the FileList.
+                    const picked = e.target.files
+                      ? Array.from(e.target.files)
+                      : [];
+                    e.target.value = "";
+                    void uploadMorePhotos(picked);
+                  }}
+                />
+                <button
+                  type="button"
+                  disabled={uploadBusy}
+                  onClick={() => photoInputRef.current?.click()}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+                >
+                  {uploadBusy ? "Uploading…" : "Add photos"}
+                </button>
+                {uploadError ? (
+                  <p className="mt-2 text-sm text-red-700">{uploadError}</p>
+                ) : null}
+              </div>
+            ) : null}
             {detail.itemSnapshot.images.length === 0 ? (
-              <p className="mt-2 text-sm text-slate-500">No photos uploaded.</p>
+              <p className="mt-2 text-sm text-slate-500">
+                {canClientCancelInquiry(detail.status)
+                  ? "No photos yet — add some above."
+                  : "No photos uploaded."}
+              </p>
             ) : (
               <ul className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
                 {detail.itemSnapshot.images.map((img) => (

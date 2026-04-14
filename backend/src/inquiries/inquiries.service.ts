@@ -328,6 +328,66 @@ export class InquiriesService {
     return this.findOneForClient(user, id);
   }
 
+  /** Append images to an existing inquiry (non-terminal statuses only). */
+  async appendInquiryPhotosForClient(
+    user: JwtUser,
+    inquiryId: string,
+    files: MulterFile[] | undefined,
+  ): Promise<ClientInquiryDetail> {
+    if (!files?.length) {
+      throw new BadRequestException('At least one image file is required');
+    }
+    const maxPerRequest = 20;
+    if (files.length > maxPerRequest) {
+      throw new BadRequestException(
+        `At most ${maxPerRequest} images per request`,
+      );
+    }
+
+    const client = await this.clientsRepo.findOne({
+      where: { userId: user.userId },
+    });
+    if (!client) {
+      throw new NotFoundException('Client profile not found');
+    }
+    const r = await this.inquiriesRepo.findOne({
+      where: { id: inquiryId, consignorId: client.id },
+    });
+    if (!r) {
+      throw new NotFoundException('Inquiry not found');
+    }
+    if (InquiriesService.terminalInquiryStatuses.has(r.status)) {
+      throw new BadRequestException(
+        'Photos can only be added while the inquiry is active',
+      );
+    }
+
+    const existing = Array.isArray(r.itemSnapshot?.images)
+      ? [...r.itemSnapshot.images]
+      : [];
+
+    for (const file of files) {
+      const mime = file.mimetype?.toLowerCase() ?? '';
+      if (!ALLOWED_IMAGE_MIMES.has(mime)) {
+        throw new BadRequestException(
+          `Unsupported image type: ${file.mimetype || 'unknown'}`,
+        );
+      }
+      const ext = extFromMime(mime);
+      const key = `inquiries/${inquiryId}/${randomUUID()}.${ext}`;
+      await this.s3.putObject(key, file.buffer, mime);
+      existing.push({ key, url: this.s3.getPublicUrl(key) });
+    }
+
+    r.itemSnapshot = {
+      clientItemId: r.itemSnapshot.clientItemId,
+      form: r.itemSnapshot.form ?? {},
+      images: existing,
+    };
+    await this.inquiriesRepo.save(r);
+    return this.findOneForClient(user, inquiryId);
+  }
+
   async submitConsignmentInquiry(
     user: JwtUser,
     payloadRaw: string | undefined,
