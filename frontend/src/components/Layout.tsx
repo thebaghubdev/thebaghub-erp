@@ -76,17 +76,17 @@ function HeaderUser() {
 
 export function Layout() {
   return (
-    <div className="flex min-h-svh bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
+    <div className="flex h-svh min-h-0 overflow-hidden bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
       <Sidenav />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white/90 px-4 py-2 dark:border-slate-800 dark:bg-slate-900/90">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <header className="sticky top-0 z-20 flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white/95 px-4 py-2 backdrop-blur supports-[backdrop-filter]:bg-white/90 dark:border-slate-800 dark:bg-slate-900/95 dark:supports-[backdrop-filter]:bg-slate-900/90">
           <Breadcrumb />
           <div className="flex min-w-0 shrink items-center gap-3">
             <HeaderUser />
             <SettingsNavButton />
           </div>
-        </div>
-        <main className="min-h-0 min-w-0 flex-1 overflow-auto px-4 py-4">
+        </header>
+        <main className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-4">
           <Outlet />
         </main>
       </div>

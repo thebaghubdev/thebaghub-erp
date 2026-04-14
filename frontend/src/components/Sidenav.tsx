@@ -11,7 +11,7 @@ export function Sidenav() {
   const { user, logout } = usePortalAuth();
 
   return (
-    <aside className="flex min-h-svh w-56 shrink-0 flex-col border-r border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+    <aside className="flex h-full min-h-0 w-56 shrink-0 flex-col border-r border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
       <div className="border-b border-slate-200 px-3 py-4 dark:border-slate-800">
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
           The Bag Hub ERP

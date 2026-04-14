@@ -79,6 +79,7 @@ export function ClientLoginPage() {
             onChange={setPassword}
             autoComplete="current-password"
             required
+            comfortable
             labelClassName="mb-1 block text-xs font-medium text-slate-700"
           />
 

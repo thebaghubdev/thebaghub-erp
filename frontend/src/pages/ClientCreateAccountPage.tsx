@@ -96,6 +96,7 @@ export function ClientCreateAccountPage() {
             minLength={8}
             required
             autoComplete="new-password"
+            comfortable
             labelClassName="mb-1 block text-xs font-medium text-slate-700"
           />
           <div className="grid gap-4 sm:grid-cols-2">

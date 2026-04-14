@@ -1,8 +1,13 @@
 import { useState } from 'react'
 
-/** `password-field-input`: autofill + color-scheme fixes in index.css */
-const inputBase =
-  'password-field-input w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm text-slate-900 caret-slate-900 outline-none ring-violet-500 focus:ring-2 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100 dark:caret-slate-100'
+/** Matches plain text inputs: `h-10` + `px-3` + `text-sm` (same visual as `py-2` without WebKit quirks on password). */
+/** Backgrounds come from `index.css` (`.password-field-input`) so WebKit keeps white in light mode. */
+const inputBaseDefault =
+  'password-field-input box-border h-10 w-full min-h-10 rounded-lg border border-slate-300 py-0 pl-3 pr-10 text-sm leading-5 caret-slate-900 outline-none ring-violet-500 focus:ring-2 dark:border-slate-600 dark:caret-slate-100'
+
+/** Client login: align with email field (`min-h-11`, `rounded-xl`, `text-base`). */
+const inputBaseComfortable =
+  'password-field-input box-border min-h-11 w-full rounded-xl border border-slate-300 py-2.5 pl-3 pr-10 text-base leading-normal caret-slate-900 outline-none ring-violet-500 focus:ring-2 dark:border-slate-600 dark:caret-slate-100'
 
 function EyeIcon({ className }: { className?: string }) {
   return (
@@ -58,6 +63,8 @@ type PasswordFieldProps = {
   minLength?: number
   required?: boolean
   disabled?: boolean
+  /** Taller field to match client login email (`min-h-11`, `rounded-xl`). */
+  comfortable?: boolean
   /** Merged with default input styles (use for `className` overrides like `pr-10` already applied). */
   inputClassName?: string
   labelClassName?: string
@@ -72,10 +79,14 @@ export function PasswordField({
   minLength,
   required,
   disabled,
+  comfortable = false,
   inputClassName,
   labelClassName = 'mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300',
 }: PasswordFieldProps) {
   const [visible, setVisible] = useState(false)
+
+  const inputBase = comfortable ? inputBaseComfortable : inputBaseDefault
+  const toggleRounding = comfortable ? 'rounded-r-xl' : 'rounded-r-lg'
 
   return (
     <div>
@@ -96,7 +107,7 @@ export function PasswordField({
         />
         <button
           type="button"
-          className="absolute right-0 top-0 flex h-full items-center rounded-r-lg px-2.5 text-slate-500 outline-none ring-violet-500 ring-offset-2 hover:text-slate-800 focus-visible:ring-2 dark:ring-offset-slate-900 dark:hover:text-slate-200"
+          className={`absolute right-0 top-0 flex h-full items-center px-2.5 text-slate-500 outline-none ring-violet-500 ring-offset-2 hover:text-slate-800 focus-visible:ring-2 dark:ring-offset-slate-900 dark:hover:text-slate-200 ${toggleRounding}`}
           onClick={() => setVisible((v) => !v)}
           aria-label={visible ? 'Hide password' : 'Show password'}
           aria-pressed={visible}

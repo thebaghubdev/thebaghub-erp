@@ -4,6 +4,8 @@ import {
   RouterProvider,
   createBrowserRouter,
 } from 'react-router-dom'
+import { ClientHtmlTheme } from './components/ClientHtmlTheme'
+import { PortalHtmlTheme } from './components/PortalHtmlTheme'
 import { ClientAuthProvider } from './context/client-auth'
 import { PortalAuthProvider } from './context/portal-auth'
 import { ClientLayout } from './components/ClientLayout'
@@ -22,12 +24,30 @@ import { PurchaseItemsPage } from './pages/PurchaseItemsPage'
 import { RegisterPage } from './pages/RegisterPage'
 import { SettingsPage } from './pages/SettingsPage'
 
+function PortalBranch() {
+  return (
+    <>
+      <PortalHtmlTheme />
+      <Outlet />
+    </>
+  )
+}
+
+function ClientBranch() {
+  return (
+    <>
+      <ClientHtmlTheme />
+      <Outlet />
+    </>
+  )
+}
+
 const router = createBrowserRouter([
   {
     path: '/portal',
     element: (
       <PortalAuthProvider>
-        <Outlet />
+        <PortalBranch />
       </PortalAuthProvider>
     ),
     children: [
@@ -54,7 +74,7 @@ const router = createBrowserRouter([
     path: '/',
     element: (
       <ClientAuthProvider>
-        <Outlet />
+        <ClientBranch />
       </ClientAuthProvider>
     ),
     children: [

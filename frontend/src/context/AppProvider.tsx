@@ -19,7 +19,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<Theme>(readStoredTheme)
 
   useEffect(() => {
-    document.documentElement.classList.toggle('dark', theme === 'dark')
     window.localStorage.setItem(STORAGE_KEY, theme)
   }, [theme])
 
