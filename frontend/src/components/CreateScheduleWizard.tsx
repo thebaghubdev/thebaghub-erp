@@ -18,7 +18,7 @@ import {
   type ScheduleKind,
   scheduleTypeLabel,
 } from "../lib/consignment-schedule-labels";
-import { formatInquiryStatus } from "../lib/format-inquiry-status";
+import { InquiryStatusBadge } from "./InquiryStatusBadge";
 import { formatOfferTransactionLabel } from "../lib/format-offer-transaction-type";
 import { formatPhpDisplay } from "../lib/format-php";
 
@@ -275,14 +275,10 @@ export function CreateScheduleWizard({ onScheduleSaved }: Props) {
           </span>
         ),
       }),
-      inquiryColHelper.accessor((row) => formatInquiryStatus(row.status), {
+      inquiryColHelper.accessor("status", {
         id: "status",
         header: "Status",
-        cell: ({ getValue }) => (
-          <span className="capitalize text-slate-700 dark:text-slate-300">
-            {getValue()}
-          </span>
-        ),
+        cell: ({ row }) => <InquiryStatusBadge status={row.original.status} />,
       }),
       inquiryColHelper.accessor("offerPrice", {
         header: () => <span title="Staff offer price (PHP)">Offer price</span>,

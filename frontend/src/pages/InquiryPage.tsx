@@ -5,7 +5,7 @@ import { DataTable } from "../components/data-table/DataTable";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
-import { formatInquiryStatus } from "../lib/format-inquiry-status";
+import { InquiryStatusBadge } from "../components/InquiryStatusBadge";
 import { formatOfferTransactionLabel } from "../lib/format-offer-transaction-type";
 import { formatPhpDisplay } from "../lib/format-php";
 
@@ -22,8 +22,6 @@ type InquiryRow = {
   serialNumber: string;
   condition: string;
   inclusions: string;
-  consignmentSellingPrice: string;
-  directPurchaseSellingPrice: string;
   consentDirectPurchase: boolean;
   offerTransactionType: "consignment" | "direct_purchase" | null;
   offerPrice: string | null;
@@ -112,14 +110,10 @@ const inquiryColumns = [
       </span>
     ),
   }),
-  columnHelper.accessor((row) => formatInquiryStatus(row.status), {
+  columnHelper.accessor("status", {
     id: "status",
     header: "Status",
-    cell: ({ getValue }) => (
-      <span className="capitalize text-slate-700 dark:text-slate-300">
-        {getValue()}
-      </span>
-    ),
+    cell: ({ row }) => <InquiryStatusBadge status={row.original.status} />,
   }),
   columnHelper.accessor("offerPrice", {
     header: () => <span title="Staff offer price (PHP)">Offer price</span>,
@@ -134,30 +128,6 @@ const inquiryColumns = [
     header: "Transaction type",
     cell: ({ getValue }) => (
       <span className="text-slate-700 dark:text-slate-300">{getValue()}</span>
-    ),
-  }),
-  columnHelper.accessor("consignmentSellingPrice", {
-    header: () => (
-      <span title="Consignment selling price (PHP)">
-        Consignment Selling Price
-      </span>
-    ),
-    cell: ({ getValue }) => (
-      <span className="tabular-nums text-slate-800 dark:text-slate-200">
-        {formatPhpDisplay(getValue())}
-      </span>
-    ),
-  }),
-  columnHelper.accessor("directPurchaseSellingPrice", {
-    header: () => (
-      <span title="Direct purchase price (PHP)">
-        Direct Purchase Selling Price
-      </span>
-    ),
-    cell: ({ getValue }) => (
-      <span className="tabular-nums text-slate-800 dark:text-slate-200">
-        {formatPhpDisplay(getValue())}
-      </span>
     ),
   }),
   columnHelper.accessor((row) => yesNo(row.consentDirectPurchase), {
@@ -273,7 +243,7 @@ export function InquiryPage() {
             getRowAriaLabel={(row) =>
               `Inquiry ${row.sku}, ${row.itemLabel || "item"}`
             }
-            tableClassName="w-full min-w-[1180px] table-fixed border-collapse text-left"
+            tableClassName="w-full min-w-[980px] table-fixed border-collapse text-left"
           />
         </section>
       )}

@@ -9,7 +9,7 @@ import { useClientAuth } from "../context/client-auth";
 import { apiFetch } from "../lib/api";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { modeOfTransferLabel } from "../lib/consignment-schedule-labels";
-import { formatInquiryStatus } from "../lib/format-inquiry-status";
+import { InquiryStatusBadge } from "../components/InquiryStatusBadge";
 import { formatPhpDisplay } from "../lib/format-php";
 
 type TransactionType = "consignment" | "direct_purchase";
@@ -361,9 +361,7 @@ export function ClientConsignmentDetailPage() {
               <h1 className="text-xl font-semibold text-slate-900">
                 {detail.sku}
               </h1>
-              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium capitalize text-slate-700">
-                {formatInquiryStatus(detail.status)}
-              </span>
+              <InquiryStatusBadge status={detail.status} />
             </div>
             {detail.itemLabel && detail.itemLabel !== "Item" ? (
               <p className="mt-1 text-sm text-slate-600">{detail.itemLabel}</p>

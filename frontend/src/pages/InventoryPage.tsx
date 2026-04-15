@@ -5,6 +5,7 @@ import { DataTable } from "../components/data-table/DataTable";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
+import { InventoryStatusBadge } from "../components/InventoryStatusBadge";
 import { branchLabel } from "../lib/consignment-schedule-labels";
 import { formatOfferTransactionLabel } from "../lib/format-offer-transaction-type";
 
@@ -69,8 +70,8 @@ const columns = [
   }),
   columnHelper.accessor("status", {
     header: "Status",
-    cell: ({ getValue }) => (
-      <span className="text-slate-700 dark:text-slate-300">{getValue()}</span>
+    cell: ({ row }) => (
+      <InventoryStatusBadge status={row.original.status} />
     ),
   }),
   columnHelper.accessor("transactionType", {

@@ -4,9 +4,7 @@ import { ConsignmentInquiryWizard } from '../components/ConsignmentInquiryWizard
 import { SubmittedAtCell } from '../components/SubmittedAtCell'
 import { useClientAuth } from '../context/client-auth'
 import { apiFetch } from '../lib/api'
-import { formatInquiryStatus } from '../lib/format-inquiry-status'
-import { formatOfferTransactionLabel } from '../lib/format-offer-transaction-type'
-import { formatPhpDisplay } from '../lib/format-php'
+import { InquiryStatusBadge } from '../components/InquiryStatusBadge'
 
 type ConsignmentsTab = 'mine' | 'consign'
 
@@ -15,8 +13,6 @@ type MyInquiryRow = {
   itemLabel: string
   status: string
   createdAt: string
-  offerTransactionType: 'consignment' | 'direct_purchase' | null
-  offerPrice: string | null
 }
 
 const tabBtn =
@@ -132,26 +128,13 @@ export function ConsignItemsPage() {
                     </th>
                     <th
                       scope="col"
-                      className="w-[18%] px-2 py-2.5 sm:px-4 sm:py-3"
+                      className="w-[22%] px-2 py-2.5 sm:px-4 sm:py-3"
                     >
                       Status
                     </th>
                     <th
                       scope="col"
-                      className="w-[18%] px-2 py-2.5 sm:px-4 sm:py-3"
-                      title="Staff offer price (PHP)"
-                    >
-                      Offer price
-                    </th>
-                    <th
-                      scope="col"
-                      className="w-[16%] px-2 py-2.5 sm:px-4 sm:py-3"
-                    >
-                      Transaction type
-                    </th>
-                    <th
-                      scope="col"
-                      className="min-w-0 w-[16%] px-2 py-2.5 sm:px-4 sm:py-3"
+                      className="min-w-0 w-[28%] px-2 py-2.5 sm:px-4 sm:py-3"
                     >
                       Submitted
                     </th>
@@ -161,7 +144,7 @@ export function ConsignItemsPage() {
                   {loading && rows.length === 0 && (
                     <tr>
                       <td
-                        colSpan={5}
+                        colSpan={3}
                         className="px-4 py-8 text-center text-slate-500"
                       >
                         Loading…
@@ -171,7 +154,7 @@ export function ConsignItemsPage() {
                   {!loading && rows.length === 0 && !error && (
                     <tr>
                       <td
-                        colSpan={5}
+                        colSpan={3}
                         className="px-4 py-8 text-center text-slate-500"
                       >
                         No inquiries yet. Use &quot;Consign items&quot; to submit
@@ -197,14 +180,8 @@ export function ConsignItemsPage() {
                       <td className="px-4 py-3 font-medium text-slate-900">
                         {row.itemLabel}
                       </td>
-                      <td className="px-4 py-3 capitalize text-slate-700">
-                        {formatInquiryStatus(row.status)}
-                      </td>
-                      <td className="px-4 py-3 tabular-nums text-slate-800">
-                        {formatPhpDisplay(row.offerPrice)}
-                      </td>
-                      <td className="px-4 py-3 text-slate-700">
-                        {formatOfferTransactionLabel(row.offerTransactionType)}
+                      <td className="px-4 py-3">
+                        <InquiryStatusBadge status={row.status} />
                       </td>
                       <td className="min-w-0 px-2 py-2.5 align-top sm:px-4 sm:py-3">
                         <SubmittedAtCell iso={row.createdAt} />

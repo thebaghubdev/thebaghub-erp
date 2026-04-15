@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
+import { InventoryStatusBadge } from "../components/InventoryStatusBadge";
 import { branchLabel } from "../lib/consignment-schedule-labels";
 import { formatOfferTransactionLabel } from "../lib/format-offer-transaction-type";
 import { formatPhpDisplay } from "../lib/format-php";
@@ -158,7 +159,9 @@ export function InventoryItemDetailPage() {
           </div>
           <div>
             <dt className="text-slate-500 dark:text-slate-400">Status</dt>
-            <dd className="font-medium">{detail.status}</dd>
+            <dd>
+              <InventoryStatusBadge status={detail.status} />
+            </dd>
           </div>
           <div>
             <dt className="text-slate-500 dark:text-slate-400">Transaction</dt>

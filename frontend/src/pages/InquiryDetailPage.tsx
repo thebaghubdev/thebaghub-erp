@@ -6,7 +6,7 @@ import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { usePortalAuth } from "../context/portal-auth";
 import { PhpPriceInput } from "../components/PhpPriceInput";
 import { apiFetch } from "../lib/api";
-import { formatInquiryStatus } from "../lib/format-inquiry-status";
+import { InquiryStatusBadge } from "../components/InquiryStatusBadge";
 import { formatOfferTransactionLabel } from "../lib/format-offer-transaction-type";
 import { formatPhpDisplay, parsePhpStringToNumber } from "../lib/format-php";
 
@@ -395,9 +395,7 @@ export function InquiryDetailPage() {
               <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-100">
                 {detail.sku}
               </h1>
-              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium capitalize text-slate-700 dark:bg-slate-800 dark:text-slate-200">
-                {formatInquiryStatus(detail.status)}
-              </span>
+              <InquiryStatusBadge status={detail.status} />
             </div>
             {detail.itemLabel && detail.itemLabel !== "Item" ? (
               <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
