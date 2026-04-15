@@ -37,6 +37,7 @@ export type ConsignmentScheduleInquiryRow = {
   sku: string;
   status: string;
   itemLabel: string;
+  inclusions: string;
 };
 
 export type ConsignmentScheduleDetail = ConsignmentScheduleListRow & {
@@ -54,6 +55,16 @@ function itemLabelFromSnapshot(
   if (!brand) return model;
   if (!model) return brand;
   return `${brand} — ${model}`;
+}
+
+function inclusionsFromSnapshot(
+  snapshot: InquiryItemSnapshot | null | undefined,
+): string {
+  if (!snapshot?.form) return '—';
+  const v = snapshot.form['inclusions'];
+  if (v == null) return '—';
+  const s = String(v).trim();
+  return s.length > 0 ? s : '—';
 }
 
 @Injectable()
@@ -88,6 +99,7 @@ export class ConsignmentSchedulesService {
         sku: it.inquiry.sku,
         status: String(it.inquiry.status),
         itemLabel: itemLabelFromSnapshot(it.inquiry.itemSnapshot),
+        inclusions: inclusionsFromSnapshot(it.inquiry.itemSnapshot),
       }),
     );
     inquiries.sort((a, b) => a.sku.localeCompare(b.sku));
