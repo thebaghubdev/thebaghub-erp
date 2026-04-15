@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import type { InquiryItemSnapshot } from '../inquiries/entities/inquiry.entity';
@@ -15,6 +15,27 @@ export type InventoryListRow = {
   currentBranch: string;
   itemLabel: string;
   inclusions: string;
+};
+
+export type InventoryDetailForStaff = {
+  id: string;
+  sku: string;
+  dateReceived: string;
+  createdAt: string;
+  updatedAt: string;
+  status: string;
+  transactionType: string | null;
+  currentBranch: string;
+  inquiryId: string | null;
+  inquirySku: string | null;
+  consignorId: string | null;
+  consignorName: string | null;
+  consignorEmail: string | null;
+  consignorPhone: string | null;
+  itemSnapshot: {
+    clientItemId: string;
+    form: Record<string, unknown>;
+  };
 };
 
 function itemLabelFromSnapshot(
@@ -69,5 +90,39 @@ export class InventoryService {
         inclusions: inclusionsFromSnapshot(r.itemSnapshot),
       };
     });
+  }
+
+  async findOneForStaff(id: string): Promise<InventoryDetailForStaff> {
+    const r = await this.inventoryRepo.findOne({
+      where: { id },
+      relations: { inquiry: true, consignor: true },
+    });
+    if (!r) {
+      throw new NotFoundException('Inventory item not found');
+    }
+    const c = r.consignor;
+    const name = c
+      ? [c.firstName, c.lastName].filter(Boolean).join(' ').trim()
+      : '';
+    return {
+      id: r.id,
+      sku: r.sku,
+      dateReceived: r.dateReceived.toISOString(),
+      createdAt: r.createdAt.toISOString(),
+      updatedAt: r.updatedAt.toISOString(),
+      status: r.status,
+      transactionType: r.transactionType,
+      currentBranch: r.currentBranch,
+      inquiryId: r.inquiryId,
+      inquirySku: r.inquiry?.sku ?? null,
+      consignorId: r.consignorId,
+      consignorName: name || null,
+      consignorEmail: c?.email?.trim() ?? null,
+      consignorPhone: c?.contactNumber?.trim() ?? null,
+      itemSnapshot: {
+        clientItemId: r.itemSnapshot.clientItemId,
+        form: (r.itemSnapshot.form ?? {}) as Record<string, unknown>,
+      },
+    };
   }
 }

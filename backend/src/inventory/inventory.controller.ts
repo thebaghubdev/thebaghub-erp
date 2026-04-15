@@ -1,4 +1,4 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, ParseUUIDPipe, UseGuards } from '@nestjs/common';
 import { StaffOnlyGuard } from '../auth/staff-only.guard';
 import { InventoryService } from './inventory.service';
 
@@ -10,5 +10,10 @@ export class InventoryController {
   @Get()
   findAll() {
     return this.inventoryService.findAllForStaff();
+  }
+
+  @Get(':id')
+  findOne(@Param('id', ParseUUIDPipe) id: string) {
+    return this.inventoryService.findOneForStaff(id);
   }
 }

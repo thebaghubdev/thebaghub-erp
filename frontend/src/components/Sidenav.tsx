@@ -19,6 +19,14 @@ export function Sidenav() {
       </div>
       <nav className="flex flex-1 flex-col gap-0.5 p-2" aria-label="Main">
         <NavLink
+          to="/portal/inventory"
+          className={({ isActive }) =>
+            [linkClass, isActive ? activeClass : ""].join(" ")
+          }
+        >
+          Inventory
+        </NavLink>
+        <NavLink
           to="/portal/inquiries"
           className={({ isActive }) =>
             [linkClass, isActive ? activeClass : ""].join(" ")
@@ -33,14 +41,6 @@ export function Sidenav() {
           }
         >
           Consignment Scheduling
-        </NavLink>
-        <NavLink
-          to="/portal/inventory"
-          className={({ isActive }) =>
-            [linkClass, isActive ? activeClass : ""].join(" ")
-          }
-        >
-          Inventory
         </NavLink>
         {user?.isAdmin && (
           <NavLink

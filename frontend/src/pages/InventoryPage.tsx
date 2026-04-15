@@ -1,5 +1,6 @@
 import { createColumnHelper } from "@tanstack/react-table";
 import { useCallback, useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { DataTable } from "../components/data-table/DataTable";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { usePortalAuth } from "../context/portal-auth";
@@ -19,6 +20,8 @@ type InventoryRow = {
   itemLabel: string;
   inclusions: string;
 };
+
+type InventoryTab = "all" | "add";
 
 const columnHelper = createColumnHelper<InventoryRow>();
 
@@ -75,7 +78,10 @@ const columns = [
     cell: ({ row }) => (
       <span className="text-slate-700 dark:text-slate-300">
         {formatOfferTransactionLabel(
-          row.original.transactionType as "consignment" | "direct_purchase" | null,
+          row.original.transactionType as
+            | "consignment"
+            | "direct_purchase"
+            | null,
         )}
       </span>
     ),
@@ -91,9 +97,11 @@ const columns = [
 ];
 
 export function InventoryPage() {
+  const navigate = useNavigate();
   const { token } = usePortalAuth();
+  const [tab, setTab] = useState<InventoryTab>("all");
   const [rows, setRows] = useState<InventoryRow[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -114,34 +122,84 @@ export function InventoryPage() {
   }, [token]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (tab === "all") void load();
+  }, [tab, load]);
+
+  const tabBtn =
+    "-mb-px border-b-2 border-transparent px-4 py-2 text-sm font-medium transition-colors focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500";
 
   return (
-    <div className="w-full min-w-0 space-y-4">
-      <div>
-        <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-          Inventory
-        </h1>
-        <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-          Items received from consignment schedules.
-        </p>
+    <div className="w-full min-w-0">
+      <div
+        className="mb-6 flex items-end gap-2 border-b border-slate-200 dark:border-slate-800"
+        role="tablist"
+        aria-label="Inventory sections"
+      >
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "all"}
+          id="tab-inventory-all"
+          aria-controls="panel-inventory-all"
+          className={`${tabBtn} ${
+            tab === "all"
+              ? "border-violet-600 text-violet-700 dark:text-violet-300"
+              : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
+          }`}
+          onClick={() => setTab("all")}
+        >
+          All Items
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "add"}
+          id="tab-inventory-add"
+          aria-controls="panel-inventory-add"
+          className={`${tabBtn} ${
+            tab === "add"
+              ? "border-violet-600 text-violet-700 dark:text-violet-300"
+              : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
+          }`}
+          onClick={() => setTab("add")}
+        >
+          Add Item
+        </button>
       </div>
 
-      {error ? (
-        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
-          {error}
-        </p>
-      ) : null}
+      {tab === "all" && (
+        <section
+          id="panel-inventory-all"
+          role="tabpanel"
+          aria-labelledby="tab-inventory-all"
+        >
+          {error ? (
+            <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+              {error}
+            </p>
+          ) : null}
 
-      {loading ? (
-        <p className="text-sm text-slate-600 dark:text-slate-400">Loading…</p>
-      ) : (
-        <DataTable
-          data={rows}
-          columns={columns}
-          emptyMessage="No inventory items yet."
-          getRowId={(r) => r.id}
+          <DataTable
+            data={rows}
+            columns={columns}
+            isLoading={loading}
+            emptyMessage="No inventory items yet."
+            hideEmptyState={!!error}
+            getRowId={(r) => r.id}
+            onRowClick={(r) => navigate(`/portal/inventory/${r.id}`)}
+            getRowAriaLabel={(r) =>
+              `Inventory item ${r.sku}, ${r.itemLabel}`
+            }
+          />
+        </section>
+      )}
+
+      {tab === "add" && (
+        <section
+          id="panel-inventory-add"
+          role="tabpanel"
+          aria-labelledby="tab-inventory-add"
+          className="min-h-[12rem]"
         />
       )}
     </div>
