@@ -23,6 +23,7 @@ import {
   branchLabel,
   modeOfTransferLabel,
   scheduleTypeLabel,
+  type BranchCode,
 } from "../lib/consignment-schedule-labels";
 
 export type CalendarScheduleRow = {
@@ -61,15 +62,40 @@ function schedulesByDayKey(rows: CalendarScheduleRow[]) {
   return m;
 }
 
+/** Total inquiry rows across all schedules on this day (respects branch filter). */
+function totalItemsOnDay(daySchedules: CalendarScheduleRow[]): number {
+  return daySchedules.reduce(
+    (sum, s) => sum + (Number.isFinite(s.inquiryCount) ? s.inquiryCount : 0),
+    0,
+  );
+}
+
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+
+type BranchFilter = "all" | BranchCode;
+
+function normalizeBranchCode(branch: string): BranchCode {
+  return branch.trim().toLowerCase() === "makati" ? "makati" : "pasig";
+}
 
 export function ConsignmentCalendar({ schedules, isLoading }: Props) {
   const [viewMonth, setViewMonth] = useState(() =>
     startOfMonth(new Date()),
   );
   const [selectedDay, setSelectedDay] = useState<Date | undefined>(undefined);
+  const [branchFilter, setBranchFilter] = useState<BranchFilter>("all");
 
-  const byDay = useMemo(() => schedulesByDayKey(schedules), [schedules]);
+  const filteredSchedules = useMemo(() => {
+    if (branchFilter === "all") return schedules;
+    return schedules.filter(
+      (s) => normalizeBranchCode(s.branch) === branchFilter,
+    );
+  }, [schedules, branchFilter]);
+
+  const byDay = useMemo(
+    () => schedulesByDayKey(filteredSchedules),
+    [filteredSchedules],
+  );
 
   const gridDays = useMemo(() => {
     const monthStart = startOfMonth(viewMonth);
@@ -84,6 +110,11 @@ export function ConsignmentCalendar({ schedules, isLoading }: Props) {
     const k = format(selectedDay, "yyyy-MM-dd");
     return byDay.get(k) ?? [];
   }, [byDay, selectedDay]);
+
+  const selectedDayItemTotal = useMemo(
+    () => totalItemsOnDay(schedulesForSelectedDay),
+    [schedulesForSelectedDay],
+  );
 
   return (
     <div className="flex flex-col gap-6 xl:flex-row xl:items-start">
@@ -112,17 +143,37 @@ export function ConsignmentCalendar({ schedules, isLoading }: Props) {
               </button>
             </div>
           </div>
-          <button
-            type="button"
-            className="self-start rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800 sm:self-auto"
-            onClick={() => {
-              const now = new Date();
-              setViewMonth(startOfMonth(now));
-              setSelectedDay(startOfDay(now));
-            }}
-          >
-            Today
-          </button>
+          <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+            <label
+              htmlFor="calendar-branch-filter"
+              className="text-sm text-slate-600 dark:text-slate-400"
+            >
+              Branch
+            </label>
+            <select
+              id="calendar-branch-filter"
+              value={branchFilter}
+              onChange={(e) =>
+                setBranchFilter(e.target.value as BranchFilter)
+              }
+              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+            >
+              <option value="all">All branches</option>
+              <option value="pasig">Pasig</option>
+              <option value="makati">Makati</option>
+            </select>
+            <button
+              type="button"
+              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
+              onClick={() => {
+                const now = new Date();
+                setViewMonth(startOfMonth(now));
+                setSelectedDay(startOfDay(now));
+              }}
+            >
+              Today
+            </button>
+          </div>
         </div>
 
         <div className="relative overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
@@ -150,7 +201,12 @@ export function ConsignmentCalendar({ schedules, isLoading }: Props) {
               const k = format(day, "yyyy-MM-dd");
               const inMonth = isSameMonth(day, viewMonth);
               const dayItems = byDay.get(k) ?? [];
+              const dayItemTotal = totalItemsOnDay(dayItems);
               const isSel = selectedDay && isSameDay(day, selectedDay);
+              const itemCountTitle =
+                branchFilter === "all"
+                  ? `${dayItemTotal} inquiry ${dayItemTotal === 1 ? "item" : "items"} this day`
+                  : `${dayItemTotal} inquiry ${dayItemTotal === 1 ? "item" : "items"} (${branchLabel(branchFilter)} only)`;
 
               return (
                 <button
@@ -168,22 +224,35 @@ export function ConsignmentCalendar({ schedules, isLoading }: Props) {
                       : "",
                   ].join(" ")}
                 >
-                  <span
-                    className={[
-                      "mb-1 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold sm:h-7 sm:w-7",
-                      !inMonth && "text-slate-400 dark:text-slate-500",
-                      inMonth &&
-                        isToday(day) &&
-                        "bg-violet-600 text-white dark:bg-violet-600",
-                      inMonth &&
-                        !isToday(day) &&
-                        "text-slate-800 dark:text-slate-100",
-                    ]
-                      .filter(Boolean)
-                      .join(" ")}
-                  >
-                    {format(day, "d")}
-                  </span>
+                  <div className="mb-1 flex w-full min-w-0 items-start justify-between gap-0.5">
+                    <span
+                      className={[
+                        "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold sm:h-7 sm:w-7",
+                        !inMonth && "text-slate-400 dark:text-slate-500",
+                        inMonth &&
+                          isToday(day) &&
+                          "bg-violet-600 text-white dark:bg-violet-600",
+                        inMonth &&
+                          !isToday(day) &&
+                          "text-slate-800 dark:text-slate-100",
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
+                    >
+                      {format(day, "d")}
+                    </span>
+                    {dayItemTotal > 0 ? (
+                      <span
+                        className="max-w-[3.25rem] shrink-0 truncate text-right text-[0.6rem] font-semibold tabular-nums leading-tight text-violet-700 dark:text-violet-300 sm:max-w-none sm:text-[0.65rem]"
+                        title={itemCountTitle}
+                      >
+                        {dayItemTotal}{" "}
+                        <span className="font-normal text-slate-500 dark:text-slate-400">
+                          items
+                        </span>
+                      </span>
+                    ) : null}
+                  </div>
                   <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-hidden">
                     {dayItems.slice(0, 3).map((s) => {
                       const rescheduled = isScheduleRescheduled(s.status);
@@ -237,18 +306,31 @@ export function ConsignmentCalendar({ schedules, isLoading }: Props) {
       </div>
 
       <aside className="w-full shrink-0 xl:sticky xl:top-4 xl:w-80">
-        <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
-          {selectedDay
-            ? format(selectedDay, "MMMM d, yyyy")
-            : "Select a day"}
-        </h3>
+        <div>
+          <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+            {selectedDay
+              ? format(selectedDay, "MMMM d, yyyy")
+              : "Select a day"}
+          </h3>
+          {selectedDay ? (
+            <p className="mt-0.5 text-xs tabular-nums text-slate-500 dark:text-slate-400">
+              {selectedDayItemTotal} inquiry{" "}
+              {selectedDayItemTotal === 1 ? "item" : "items"}
+              {branchFilter !== "all"
+                ? ` · ${branchLabel(branchFilter)} only`
+                : ""}
+            </p>
+          ) : null}
+        </div>
         {!selectedDay ? (
           <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">
             Click a day on the grid for a full list of schedules.
           </p>
         ) : schedulesForSelectedDay.length === 0 ? (
           <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">
-            No schedules on this date.
+            {branchFilter === "all"
+              ? "No schedules on this date."
+              : `No ${branchLabel(branchFilter)} schedules on this date.`}
           </p>
         ) : (
           <ul className="mt-3 space-y-3">
