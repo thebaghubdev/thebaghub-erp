@@ -1,14 +1,6 @@
-import { createColumnHelper } from "@tanstack/react-table";
 import { useCallback, useEffect, useState } from "react";
 import { ConsignmentCalendar } from "../components/ConsignmentCalendar";
 import { CreateScheduleWizard } from "../components/CreateScheduleWizard";
-import { DataTable } from "../components/data-table/DataTable";
-import { SubmittedAtCell } from "../components/SubmittedAtCell";
-import {
-  branchLabel,
-  modeOfTransferLabel,
-  scheduleTypeLabel,
-} from "../lib/consignment-schedule-labels";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
 
@@ -22,86 +14,14 @@ type ConsignmentScheduleRow = {
   createdAt: string;
   createdByName: string;
   inquiryCount: number;
+  rescheduleReason: string | null;
 };
 
-type SchedulingTab = "all" | "create" | "calendar";
-
-const columnHelper = createColumnHelper<ConsignmentScheduleRow>();
-
-const columns = [
-  columnHelper.accessor("deliveryDate", {
-    id: "deliveryDate",
-    header: "Delivery date",
-    sortingFn: "alphanumeric",
-    cell: ({ row }) => (
-      <span className="text-slate-600 dark:text-slate-400">
-        <SubmittedAtCell iso={row.original.deliveryDate} showTime={false} />
-      </span>
-    ),
-  }),
-  columnHelper.accessor("status", {
-    header: "Status",
-    cell: ({ getValue }) => (
-      <span className="capitalize text-slate-700 dark:text-slate-300">
-        {getValue()}
-      </span>
-    ),
-  }),
-  columnHelper.accessor("type", {
-    header: "Type",
-    cell: ({ getValue }) => (
-      <span className="text-slate-800 dark:text-slate-200">
-        {scheduleTypeLabel(getValue())}
-      </span>
-    ),
-  }),
-  columnHelper.accessor("modeOfTransfer", {
-    header: "Mode",
-    cell: ({ row }) => (
-      <span className="text-slate-800 dark:text-slate-200">
-        {modeOfTransferLabel(row.original.type, row.original.modeOfTransfer)}
-      </span>
-    ),
-  }),
-  columnHelper.accessor("branch", {
-    header: "Branch",
-    cell: ({ getValue }) => (
-      <span className="text-slate-800 dark:text-slate-200">
-        {branchLabel(getValue())}
-      </span>
-    ),
-  }),
-  columnHelper.accessor("createdAt", {
-    id: "created",
-    header: "Created",
-    sortingFn: "alphanumeric",
-    cell: ({ row }) => (
-      <span className="text-slate-600 dark:text-slate-400">
-        <SubmittedAtCell iso={row.original.createdAt} />
-      </span>
-    ),
-  }),
-  columnHelper.accessor("createdByName", {
-    header: "Created by",
-    cell: ({ getValue }) => (
-      <span className="font-medium text-slate-900 dark:text-slate-100">
-        {getValue()}
-      </span>
-    ),
-  }),
-  columnHelper.accessor("inquiryCount", {
-    header: () => <span title="Inquiries in this schedule">Inquiries</span>,
-    cell: ({ getValue }) => (
-      <span className="tabular-nums text-slate-800 dark:text-slate-200">
-        {getValue()}
-      </span>
-    ),
-  }),
-];
+type SchedulingTab = "calendar" | "create";
 
 export function ConsignmentSchedulingPage() {
   const { token } = usePortalAuth();
-  const [tab, setTab] = useState<SchedulingTab>("all");
+  const [tab, setTab] = useState<SchedulingTab>("calendar");
   const [createWizardKey, setCreateWizardKey] = useState(0);
   const [rows, setRows] = useState<ConsignmentScheduleRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -123,7 +43,7 @@ export function ConsignmentSchedulingPage() {
   }, [token]);
 
   useEffect(() => {
-    if (tab === "all" || tab === "calendar") void load();
+    if (tab === "calendar") void load();
   }, [tab, load]);
 
   const tabBtn =
@@ -139,17 +59,17 @@ export function ConsignmentSchedulingPage() {
         <button
           type="button"
           role="tab"
-          aria-selected={tab === "all"}
-          id="tab-sched-all"
-          aria-controls="panel-sched-all"
+          aria-selected={tab === "calendar"}
+          id="tab-sched-calendar"
+          aria-controls="panel-sched-calendar"
           className={`${tabBtn} ${
-            tab === "all"
+            tab === "calendar"
               ? "border-violet-600 text-violet-700 dark:text-violet-300"
               : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
           }`}
-          onClick={() => setTab("all")}
+          onClick={() => setTab("calendar")}
         >
-          All Schedules
+          Consignment Calendar
         </button>
         <button
           type="button"
@@ -169,47 +89,21 @@ export function ConsignmentSchedulingPage() {
         >
           Create a Schedule
         </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "calendar"}
-          id="tab-sched-calendar"
-          aria-controls="panel-sched-calendar"
-          className={`${tabBtn} ${
-            tab === "calendar"
-              ? "border-violet-600 text-violet-700 dark:text-violet-300"
-              : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
-          }`}
-          onClick={() => setTab("calendar")}
-        >
-          Consignment Calendar
-        </button>
       </div>
 
-      {tab === "all" && (
+      {tab === "calendar" && (
         <section
-          id="panel-sched-all"
+          id="panel-sched-calendar"
           role="tabpanel"
-          aria-labelledby="tab-sched-all"
+          aria-labelledby="tab-sched-calendar"
+          className="min-h-[12rem]"
         >
           {error && (
             <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
               {error}
             </p>
           )}
-
-          <DataTable<ConsignmentScheduleRow>
-            data={rows}
-            columns={columns}
-            isLoading={loading}
-            emptyMessage="No consignment schedules yet."
-            hideEmptyState={!!error}
-            getRowId={(row) => row.id}
-            getRowAriaLabel={(row) =>
-              `Consignment schedule ${row.type}, ${row.deliveryDate}`
-            }
-            tableClassName="w-full min-w-[720px] table-fixed border-collapse text-left"
-          />
+          <ConsignmentCalendar schedules={rows} isLoading={loading} />
         </section>
       )}
 
@@ -226,22 +120,6 @@ export function ConsignmentSchedulingPage() {
               void load().then(() => setTab("calendar"));
             }}
           />
-        </section>
-      )}
-
-      {tab === "calendar" && (
-        <section
-          id="panel-sched-calendar"
-          role="tabpanel"
-          aria-labelledby="tab-sched-calendar"
-          className="min-h-[12rem]"
-        >
-          {error && (
-            <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
-              {error}
-            </p>
-          )}
-          <ConsignmentCalendar schedules={rows} isLoading={loading} />
         </section>
       )}
     </div>

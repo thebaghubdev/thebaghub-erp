@@ -7,8 +7,12 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Employee } from '../employees/entities/employee.entity';
 import { InquiryStatus } from '../enums/inquiry-status.enum';
-import { Inquiry } from '../inquiries/entities/inquiry.entity';
+import {
+  Inquiry,
+  type InquiryItemSnapshot,
+} from '../inquiries/entities/inquiry.entity';
 import { CreateConsignmentScheduleDto } from './dto/create-consignment-schedule.dto';
+import { RescheduleConsignmentScheduleDto } from './dto/reschedule-consignment-schedule.dto';
 import {
   ConsignmentSchedule,
   ConsignmentScheduleItem,
@@ -24,7 +28,33 @@ export type ConsignmentScheduleListRow = {
   createdAt: string;
   createdByName: string;
   inquiryCount: number;
+  /** Present when the schedule was rescheduled at least once. */
+  rescheduleReason: string | null;
 };
+
+export type ConsignmentScheduleInquiryRow = {
+  id: string;
+  sku: string;
+  status: string;
+  itemLabel: string;
+};
+
+export type ConsignmentScheduleDetail = ConsignmentScheduleListRow & {
+  inquiries: ConsignmentScheduleInquiryRow[];
+};
+
+function itemLabelFromSnapshot(
+  snapshot: InquiryItemSnapshot | null | undefined,
+): string {
+  if (!snapshot?.form) return 'Item';
+  const form = snapshot.form as { brand?: string; itemModel?: string };
+  const brand = (form.brand ?? '').trim();
+  const model = (form.itemModel ?? '').trim();
+  if (!brand && !model) return 'Item';
+  if (!brand) return model;
+  if (!model) return brand;
+  return `${brand} — ${model}`;
+}
 
 @Injectable()
 export class ConsignmentSchedulesService {
@@ -41,6 +71,72 @@ export class ConsignmentSchedulesService {
       order: { deliveryDate: 'ASC' },
     });
     return list.map((s) => this.mapScheduleToListRow(s));
+  }
+
+  async findOneForStaff(id: string): Promise<ConsignmentScheduleDetail> {
+    const s = await this.scheduleRepo.findOne({
+      where: { id },
+      relations: { createdBy: true, items: { inquiry: true } },
+    });
+    if (!s) {
+      throw new NotFoundException('Schedule not found');
+    }
+    const base = this.mapScheduleToListRow(s);
+    const inquiries: ConsignmentScheduleInquiryRow[] = (s.items ?? []).map(
+      (it) => ({
+        id: it.inquiry.id,
+        sku: it.inquiry.sku,
+        status: String(it.inquiry.status),
+        itemLabel: itemLabelFromSnapshot(it.inquiry.itemSnapshot),
+      }),
+    );
+    inquiries.sort((a, b) => a.sku.localeCompare(b.sku));
+    return { ...base, inquiries };
+  }
+
+  async rescheduleForStaff(
+    id: string,
+    dto: RescheduleConsignmentScheduleDto,
+  ): Promise<ConsignmentScheduleDetail> {
+    const deliveryDate = new Date(`${dto.deliveryDate}T12:00:00.000Z`);
+    const s = await this.scheduleRepo.findOne({ where: { id } });
+    if (!s) {
+      throw new NotFoundException('Schedule not found');
+    }
+    s.deliveryDate = deliveryDate;
+    s.status = 'rescheduled';
+    s.rescheduleReason = dto.rescheduleReason.trim();
+    await this.scheduleRepo.save(s);
+    return this.findOneForStaff(id);
+  }
+
+  async removeForStaff(id: string): Promise<void> {
+    await this.scheduleRepo.manager.transaction(async (em) => {
+      const schedule = await em.findOne(ConsignmentSchedule, {
+        where: { id },
+        relations: { items: { inquiry: true } },
+      });
+      if (!schedule) {
+        throw new NotFoundException('Schedule not found');
+      }
+
+      for (const item of schedule.items ?? []) {
+        const inv = item.inquiry;
+        if (schedule.type === 'delivery') {
+          if (inv.status === InquiryStatus.FOR_DELIVERY_SCHEDULED) {
+            inv.status = InquiryStatus.FOR_DELIVERY;
+            await em.save(inv);
+          }
+        } else if (schedule.type === 'pullout') {
+          if (inv.status === InquiryStatus.FOR_PULLOUT_SCHEDULED) {
+            inv.status = InquiryStatus.FOR_PULLOUT;
+            await em.save(inv);
+          }
+        }
+      }
+
+      await em.remove(schedule);
+    });
   }
 
   async createForStaff(
@@ -107,6 +203,7 @@ export class ConsignmentSchedulesService {
   }
 
   private mapScheduleToListRow(s: ConsignmentSchedule): ConsignmentScheduleListRow {
+    const rr = s.rescheduleReason?.trim();
     return {
       id: s.id,
       deliveryDate: s.deliveryDate.toISOString(),
@@ -120,6 +217,7 @@ export class ConsignmentSchedulesService {
         .join(' ')
         .trim(),
       inquiryCount: s.items?.length ?? 0,
+      rescheduleReason: rr && rr.length > 0 ? rr : null,
     };
   }
 }

@@ -9,6 +9,7 @@ import { validateOrReject } from 'class-validator';
 import { randomUUID } from 'node:crypto';
 import { Between, Repository } from 'typeorm';
 import { Client } from '../clients/entities/client.entity';
+import { ConsignmentScheduleItem } from '../consignment-schedules/entities/consignment-schedule.entities';
 import { InquiryStatus } from '../enums/inquiry-status.enum';
 import { JwtUser } from '../auth/jwt-user';
 import { UpdateInquiryNotesDto } from './dto/update-inquiry-notes.dto';
@@ -146,6 +147,12 @@ export type StaffInquiryDetail = StaffInquiryRow & {
   };
 };
 
+/** When status is for_delivery_scheduled, schedule row from staff calendar. */
+export type ClientDeliveryScheduleInfo = {
+  deliveryDate: string;
+  modeOfTransfer: string;
+};
+
 /** Client-facing inquiry detail (no internal staff notes). */
 export type ClientInquiryDetail = Omit<StaffInquiryRow, 'notes'> & {
   updatedAt: Date;
@@ -154,6 +161,8 @@ export type ClientInquiryDetail = Omit<StaffInquiryRow, 'notes'> & {
     form: Record<string, unknown>;
     images: Array<{ key: string; url: string }>;
   };
+  /** Present when linked to a delivery schedule (for_delivery_scheduled). */
+  deliverySchedule: ClientDeliveryScheduleInfo | null;
 };
 
 @Injectable()
@@ -163,8 +172,31 @@ export class InquiriesService {
     private readonly inquiriesRepo: Repository<Inquiry>,
     @InjectRepository(Client)
     private readonly clientsRepo: Repository<Client>,
+    @InjectRepository(ConsignmentScheduleItem)
+    private readonly scheduleItemRepo: Repository<ConsignmentScheduleItem>,
     private readonly s3: S3StorageService,
   ) {}
+
+  private async loadDeliveryScheduleForInquiry(
+    inquiryId: string,
+    status: InquiryStatus,
+  ): Promise<ClientDeliveryScheduleInfo | null> {
+    if (status !== InquiryStatus.FOR_DELIVERY_SCHEDULED) {
+      return null;
+    }
+    const row = await this.scheduleItemRepo.findOne({
+      where: { inquiry: { id: inquiryId } },
+      relations: { consignmentSchedule: true },
+    });
+    const sch = row?.consignmentSchedule;
+    if (!sch || sch.type !== 'delivery') {
+      return null;
+    }
+    return {
+      deliveryDate: sch.deliveryDate.toISOString(),
+      modeOfTransfer: sch.modeOfTransfer,
+    };
+  }
 
   /** Builds API view from inquiry columns + client bank fields, or legacy JSONB. */
   private mapClientOfferConfirmationForApi(
@@ -354,6 +386,10 @@ export class InquiriesService {
       key: img.key,
       url: this.s3.getPublicUrl(img.key),
     }));
+    const deliverySchedule = await this.loadDeliveryScheduleForInquiry(
+      r.id,
+      r.status,
+    );
     return {
       ...rest,
       updatedAt: r.updatedAt,
@@ -362,6 +398,7 @@ export class InquiriesService {
         form: (r.itemSnapshot.form ?? {}) as Record<string, unknown>,
         images,
       },
+      deliverySchedule,
     };
   }
 

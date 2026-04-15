@@ -7,6 +7,8 @@ import { OfferSignatureField } from "../components/OfferSignatureField";
 import { TermsScrollAgreeModal } from "../components/TermsScrollAgreeModal";
 import { useClientAuth } from "../context/client-auth";
 import { apiFetch } from "../lib/api";
+import { SubmittedAtCell } from "../components/SubmittedAtCell";
+import { modeOfTransferLabel } from "../lib/consignment-schedule-labels";
 import { formatInquiryStatus } from "../lib/format-inquiry-status";
 import { formatPhpDisplay } from "../lib/format-php";
 
@@ -47,6 +49,11 @@ type ClientInquiryDetail = {
   offerTransactionType: TransactionType | null;
   offerPrice: string | null;
   clientOfferConfirmation?: ClientOfferConfirmation | null;
+  /** Set when staff has scheduled this item for delivery. */
+  deliverySchedule?: {
+    deliveryDate: string;
+    modeOfTransfer: string;
+  } | null;
   itemSnapshot: {
     clientItemId: string;
     form: Record<string, unknown>;
@@ -391,6 +398,39 @@ export function ClientConsignmentDetailPage() {
                     Confirm offer
                   </button>
                 ) : null}
+              </div>
+            ) : null}
+
+            {detail.status.trim().toLowerCase() === "for_delivery_scheduled" &&
+            detail.deliverySchedule ? (
+              <div className="mt-4 rounded-lg border border-violet-200 bg-violet-50/80 p-3 text-sm dark:border-violet-900/50 dark:bg-violet-950/30">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-violet-900 dark:text-violet-200">
+                  Scheduled delivery
+                </h3>
+                <dl className="mt-2 space-y-2 text-slate-800 dark:text-slate-200">
+                  <div>
+                    <dt className="text-slate-500 dark:text-slate-400">
+                      Delivery date
+                    </dt>
+                    <dd className="font-medium text-slate-900 dark:text-slate-100">
+                      <SubmittedAtCell
+                        iso={detail.deliverySchedule.deliveryDate}
+                        showTime={false}
+                      />
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500 dark:text-slate-400">
+                      Mode of transfer
+                    </dt>
+                    <dd className="font-medium text-slate-900 dark:text-slate-100">
+                      {modeOfTransferLabel(
+                        "delivery",
+                        detail.deliverySchedule.modeOfTransfer,
+                      )}
+                    </dd>
+                  </div>
+                </dl>
               </div>
             ) : null}
 

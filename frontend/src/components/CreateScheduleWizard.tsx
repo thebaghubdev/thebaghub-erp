@@ -80,6 +80,7 @@ export function CreateScheduleWizard({ onScheduleSaved }: Props) {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   const [step1Error, setStep1Error] = useState<string | null>(null);
+  const [step2Error, setStep2Error] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveLoading, setSaveLoading] = useState(false);
 
@@ -160,6 +161,8 @@ export function CreateScheduleWizard({ onScheduleSaved }: Props) {
   const canAdvanceFromStep1 =
     deliveryDate.trim() !== "" && mode !== "";
 
+  const canAdvanceFromStep2 = selectedIds.length > 0;
+
   const goNextFromStep1 = () => {
     setStep1Error(null);
     if (!canAdvanceFromStep1) {
@@ -168,12 +171,22 @@ export function CreateScheduleWizard({ onScheduleSaved }: Props) {
       );
       return;
     }
+    setStep2Error(null);
     setStep(2);
   };
 
   const goNextFromStep2 = () => {
+    setStep2Error(null);
+    if (!canAdvanceFromStep2) {
+      setStep2Error("Select at least one inquiry to continue.");
+      return;
+    }
     setStep(3);
   };
+
+  useEffect(() => {
+    if (selectedIds.length > 0) setStep2Error(null);
+  }, [selectedIds]);
 
   const saveSchedule = async () => {
     setSaveError(null);
@@ -375,6 +388,7 @@ export function CreateScheduleWizard({ onScheduleSaved }: Props) {
               triggerClassName={dateTriggerClass}
               placeholder="Select delivery date"
               dialogAriaLabel="Choose delivery date"
+              disablePast
             />
           </div>
           <div className="flex flex-wrap justify-end gap-2 pt-2">
@@ -401,6 +415,14 @@ export function CreateScheduleWizard({ onScheduleSaved }: Props) {
             </span>
             . Select one or more rows.
           </p>
+          {step2Error && (
+            <p
+              className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100"
+              role="alert"
+            >
+              {step2Error}
+            </p>
+          )}
           {inquiryError && (
             <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
               {inquiryError}
@@ -420,11 +442,18 @@ export function CreateScheduleWizard({ onScheduleSaved }: Props) {
             <button
               type="button"
               className={btnSecondary}
-              onClick={() => setStep(1)}
+              onClick={() => {
+                setStep2Error(null);
+                setStep(1);
+              }}
             >
               Back
             </button>
-            <button type="button" className={btnPrimary} onClick={goNextFromStep2}>
+            <button
+              type="button"
+              className={btnPrimary}
+              onClick={goNextFromStep2}
+            >
               Next
             </button>
           </div>

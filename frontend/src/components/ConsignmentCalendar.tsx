@@ -18,6 +18,7 @@ import {
   subMonths,
 } from "date-fns";
 import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   branchLabel,
   modeOfTransferLabel,
@@ -27,11 +28,18 @@ import {
 export type CalendarScheduleRow = {
   id: string;
   deliveryDate: string;
+  /** e.g. `scheduled`, `rescheduled` */
+  status: string;
   type: string;
   modeOfTransfer: string;
   branch: string;
   inquiryCount: number;
+  rescheduleReason?: string | null;
 };
+
+function isScheduleRescheduled(status: string | undefined): boolean {
+  return status?.trim().toLowerCase() === "rescheduled";
+}
 
 type Props = {
   schedules: CalendarScheduleRow[];
@@ -177,20 +185,44 @@ export function ConsignmentCalendar({ schedules, isLoading }: Props) {
                     {format(day, "d")}
                   </span>
                   <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-hidden">
-                    {dayItems.slice(0, 3).map((s) => (
-                      <div
-                        key={s.id}
-                        className="rounded-md border-l-2 border-violet-500 bg-violet-50 px-1.5 py-1 dark:border-violet-400 dark:bg-violet-950/50"
-                      >
-                        <p className="line-clamp-2 text-[0.65rem] font-medium leading-snug text-violet-900 dark:text-violet-100 sm:text-xs">
-                          {scheduleTypeLabel(s.type)} ·{" "}
-                          {modeOfTransferLabel(s.type, s.modeOfTransfer)}
-                        </p>
-                        <p className="mt-0.5 hidden text-[0.6rem] text-violet-700/90 sm:block dark:text-violet-300/90">
-                          {branchLabel(s.branch)} · {s.inquiryCount} items
-                        </p>
-                      </div>
-                    ))}
+                    {dayItems.slice(0, 3).map((s) => {
+                      const rescheduled = isScheduleRescheduled(s.status);
+                      return (
+                        <div
+                          key={s.id}
+                          className={
+                            rescheduled
+                              ? "rounded-md border-l-2 border-amber-500 bg-amber-50 px-1.5 py-1 dark:border-amber-400 dark:bg-amber-950/45"
+                              : "rounded-md border-l-2 border-violet-500 bg-violet-50 px-1.5 py-1 dark:border-violet-400 dark:bg-violet-950/50"
+                          }
+                        >
+                          {rescheduled ? (
+                            <p className="mb-0.5 text-[0.6rem] font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-200">
+                              Rescheduled
+                            </p>
+                          ) : null}
+                          <p
+                            className={
+                              rescheduled
+                                ? "line-clamp-2 text-[0.65rem] font-medium leading-snug text-amber-950 dark:text-amber-50 sm:text-xs"
+                                : "line-clamp-2 text-[0.65rem] font-medium leading-snug text-violet-900 dark:text-violet-100 sm:text-xs"
+                            }
+                          >
+                            {scheduleTypeLabel(s.type)} ·{" "}
+                            {modeOfTransferLabel(s.type, s.modeOfTransfer)}
+                          </p>
+                          <p
+                            className={
+                              rescheduled
+                                ? "mt-0.5 hidden text-[0.6rem] text-amber-800/95 sm:block dark:text-amber-200/95"
+                                : "mt-0.5 hidden text-[0.6rem] text-violet-700/90 sm:block dark:text-violet-300/90"
+                            }
+                          >
+                            {branchLabel(s.branch)} · {s.inquiryCount} items
+                          </p>
+                        </div>
+                      );
+                    })}
                     {dayItems.length > 3 ? (
                       <span className="text-[0.6rem] font-medium text-slate-500 dark:text-slate-400">
                         +{dayItems.length - 3} more
@@ -220,20 +252,48 @@ export function ConsignmentCalendar({ schedules, isLoading }: Props) {
           </p>
         ) : (
           <ul className="mt-3 space-y-3">
-            {schedulesForSelectedDay.map((s) => (
-              <li
-                key={s.id}
-                className="rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950/50"
-              >
-                <p className="font-medium text-slate-900 dark:text-slate-100">
-                  {scheduleTypeLabel(s.type)} ·{" "}
-                  {modeOfTransferLabel(s.type, s.modeOfTransfer)}
-                </p>
-                <p className="mt-1 text-slate-600 dark:text-slate-400">
-                  Branch: {branchLabel(s.branch)} · Items: {s.inquiryCount}
-                </p>
-              </li>
-            ))}
+            {schedulesForSelectedDay.map((s) => {
+              const rescheduled = isScheduleRescheduled(s.status);
+              const label = `${scheduleTypeLabel(s.type)}, ${branchLabel(s.branch)}`;
+              return (
+                <li key={s.id}>
+                  <Link
+                    to={`/portal/consignment-scheduling/${s.id}`}
+                    aria-label={`Open schedule details: ${label}`}
+                    className={
+                      rescheduled
+                        ? "block rounded-lg border border-amber-200 bg-amber-50/90 px-3 py-2 text-sm transition-colors hover:bg-amber-100/90 focus-visible:outline focus-visible:ring-2 focus-visible:ring-amber-500 dark:border-amber-800/60 dark:bg-amber-950/35 dark:hover:bg-amber-950/55 dark:focus-visible:ring-amber-600"
+                        : "block rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2 text-sm transition-colors hover:bg-slate-100/90 focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500 dark:border-slate-700 dark:bg-slate-950/50 dark:hover:bg-slate-800/60"
+                    }
+                  >
+                    {rescheduled ? (
+                      <p className="text-xs font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-200">
+                        Rescheduled
+                      </p>
+                    ) : null}
+                    <p
+                      className={
+                        rescheduled
+                          ? "font-medium text-amber-950 dark:text-amber-50"
+                          : "font-medium text-slate-900 dark:text-slate-100"
+                      }
+                    >
+                      {scheduleTypeLabel(s.type)} ·{" "}
+                      {modeOfTransferLabel(s.type, s.modeOfTransfer)}
+                    </p>
+                    <p
+                      className={
+                        rescheduled
+                          ? "mt-1 text-amber-800/95 dark:text-amber-200/90"
+                          : "mt-1 text-slate-600 dark:text-slate-400"
+                      }
+                    >
+                      Branch: {branchLabel(s.branch)} · Items: {s.inquiryCount}
+                    </p>
+                  </Link>
+                </li>
+              );
+            })}
           </ul>
         )}
       </aside>

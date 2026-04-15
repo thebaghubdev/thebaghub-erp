@@ -40,6 +40,10 @@ export class ConsignmentSchedule {
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 
+  /** Staff explanation when status is `rescheduled`. */
+  @Column({ name: 'reschedule_reason', type: 'text', nullable: true })
+  rescheduleReason: string | null;
+
   @ManyToOne(() => Employee, { onDelete: 'RESTRICT', nullable: false })
   @JoinColumn({ name: 'created_by_id' })
   createdBy: Employee;

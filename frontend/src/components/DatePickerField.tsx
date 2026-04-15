@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { DayPicker } from "react-day-picker";
-import { format, parse } from "date-fns";
+import { format, parse, startOfDay } from "date-fns";
 import "react-day-picker/style.css";
 
 function parseYmd(s: string): Date | undefined {
@@ -20,6 +20,8 @@ export type DatePickerFieldProps = {
   placeholder?: string;
   /** Accessible name for the calendar popover (`role="dialog"`). */
   dialogAriaLabel?: string;
+  /** When true, days before today (local calendar) cannot be selected. */
+  disablePast?: boolean;
 };
 
 const dayPickerClassNames = {
@@ -60,6 +62,7 @@ export function DatePickerField({
   disabled,
   placeholder = "Select date",
   dialogAriaLabel = "Choose date",
+  disablePast = false,
 }: DatePickerFieldProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -118,6 +121,9 @@ export function DatePickerField({
               setOpen(false);
             }}
             defaultMonth={selected ?? new Date()}
+            disabled={
+              disablePast ? { before: startOfDay(new Date()) } : undefined
+            }
             classNames={dayPickerClassNames}
           />
         </div>

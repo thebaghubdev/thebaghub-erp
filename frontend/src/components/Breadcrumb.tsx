@@ -49,6 +49,22 @@ function crumbsForPath(pathname: string): Crumb[] {
     ];
   }
 
+  if (
+    /^\/portal\/consignment-scheduling\/.+/.test(normalized) &&
+    normalized !== "/portal/consignment-scheduling"
+  ) {
+    return [
+      {
+        label:
+          pathLabels["/portal/consignment-scheduling"] ??
+          "Consignment Scheduling",
+        to: "/portal/consignment-scheduling",
+        current: false,
+      },
+      { label: "Schedule details", to: normalized, current: true },
+    ];
+  }
+
   return [];
 }
 
