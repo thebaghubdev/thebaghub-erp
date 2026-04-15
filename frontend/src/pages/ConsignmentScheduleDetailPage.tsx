@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -121,8 +127,29 @@ function formStateFromItemSnapshot(
   };
 }
 
+/** Matches staff inquiry item label (brand + model). */
+function itemLabelFromReceiptForm(f: ReceiptItemFormState): string {
+  const brand = f.brand.trim();
+  const model = f.itemModel.trim();
+  if (!brand && !model) return "Item";
+  if (!brand) return model;
+  if (!model) return brand;
+  return `${brand} — ${model}`;
+}
+
+function validateReceiptFormRequired(f: ReceiptItemFormState): string | null {
+  if (!f.itemModel.trim()) return "Model is required.";
+  if (!f.brand.trim()) return "Brand is required.";
+  if (!f.category.trim()) return "Category is required.";
+  if (!f.condition.trim()) return "Condition is required.";
+  if (!f.inclusions.trim()) return "Inclusions is required.";
+  return null;
+}
+
 const verifyInputClass =
   "mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100";
+
+type ConsignPicklists = { brands: string[]; categories: string[] };
 
 export function ConsignmentScheduleDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -155,10 +182,12 @@ export function ConsignmentScheduleDetailPage() {
   const [receivedChecked, setReceivedChecked] = useState<Record<string, boolean>>(
     {},
   );
-  /** In-memory edits per inquiry when user continues from verify modal (for a future save). */
-  const [, setReceiptItemEdits] = useState<Record<string, ReceiptItemFormState>>(
-    {},
-  );
+  /** Edits from the review modal, submitted with receive. */
+  const [receiptItemEdits, setReceiptItemEdits] = useState<
+    Record<string, ReceiptItemFormState>
+  >({});
+  const [receiveBusy, setReceiveBusy] = useState(false);
+  const [receiveError, setReceiveError] = useState<string | null>(null);
 
   const [itemVerifyInquiryId, setItemVerifyInquiryId] = useState<string | null>(
     null,
@@ -166,8 +195,54 @@ export function ConsignmentScheduleDetailPage() {
   const [itemVerifySku, setItemVerifySku] = useState("");
   const [itemVerifyLoading, setItemVerifyLoading] = useState(false);
   const [itemVerifyError, setItemVerifyError] = useState<string | null>(null);
+  const [itemVerifyValidationError, setItemVerifyValidationError] = useState<
+    string | null
+  >(null);
   const [itemVerifyForm, setItemVerifyForm] =
     useState<ReceiptItemFormState | null>(null);
+
+  const [consignPicklists, setConsignPicklists] = useState<ConsignPicklists>({
+    brands: [],
+    categories: [],
+  });
+  const [picklistsLoading, setPicklistsLoading] = useState(false);
+  const [picklistsError, setPicklistsError] = useState<string | null>(null);
+
+  const loadConsignPicklists = useCallback(async () => {
+    if (!token) return;
+    setPicklistsError(null);
+    setPicklistsLoading(true);
+    try {
+      const res = await apiFetch(
+        "/api/client/consignment-form/options",
+        {},
+        token,
+      );
+      if (!res.ok) {
+        throw new Error(`Could not load options (${res.status})`);
+      }
+      const data = (await res.json()) as ConsignPicklists;
+      setConsignPicklists({
+        brands: Array.isArray(data.brands) ? data.brands : [],
+        categories: Array.isArray(data.categories) ? data.categories : [],
+      });
+    } catch (e) {
+      setPicklistsError(
+        e instanceof Error ? e.message : "Could not load form options",
+      );
+    } finally {
+      setPicklistsLoading(false);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    if (!receivedOpen || !token) return;
+    void loadConsignPicklists();
+  }, [receivedOpen, token, loadConsignPicklists]);
+
+  useEffect(() => {
+    setItemVerifyValidationError(null);
+  }, [itemVerifyForm]);
 
   const load = useCallback(async () => {
     if (!id || !token) return;
@@ -263,6 +338,8 @@ export function ConsignmentScheduleDetailPage() {
     for (const q of detail.inquiries) next[q.id] = false;
     setReceivedChecked(next);
     setReceiptItemEdits({});
+    setReceiveError(null);
+    setPicklistsError(null);
     itemVerifySeq.current += 1;
     setItemVerifyInquiryId(null);
     setItemVerifyForm(null);
@@ -285,6 +362,7 @@ export function ConsignmentScheduleDetailPage() {
     setItemVerifyInquiryId(null);
     setItemVerifyForm(null);
     setItemVerifyError(null);
+    setItemVerifyValidationError(null);
     setItemVerifyLoading(false);
   }, []);
 
@@ -295,6 +373,7 @@ export function ConsignmentScheduleDetailPage() {
       setItemVerifyInquiryId(inquiryId);
       setItemVerifySku(sku);
       setItemVerifyError(null);
+      setItemVerifyValidationError(null);
       setItemVerifyForm(null);
       setItemVerifyLoading(true);
       try {
@@ -327,6 +406,11 @@ export function ConsignmentScheduleDetailPage() {
 
   const continueItemVerify = useCallback(() => {
     if (!itemVerifyInquiryId || !itemVerifyForm) return;
+    const validation = validateReceiptFormRequired(itemVerifyForm);
+    if (validation) {
+      setItemVerifyValidationError(validation);
+      return;
+    }
     const id = itemVerifyInquiryId;
     setReceiptItemEdits((prev) => ({ ...prev, [id]: itemVerifyForm }));
     setReceivedChecked((prev) => ({ ...prev, [id]: true }));
@@ -350,6 +434,46 @@ export function ConsignmentScheduleDetailPage() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [itemVerifyInquiryId, itemVerifyLoading, closeItemVerify]);
+
+  const submitReceiveAll = useCallback(async () => {
+    if (!id || !token || !detail) return;
+    const missing = detail.inquiries.some((q) => !receiptItemEdits[q.id]);
+    if (missing) {
+      setReceiveError(
+        "Open each item’s review form and continue so every line has saved details.",
+      );
+      return;
+    }
+    setReceiveError(null);
+    setReceiveBusy(true);
+    try {
+      const res = await apiFetch(
+        `/api/consignment-schedules/${id}/receive-items`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            items: detail.inquiries.map((q) => ({
+              inquiryId: q.id,
+              form: receiptItemEdits[q.id],
+            })),
+          }),
+        },
+        token,
+      );
+      if (!res.ok) {
+        setReceiveError(await readApiErrorMessage(res));
+        return;
+      }
+      setReceivedOpen(false);
+      navigate("/portal/inventory");
+    } catch (e) {
+      setReceiveError(
+        e instanceof Error ? e.message : "Could not record received items.",
+      );
+    } finally {
+      setReceiveBusy(false);
+    }
+  }, [id, token, detail, receiptItemEdits, navigate]);
 
   const confirmDelete = useCallback(async () => {
     if (!id || !token) return;
@@ -612,6 +736,11 @@ export function ConsignmentScheduleDetailPage() {
                                       ...prev,
                                       [row.id]: false,
                                     }));
+                                    setReceiptItemEdits((prev) => {
+                                      const next = { ...prev };
+                                      delete next[row.id];
+                                      return next;
+                                    });
                                   } else {
                                     void beginItemVerify(row.id, row.sku);
                                   }
@@ -623,10 +752,17 @@ export function ConsignmentScheduleDetailPage() {
                               {row.sku}
                             </td>
                             <td className="py-2.5 pr-3 align-top text-slate-800 dark:text-slate-200">
-                              {row.itemLabel}
+                              {receiptItemEdits[row.id]
+                                ? itemLabelFromReceiptForm(
+                                    receiptItemEdits[row.id],
+                                  )
+                                : row.itemLabel}
                             </td>
                             <td className="py-2.5 align-top whitespace-pre-wrap text-slate-700 dark:text-slate-300">
-                              {row.inclusions ?? "—"}
+                              {receiptItemEdits[row.id]
+                                ? receiptItemEdits[row.id].inclusions.trim() ||
+                                  "—"
+                                : (row.inclusions ?? "—")}
                             </td>
                           </tr>
                         ))}
@@ -635,10 +771,19 @@ export function ConsignmentScheduleDetailPage() {
                   </div>
                 </div>
                 <div className="shrink-0 border-t border-slate-200 px-5 py-4 dark:border-slate-700">
+                  {receiveError ? (
+                    <p
+                      className="mb-3 text-sm text-red-600 dark:text-red-400"
+                      role="alert"
+                    >
+                      {receiveError}
+                    </p>
+                  ) : null}
                   <div className="flex flex-wrap justify-end gap-2">
                     <button
                       type="button"
                       className={btnSecondary}
+                      disabled={receiveBusy}
                       onClick={closeReceived}
                     >
                       Cancel
@@ -647,11 +792,13 @@ export function ConsignmentScheduleDetailPage() {
                       type="button"
                       className={btnPrimary}
                       disabled={
+                        receiveBusy ||
                         detail.inquiries.length === 0 ||
                         !detail.inquiries.every((q) => receivedChecked[q.id])
                       }
+                      onClick={() => void submitReceiveAll()}
                     >
-                      All Items Received
+                      {receiveBusy ? "Saving…" : "All Items Received"}
                     </button>
                   </div>
                 </div>
@@ -722,6 +869,18 @@ export function ConsignmentScheduleDetailPage() {
                       </button>
                     </div>
                   ) : null}
+                  {picklistsError && itemVerifyForm ? (
+                    <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/50 dark:text-amber-100">
+                      {picklistsError}
+                      <button
+                        type="button"
+                        className="ml-2 font-medium text-violet-700 underline dark:text-violet-400"
+                        onClick={() => void loadConsignPicklists()}
+                      >
+                        Retry
+                      </button>
+                    </div>
+                  ) : null}
                   {!itemVerifyLoading && !itemVerifyError && itemVerifyForm ? (
                     <div className="grid grid-cols-1 gap-x-6 gap-y-4 text-sm sm:grid-cols-2">
                       <div>
@@ -729,7 +888,10 @@ export function ConsignmentScheduleDetailPage() {
                           htmlFor={`${verifyFieldId}-model`}
                           className="font-medium text-slate-700 dark:text-slate-300"
                         >
-                          Model
+                          Model{" "}
+                          <span className="text-red-600 dark:text-red-400">
+                            *
+                          </span>
                         </label>
                         <input
                           id={`${verifyFieldId}-model`}
@@ -744,6 +906,7 @@ export function ConsignmentScheduleDetailPage() {
                           }
                           className={verifyInputClass}
                           autoComplete="off"
+                          required
                         />
                       </div>
                       <div>
@@ -753,9 +916,8 @@ export function ConsignmentScheduleDetailPage() {
                         >
                           Brand
                         </label>
-                        <input
+                        <select
                           id={`${verifyFieldId}-brand`}
-                          type="text"
                           value={itemVerifyForm.brand}
                           onChange={(e) =>
                             setItemVerifyForm((prev) =>
@@ -765,19 +927,37 @@ export function ConsignmentScheduleDetailPage() {
                             )
                           }
                           className={verifyInputClass}
-                          autoComplete="off"
-                        />
+                          disabled={picklistsLoading || !!picklistsError}
+                          required
+                        >
+                          <option value="">Select brand</option>
+                          {consignPicklists.brands.map((b) => (
+                            <option key={b} value={b}>
+                              {b}
+                            </option>
+                          ))}
+                        </select>
+                        {!picklistsLoading &&
+                        !picklistsError &&
+                        consignPicklists.brands.length === 0 ? (
+                          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                            No brands configured. Add options under Settings →
+                            Brands we consign.
+                          </p>
+                        ) : null}
                       </div>
                       <div>
                         <label
                           htmlFor={`${verifyFieldId}-category`}
                           className="font-medium text-slate-700 dark:text-slate-300"
                         >
-                          Category
+                          Category{" "}
+                          <span className="text-red-600 dark:text-red-400">
+                            *
+                          </span>
                         </label>
-                        <input
+                        <select
                           id={`${verifyFieldId}-category`}
-                          type="text"
                           value={itemVerifyForm.category}
                           onChange={(e) =>
                             setItemVerifyForm((prev) =>
@@ -787,15 +967,34 @@ export function ConsignmentScheduleDetailPage() {
                             )
                           }
                           className={verifyInputClass}
-                          autoComplete="off"
-                        />
+                          disabled={picklistsLoading || !!picklistsError}
+                          required
+                        >
+                          <option value="">Select category</option>
+                          {consignPicklists.categories.map((c) => (
+                            <option key={c} value={c}>
+                              {c}
+                            </option>
+                          ))}
+                        </select>
+                        {!picklistsLoading &&
+                        !picklistsError &&
+                        consignPicklists.categories.length === 0 ? (
+                          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                            No categories configured. Add options under Settings
+                            → Item categories.
+                          </p>
+                        ) : null}
                       </div>
                       <div>
                         <label
                           htmlFor={`${verifyFieldId}-serial`}
                           className="font-medium text-slate-700 dark:text-slate-300"
                         >
-                          Serial number
+                          Serial number{" "}
+                          <span className="font-normal text-slate-500 dark:text-slate-400">
+                            (Optional)
+                          </span>
                         </label>
                         <input
                           id={`${verifyFieldId}-serial`}
@@ -839,7 +1038,10 @@ export function ConsignmentScheduleDetailPage() {
                           htmlFor={`${verifyFieldId}-material`}
                           className="font-medium text-slate-700 dark:text-slate-300"
                         >
-                          Material
+                          Material{" "}
+                          <span className="font-normal text-slate-500 dark:text-slate-400">
+                            (Optional)
+                          </span>
                         </label>
                         <input
                           id={`${verifyFieldId}-material`}
@@ -861,7 +1063,10 @@ export function ConsignmentScheduleDetailPage() {
                           htmlFor={`${verifyFieldId}-condition`}
                           className="font-medium text-slate-700 dark:text-slate-300"
                         >
-                          Condition
+                          Condition{" "}
+                          <span className="text-red-600 dark:text-red-400">
+                            *
+                          </span>
                         </label>
                         <input
                           id={`${verifyFieldId}-condition`}
@@ -876,6 +1081,7 @@ export function ConsignmentScheduleDetailPage() {
                           }
                           className={verifyInputClass}
                           autoComplete="off"
+                          required
                         />
                       </div>
                       <div className="sm:col-span-2">
@@ -883,7 +1089,10 @@ export function ConsignmentScheduleDetailPage() {
                           htmlFor={`${verifyFieldId}-inclusions`}
                           className="font-medium text-slate-700 dark:text-slate-300"
                         >
-                          Inclusions
+                          Inclusions{" "}
+                          <span className="text-red-600 dark:text-red-400">
+                            *
+                          </span>
                         </label>
                         <textarea
                           id={`${verifyFieldId}-inclusions`}
@@ -897,52 +1106,18 @@ export function ConsignmentScheduleDetailPage() {
                           }
                           rows={3}
                           className={verifyInputClass}
-                        />
-                      </div>
-                      <div>
-                        <label
-                          htmlFor={`${verifyFieldId}-datePurchased`}
-                          className="font-medium text-slate-700 dark:text-slate-300"
-                        >
-                          Date purchased
-                        </label>
-                        <input
-                          id={`${verifyFieldId}-datePurchased`}
-                          type="date"
-                          value={itemVerifyForm.datePurchased}
-                          onChange={(e) =>
-                            setItemVerifyForm((prev) =>
-                              prev
-                                ? { ...prev, datePurchased: e.target.value }
-                                : null,
-                            )
-                          }
-                          className={verifyInputClass}
-                        />
-                      </div>
-                      <div>
-                        <label
-                          htmlFor={`${verifyFieldId}-source`}
-                          className="font-medium text-slate-700 dark:text-slate-300"
-                        >
-                          Source of purchase
-                        </label>
-                        <input
-                          id={`${verifyFieldId}-source`}
-                          type="text"
-                          value={itemVerifyForm.sourceOfPurchase}
-                          onChange={(e) =>
-                            setItemVerifyForm((prev) =>
-                              prev
-                                ? { ...prev, sourceOfPurchase: e.target.value }
-                                : null,
-                            )
-                          }
-                          className={verifyInputClass}
-                          autoComplete="off"
+                          required
                         />
                       </div>
                     </div>
+                  ) : null}
+                  {itemVerifyValidationError ? (
+                    <p
+                      className="mt-4 text-sm text-red-600 dark:text-red-400"
+                      role="alert"
+                    >
+                      {itemVerifyValidationError}
+                    </p>
                   ) : null}
                 </div>
                 <div className="shrink-0 border-t border-slate-200 px-5 py-4 dark:border-slate-700">

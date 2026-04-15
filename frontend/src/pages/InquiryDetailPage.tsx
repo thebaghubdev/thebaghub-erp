@@ -7,6 +7,7 @@ import { usePortalAuth } from "../context/portal-auth";
 import { PhpPriceInput } from "../components/PhpPriceInput";
 import { apiFetch } from "../lib/api";
 import { formatInquiryStatus } from "../lib/format-inquiry-status";
+import { formatOfferTransactionLabel } from "../lib/format-offer-transaction-type";
 import { formatPhpDisplay, parsePhpStringToNumber } from "../lib/format-php";
 
 type TransactionType = "consignment" | "direct_purchase";
@@ -59,7 +60,8 @@ function canShowStaffActions(status: string): boolean {
   const s = status.trim().toLowerCase();
   if (
     s === "for_delivery_scheduled" ||
-    s === "for_pullout_scheduled"
+    s === "for_pullout_scheduled" ||
+    s === "for_processing"
   ) {
     return false;
   }
@@ -73,12 +75,6 @@ function canShowStaffActions(status: string): boolean {
 
 function isPending(status: string): boolean {
   return status.trim().toLowerCase() === "pending";
-}
-
-function formatOfferTransactionLabel(t: TransactionType | null): string {
-  if (t === "direct_purchase") return "Direct purchase";
-  if (t === "consignment") return "Consignment";
-  return "—";
 }
 
 function formatClientPaymentMethod(

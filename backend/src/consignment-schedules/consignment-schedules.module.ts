@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Employee } from '../employees/entities/employee.entity';
+import { InventoryItem } from '../inventory/entities/inventory-item.entity';
+import { Inquiry } from '../inquiries/entities/inquiry.entity';
 import { ConsignmentSchedulesController } from './consignment-schedules.controller';
 import { ConsignmentSchedulesService } from './consignment-schedules.service';
 import {
@@ -14,6 +16,8 @@ import {
       ConsignmentSchedule,
       ConsignmentScheduleItem,
       Employee,
+      Inquiry,
+      InventoryItem,
     ]),
   ],
   controllers: [ConsignmentSchedulesController],

@@ -198,43 +198,33 @@ export class InquiriesService {
     };
   }
 
-  /** Builds API view from inquiry columns + client bank fields, or legacy JSONB. */
+  /** Builds API view from `preferred_payment_method`, `offer_signature_key`, and client bank fields. */
   private mapClientOfferConfirmationForApi(
     r: Inquiry,
   ): ClientOfferConfirmationView | null {
-    if (r.preferredPaymentMethod && r.offerSignatureKey) {
-      const consignor = r.consignor;
-      let bankDetails: ClientOfferConfirmationData['bankDetails'] = null;
-      if (r.preferredPaymentMethod === 'direct_deposit' && consignor) {
-        const num = consignor.bankAccountNumber?.trim();
-        const name = consignor.bankAccountName?.trim();
-        const code = consignor.bankCode?.trim();
-        const branch = consignor.bankBranch?.trim();
-        if (num && name && code && branch) {
-          bankDetails = {
-            accountNumber: num,
-            accountName: name,
-            bank: code as 'bdo' | 'bpi' | 'other',
-            branch,
-          };
-        }
-      }
-      return {
-        paymentMethod: r.preferredPaymentMethod,
-        bankDetails,
-        signatureUrl: this.s3.getPublicUrl(r.offerSignatureKey),
-      };
-    }
-    const legacy = r.clientOfferConfirmation;
-    if (!legacy) {
+    if (!r.preferredPaymentMethod || !r.offerSignatureKey) {
       return null;
     }
+    const consignor = r.consignor;
+    let bankDetails: ClientOfferConfirmationData['bankDetails'] = null;
+    if (r.preferredPaymentMethod === 'direct_deposit' && consignor) {
+      const num = consignor.bankAccountNumber?.trim();
+      const name = consignor.bankAccountName?.trim();
+      const code = consignor.bankCode?.trim();
+      const branch = consignor.bankBranch?.trim();
+      if (num && name && code && branch) {
+        bankDetails = {
+          accountNumber: num,
+          accountName: name,
+          bank: code as 'bdo' | 'bpi' | 'other',
+          branch,
+        };
+      }
+    }
     return {
-      paymentMethod: legacy.paymentMethod,
-      bankDetails: legacy.bankDetails,
-      signatureUrl: legacy.signatureKey
-        ? this.s3.getPublicUrl(legacy.signatureKey)
-        : '',
+      paymentMethod: r.preferredPaymentMethod,
+      bankDetails,
+      signatureUrl: this.s3.getPublicUrl(r.offerSignatureKey),
     };
   }
 
@@ -338,6 +328,8 @@ export class InquiriesService {
       itemLabel: string;
       status: InquiryStatus;
       createdAt: Date;
+      offerTransactionType: 'consignment' | 'direct_purchase' | null;
+      offerPrice: string | null;
     }>
   > {
     const client = await this.clientsRepo.findOne({
@@ -356,6 +348,11 @@ export class InquiriesService {
       itemLabel: itemLabelFromSnapshot(r.itemSnapshot),
       status: r.status,
       createdAt: r.createdAt,
+      offerTransactionType: r.offerTransactionType ?? null,
+      offerPrice:
+        r.offerPrice != null && r.offerPrice !== ''
+          ? String(r.offerPrice)
+          : null,
     }));
   }
 
@@ -580,7 +577,6 @@ export class InquiriesService {
 
     r.preferredPaymentMethod = dto.paymentMethod;
     r.offerSignatureKey = signatureKey;
-    r.clientOfferConfirmation = null;
     r.status = InquiryStatus.FOR_DELIVERY;
     await this.inquiriesRepo.save(r);
     return this.findOneForClient(user, inquiryId);
@@ -728,6 +724,11 @@ export class InquiriesService {
     if (InquiriesService.terminalInquiryStatuses.has(r.status)) {
       throw new BadRequestException('Cannot submit an offer for this inquiry');
     }
+    if (r.status === InquiryStatus.FOR_PROCESSING) {
+      throw new BadRequestException(
+        'Cannot submit an offer for an inquiry that is in processing',
+      );
+    }
 
     const form = (r.itemSnapshot?.form ?? {}) as Record<string, unknown>;
     const consentDirectPurchase = Boolean(form.consentDirectPurchase);
@@ -740,7 +741,6 @@ export class InquiriesService {
     r.offerTransactionType = dto.transactionType;
     r.offerPrice = dto.offerPrice.toFixed(2);
     r.status = InquiryStatus.FOR_OFFER_CONFIRMATION;
-    r.clientOfferConfirmation = null;
     r.preferredPaymentMethod = null;
     r.offerSignatureKey = null;
     await this.inquiriesRepo.save(r);

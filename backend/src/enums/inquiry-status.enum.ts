@@ -7,6 +7,8 @@ export enum InquiryStatus {
   FOR_DELIVERY_SCHEDULED = 'for_delivery_scheduled',
   /** Scheduled on a consignment schedule (pullout flow). */
   FOR_PULLOUT_SCHEDULED = 'for_pullout_scheduled',
+  /** Received at branch; inventory record created — awaiting authentication. */
+  FOR_PROCESSING = 'for_processing',
   DECLINED = 'declined',
   CANCELLED = 'cancelled',
 }

@@ -4,14 +4,17 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Between, Repository } from 'typeorm';
 import { Employee } from '../employees/entities/employee.entity';
 import { InquiryStatus } from '../enums/inquiry-status.enum';
+import { InventoryItem } from '../inventory/entities/inventory-item.entity';
 import {
   Inquiry,
   type InquiryItemSnapshot,
 } from '../inquiries/entities/inquiry.entity';
 import { CreateConsignmentScheduleDto } from './dto/create-consignment-schedule.dto';
+import type { ReceiveItemFormDto } from './dto/receive-item-form.dto';
+import { ReceiveScheduleItemsDto } from './dto/receive-schedule-items.dto';
 import { RescheduleConsignmentScheduleDto } from './dto/reschedule-consignment-schedule.dto';
 import {
   ConsignmentSchedule,
@@ -65,6 +68,77 @@ function inclusionsFromSnapshot(
   if (v == null) return '—';
   const s = String(v).trim();
   return s.length > 0 ? s : '—';
+}
+
+/** UTC calendar day bounds for `d`. */
+function utcDayRange(d: Date): { start: Date; end: Date } {
+  const start = new Date(
+    Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0),
+  );
+  const end = new Date(
+    Date.UTC(
+      d.getUTCFullYear(),
+      d.getUTCMonth(),
+      d.getUTCDate(),
+      23,
+      59,
+      59,
+      999,
+    ),
+  );
+  return { start, end };
+}
+
+/** Distinct from inquiry lock keys — serializes inventory SKU allocation per UTC day. */
+function utcInventoryDayLockKey(d: Date): string {
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  return `inv-${y}-${m}-${day}`;
+}
+
+/**
+ * Inventory SKU: same date + sequence shape as inquiries, without the INQ- prefix.
+ * Example: 2026-0414-01
+ */
+function formatInventorySku(ref: Date, sequence: number): string {
+  const y = ref.getUTCFullYear();
+  const mm = String(ref.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(ref.getUTCDate()).padStart(2, '0');
+  const mmdd = `${mm}${dd}`;
+  const seq =
+    sequence < 100
+      ? String(sequence).padStart(2, '0')
+      : String(sequence);
+  return `${y}-${mmdd}-${seq}`;
+}
+
+function mergeItemFormFromReceive(
+  snapshot: InquiryItemSnapshot,
+  form: ReceiveItemFormDto,
+): InquiryItemSnapshot {
+  const prev = { ...(snapshot.form ?? {}) };
+  const next: Record<string, unknown> = {
+    ...prev,
+    itemModel: form.itemModel,
+    brand: form.brand,
+    category: form.category,
+    serialNumber: form.serialNumber,
+    color: form.color,
+    material: form.material,
+    condition: form.condition,
+    inclusions: form.inclusions,
+    sourceOfPurchase: form.sourceOfPurchase,
+  };
+  const dp = form.datePurchased.trim();
+  if (dp !== '') {
+    next['datePurchased'] = dp;
+  }
+  return {
+    clientItemId: snapshot.clientItemId,
+    images: Array.isArray(snapshot.images) ? snapshot.images : [],
+    form: next,
+  };
 }
 
 @Injectable()
@@ -211,6 +285,110 @@ export class ConsignmentSchedulesService {
         relations: { createdBy: true, items: true },
       });
       return this.mapScheduleToListRow(saved);
+    });
+  }
+
+  /**
+   * Receives all inquiries on a schedule: merges item forms, sets inquiry status to
+   * for_processing, creates inventory rows, and removes the schedule.
+   */
+  async receiveItemsForStaff(
+    scheduleId: string,
+    dto: ReceiveScheduleItemsDto,
+  ): Promise<{ received: number }> {
+    return await this.scheduleRepo.manager.transaction(async (em) => {
+      const schedule = await em.findOne(ConsignmentSchedule, {
+        where: { id: scheduleId },
+        relations: { items: { inquiry: true } },
+      });
+      if (!schedule) {
+        throw new NotFoundException('Schedule not found');
+      }
+      const links = schedule.items ?? [];
+      if (links.length === 0) {
+        throw new BadRequestException('Schedule has no inquiries');
+      }
+
+      const expectedIds = new Set(links.map((l) => l.inquiry.id));
+      if (dto.items.length !== expectedIds.size) {
+        throw new BadRequestException(
+          `Expected ${String(expectedIds.size)} item(s), got ${String(dto.items.length)}`,
+        );
+      }
+      const byInquiryId = new Map(
+        dto.items.map((row) => [row.inquiryId, row] as const),
+      );
+      if (byInquiryId.size !== dto.items.length) {
+        throw new BadRequestException('Duplicate inquiry ids in payload');
+      }
+      for (const id of expectedIds) {
+        if (!byInquiryId.has(id)) {
+          throw new BadRequestException(
+            `Missing form data for inquiry ${id}`,
+          );
+        }
+      }
+
+      const refDate = new Date();
+
+      await em.query(
+        `SELECT pg_advisory_xact_lock(hashtext($1::text)::bigint)`,
+        [utcInventoryDayLockKey(refDate)],
+      );
+
+      const bounds = utcDayRange(refDate);
+      const countToday = await em.count(InventoryItem, {
+        where: { dateReceived: Between(bounds.start, bounds.end) },
+      });
+
+      let seq = countToday;
+      for (const link of links) {
+        const inv = link.inquiry;
+        const row = byInquiryId.get(inv.id);
+        if (!row) {
+          throw new BadRequestException(`Missing form data for inquiry ${inv.id}`);
+        }
+
+        const scheduled =
+          inv.status === InquiryStatus.FOR_DELIVERY_SCHEDULED ||
+          inv.status === InquiryStatus.FOR_PULLOUT_SCHEDULED;
+        if (!scheduled) {
+          throw new BadRequestException(
+            `Inquiry ${inv.sku} is not in a scheduled delivery or pullout state`,
+          );
+        }
+
+        const merged = mergeItemFormFromReceive(inv.itemSnapshot, row.form);
+        inv.itemSnapshot = merged;
+        inv.status = InquiryStatus.FOR_PROCESSING;
+        await em.save(inv);
+
+        seq += 1;
+        const sku = formatInventorySku(refDate, seq);
+        const transactionType =
+          inv.offerTransactionType === 'direct_purchase' ||
+          inv.offerTransactionType === 'consignment'
+            ? inv.offerTransactionType
+            : null;
+
+        const inventoryRow = em.create(InventoryItem, {
+          sku,
+          dateReceived: refDate,
+          inquiryId: inv.id,
+          consignorId: inv.consignorId,
+          status: 'For Authentication',
+          transactionType,
+          currentBranch: schedule.branch,
+          itemSnapshot: merged,
+          createdById: null,
+          updatedById: null,
+        });
+        await em.save(inventoryRow);
+      }
+
+      await em.remove(schedule);
+
+      return { received: links.length };
     });
   }
 

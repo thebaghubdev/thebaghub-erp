@@ -12,6 +12,7 @@ import {
 import { JwtUser } from '../auth/jwt-user';
 import { StaffOnlyGuard } from '../auth/staff-only.guard';
 import { CreateConsignmentScheduleDto } from './dto/create-consignment-schedule.dto';
+import { ReceiveScheduleItemsDto } from './dto/receive-schedule-items.dto';
 import { RescheduleConsignmentScheduleDto } from './dto/reschedule-consignment-schedule.dto';
 import { ConsignmentSchedulesService } from './consignment-schedules.service';
 
@@ -38,6 +39,11 @@ export class ConsignmentSchedulesController {
     @Body() body: RescheduleConsignmentScheduleDto,
   ) {
     return this.consignmentSchedulesService.rescheduleForStaff(id, body);
+  }
+
+  @Post(':id/receive-items')
+  receiveItems(@Param('id') id: string, @Body() body: ReceiveScheduleItemsDto) {
+    return this.consignmentSchedulesService.receiveItemsForStaff(id, body);
   }
 
   @Delete(':id')

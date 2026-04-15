@@ -6,6 +6,7 @@ import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
 import { formatInquiryStatus } from "../lib/format-inquiry-status";
+import { formatOfferTransactionLabel } from "../lib/format-offer-transaction-type";
 import { formatPhpDisplay } from "../lib/format-php";
 
 type InquiryRow = {
@@ -24,6 +25,8 @@ type InquiryRow = {
   consignmentSellingPrice: string;
   directPurchaseSellingPrice: string;
   consentDirectPurchase: boolean;
+  offerTransactionType: "consignment" | "direct_purchase" | null;
+  offerPrice: string | null;
 };
 
 type InquiryTab = "all" | "create";
@@ -116,6 +119,21 @@ const inquiryColumns = [
       <span className="capitalize text-slate-700 dark:text-slate-300">
         {getValue()}
       </span>
+    ),
+  }),
+  columnHelper.accessor("offerPrice", {
+    header: () => <span title="Staff offer price (PHP)">Offer price</span>,
+    cell: ({ getValue }) => (
+      <span className="tabular-nums text-slate-800 dark:text-slate-200">
+        {formatPhpDisplay(getValue())}
+      </span>
+    ),
+  }),
+  columnHelper.accessor((row) => formatOfferTransactionLabel(row.offerTransactionType), {
+    id: "offerTransactionType",
+    header: "Transaction type",
+    cell: ({ getValue }) => (
+      <span className="text-slate-700 dark:text-slate-300">{getValue()}</span>
     ),
   }),
   columnHelper.accessor("consignmentSellingPrice", {
@@ -255,7 +273,7 @@ export function InquiryPage() {
             getRowAriaLabel={(row) =>
               `Inquiry ${row.sku}, ${row.itemLabel || "item"}`
             }
-            tableClassName="w-full min-w-[1020px] table-fixed border-collapse text-left"
+            tableClassName="w-full min-w-[1180px] table-fixed border-collapse text-left"
           />
         </section>
       )}

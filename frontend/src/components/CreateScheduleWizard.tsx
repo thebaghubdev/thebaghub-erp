@@ -19,6 +19,8 @@ import {
   scheduleTypeLabel,
 } from "../lib/consignment-schedule-labels";
 import { formatInquiryStatus } from "../lib/format-inquiry-status";
+import { formatOfferTransactionLabel } from "../lib/format-offer-transaction-type";
+import { formatPhpDisplay } from "../lib/format-php";
 
 type WizardInquiryRow = {
   id: string;
@@ -30,6 +32,8 @@ type WizardInquiryRow = {
   brand: string;
   category: string;
   itemModel: string;
+  offerTransactionType: "consignment" | "direct_purchase" | null;
+  offerPrice: string | null;
 };
 
 const btnPrimary =
@@ -280,6 +284,26 @@ export function CreateScheduleWizard({ onScheduleSaved }: Props) {
           </span>
         ),
       }),
+      inquiryColHelper.accessor("offerPrice", {
+        header: () => <span title="Staff offer price (PHP)">Offer price</span>,
+        cell: ({ getValue }) => (
+          <span className="tabular-nums text-slate-800 dark:text-slate-200">
+            {formatPhpDisplay(getValue())}
+          </span>
+        ),
+      }),
+      inquiryColHelper.accessor(
+        (row) => formatOfferTransactionLabel(row.offerTransactionType),
+        {
+          id: "offerTransactionType",
+          header: "Transaction type",
+          cell: ({ getValue }) => (
+            <span className="text-slate-700 dark:text-slate-300">
+              {getValue()}
+            </span>
+          ),
+        },
+      ),
       inquiryColHelper.accessor("createdAt", {
         header: "Submitted",
         sortingFn: "alphanumeric",

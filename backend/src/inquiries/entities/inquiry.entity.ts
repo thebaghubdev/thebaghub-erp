@@ -18,7 +18,7 @@ export type InquiryItemSnapshot = {
   images: InquiryItemImage[];
 };
 
-/** Submitted by consignor when confirming an offer (stored as JSONB). */
+/** Shape of offer confirmation payload / API view (payment + optional bank + signature). */
 export type ClientOfferConfirmationData = {
   paymentMethod: 'check_pickup' | 'cash_pickup' | 'direct_deposit';
   bankDetails: {
@@ -82,10 +82,6 @@ export class Inquiry extends AuditedEntity {
     nullable: true,
   })
   offerSignatureKey: string | null;
-
-  /** Legacy: older rows only — prefer `preferred_payment_method` + `offer_signature_key` + client bank columns. */
-  @Column({ type: 'jsonb', name: 'client_offer_confirmation', nullable: true })
-  clientOfferConfirmation: ClientOfferConfirmationData | null;
 
   /** Internal staff notes (not shown to clients). */
   @Column({ type: 'text', nullable: true })

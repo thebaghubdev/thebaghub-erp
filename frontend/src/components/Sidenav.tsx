@@ -34,6 +34,14 @@ export function Sidenav() {
         >
           Consignment Scheduling
         </NavLink>
+        <NavLink
+          to="/portal/inventory"
+          className={({ isActive }) =>
+            [linkClass, isActive ? activeClass : ""].join(" ")
+          }
+        >
+          Inventory
+        </NavLink>
         {user?.isAdmin && (
           <NavLink
             to="/portal/accounts"

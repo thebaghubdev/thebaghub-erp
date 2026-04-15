@@ -11,8 +11,6 @@ import { DatabaseModule } from './database/database.module';
 import { Employee } from './employees/entities/employee.entity';
 import { Inquiry } from './inquiries/entities/inquiry.entity';
 import { InquiriesModule } from './inquiries/inquiries.module';
-import { Item } from './items/entities/item.entity';
-import { ItemsModule } from './items/items.module';
 import { User } from './users/entities/user.entity';
 import { SettingsModule } from './settings/settings.module';
 import { Setting } from './settings/entities/setting.entity';
@@ -23,6 +21,8 @@ import {
   ConsignmentSchedule,
   ConsignmentScheduleItem,
 } from './consignment-schedules/entities/consignment-schedule.entities';
+import { InventoryModule } from './inventory/inventory.module';
+import { InventoryItem } from './inventory/entities/inventory-item.entity';
 
 @Module({
   imports: [
@@ -38,7 +38,6 @@ import {
         password: config.get<string>('DB_PASSWORD', 'baghub'),
         database: config.get<string>('DB_DATABASE', 'baghub'),
         entities: [
-          Item,
           Inquiry,
           User,
           Employee,
@@ -46,6 +45,7 @@ import {
           Setting,
           ConsignmentSchedule,
           ConsignmentScheduleItem,
+          InventoryItem,
         ],
         synchronize:
           config.get<string>('NODE_ENV', 'development') !== 'production',
@@ -54,11 +54,11 @@ import {
     DatabaseModule,
     AuthModule,
     ClientsModule,
-    ItemsModule,
     InquiriesModule,
     SettingsModule,
     AccountsModule,
     ConsignmentSchedulesModule,
+    InventoryModule,
   ],
   controllers: [AppController],
   providers: [
