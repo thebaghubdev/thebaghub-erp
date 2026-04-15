@@ -7,6 +7,7 @@ import { UserType } from '../enums/user-type.enum';
 import {
   BRANDS_WE_CONSIGN_KEY,
   ITEM_CATEGORIES_KEY,
+  POSITIONS_KEY,
 } from '../settings/consignment-setting-keys';
 import { Setting } from '../settings/entities/setting.entity';
 import { User } from '../users/entities/user.entity';
@@ -80,13 +81,24 @@ export class SeedService implements OnModuleInit {
       value: string;
     }> = [
       {
+        key: POSITIONS_KEY,
+        title: 'Positions',
+        description:
+          'Positions available for employees. Used for position options on the register page.',
+        category: 'General',
+        type: 'string[]',
+        value:
+          '["CEO","General Manager","Supervisor","Executive Assistant","Authenticator","Consignment Coordinator","Consignment Admin","Finance Admin","Sales Associate","Sales Admin","Marketing Admin", "Photographer"]',
+      },
+      {
         key: BRANDS_WE_CONSIGN_KEY,
         title: 'Brands we consign',
         description:
           'Brands accepted for consignment. Used for brand options on the client consign form.',
         category: 'Consignment',
         type: 'string[]',
-        value: '[]',
+        value:
+          '["Bottega Veneta","Balenciaga","Hermès","Louis Vuitton","Fauré Le Page","Chanel","Moynat","Dior","Moreau","Valentino Garavani","Prada","Loro Piana","Chloé","Loewe","Delvaux","Celine","Goyard","The Row","Givenchy","Saint Laurent","Fendi","Miu Miu","Gucci","Alaïa","Jacquemus","Versace","Issey Miyake","Balmain","Alexander McQueen","Dolce & Gabbana","Rimowa","Maison Margiela","Gentle Monster","Amina Muaddi","Christian Louboutin","Manolo Blahnik","Tiffany & Co.","Bvlgari","Chopard","Van Cleef & Arpels","Cartier","IWC Schaffhausen","Rolex","Patek Philippe","Audemars Piguet","Panerai","Omega","Jaeger-LeCoultre","Franck Muller"]',
       },
       {
         key: ITEM_CATEGORIES_KEY,
@@ -95,7 +107,8 @@ export class SeedService implements OnModuleInit {
           'Categories for consigned items. Used for category options on the client consign form.',
         category: 'Consignment',
         type: 'string[]',
-        value: '[]',
+        value:
+          '["Bag","Wallets/SLGs","Shoes","Belts","Shades","Watch","Scarves/Twillies","Hats/Caps","High End Jewelry","Designer Costumes Accessories","Designer Clothes"]',
       },
     ];
 
