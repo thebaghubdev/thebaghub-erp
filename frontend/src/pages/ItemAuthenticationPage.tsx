@@ -1,7 +1,14 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { MetricAuthCard } from "../components/MetricAuthCard";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
+import {
+  type AuthenticationMetricApi,
+  filterMetricsForItem,
+  groupMetricsByMetricCategory,
+  sortMetricsForDisplay,
+} from "../lib/filter-authentication-metrics";
 
 /** API fields used on this page only (decoupled from inventory detail UI). */
 type ItemAuthenticationPayload = {
@@ -22,6 +29,9 @@ export function ItemAuthenticationPage() {
   const [detail, setDetail] = useState<ItemAuthenticationPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [metrics, setMetrics] = useState<AuthenticationMetricApi[]>([]);
+  const [metricsLoading, setMetricsLoading] = useState(false);
+  const [metricsError, setMetricsError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -50,6 +60,51 @@ export function ItemAuthenticationPage() {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    if (!token || !id) return;
+    let cancelled = false;
+    setMetricsError(null);
+    setMetricsLoading(true);
+    void (async () => {
+      try {
+        const res = await apiFetch("/api/authentication-metrics", {}, token);
+        if (!res.ok) {
+          throw new Error(`Could not load metrics (${res.status})`);
+        }
+        const data = (await res.json()) as AuthenticationMetricApi[];
+        if (!cancelled) setMetrics(Array.isArray(data) ? data : []);
+      } catch (e) {
+        if (!cancelled) {
+          setMetricsError(
+            e instanceof Error ? e.message : "Failed to load authentication metrics",
+          );
+          setMetrics([]);
+        }
+      } finally {
+        if (!cancelled) setMetricsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [id, token]);
+
+  const filteredMetrics = useMemo(() => {
+    if (!detail) return [];
+    const form = detail.itemSnapshot.form;
+    const itemCategory = str(form.category);
+    const brand = str(form.brand);
+    const itemModel = str(form.itemModel);
+    return sortMetricsForDisplay(
+      filterMetricsForItem(metrics, itemCategory, brand, itemModel),
+    );
+  }, [detail, metrics]);
+
+  const metricsByCategory = useMemo(
+    () => groupMetricsByMetricCategory(filteredMetrics),
+    [filteredMetrics],
+  );
+
   if (loading) {
     return (
       <div className="text-sm text-slate-600 dark:text-slate-400">Loading…</div>
@@ -75,11 +130,12 @@ export function ItemAuthenticationPage() {
   const form = detail.itemSnapshot.form;
   const brand = str(form.brand);
   const itemModel = str(form.itemModel);
+  const category = str(form.category);
   const brandModelSubtitle =
     brand && itemModel ? `${brand} — ${itemModel}` : brand || itemModel || "—";
 
   return (
-    <div className="w-full min-w-0">
+    <div className="w-full min-w-0 space-y-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
@@ -91,6 +147,12 @@ export function ItemAuthenticationPage() {
           <p className="mt-2 break-words text-base text-slate-700 dark:text-slate-300">
             {brandModelSubtitle}
           </p>
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+            <span className="font-medium text-slate-700 dark:text-slate-300">
+              Category:
+            </span>{" "}
+            {category || "—"}
+          </p>
         </div>
         <Link
           to="/portal/authentication"
@@ -99,6 +161,82 @@ export function ItemAuthenticationPage() {
           ← Back to authentication
         </Link>
       </div>
+
+      <section aria-labelledby="auth-metrics-heading">
+        <h2
+          id="auth-metrics-heading"
+          className="mb-3 text-sm font-semibold text-slate-900 dark:text-slate-100"
+        >
+          Authentication metrics
+        </h2>
+        {metricsLoading ? (
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            Loading metrics…
+          </p>
+        ) : null}
+        {metricsError ? (
+          <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+            {metricsError}
+          </p>
+        ) : null}
+        {!metricsLoading && !metricsError && !category ? (
+          <p className="text-sm text-amber-800 dark:text-amber-200">
+            This item has no category. Add a category on the inventory record
+            to match default metrics.
+          </p>
+        ) : null}
+        {!metricsLoading && !metricsError && category && filteredMetrics.length === 0 ? (
+          <p className="text-sm text-slate-600 dark:text-slate-400">
+            No authentication metrics apply to this item’s category, brand, and
+            model. Create custom metrics in Authentication → Authentication
+            Metrics if needed.
+          </p>
+        ) : null}
+        {!metricsLoading && !metricsError && metricsByCategory.length > 0 ? (
+          <div className="flex flex-col gap-3">
+            {metricsByCategory.map((group) => (
+              <details
+                key={group.metricCategory}
+                className="group/category overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm open:shadow-md dark:border-slate-700 dark:bg-slate-900"
+                open
+              >
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-semibold text-slate-900 transition-colors hover:bg-slate-50 dark:text-slate-100 dark:hover:bg-slate-800/80 [&::-webkit-details-marker]:hidden">
+                  <span className="min-w-0">{group.metricCategory}</span>
+                  <span
+                    className="shrink-0 text-slate-400 transition-transform duration-200 group-open/category:rotate-180 dark:text-slate-500"
+                    aria-hidden
+                  >
+                    <svg
+                      className="h-5 w-5"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
+                      <path
+                        d="M6 9l6 6 6-6"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </span>
+                </summary>
+                <div className="border-t border-slate-100 px-4 py-4 dark:border-slate-800">
+                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                    {group.metrics.map((m) => (
+                      <MetricAuthCard
+                        key={m.id}
+                        metricName={m.metric}
+                        description={m.description}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </details>
+            ))}
+          </div>
+        ) : null}
+      </section>
     </div>
   );
 }
