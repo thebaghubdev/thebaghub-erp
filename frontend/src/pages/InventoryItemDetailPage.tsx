@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
+import { InventoryStatusBadge } from "../components/InventoryStatusBadge";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
-import { InventoryStatusBadge } from "../components/InventoryStatusBadge";
 import { branchLabel } from "../lib/consignment-schedule-labels";
 import { formatOfferTransactionLabel } from "../lib/format-offer-transaction-type";
 import { formatPhpDisplay } from "../lib/format-php";
@@ -195,7 +195,8 @@ export function InventoryItemDetailPage() {
 
       {detail.consignorName ||
       detail.consignorEmail ||
-      detail.consignorPhone ? (
+      detail.consignorPhone ||
+      detail.consignorId ? (
         <div className={cardClass}>
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
             Consignor

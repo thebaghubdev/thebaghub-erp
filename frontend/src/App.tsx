@@ -21,6 +21,8 @@ import { InquiryDetailPage } from './pages/InquiryDetailPage'
 import { InventoryItemDetailPage } from './pages/InventoryItemDetailPage'
 import { InventoryPage } from './pages/InventoryPage'
 import { ConsignmentScheduleDetailPage } from './pages/ConsignmentScheduleDetailPage'
+import { AuthenticationPage } from './pages/AuthenticationPage'
+import { ItemAuthenticationPage } from './pages/ItemAuthenticationPage'
 import { ConsignmentSchedulingPage } from './pages/ConsignmentSchedulingPage'
 import { InquiryPage } from './pages/InquiryPage'
 import { ManageAccountsPage } from './pages/ManageAccountsPage'
@@ -77,6 +79,11 @@ const router = createBrowserRouter([
             path: 'consignment-scheduling/:id',
             element: <ConsignmentScheduleDetailPage />,
           },
+          {
+            path: 'authentication/:id',
+            element: <ItemAuthenticationPage />,
+          },
+          { path: 'authentication', element: <AuthenticationPage /> },
           { path: 'settings', element: <SettingsPage /> },
           { path: 'accounts/register', element: <RegisterPage /> },
           { path: 'accounts', element: <ManageAccountsPage /> },
