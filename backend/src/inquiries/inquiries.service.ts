@@ -12,6 +12,10 @@ import { Client } from '../clients/entities/client.entity';
 import { ConsignmentScheduleItem } from '../consignment-schedules/entities/consignment-schedule.entities';
 import { InquiryStatus } from '../enums/inquiry-status.enum';
 import { JwtUser } from '../auth/jwt-user';
+import {
+  InquiryAuditService,
+  cloneInquiryForAudit,
+} from './inquiry-audit.service';
 import { UpdateInquiryNotesDto } from './dto/update-inquiry-notes.dto';
 import { SubmitOfferDto } from './dto/submit-offer.dto';
 import { ConfirmOfferDto } from './dto/confirm-offer.dto';
@@ -175,6 +179,7 @@ export class InquiriesService {
     @InjectRepository(ConsignmentScheduleItem)
     private readonly scheduleItemRepo: Repository<ConsignmentScheduleItem>,
     private readonly s3: S3StorageService,
+    private readonly inquiryAudit: InquiryAuditService,
   ) {}
 
   private async loadDeliveryScheduleForInquiry(
@@ -424,8 +429,15 @@ export class InquiriesService {
         'Only active inquiries can be cancelled by the consignor',
       );
     }
+    const before = cloneInquiryForAudit(r);
     r.status = InquiryStatus.CANCELLED;
     await this.inquiriesRepo.save(r);
+    await this.inquiryAudit.recordDiff(
+      r.id,
+      before,
+      r,
+      this.inquiryAudit.consignorActor(user.userId),
+    );
     return this.findOneForClient(user, id);
   }
 
@@ -575,10 +587,17 @@ export class InquiriesService {
     }
     await this.clientsRepo.save(client);
 
+    const before = cloneInquiryForAudit(r);
     r.preferredPaymentMethod = dto.paymentMethod;
     r.offerSignatureKey = signatureKey;
     r.status = InquiryStatus.FOR_DELIVERY;
     await this.inquiriesRepo.save(r);
+    await this.inquiryAudit.recordDiff(
+      r.id,
+      before,
+      r,
+      this.inquiryAudit.consignorActor(user.userId),
+    );
     return this.findOneForClient(user, inquiryId);
   }
 
@@ -700,7 +719,7 @@ export class InquiriesService {
     InquiryStatus.CANCELLED,
   ]);
 
-  async declineInquiry(id: string): Promise<StaffInquiryDetail> {
+  async declineInquiry(id: string, user: JwtUser): Promise<StaffInquiryDetail> {
     const r = await this.inquiriesRepo.findOne({ where: { id } });
     if (!r) {
       throw new NotFoundException('Inquiry not found');
@@ -708,12 +727,22 @@ export class InquiriesService {
     if (InquiriesService.terminalInquiryStatuses.has(r.status)) {
       throw new BadRequestException('This inquiry cannot be declined');
     }
+    const before = cloneInquiryForAudit(r);
     r.status = InquiryStatus.DECLINED;
     await this.inquiriesRepo.save(r);
+    const label = await this.inquiryAudit.staffActorLabel(user.userId);
+    await this.inquiryAudit.recordDiff(id, before, r, {
+      userId: user.userId,
+      label,
+    });
     return this.findOneForStaff(id);
   }
 
-  async submitOffer(id: string, dto: SubmitOfferDto): Promise<StaffInquiryDetail> {
+  async submitOffer(
+    id: string,
+    dto: SubmitOfferDto,
+    user: JwtUser,
+  ): Promise<StaffInquiryDetail> {
     const r = await this.inquiriesRepo.findOne({
       where: { id },
       relations: { consignor: true },
@@ -738,18 +767,25 @@ export class InquiriesService {
       );
     }
 
+    const before = cloneInquiryForAudit(r);
     r.offerTransactionType = dto.transactionType;
     r.offerPrice = dto.offerPrice.toFixed(2);
     r.status = InquiryStatus.FOR_OFFER_CONFIRMATION;
     r.preferredPaymentMethod = null;
     r.offerSignatureKey = null;
     await this.inquiriesRepo.save(r);
+    const label = await this.inquiryAudit.staffActorLabel(user.userId);
+    await this.inquiryAudit.recordDiff(id, before, r, {
+      userId: user.userId,
+      label,
+    });
     return this.findOneForStaff(id);
   }
 
   async updateNotes(
     id: string,
     dto: UpdateInquiryNotesDto,
+    user: JwtUser,
   ): Promise<StaffInquiryDetail> {
     const r = await this.inquiriesRepo.findOne({
       where: { id },
@@ -758,9 +794,15 @@ export class InquiriesService {
     if (!r) {
       throw new NotFoundException('Inquiry not found');
     }
+    const before = cloneInquiryForAudit(r);
     const trimmed = dto.notes.trim();
     r.notes = trimmed === '' ? null : trimmed;
     await this.inquiriesRepo.save(r);
+    const label = await this.inquiryAudit.staffActorLabel(user.userId);
+    await this.inquiryAudit.recordDiff(id, before, r, {
+      userId: user.userId,
+      label,
+    });
     return this.findOneForStaff(id);
   }
 }

@@ -42,13 +42,21 @@ export class ConsignmentSchedulesController {
   }
 
   @Post(':id/receive-items')
-  receiveItems(@Param('id') id: string, @Body() body: ReceiveScheduleItemsDto) {
-    return this.consignmentSchedulesService.receiveItemsForStaff(id, body);
+  receiveItems(
+    @Req() req: { user: JwtUser },
+    @Param('id') id: string,
+    @Body() body: ReceiveScheduleItemsDto,
+  ) {
+    return this.consignmentSchedulesService.receiveItemsForStaff(
+      id,
+      body,
+      req.user.userId,
+    );
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.consignmentSchedulesService.removeForStaff(id);
+  remove(@Req() req: { user: JwtUser }, @Param('id') id: string) {
+    return this.consignmentSchedulesService.removeForStaff(id, req.user.userId);
   }
 
   @Post()

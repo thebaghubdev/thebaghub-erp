@@ -12,6 +12,10 @@ import {
   Inquiry,
   type InquiryItemSnapshot,
 } from '../inquiries/entities/inquiry.entity';
+import {
+  InquiryAuditService,
+  cloneInquiryForAudit,
+} from '../inquiries/inquiry-audit.service';
 import { CreateConsignmentScheduleDto } from './dto/create-consignment-schedule.dto';
 import type { ReceiveItemFormDto } from './dto/receive-item-form.dto';
 import { ReceiveScheduleItemsDto } from './dto/receive-schedule-items.dto';
@@ -148,6 +152,7 @@ export class ConsignmentSchedulesService {
     private readonly scheduleRepo: Repository<ConsignmentSchedule>,
     @InjectRepository(Employee)
     private readonly employeesRepo: Repository<Employee>,
+    private readonly inquiryAudit: InquiryAuditService,
   ) {}
 
   async findAllForStaff(): Promise<ConsignmentScheduleListRow[]> {
@@ -196,7 +201,7 @@ export class ConsignmentSchedulesService {
     return this.findOneForStaff(id);
   }
 
-  async removeForStaff(id: string): Promise<void> {
+  async removeForStaff(id: string, staffUserId: string): Promise<void> {
     await this.scheduleRepo.manager.transaction(async (em) => {
       const schedule = await em.findOne(ConsignmentSchedule, {
         where: { id },
@@ -206,17 +211,24 @@ export class ConsignmentSchedulesService {
         throw new NotFoundException('Schedule not found');
       }
 
+      const label = await this.inquiryAudit.staffActorLabel(staffUserId);
+      const actor = { userId: staffUserId, label };
+
       for (const item of schedule.items ?? []) {
         const inv = item.inquiry;
         if (schedule.type === 'delivery') {
           if (inv.status === InquiryStatus.FOR_DELIVERY_SCHEDULED) {
+            const before = cloneInquiryForAudit(inv);
             inv.status = InquiryStatus.FOR_DELIVERY;
             await em.save(inv);
+            await this.inquiryAudit.recordDiff(inv.id, before, inv, actor, em);
           }
         } else if (schedule.type === 'pullout') {
           if (inv.status === InquiryStatus.FOR_PULLOUT_SCHEDULED) {
+            const before = cloneInquiryForAudit(inv);
             inv.status = InquiryStatus.FOR_PULLOUT;
             await em.save(inv);
+            await this.inquiryAudit.recordDiff(inv.id, before, inv, actor, em);
           }
         }
       }
@@ -258,6 +270,9 @@ export class ConsignmentSchedulesService {
       });
       await em.save(schedule);
 
+      const staffLabel = await this.inquiryAudit.staffActorLabel(userId);
+      const staffActor = { userId, label: staffLabel };
+
       for (const inquiryId of dto.inquiryIds) {
         const inquiry = await em.findOne(Inquiry, {
           where: { id: inquiryId },
@@ -270,8 +285,16 @@ export class ConsignmentSchedulesService {
             `Inquiry ${inquiry.sku} must be in status "${expectedPrior}" to add to this schedule`,
           );
         }
+        const before = cloneInquiryForAudit(inquiry);
         inquiry.status = nextStatus;
         await em.save(inquiry);
+        await this.inquiryAudit.recordDiff(
+          inquiry.id,
+          before,
+          inquiry,
+          staffActor,
+          em,
+        );
 
         const link = em.create(ConsignmentScheduleItem, {
           consignmentSchedule: schedule,
@@ -295,6 +318,7 @@ export class ConsignmentSchedulesService {
   async receiveItemsForStaff(
     scheduleId: string,
     dto: ReceiveScheduleItemsDto,
+    staffUserId: string,
   ): Promise<{ received: number }> {
     return await this.scheduleRepo.manager.transaction(async (em) => {
       const schedule = await em.findOne(ConsignmentSchedule, {
@@ -341,6 +365,9 @@ export class ConsignmentSchedulesService {
         where: { dateReceived: Between(bounds.start, bounds.end) },
       });
 
+      const staffLabel = await this.inquiryAudit.staffActorLabel(staffUserId);
+      const staffActor = { userId: staffUserId, label: staffLabel };
+
       let seq = countToday;
       for (const link of links) {
         const inv = link.inquiry;
@@ -358,10 +385,12 @@ export class ConsignmentSchedulesService {
           );
         }
 
+        const before = cloneInquiryForAudit(inv);
         const merged = mergeItemFormFromReceive(inv.itemSnapshot, row.form);
         inv.itemSnapshot = merged;
         inv.status = InquiryStatus.FOR_PROCESSING;
         await em.save(inv);
+        await this.inquiryAudit.recordDiff(inv.id, before, inv, staffActor, em);
 
         seq += 1;
         const sku = formatInventorySku(refDate, seq);

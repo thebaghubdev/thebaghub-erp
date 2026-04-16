@@ -9,6 +9,7 @@ import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { Client } from './clients/entities/client.entity';
 import { DatabaseModule } from './database/database.module';
 import { Employee } from './employees/entities/employee.entity';
+import { InquiryAuditEntry } from './inquiries/entities/inquiry-audit-entry.entity';
 import { Inquiry } from './inquiries/entities/inquiry.entity';
 import { InquiriesModule } from './inquiries/inquiries.module';
 import { User } from './users/entities/user.entity';
@@ -39,6 +40,7 @@ import { InventoryItem } from './inventory/entities/inventory-item.entity';
         database: config.get<string>('DB_DATABASE', 'baghub'),
         entities: [
           Inquiry,
+          InquiryAuditEntry,
           User,
           Employee,
           Client,

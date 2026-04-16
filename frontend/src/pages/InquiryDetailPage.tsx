@@ -23,6 +23,15 @@ type ClientOfferConfirmation = {
   signatureUrl: string;
 };
 
+type InquiryAuditRow = {
+  id: string;
+  propertyName: string;
+  fromValue: string | null;
+  toValue: string | null;
+  updatedBy: string;
+  updatedAt: string;
+};
+
 type InquiryDetail = {
   id: string;
   sku: string;
@@ -188,6 +197,10 @@ export function InquiryDetailPage() {
   const [notesDraft, setNotesDraft] = useState("");
   const offerModalTitleId = useId();
   const notesModalTitleId = useId();
+  const [auditOpen, setAuditOpen] = useState(false);
+  const [auditRows, setAuditRows] = useState<InquiryAuditRow[] | null>(null);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditError, setAuditError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -203,6 +216,7 @@ export function InquiryDetailPage() {
       if (!res.ok) throw new Error(`Request failed (${res.status})`);
       const data = (await res.json()) as InquiryDetail;
       setDetail(data);
+      setAuditRows(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load inquiry");
       setDetail(null);
@@ -214,6 +228,31 @@ export function InquiryDetailPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const loadAudit = useCallback(async () => {
+    if (!id || !token) return;
+    setAuditLoading(true);
+    setAuditError(null);
+    try {
+      const res = await apiFetch(`/api/inquiries/${id}/audit`, {}, token);
+      if (!res.ok) throw new Error(await readApiErrorMessage(res));
+      const data = (await res.json()) as InquiryAuditRow[];
+      setAuditRows(Array.isArray(data) ? data : []);
+    } catch (e) {
+      setAuditError(
+        e instanceof Error ? e.message : "Failed to load audit trail",
+      );
+      setAuditRows([]);
+    } finally {
+      setAuditLoading(false);
+    }
+  }, [id, token]);
+
+  useEffect(() => {
+    if (!auditOpen || !id) return;
+    if (auditRows !== null) return;
+    void loadAudit();
+  }, [auditOpen, id, auditRows, loadAudit]);
 
   useEffect(() => {
     if (!offerModalOpen || !detail) return;
@@ -253,6 +292,7 @@ export function InquiryDetailPage() {
       if (!res.ok) throw new Error(await readApiErrorMessage(res));
       const data = (await res.json()) as InquiryDetail;
       setDetail(data);
+      setAuditRows(null);
       setDeclineConfirmOpen(false);
     } catch (e) {
       setActionError(
@@ -307,6 +347,7 @@ export function InquiryDetailPage() {
         if (!res.ok) throw new Error(await readApiErrorMessage(res));
         const data = (await res.json()) as InquiryDetail;
         setDetail(data);
+        setAuditRows(null);
         setOfferModalOpen(false);
       } catch (err) {
         setActionError(
@@ -344,6 +385,7 @@ export function InquiryDetailPage() {
         if (!res.ok) throw new Error(await readApiErrorMessage(res));
         const data = (await res.json()) as InquiryDetail;
         setDetail(data);
+        setAuditRows(null);
         setNotesModalOpen(false);
       } catch (err) {
         setActionError(
@@ -747,6 +789,84 @@ export function InquiryDetailPage() {
                 ))}
               </ul>
             )}
+          </div>
+
+          <div className={cardClass}>
+            <button
+              type="button"
+              onClick={() => setAuditOpen((o) => !o)}
+              className="flex w-full items-center justify-between gap-2 text-left focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500 rounded-lg -m-1 p-1"
+              aria-expanded={auditOpen}
+            >
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
+                AUDIT TRAIL
+              </h2>
+              <span className="text-slate-400" aria-hidden>
+                {auditOpen ? "▼" : "▶"}
+              </span>
+            </button>
+            {auditOpen ? (
+              <div className="mt-4">
+                {auditLoading ? (
+                  <p className="text-sm text-slate-500 dark:text-slate-400">
+                    Loading…
+                  </p>
+                ) : auditError ? (
+                  <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+                    {auditError}
+                  </p>
+                ) : auditRows && auditRows.length === 0 ? (
+                  <p className="text-sm text-slate-500 dark:text-slate-400">
+                    No audit entries yet.
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[640px] border-collapse text-left text-sm">
+                      <thead>
+                        <tr className="border-b border-slate-200 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                          <th scope="col" className="py-2 pr-3">
+                            Property
+                          </th>
+                          <th scope="col" className="py-2 pr-3">
+                            From
+                          </th>
+                          <th scope="col" className="py-2 pr-3">
+                            To
+                          </th>
+                          <th scope="col" className="py-2 pr-3">
+                            Updated by
+                          </th>
+                          <th scope="col" className="py-2">
+                            Date
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+                        {(auditRows ?? []).map((row) => (
+                          <tr key={row.id}>
+                            <td className="max-w-[12rem] py-2 pr-3 align-top font-medium text-slate-800 dark:text-slate-200">
+                              {row.propertyName}
+                            </td>
+                            <td className="max-w-[14rem] py-2 pr-3 align-top whitespace-pre-wrap break-words text-slate-600 dark:text-slate-400">
+                              {row.fromValue ?? "—"}
+                            </td>
+                            <td className="max-w-[14rem] py-2 pr-3 align-top whitespace-pre-wrap break-words text-slate-600 dark:text-slate-400">
+                              {row.toValue ?? "—"}
+                            </td>
+                            <td className="py-2 pr-3 align-top text-slate-700 dark:text-slate-300">
+                              {row.updatedBy}
+                            </td>
+                            <td className="py-2 align-top text-slate-600 dark:text-slate-400">
+                              <SubmittedAtCell iso={row.updatedAt} />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            ) : null}
           </div>
 
           {offerModalOpen && detail && typeof document !== "undefined"
