@@ -1,15 +1,18 @@
-import { useMemo, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import {
   type ColumnDef,
   type ColumnFiltersState,
   type FilterFn,
+  type PaginationState,
   type SortingState,
   flexRender,
   getCoreRowModel,
   getFilteredRowModel,
+  getPaginationRowModel,
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
+import { TablePaginationBar } from "../TablePaginationBar";
 
 const inputClass =
   "w-full min-h-8 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-900 placeholder:text-slate-400 focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500";
@@ -75,6 +78,16 @@ export type DataTableProps<TData extends object> = {
   onRowClick?: (row: TData) => void;
   /** Accessible name for clickable rows (defaults to a generic label). */
   getRowAriaLabel?: (row: TData) => string;
+  /** Plural noun for the pagination summary (default "items"). */
+  paginationItemLabel?: string;
+  /** Shown on the right of the search row (e.g. bulk actions). */
+  toolbarRight?: ReactNode;
+  /** When set, a leading checkbox column is shown; requires `getRowId`. */
+  rowSelection?: {
+    selectedIds: ReadonlySet<string>;
+    onToggleRow: (id: string, selected: boolean) => void;
+    onTogglePage: (ids: string[], selected: boolean) => void;
+  };
 };
 
 export function DataTable<TData extends object>({
@@ -89,10 +102,74 @@ export function DataTable<TData extends object>({
   getRowId,
   onRowClick,
   getRowAriaLabel,
+  paginationItemLabel = "items",
+  toolbarRight,
+  rowSelection,
 }: DataTableProps<TData>) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [globalFilter, setGlobalFilter] = useState("");
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
+  const [pagination, setPagination] = useState<PaginationState>({
+    pageIndex: 0,
+    pageSize: 10,
+  });
+
+  const selectionKey = rowSelection
+    ? [...rowSelection.selectedIds].sort().join(",")
+    : "";
+
+  const tableColumns = useMemo(() => {
+    if (!rowSelection || !getRowId) {
+      return columns;
+    }
+    const rs = rowSelection;
+    const selectColumn: ColumnDef<TData, unknown> = {
+      id: "__select",
+      header: ({ table }) => {
+        const pageRows = table.getPaginationRowModel().rows;
+        const ids = pageRows.map((r) => r.id);
+        const allSelected =
+          ids.length > 0 && ids.every((id) => rs.selectedIds.has(id));
+        const someSelected = ids.some((id) => rs.selectedIds.has(id));
+        return (
+          <input
+            type="checkbox"
+            checked={allSelected}
+            ref={(el) => {
+              if (el) el.indeterminate = !allSelected && someSelected;
+            }}
+            onChange={(e) => {
+              e.stopPropagation();
+              rs.onTogglePage(ids, e.target.checked);
+            }}
+            aria-label="Select all rows on this page"
+            className="h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500 dark:border-slate-600 dark:bg-slate-900"
+          />
+        );
+      },
+      cell: ({ row }) => {
+        const id = getRowId(row.original, row.index);
+        return (
+          <input
+            type="checkbox"
+            checked={rs.selectedIds.has(id)}
+            onChange={(e) => {
+              e.stopPropagation();
+              rs.onToggleRow(id, e.target.checked);
+            }}
+            onClick={(e) => e.stopPropagation()}
+            aria-label="Select row"
+            className="h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500 dark:border-slate-600 dark:bg-slate-900"
+          />
+        );
+      },
+      enableSorting: false,
+      enableColumnFilter: false,
+    };
+    return [selectColumn, ...columns];
+  }, [columns, getRowId, rowSelection, selectionKey]);
+
+  const colCount = tableColumns.length;
 
   const defaultColumn = useMemo(
     () => ({
@@ -103,15 +180,17 @@ export function DataTable<TData extends object>({
 
   const table = useReactTable<TData>({
     data,
-    columns,
+    columns: tableColumns,
     defaultColumn,
-    state: { sorting, globalFilter, columnFilters },
+    state: { sorting, globalFilter, columnFilters, pagination },
     onSortingChange: setSorting,
     onGlobalFilterChange: setGlobalFilter,
     onColumnFiltersChange: setColumnFilters,
+    onPaginationChange: setPagination,
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
     globalFilterFn: globalMultiColumnFilter as FilterFn<TData>,
     getRowId: getRowId
       ? (original, index) => getRowId(original as TData, index)
@@ -119,9 +198,10 @@ export function DataTable<TData extends object>({
   });
 
   const showEmpty = !hideEmptyState && !isLoading && data.length === 0;
-  const filteredRows = table.getRowModel().rows;
+  const filteredCount = table.getFilteredRowModel().rows.length;
+  const displayRows = table.getPaginationRowModel().rows;
   const showNoResults =
-    !isLoading && data.length > 0 && filteredRows.length === 0;
+    !isLoading && data.length > 0 && filteredCount === 0;
 
   const filterHeaderGroup = table.getHeaderGroups()[0];
 
@@ -140,16 +220,26 @@ export function DataTable<TData extends object>({
           className={`${inputClass} max-w-md`}
           autoComplete="off"
         />
+        {toolbarRight ? (
+          <div className="flex shrink-0 justify-end sm:ml-auto">{toolbarRight}</div>
+        ) : null}
       </div>
 
-      <div className="min-w-0 overflow-x-auto overscroll-x-contain rounded-xl border border-slate-200 bg-white shadow-sm [-webkit-overflow-scrolling:touch] dark:border-slate-800 dark:bg-slate-900">
+      <div className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm [-webkit-overflow-scrolling:touch] dark:border-slate-800 dark:bg-slate-900">
+        <div className="overflow-x-auto overscroll-x-contain">
         <table className={tableClassName}>
           <thead className="border-b border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950/50">
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id}>
                 {headerGroup.headers.map((header) => (
                   <th key={header.id} scope="col" className={thBase}>
-                    {header.isPlaceholder ? null : (
+                    {header.isPlaceholder ? null : header.column.id ===
+                      "__select" ? (
+                      flexRender(
+                        header.column.columnDef.header,
+                        header.getContext(),
+                      )
+                    ) : (
                       <button
                         type="button"
                         className={
@@ -206,7 +296,7 @@ export function DataTable<TData extends object>({
             {isLoading && data.length === 0 && (
               <tr>
                 <td
-                  colSpan={columns.length}
+                  colSpan={colCount}
                   className="px-4 py-8 text-center text-slate-500 dark:text-slate-400"
                 >
                   Loading…
@@ -216,7 +306,7 @@ export function DataTable<TData extends object>({
             {showEmpty && (
               <tr>
                 <td
-                  colSpan={columns.length}
+                  colSpan={colCount}
                   className="px-4 py-8 text-center text-slate-500 dark:text-slate-400"
                 >
                   {emptyMessage}
@@ -226,7 +316,7 @@ export function DataTable<TData extends object>({
             {showNoResults && (
               <tr>
                 <td
-                  colSpan={columns.length}
+                  colSpan={colCount}
                   className="px-4 py-8 text-center text-slate-500 dark:text-slate-400"
                 >
                   {noResultsMessage}
@@ -235,7 +325,7 @@ export function DataTable<TData extends object>({
             )}
             {!isLoading &&
               !showEmpty &&
-              filteredRows.map((row) => (
+              displayRows.map((row) => (
                 <tr
                   key={row.id}
                   className={
@@ -276,6 +366,21 @@ export function DataTable<TData extends object>({
               ))}
           </tbody>
         </table>
+        </div>
+        <div className="border-t border-slate-200 bg-slate-50/80 px-3 py-3 dark:border-slate-800 dark:bg-slate-950/40 sm:px-4">
+          <TablePaginationBar
+            totalCount={filteredCount}
+            pageIndex={table.getState().pagination.pageIndex}
+            pageSize={table.getState().pagination.pageSize}
+            onPageIndexChange={(i) => table.setPageIndex(i)}
+            onPageSizeChange={(size) => {
+              table.setPageSize(size);
+              table.setPageIndex(0);
+            }}
+            disabled={isLoading && data.length === 0}
+            itemLabel={paginationItemLabel}
+          />
+        </div>
       </div>
     </div>
   );

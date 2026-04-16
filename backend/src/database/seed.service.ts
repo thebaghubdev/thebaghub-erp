@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
 import { Repository } from 'typeorm';
+import { AuthenticationMetric } from '../authentication-metrics/entities/authentication-metric.entity';
 import { Employee } from '../employees/entities/employee.entity';
 import { UserType } from '../enums/user-type.enum';
 import {
@@ -11,6 +12,7 @@ import {
 } from '../settings/consignment-setting-keys';
 import { Setting } from '../settings/entities/setting.entity';
 import { User } from '../users/entities/user.entity';
+import { AUTHENTICATION_METRICS_SEED } from './authentication-metrics.seed-data';
 
 const ADMIN_USERNAME = 'tbh-administrator';
 const ADMIN_PASSWORD = 'Thebaghub@2026';
@@ -26,11 +28,14 @@ export class SeedService implements OnModuleInit {
     private readonly employeesRepo: Repository<Employee>,
     @InjectRepository(Setting)
     private readonly settingsRepo: Repository<Setting>,
+    @InjectRepository(AuthenticationMetric)
+    private readonly authenticationMetricsRepo: Repository<AuthenticationMetric>,
   ) {}
 
   async onModuleInit() {
     await this.ensureAdministrator();
     await this.ensureConsignmentFormSettings();
+    await this.ensureAuthenticationMetrics();
   }
 
   private async ensureAdministrator() {
@@ -120,5 +125,27 @@ export class SeedService implements OnModuleInit {
       await this.settingsRepo.save(this.settingsRepo.create(row));
       this.logger.log(`Seeded setting "${row.key}".`);
     }
+  }
+
+  private async ensureAuthenticationMetrics() {
+    const existing = await this.authenticationMetricsRepo.count();
+    if (existing > 0) {
+      return;
+    }
+
+    const rows = AUTHENTICATION_METRICS_SEED.map(
+      ([category, metricCategory, metric, description]) =>
+        this.authenticationMetricsRepo.create({
+          category,
+          metricCategory,
+          metric,
+          description,
+          isCustom: false,
+          brand: null,
+          model: null,
+        }),
+    );
+    await this.authenticationMetricsRepo.save(rows);
+    this.logger.log(`Seeded ${rows.length} authentication metric rows.`);
   }
 }

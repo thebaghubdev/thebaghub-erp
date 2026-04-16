@@ -3,7 +3,9 @@ import { createPortal } from "react-dom";
 import { Link, useParams } from "react-router-dom";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
+import { TablePaginationBar } from "../components/TablePaginationBar";
 import { usePortalAuth } from "../context/portal-auth";
+import { useClientPagination } from "../hooks/useClientPagination";
 import { PhpPriceInput } from "../components/PhpPriceInput";
 import { apiFetch } from "../lib/api";
 import { InquiryStatusBadge } from "../components/InquiryStatusBadge";
@@ -201,6 +203,7 @@ export function InquiryDetailPage() {
   const [auditRows, setAuditRows] = useState<InquiryAuditRow[] | null>(null);
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditError, setAuditError] = useState<string | null>(null);
+  const auditPagination = useClientPagination(auditRows ?? []);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -820,49 +823,62 @@ export function InquiryDetailPage() {
                     No audit entries yet.
                   </p>
                 ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full min-w-[640px] border-collapse text-left text-sm">
-                      <thead>
-                        <tr className="border-b border-slate-200 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:text-slate-400">
-                          <th scope="col" className="py-2 pr-3">
-                            Property
-                          </th>
-                          <th scope="col" className="py-2 pr-3">
-                            From
-                          </th>
-                          <th scope="col" className="py-2 pr-3">
-                            To
-                          </th>
-                          <th scope="col" className="py-2 pr-3">
-                            Updated by
-                          </th>
-                          <th scope="col" className="py-2">
-                            Date
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
-                        {(auditRows ?? []).map((row) => (
-                          <tr key={row.id}>
-                            <td className="max-w-[12rem] py-2 pr-3 align-top font-medium text-slate-800 dark:text-slate-200">
-                              {row.propertyName}
-                            </td>
-                            <td className="max-w-[14rem] py-2 pr-3 align-top whitespace-pre-wrap break-words text-slate-600 dark:text-slate-400">
-                              {row.fromValue ?? "—"}
-                            </td>
-                            <td className="max-w-[14rem] py-2 pr-3 align-top whitespace-pre-wrap break-words text-slate-600 dark:text-slate-400">
-                              {row.toValue ?? "—"}
-                            </td>
-                            <td className="py-2 pr-3 align-top text-slate-700 dark:text-slate-300">
-                              {row.updatedBy}
-                            </td>
-                            <td className="py-2 align-top text-slate-600 dark:text-slate-400">
-                              <SubmittedAtCell iso={row.updatedAt} />
-                            </td>
+                  <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
+                    <div className="overflow-x-auto">
+                      <table className="w-full min-w-[640px] border-collapse text-left text-sm">
+                        <thead>
+                          <tr className="border-b border-slate-200 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                            <th scope="col" className="py-2 pr-3">
+                              Property
+                            </th>
+                            <th scope="col" className="py-2 pr-3">
+                              From
+                            </th>
+                            <th scope="col" className="py-2 pr-3">
+                              To
+                            </th>
+                            <th scope="col" className="py-2 pr-3">
+                              Updated by
+                            </th>
+                            <th scope="col" className="py-2">
+                              Date
+                            </th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+                          {auditPagination.pageItems.map((row) => (
+                            <tr key={row.id}>
+                              <td className="max-w-[12rem] py-2 pr-3 align-top font-medium text-slate-800 dark:text-slate-200">
+                                {row.propertyName}
+                              </td>
+                              <td className="max-w-[14rem] py-2 pr-3 align-top whitespace-pre-wrap break-words text-slate-600 dark:text-slate-400">
+                                {row.fromValue ?? "—"}
+                              </td>
+                              <td className="max-w-[14rem] py-2 pr-3 align-top whitespace-pre-wrap break-words text-slate-600 dark:text-slate-400">
+                                {row.toValue ?? "—"}
+                              </td>
+                              <td className="py-2 pr-3 align-top text-slate-700 dark:text-slate-300">
+                                {row.updatedBy}
+                              </td>
+                              <td className="py-2 align-top text-slate-600 dark:text-slate-400">
+                                <SubmittedAtCell iso={row.updatedAt} />
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="border-t border-slate-200 bg-slate-50/80 px-3 py-3 dark:border-slate-800 dark:bg-slate-950/40 sm:px-4">
+                      <TablePaginationBar
+                        totalCount={auditPagination.totalCount}
+                        pageIndex={auditPagination.pageIndex}
+                        pageSize={auditPagination.pageSize}
+                        onPageIndexChange={auditPagination.setPageIndex}
+                        onPageSizeChange={auditPagination.setPageSize}
+                        disabled={auditLoading && (auditRows?.length ?? 0) === 0}
+                        itemLabel="entries"
+                      />
+                    </div>
                   </div>
                 )}
               </div>

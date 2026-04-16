@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, Navigate } from 'react-router-dom'
 import { HireDatePicker } from '../components/HireDatePicker'
+import { TablePaginationBar } from '../components/TablePaginationBar'
 import { usePortalAuth } from '../context/portal-auth'
 import { apiFetch } from '../lib/api'
+import { useClientPagination } from '../hooks/useClientPagination'
 
 const JOB_TITLES_SETTING_KEY = 'jobTitles'
 
@@ -79,6 +81,9 @@ export function ManageAccountsPage() {
   const [efPosition, setEfPosition] = useState('')
   const [editError, setEditError] = useState<string | null>(null)
   const [editSaving, setEditSaving] = useState(false)
+
+  const employeesPagination = useClientPagination(employees)
+  const clientsPagination = useClientPagination(clients)
 
   const positionOptions = useMemo(() => {
     const set = new Set(jobTitles)
@@ -327,7 +332,7 @@ export function ManageAccountsPage() {
                       </td>
                     </tr>
                   )}
-                  {employees.map((row) => (
+                  {employeesPagination.pageItems.map((row) => (
                     <tr
                       key={row.id}
                       className="hover:bg-slate-50 dark:hover:bg-slate-800/50"
@@ -372,6 +377,17 @@ export function ManageAccountsPage() {
                   ))}
                 </tbody>
               </table>
+            </div>
+            <div className="border-t border-slate-200 bg-slate-50/80 px-3 py-3 dark:border-slate-800 dark:bg-slate-950/40 sm:px-4">
+              <TablePaginationBar
+                totalCount={employeesPagination.totalCount}
+                pageIndex={employeesPagination.pageIndex}
+                pageSize={employeesPagination.pageSize}
+                onPageIndexChange={employeesPagination.setPageIndex}
+                onPageSizeChange={employeesPagination.setPageSize}
+                disabled={loading && employees.length === 0}
+                itemLabel="accounts"
+              />
             </div>
           </div>
         </section>
@@ -428,7 +444,7 @@ export function ManageAccountsPage() {
                       </td>
                     </tr>
                   )}
-                  {clients.map((row) => (
+                  {clientsPagination.pageItems.map((row) => (
                     <tr
                       key={row.id}
                       className="hover:bg-slate-50 dark:hover:bg-slate-800/50"
@@ -452,6 +468,17 @@ export function ManageAccountsPage() {
                   ))}
                 </tbody>
               </table>
+            </div>
+            <div className="border-t border-slate-200 bg-slate-50/80 px-3 py-3 dark:border-slate-800 dark:bg-slate-950/40 sm:px-4">
+              <TablePaginationBar
+                totalCount={clientsPagination.totalCount}
+                pageIndex={clientsPagination.pageIndex}
+                pageSize={clientsPagination.pageSize}
+                onPageIndexChange={clientsPagination.setPageIndex}
+                onPageSizeChange={clientsPagination.setPageSize}
+                disabled={loading && clients.length === 0}
+                itemLabel="accounts"
+              />
             </div>
           </div>
         </section>

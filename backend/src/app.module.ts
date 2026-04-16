@@ -6,6 +6,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
+import { AuthenticationMetric } from './authentication-metrics/entities/authentication-metric.entity';
 import { Client } from './clients/entities/client.entity';
 import { DatabaseModule } from './database/database.module';
 import { Employee } from './employees/entities/employee.entity';
@@ -24,6 +25,7 @@ import {
 } from './consignment-schedules/entities/consignment-schedule.entities';
 import { InventoryModule } from './inventory/inventory.module';
 import { InventoryItem } from './inventory/entities/inventory-item.entity';
+import { AuthenticationMetricsModule } from './authentication-metrics/authentication-metrics.module';
 
 @Module({
   imports: [
@@ -45,6 +47,7 @@ import { InventoryItem } from './inventory/entities/inventory-item.entity';
           Employee,
           Client,
           Setting,
+          AuthenticationMetric,
           ConsignmentSchedule,
           ConsignmentScheduleItem,
           InventoryItem,
@@ -61,6 +64,7 @@ import { InventoryItem } from './inventory/entities/inventory-item.entity';
     AccountsModule,
     ConsignmentSchedulesModule,
     InventoryModule,
+    AuthenticationMetricsModule,
   ],
   controllers: [AppController],
   providers: [
