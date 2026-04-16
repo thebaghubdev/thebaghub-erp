@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link, Navigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { HireDatePicker } from '../components/HireDatePicker'
 import { TablePaginationBar } from '../components/TablePaginationBar'
 import { usePortalAuth } from '../context/portal-auth'
 import { apiFetch } from '../lib/api'
 import { useClientPagination } from '../hooks/useClientPagination'
 
-const JOB_TITLES_SETTING_KEY = 'jobTitles'
+/** Matches backend `POSITIONS_KEY` / seeded setting `positions`. */
+const POSITIONS_SETTING_KEY = 'positions'
 
 type SettingApiRow = {
   key: string
@@ -14,8 +15,8 @@ type SettingApiRow = {
   value: string
 }
 
-function parseJobTitlesFromSettings(settings: SettingApiRow[]): string[] {
-  const row = settings.find((s) => s.key === JOB_TITLES_SETTING_KEY)
+function parsePositionsFromSettings(settings: SettingApiRow[]): string[] {
+  const row = settings.find((s) => s.key === POSITIONS_SETTING_KEY)
   if (!row || row.type !== 'string[]') return []
   try {
     const v = JSON.parse(row.value) as unknown
@@ -61,16 +62,16 @@ const field =
   'box-border h-10 min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 py-0 text-sm leading-5 text-slate-900 outline-none ring-violet-500 focus:ring-2 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100'
 
 export function ManageAccountsPage() {
-  const { token, user } = usePortalAuth()
+  const { token } = usePortalAuth()
   const [tab, setTab] = useState<Tab>('employees')
   const [employees, setEmployees] = useState<EmployeeRow[]>([])
   const [clients, setClients] = useState<ClientRow[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const [jobTitles, setJobTitles] = useState<string[]>([])
-  const [jobTitlesLoading, setJobTitlesLoading] = useState(true)
-  const [jobTitlesError, setJobTitlesError] = useState<string | null>(null)
+  const [positions, setPositions] = useState<string[]>([])
+  const [positionsLoading, setPositionsLoading] = useState(true)
+  const [positionsError, setPositionsError] = useState<string | null>(null)
 
   const [editRow, setEditRow] = useState<EmployeeRow | null>(null)
   const [efFirst, setEfFirst] = useState('')
@@ -86,41 +87,41 @@ export function ManageAccountsPage() {
   const clientsPagination = useClientPagination(clients)
 
   const positionOptions = useMemo(() => {
-    const set = new Set(jobTitles)
+    const set = new Set(positions)
     if (efPosition) set.add(efPosition)
     return Array.from(set).sort((a, b) => a.localeCompare(b))
-  }, [jobTitles, efPosition])
+  }, [positions, efPosition])
 
   useEffect(() => {
-    if (!user?.isAdmin || !token) {
-      setJobTitlesLoading(false)
+    if (!token) {
+      setPositionsLoading(false)
       return
     }
     let cancelled = false
     ;(async () => {
-      setJobTitlesError(null)
-      setJobTitlesLoading(true)
+      setPositionsError(null)
+      setPositionsLoading(true)
       try {
         const res = await apiFetch('/api/settings', {}, token)
-        if (!res.ok) throw new Error(`Could not load job titles (${res.status})`)
+        if (!res.ok) throw new Error(`Could not load positions (${res.status})`)
         const data = (await res.json()) as SettingApiRow[]
         if (cancelled) return
-        setJobTitles(parseJobTitlesFromSettings(data))
+        setPositions(parsePositionsFromSettings(data))
       } catch (e) {
         if (!cancelled) {
-          setJobTitlesError(
-            e instanceof Error ? e.message : 'Failed to load job titles',
+          setPositionsError(
+            e instanceof Error ? e.message : 'Failed to load positions',
           )
-          setJobTitles([])
+          setPositions([])
         }
       } finally {
-        if (!cancelled) setJobTitlesLoading(false)
+        if (!cancelled) setPositionsLoading(false)
       }
     })()
     return () => {
       cancelled = true
     }
-  }, [user?.isAdmin, token])
+  }, [token])
 
   function openEdit(row: EmployeeRow) {
     if (row.isAdmin) return
@@ -222,10 +223,6 @@ export function ManageAccountsPage() {
     if (tab === 'employees') void loadEmployees()
     else void loadClients()
   }, [tab, loadEmployees, loadClients])
-
-  if (!user?.isAdmin) {
-    return <Navigate to="/inquiries" replace />
-  }
 
   return (
     <div className="w-full min-w-0">
@@ -577,12 +574,12 @@ export function ManageAccountsPage() {
                     required
                     disabled={
                       editSaving ||
-                      jobTitlesLoading ||
-                      (!jobTitlesLoading && positionOptions.length === 0)
+                      positionsLoading ||
+                      (!positionsLoading && positionOptions.length === 0)
                     }
                   >
                     <option value="" disabled>
-                      {jobTitlesLoading
+                      {positionsLoading
                         ? 'Loading positions…'
                         : positionOptions.length === 0
                           ? 'No positions available'
@@ -594,9 +591,9 @@ export function ManageAccountsPage() {
                       </option>
                     ))}
                   </select>
-                  {jobTitlesError && (
+                  {positionsError && (
                     <p className="mt-1 text-xs text-red-600 dark:text-red-400">
-                      {jobTitlesError}
+                      {positionsError}
                     </p>
                   )}
                 </div>
@@ -621,8 +618,8 @@ export function ManageAccountsPage() {
                   type="submit"
                   disabled={
                     editSaving ||
-                    jobTitlesLoading ||
-                    (!jobTitlesLoading && positionOptions.length === 0)
+                    positionsLoading ||
+                    (!positionsLoading && positionOptions.length === 0)
                   }
                   className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-violet-700 disabled:opacity-50"
                 >

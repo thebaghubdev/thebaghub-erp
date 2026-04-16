@@ -50,16 +50,14 @@ export function Sidenav() {
         >
           Authentication
         </NavLink>
-        {user?.isAdmin && (
-          <NavLink
-            to="/portal/accounts"
-            className={({ isActive }) =>
-              [linkClass, isActive ? activeClass : ""].join(" ")
-            }
-          >
-            Manage Accounts
-          </NavLink>
-        )}
+        <NavLink
+          to="/portal/accounts"
+          className={({ isActive }) =>
+            [linkClass, isActive ? activeClass : ""].join(" ")
+          }
+        >
+          Manage Accounts
+        </NavLink>
       </nav>
       <div className="border-t border-slate-200 p-2 dark:border-slate-800">
         <p

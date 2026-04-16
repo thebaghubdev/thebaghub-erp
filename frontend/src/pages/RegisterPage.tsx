@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
-import { Navigate } from 'react-router-dom'
 import { HireDatePicker } from '../components/HireDatePicker'
 import { PasswordField } from '../components/PasswordField'
 import { usePortalAuth } from '../context/portal-auth'
 import { apiFetch } from '../lib/api'
 
-const JOB_TITLES_SETTING_KEY = 'jobTitles'
+/** Matches backend `POSITIONS_KEY` / seeded setting `positions`. */
+const POSITIONS_SETTING_KEY = 'positions'
 
 type SettingApiRow = {
   key: string
@@ -13,8 +13,8 @@ type SettingApiRow = {
   value: string
 }
 
-function parseJobTitlesFromSettings(settings: SettingApiRow[]): string[] {
-  const row = settings.find((s) => s.key === JOB_TITLES_SETTING_KEY)
+function parsePositionsFromSettings(settings: SettingApiRow[]): string[] {
+  const row = settings.find((s) => s.key === POSITIONS_SETTING_KEY)
   if (!row || row.type !== 'string[]') return []
   try {
     const v = JSON.parse(row.value) as unknown
@@ -27,7 +27,7 @@ function parseJobTitlesFromSettings(settings: SettingApiRow[]): string[] {
 }
 
 export function RegisterPage() {
-  const { token, user } = usePortalAuth()
+  const { token } = usePortalAuth()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [firstName, setFirstName] = useState('')
@@ -36,47 +36,43 @@ export function RegisterPage() {
   const [contactNumber, setContactNumber] = useState('')
   const [hireDate, setHireDate] = useState('')
   const [position, setPosition] = useState('')
-  const [jobTitles, setJobTitles] = useState<string[]>([])
-  const [jobTitlesLoading, setJobTitlesLoading] = useState(true)
-  const [jobTitlesError, setJobTitlesError] = useState<string | null>(null)
+  const [positions, setPositions] = useState<string[]>([])
+  const [positionsLoading, setPositionsLoading] = useState(true)
+  const [positionsError, setPositionsError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
-    if (!user?.isAdmin || !token) {
-      setJobTitlesLoading(false)
+    if (!token) {
+      setPositionsLoading(false)
       return
     }
     let cancelled = false
     ;(async () => {
-      setJobTitlesError(null)
-      setJobTitlesLoading(true)
+      setPositionsError(null)
+      setPositionsLoading(true)
       try {
         const res = await apiFetch('/api/settings', {}, token)
-        if (!res.ok) throw new Error(`Could not load job titles (${res.status})`)
+        if (!res.ok) throw new Error(`Could not load positions (${res.status})`)
         const data = (await res.json()) as SettingApiRow[]
         if (cancelled) return
-        setJobTitles(parseJobTitlesFromSettings(data))
+        setPositions(parsePositionsFromSettings(data))
       } catch (e) {
         if (!cancelled) {
-          setJobTitlesError(
-            e instanceof Error ? e.message : 'Failed to load job titles',
+          setPositionsError(
+            e instanceof Error ? e.message : 'Failed to load positions',
           )
-          setJobTitles([])
+          setPositions([])
         }
       } finally {
-        if (!cancelled) setJobTitlesLoading(false)
+        if (!cancelled) setPositionsLoading(false)
       }
     })()
     return () => {
       cancelled = true
     }
-  }, [user?.isAdmin, token])
-
-  if (!user?.isAdmin) {
-    return <Navigate to="/portal/inquiries" replace />
-  }
+  }, [token])
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -239,31 +235,31 @@ export function RegisterPage() {
               value={position}
               onChange={(e) => setPosition(e.target.value)}
               required
-              disabled={jobTitlesLoading || jobTitles.length === 0}
+              disabled={positionsLoading || positions.length === 0}
             >
               <option value="" disabled>
-                {jobTitlesLoading
+                {positionsLoading
                   ? 'Loading positions…'
-                  : jobTitles.length === 0
+                  : positions.length === 0
                     ? 'No positions available'
                     : 'Select position'}
               </option>
-              {jobTitles.map((title) => (
-                <option key={title} value={title}>
-                  {title}
+              {positions.map((pos) => (
+                <option key={pos} value={pos}>
+                  {pos}
                 </option>
               ))}
             </select>
-            {jobTitlesError && (
+            {positionsError && (
               <p className="mt-1 text-xs text-red-600 dark:text-red-400">
-                {jobTitlesError}
+                {positionsError}
               </p>
             )}
-            {!jobTitlesLoading &&
-              !jobTitlesError &&
-              jobTitles.length === 0 && (
+            {!positionsLoading &&
+              !positionsError &&
+              positions.length === 0 && (
                 <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                  Add job titles under Settings (User Management) or ask an administrator.
+                  Add positions under Settings (General) or ask an administrator.
                 </p>
               )}
           </div>
@@ -284,8 +280,8 @@ export function RegisterPage() {
           type="submit"
           disabled={
             submitting ||
-            jobTitlesLoading ||
-            (!jobTitlesLoading && jobTitles.length === 0)
+            positionsLoading ||
+            (!positionsLoading && positions.length === 0)
           }
           className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-violet-700 disabled:opacity-50"
         >

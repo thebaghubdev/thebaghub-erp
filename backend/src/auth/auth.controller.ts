@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
-import { AdminGuard } from './admin.guard';
+import { StaffOnlyGuard } from './staff-only.guard';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterClientDto } from './dto/register-client.dto';
@@ -29,7 +29,7 @@ export class AuthController {
   }
 
   @Post('register/employee')
-  @UseGuards(AdminGuard)
+  @UseGuards(StaffOnlyGuard)
   registerEmployee(
     @Body() dto: RegisterEmployeeDto,
     @Req() req: { user: JwtUser },
