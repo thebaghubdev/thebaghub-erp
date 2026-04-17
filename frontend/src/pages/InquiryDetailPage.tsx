@@ -824,6 +824,17 @@ export function InquiryDetailPage() {
                   </p>
                 ) : (
                   <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
+                    <div className="border-b border-slate-200 bg-slate-50/80 px-3 py-3 dark:border-slate-800 dark:bg-slate-950/40 sm:px-4">
+                      <TablePaginationBar
+                        totalCount={auditPagination.totalCount}
+                        pageIndex={auditPagination.pageIndex}
+                        pageSize={auditPagination.pageSize}
+                        onPageIndexChange={auditPagination.setPageIndex}
+                        onPageSizeChange={auditPagination.setPageSize}
+                        disabled={auditLoading && (auditRows?.length ?? 0) === 0}
+                        itemLabel="entries"
+                      />
+                    </div>
                     <div className="overflow-x-auto">
                       <table className="w-full min-w-[640px] border-collapse text-left text-sm">
                         <thead>
@@ -867,17 +878,6 @@ export function InquiryDetailPage() {
                           ))}
                         </tbody>
                       </table>
-                    </div>
-                    <div className="border-t border-slate-200 bg-slate-50/80 px-3 py-3 dark:border-slate-800 dark:bg-slate-950/40 sm:px-4">
-                      <TablePaginationBar
-                        totalCount={auditPagination.totalCount}
-                        pageIndex={auditPagination.pageIndex}
-                        pageSize={auditPagination.pageSize}
-                        onPageIndexChange={auditPagination.setPageIndex}
-                        onPageSizeChange={auditPagination.setPageSize}
-                        disabled={auditLoading && (auditRows?.length ?? 0) === 0}
-                        itemLabel="entries"
-                      />
                     </div>
                   </div>
                 )}

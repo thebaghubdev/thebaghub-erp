@@ -281,6 +281,17 @@ export function ManageAccountsPage() {
           </div>
 
           <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+            <div className="border-b border-slate-200 bg-slate-50/80 px-3 py-3 dark:border-slate-800 dark:bg-slate-950/40 sm:px-4">
+              <TablePaginationBar
+                totalCount={employeesPagination.totalCount}
+                pageIndex={employeesPagination.pageIndex}
+                pageSize={employeesPagination.pageSize}
+                onPageIndexChange={employeesPagination.setPageIndex}
+                onPageSizeChange={employeesPagination.setPageSize}
+                disabled={loading && employees.length === 0}
+                itemLabel="accounts"
+              />
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[800px] text-left text-sm">
                 <thead className="border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-600 dark:border-slate-800 dark:bg-slate-950/50 dark:text-slate-400">
@@ -375,17 +386,6 @@ export function ManageAccountsPage() {
                 </tbody>
               </table>
             </div>
-            <div className="border-t border-slate-200 bg-slate-50/80 px-3 py-3 dark:border-slate-800 dark:bg-slate-950/40 sm:px-4">
-              <TablePaginationBar
-                totalCount={employeesPagination.totalCount}
-                pageIndex={employeesPagination.pageIndex}
-                pageSize={employeesPagination.pageSize}
-                onPageIndexChange={employeesPagination.setPageIndex}
-                onPageSizeChange={employeesPagination.setPageSize}
-                disabled={loading && employees.length === 0}
-                itemLabel="accounts"
-              />
-            </div>
           </div>
         </section>
       )}
@@ -399,6 +399,17 @@ export function ManageAccountsPage() {
           )}
 
           <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+            <div className="border-b border-slate-200 bg-slate-50/80 px-3 py-3 dark:border-slate-800 dark:bg-slate-950/40 sm:px-4">
+              <TablePaginationBar
+                totalCount={clientsPagination.totalCount}
+                pageIndex={clientsPagination.pageIndex}
+                pageSize={clientsPagination.pageSize}
+                onPageIndexChange={clientsPagination.setPageIndex}
+                onPageSizeChange={clientsPagination.setPageSize}
+                disabled={loading && clients.length === 0}
+                itemLabel="accounts"
+              />
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[640px] text-left text-sm">
                 <thead className="border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-600 dark:border-slate-800 dark:bg-slate-950/50 dark:text-slate-400">
@@ -465,17 +476,6 @@ export function ManageAccountsPage() {
                   ))}
                 </tbody>
               </table>
-            </div>
-            <div className="border-t border-slate-200 bg-slate-50/80 px-3 py-3 dark:border-slate-800 dark:bg-slate-950/40 sm:px-4">
-              <TablePaginationBar
-                totalCount={clientsPagination.totalCount}
-                pageIndex={clientsPagination.pageIndex}
-                pageSize={clientsPagination.pageSize}
-                onPageIndexChange={clientsPagination.setPageIndex}
-                onPageSizeChange={clientsPagination.setPageSize}
-                disabled={loading && clients.length === 0}
-                itemLabel="accounts"
-              />
             </div>
           </div>
         </section>

@@ -47,7 +47,9 @@ const dayPickerClassNames = {
     "font-semibold [&_button]:bg-violet-600 [&_button]:text-white [&_button]:hover:bg-violet-600 [&_button]:hover:text-white dark:[&_button]:bg-violet-600",
   today: "font-semibold text-violet-700 dark:text-violet-300",
   outside: "text-slate-300 dark:text-slate-600",
-  disabled: "text-slate-300 dark:text-slate-600",
+  /** Muted inner button — overrides day_button hover/text so disabled days read clearly. */
+  disabled:
+    "[&_button]:pointer-events-none [&_button]:cursor-not-allowed [&_button]:text-slate-400 [&_button]:opacity-80 dark:[&_button]:text-slate-500 [&_button]:hover:!bg-transparent [&_button]:hover:!text-slate-400 dark:[&_button]:hover:!text-slate-500 [&_button]:focus-visible:!ring-0 [&_button]:focus-visible:!ring-offset-0",
   hidden: "invisible",
 } as const;
 

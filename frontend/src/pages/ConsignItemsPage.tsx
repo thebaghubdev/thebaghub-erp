@@ -121,6 +121,17 @@ export function ConsignItemsPage() {
           )}
 
           <div className="max-w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="border-b border-slate-200 bg-slate-50/80 px-3 py-3 sm:px-4">
+              <TablePaginationBar
+                totalCount={minePagination.totalCount}
+                pageIndex={minePagination.pageIndex}
+                pageSize={minePagination.pageSize}
+                onPageIndexChange={minePagination.setPageIndex}
+                onPageSizeChange={minePagination.setPageSize}
+                disabled={loading && rows.length === 0}
+                itemLabel="inquiries"
+              />
+            </div>
             <div className="overflow-x-auto">
             <table className="w-full table-fixed border-collapse text-left text-sm">
                 <thead className="border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-600">
@@ -195,17 +206,6 @@ export function ConsignItemsPage() {
                   ))}
                 </tbody>
               </table>
-            </div>
-            <div className="border-t border-slate-200 bg-slate-50/80 px-3 py-3 sm:px-4">
-              <TablePaginationBar
-                totalCount={minePagination.totalCount}
-                pageIndex={minePagination.pageIndex}
-                pageSize={minePagination.pageSize}
-                onPageIndexChange={minePagination.setPageIndex}
-                onPageSizeChange={minePagination.setPageSize}
-                disabled={loading && rows.length === 0}
-                itemLabel="inquiries"
-              />
             </div>
           </div>
         </section>

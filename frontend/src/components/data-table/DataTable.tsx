@@ -233,6 +233,20 @@ export function DataTable<TData extends object>({
       </div>
 
       <div className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm [-webkit-overflow-scrolling:touch] dark:border-slate-800 dark:bg-slate-900">
+        <div className="border-b border-slate-200 bg-slate-50/80 px-3 py-3 dark:border-slate-800 dark:bg-slate-950/40 sm:px-4">
+          <TablePaginationBar
+            totalCount={filteredCount}
+            pageIndex={table.getState().pagination.pageIndex}
+            pageSize={table.getState().pagination.pageSize}
+            onPageIndexChange={(i) => table.setPageIndex(i)}
+            onPageSizeChange={(size) => {
+              table.setPageSize(size);
+              table.setPageIndex(0);
+            }}
+            disabled={isLoading && data.length === 0}
+            itemLabel={paginationItemLabel}
+          />
+        </div>
         <div className="overflow-x-auto overscroll-x-contain">
         <table className={tableClassName}>
           <thead className="border-b border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950/50">
@@ -389,20 +403,6 @@ export function DataTable<TData extends object>({
               ))}
           </tbody>
         </table>
-        </div>
-        <div className="border-t border-slate-200 bg-slate-50/80 px-3 py-3 dark:border-slate-800 dark:bg-slate-950/40 sm:px-4">
-          <TablePaginationBar
-            totalCount={filteredCount}
-            pageIndex={table.getState().pagination.pageIndex}
-            pageSize={table.getState().pagination.pageSize}
-            onPageIndexChange={(i) => table.setPageIndex(i)}
-            onPageSizeChange={(size) => {
-              table.setPageSize(size);
-              table.setPageIndex(0);
-            }}
-            disabled={isLoading && data.length === 0}
-            itemLabel={paginationItemLabel}
-          />
         </div>
       </div>
     </div>
