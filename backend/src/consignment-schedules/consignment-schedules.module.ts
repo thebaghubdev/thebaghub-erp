@@ -1,8 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Employee } from '../employees/entities/employee.entity';
-import { InventoryItem } from '../inventory/entities/inventory-item.entity';
-import { ItemAuthentication } from '../inventory/entities/item-authentication.entity';
+import { InventoryModule } from '../inventory/inventory.module';
 import { InquiriesModule } from '../inquiries/inquiries.module';
 import { Inquiry } from '../inquiries/entities/inquiry.entity';
 import { ConsignmentSchedulesController } from './consignment-schedules.controller';
@@ -15,13 +14,12 @@ import {
 @Module({
   imports: [
     InquiriesModule,
+    InventoryModule,
     TypeOrmModule.forFeature([
       ConsignmentSchedule,
       ConsignmentScheduleItem,
       Employee,
       Inquiry,
-      InventoryItem,
-      ItemAuthentication,
     ]),
   ],
   controllers: [ConsignmentSchedulesController],

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConsignmentScheduleItem } from '../consignment-schedules/entities/consignment-schedule.entities';
 import { Client } from '../clients/entities/client.entity';
+import { InventoryModule } from '../inventory/inventory.module';
 import { Employee } from '../employees/entities/employee.entity';
 import { ClientConsignmentInquiryController } from './client-consignment-inquiry.controller';
 import { InquiryAuditEntry } from './entities/inquiry-audit-entry.entity';
@@ -13,6 +14,7 @@ import { S3StorageService } from './s3-storage.service';
 
 @Module({
   imports: [
+    InventoryModule,
     TypeOrmModule.forFeature([
       Inquiry,
       InquiryAuditEntry,

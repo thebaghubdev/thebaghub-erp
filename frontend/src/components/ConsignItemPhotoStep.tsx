@@ -5,7 +5,7 @@ import type { LocalConsignImage } from "../types/consign-inquiry";
 const PHOTO_GUIDELINES_URL = "/photo-guide/guidelines.html";
 
 const dropzoneClass =
-  "flex min-h-[11rem] cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50/80 px-4 py-8 text-center transition-colors hover:border-violet-400 hover:bg-violet-50/50 focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500";
+  "flex min-h-[11rem] cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50/80 px-4 py-8 text-center transition-colors hover:border-violet-400 hover:bg-violet-50/50 focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500 dark:border-slate-600 dark:bg-slate-900/60 dark:hover:border-violet-500 dark:hover:bg-violet-950/40 dark:focus-visible:ring-violet-400";
 
 type Props = {
   images: LocalConsignImage[];
@@ -57,15 +57,17 @@ export function ConsignItemPhotoStep({ images, onChange }: Props) {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="space-y-2 text-sm leading-relaxed text-slate-600">
-        <p className="font-medium text-slate-800">
+      <div className="space-y-2 text-sm leading-relaxed text-slate-600 dark:text-slate-300">
+        <p className="font-medium text-slate-800 dark:text-slate-100">
           Add at least one photo for this item (required).
         </p>
         <p>
           Include pictures of the item from multiple angles and any important
           details. If you have a{" "}
-          <span className="font-medium text-slate-800">purchase receipt</span>,
-          upload a clear photo of it here as well when available.
+          <span className="font-medium text-slate-800 dark:text-slate-100">
+            purchase receipt
+          </span>
+          , upload a clear photo of it here as well when available.
         </p>
         <p>
           Please refer to our{" "}
@@ -73,7 +75,7 @@ export function ConsignItemPhotoStep({ images, onChange }: Props) {
             href={PHOTO_GUIDELINES_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="font-medium text-violet-700 underline-offset-2 hover:text-violet-900 hover:underline"
+            className="font-medium text-violet-700 underline-offset-2 hover:text-violet-900 hover:underline dark:text-violet-300 dark:hover:text-violet-100"
           >
             photo guidelines
           </a>{" "}
@@ -98,7 +100,7 @@ export function ConsignItemPhotoStep({ images, onChange }: Props) {
       <div
         role="button"
         tabIndex={0}
-        className={`${dropzoneClass} ${dragActive ? "border-violet-500 bg-violet-50" : ""}`}
+        className={`${dropzoneClass} ${dragActive ? "border-violet-500 bg-violet-50 dark:border-violet-400 dark:bg-violet-950/50" : ""}`}
         onClick={() => fileInputRef.current?.click()}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
@@ -123,7 +125,7 @@ export function ConsignItemPhotoStep({ images, onChange }: Props) {
         onDrop={onDrop}
       >
         <svg
-          className="h-10 w-10 text-slate-400"
+          className="h-10 w-10 text-slate-400 dark:text-slate-500"
           aria-hidden
           fill="none"
           stroke="currentColor"
@@ -141,10 +143,10 @@ export function ConsignItemPhotoStep({ images, onChange }: Props) {
             d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zM18.75 10.5h.008v.008h-.008V10.5z"
           />
         </svg>
-        <span className="text-sm font-medium text-slate-800">
+        <span className="text-sm font-medium text-slate-800 dark:text-slate-100">
           Drop images here or click to upload
         </span>
-        <span className="text-xs text-slate-500">
+        <span className="text-xs text-slate-500 dark:text-slate-400">
           PNG, JPG, WebP, GIF — multiple files
         </span>
       </div>
@@ -154,7 +156,7 @@ export function ConsignItemPhotoStep({ images, onChange }: Props) {
           {images.map((img) => (
             <li
               key={img.id}
-              className="relative overflow-hidden rounded-xl border border-slate-200 bg-slate-100 aspect-square"
+              className="relative aspect-square overflow-hidden rounded-xl border border-slate-200 bg-slate-100 dark:border-slate-600 dark:bg-slate-800"
             >
               <img
                 src={img.previewUrl}

@@ -4,11 +4,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 import { Employee } from '../employees/entities/employee.entity';
 import { InquiryStatus } from '../enums/inquiry-status.enum';
-import { InventoryItem } from '../inventory/entities/inventory-item.entity';
-import { ItemAuthentication } from '../inventory/entities/item-authentication.entity';
+import { InventoryService } from '../inventory/inventory.service';
 import {
   Inquiry,
   type InquiryItemSnapshot,
@@ -75,49 +74,6 @@ function inclusionsFromSnapshot(
   return s.length > 0 ? s : '—';
 }
 
-/** UTC calendar day bounds for `d`. */
-function utcDayRange(d: Date): { start: Date; end: Date } {
-  const start = new Date(
-    Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0),
-  );
-  const end = new Date(
-    Date.UTC(
-      d.getUTCFullYear(),
-      d.getUTCMonth(),
-      d.getUTCDate(),
-      23,
-      59,
-      59,
-      999,
-    ),
-  );
-  return { start, end };
-}
-
-/** Distinct from inquiry lock keys — serializes inventory SKU allocation per UTC day. */
-function utcInventoryDayLockKey(d: Date): string {
-  const y = d.getUTCFullYear();
-  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(d.getUTCDate()).padStart(2, '0');
-  return `inv-${y}-${m}-${day}`;
-}
-
-/**
- * Inventory SKU: same date + sequence shape as inquiries, without the INQ- prefix.
- * Example: 2026-0414-01
- */
-function formatInventorySku(ref: Date, sequence: number): string {
-  const y = ref.getUTCFullYear();
-  const mm = String(ref.getUTCMonth() + 1).padStart(2, '0');
-  const dd = String(ref.getUTCDate()).padStart(2, '0');
-  const mmdd = `${mm}${dd}`;
-  const seq =
-    sequence < 100
-      ? String(sequence).padStart(2, '0')
-      : String(sequence);
-  return `${y}-${mmdd}-${seq}`;
-}
-
 function mergeItemFormFromReceive(
   snapshot: InquiryItemSnapshot,
   form: ReceiveItemFormDto,
@@ -154,6 +110,7 @@ export class ConsignmentSchedulesService {
     @InjectRepository(Employee)
     private readonly employeesRepo: Repository<Employee>,
     private readonly inquiryAudit: InquiryAuditService,
+    private readonly inventoryService: InventoryService,
   ) {}
 
   async findAllForStaff(): Promise<ConsignmentScheduleListRow[]> {
@@ -354,22 +311,9 @@ export class ConsignmentSchedulesService {
         }
       }
 
-      const refDate = new Date();
-
-      await em.query(
-        `SELECT pg_advisory_xact_lock(hashtext($1::text)::bigint)`,
-        [utcInventoryDayLockKey(refDate)],
-      );
-
-      const bounds = utcDayRange(refDate);
-      const countToday = await em.count(InventoryItem, {
-        where: { dateReceived: Between(bounds.start, bounds.end) },
-      });
-
       const staffLabel = await this.inquiryAudit.staffActorLabel(staffUserId);
       const staffActor = { userId: staffUserId, label: staffLabel };
 
-      let seq = countToday;
       for (const link of links) {
         const inv = link.inquiry;
         const row = byInquiryId.get(inv.id);
@@ -393,43 +337,12 @@ export class ConsignmentSchedulesService {
         await em.save(inv);
         await this.inquiryAudit.recordDiff(inv.id, before, inv, staffActor, em);
 
-        seq += 1;
-        const sku = formatInventorySku(refDate, seq);
-        const transactionType =
-          inv.offerTransactionType === 'direct_purchase' ||
-          inv.offerTransactionType === 'consignment'
-            ? inv.offerTransactionType
-            : null;
-
-        const inventoryRow = em.create(InventoryItem, {
-          sku,
-          dateReceived: refDate,
-          inquiryId: inv.id,
-          consignorId: inv.consignorId,
-          status: 'For Authentication',
-          transactionType,
-          currentBranch: schedule.branch,
-          itemSnapshot: merged,
-          createdById: null,
-          updatedById: null,
-        });
-        await em.save(inventoryRow);
-
-        const itemAuth = em.create(ItemAuthentication, {
-          inventoryItemId: inventoryRow.id,
-          assignedToId: null,
-          authenticationStatus: 'Pending',
-          rating: null,
-          authenticatorNotes: null,
-          marketResearchNotes: null,
-          marketResearchLink: null,
-          marketPrice: null,
-          retailPrice: null,
-          dimensions: null,
-          createdById: null,
-          updatedById: null,
-        });
-        await em.save(itemAuth);
+        await this.inventoryService.createInventoryAndItemAuthenticationForInquiry(
+          em,
+          inv,
+          merged,
+          schedule.branch,
+        );
       }
 
       await em.remove(schedule);

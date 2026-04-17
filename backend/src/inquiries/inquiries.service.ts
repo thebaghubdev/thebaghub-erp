@@ -10,6 +10,8 @@ import { randomUUID } from 'node:crypto';
 import { Between, Repository } from 'typeorm';
 import { Client } from '../clients/entities/client.entity';
 import { ConsignmentScheduleItem } from '../consignment-schedules/entities/consignment-schedule.entities';
+import { InventoryItem } from '../inventory/entities/inventory-item.entity';
+import { InventoryService } from '../inventory/inventory.service';
 import { InquiryStatus } from '../enums/inquiry-status.enum';
 import { JwtUser } from '../auth/jwt-user';
 import {
@@ -20,6 +22,7 @@ import { UpdateInquiryNotesDto } from './dto/update-inquiry-notes.dto';
 import { SubmitOfferDto } from './dto/submit-offer.dto';
 import { ConfirmOfferDto } from './dto/confirm-offer.dto';
 import { SubmitConsignmentInquiryDto } from './dto/submit-consignment-inquiry.dto';
+import { SubmitWalkInConsignmentInquiryDto } from './dto/submit-walk-in-consignment-inquiry.dto';
 import {
   ClientOfferConfirmationData,
   Inquiry,
@@ -133,6 +136,8 @@ export type StaffInquiryRow = {
   offerPrice: string | null;
   clientOfferConfirmation: ClientOfferConfirmationView | null;
   notes: string | null;
+  isWalkIn: boolean;
+  walkInBranch: string | null;
 };
 
 /** Client/staff API shape (public URL for signature image). */
@@ -180,6 +185,7 @@ export class InquiriesService {
     private readonly scheduleItemRepo: Repository<ConsignmentScheduleItem>,
     private readonly s3: S3StorageService,
     private readonly inquiryAudit: InquiryAuditService,
+    private readonly inventoryService: InventoryService,
   ) {}
 
   private async loadDeliveryScheduleForInquiry(
@@ -272,6 +278,11 @@ export class InquiriesService {
         const t = String(r.notes).trim();
         return t === '' ? null : t;
       })(),
+      isWalkIn: Boolean(r.isWalkIn),
+      walkInBranch:
+        r.walkInBranch != null && String(r.walkInBranch).trim() !== ''
+          ? String(r.walkInBranch).trim()
+          : null,
     };
   }
 
@@ -590,8 +601,37 @@ export class InquiriesService {
     const before = cloneInquiryForAudit(r);
     r.preferredPaymentMethod = dto.paymentMethod;
     r.offerSignatureKey = signatureKey;
-    r.status = InquiryStatus.FOR_DELIVERY;
-    await this.inquiriesRepo.save(r);
+
+    if (r.isWalkIn) {
+      const branch = r.walkInBranch?.trim();
+      if (!branch) {
+        throw new BadRequestException(
+          'Walk-in inquiry is missing receiving branch',
+        );
+      }
+      await this.inquiriesRepo.manager.transaction(async (em) => {
+        const existingInv = await em.findOne(InventoryItem, {
+          where: { inquiryId: r.id },
+        });
+        if (existingInv) {
+          throw new BadRequestException(
+            'Inventory already exists for this inquiry',
+          );
+        }
+        r.status = InquiryStatus.FOR_PROCESSING;
+        await em.save(r);
+        await this.inventoryService.createInventoryAndItemAuthenticationForInquiry(
+          em,
+          r,
+          r.itemSnapshot,
+          branch,
+        );
+      });
+    } else {
+      r.status = InquiryStatus.FOR_DELIVERY;
+      await this.inquiriesRepo.save(r);
+    }
+
     await this.inquiryAudit.recordDiff(
       r.id,
       before,
@@ -705,6 +745,122 @@ export class InquiriesService {
           itemSnapshot: row.itemSnapshot,
           createdById: null,
           updatedById: null,
+        });
+        await em.save(inquiry);
+        results.push({ id: inquiry.id, sku, status: inquiry.status });
+      }
+
+      return { inquiries: results };
+    });
+  }
+
+  /** Staff creates inquiries for a selected consignor (walk-in); sets walk-in flags. */
+  async submitWalkInConsignmentInquiry(
+    user: JwtUser,
+    payloadRaw: string | undefined,
+    files: MulterFile[] | undefined,
+  ): Promise<{
+    inquiries: Array<{ id: string; sku: string; status: InquiryStatus }>;
+  }> {
+    if (payloadRaw == null || payloadRaw.trim() === '') {
+      throw new BadRequestException('Missing payload');
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(payloadRaw) as unknown;
+    } catch {
+      throw new BadRequestException('Invalid JSON payload');
+    }
+
+    const dto = plainToInstance(SubmitWalkInConsignmentInquiryDto, parsed, {
+      enableImplicitConversion: true,
+    });
+    try {
+      await validateOrReject(dto);
+    } catch {
+      throw new BadRequestException('Invalid inquiry payload');
+    }
+
+    const client = await this.clientsRepo.findOne({
+      where: { id: dto.consignorClientId },
+    });
+    if (!client) {
+      throw new NotFoundException('Consignor client not found');
+    }
+
+    const expectedFiles = dto.items.reduce((n, it) => n + it.imageCount, 0);
+    if (!files || files.length !== expectedFiles) {
+      throw new BadRequestException(
+        `Expected ${expectedFiles} image file(s), received ${files?.length ?? 0}`,
+      );
+    }
+
+    let fileIdx = 0;
+    const refNow = new Date();
+
+    type Planned = { inquiryId: string; itemSnapshot: InquiryItemSnapshot };
+    const planned: Planned[] = [];
+
+    for (let itemIdx = 0; itemIdx < dto.items.length; itemIdx++) {
+      const row = dto.items[itemIdx];
+      const inquiryId = randomUUID();
+      const images: InquiryItemSnapshot['images'] = [];
+
+      for (let j = 0; j < row.imageCount; j++) {
+        const file = files[fileIdx++];
+        const mime = file.mimetype?.toLowerCase() ?? '';
+        if (!ALLOWED_IMAGE_MIMES.has(mime)) {
+          throw new BadRequestException(
+            `Unsupported image type: ${file.mimetype || 'unknown'}`,
+          );
+        }
+        const ext = extFromMime(mime);
+        const key = `inquiries/${inquiryId}/${randomUUID()}.${ext}`;
+        await this.s3.putObject(key, file.buffer, mime);
+        images.push({ key, url: this.s3.getPublicUrl(key) });
+      }
+
+      planned.push({
+        inquiryId,
+        itemSnapshot: {
+          clientItemId: row.clientItemId,
+          form: { ...row.form } as unknown as Record<string, unknown>,
+          images,
+        },
+      });
+    }
+
+    return await this.inquiriesRepo.manager.transaction(async (em) => {
+      await em.query(
+        `SELECT pg_advisory_xact_lock(hashtext($1::text)::bigint)`,
+        [utcDayLockKey(refNow)],
+      );
+
+      const bounds = utcDayRange(refNow);
+      const countToday = await em.count(Inquiry, {
+        where: { createdAt: Between(bounds.start, bounds.end) },
+      });
+
+      const results: Array<{
+        id: string;
+        sku: string;
+        status: InquiryStatus;
+      }> = [];
+
+      for (let i = 0; i < planned.length; i++) {
+        const sku = formatInquirySku(refNow, countToday + i + 1);
+        const row = planned[i];
+        const inquiry = em.create(Inquiry, {
+          id: row.inquiryId,
+          consignorId: client.id,
+          sku,
+          status: InquiryStatus.PENDING,
+          itemSnapshot: row.itemSnapshot,
+          isWalkIn: true,
+          walkInBranch: dto.walkInBranch,
+          createdById: user.userId,
+          updatedById: user.userId,
         });
         await em.save(inquiry);
         results.push({ id: inquiry.id, sku, status: inquiry.status });

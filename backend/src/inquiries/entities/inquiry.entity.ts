@@ -87,6 +87,14 @@ export class Inquiry extends AuditedEntity {
   @Column({ type: 'text', nullable: true })
   notes: string | null;
 
+  /** Created via staff walk-in flow (Create Inquiry tab). */
+  @Column({ name: 'is_walk_in', type: 'boolean', default: false })
+  isWalkIn: boolean;
+
+  /** Receiving branch when created via walk-in (e.g. Pasig, Makati). */
+  @Column({ name: 'walk_in_branch', type: 'varchar', length: 64, nullable: true })
+  walkInBranch: string | null;
+
   /** One line item per inquiry row (form + uploaded image locations). */
   @Column({ type: 'jsonb', name: 'item_snapshot' })
   itemSnapshot: InquiryItemSnapshot;

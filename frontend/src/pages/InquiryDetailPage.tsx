@@ -60,6 +60,8 @@ type InquiryDetail = {
   clientOfferConfirmation?: ClientOfferConfirmation | null;
   /** Staff-only notes persisted on the inquiry row. */
   notes: string | null;
+  isWalkIn: boolean;
+  walkInBranch: string | null;
   itemSnapshot: {
     clientItemId: string;
     form: Record<string, unknown>;
@@ -612,6 +614,26 @@ export function InquiryDetailPage() {
                   <SubmittedAtCell iso={detail.updatedAt} />
                 </dd>
               </div>
+              <div className="sm:col-span-2">
+                <dt className="text-slate-500 dark:text-slate-400">
+                  Walk-in consignment
+                </dt>
+                <dd className="text-slate-900 dark:text-slate-100">
+                  {yesNo(detail.isWalkIn)}
+                </dd>
+              </div>
+              {detail.isWalkIn ? (
+                <div className="sm:col-span-2">
+                  <dt className="text-slate-500 dark:text-slate-400">
+                    Receiving branch
+                  </dt>
+                  <dd className="text-slate-900 dark:text-slate-100">
+                    {detail.walkInBranch?.trim()
+                      ? detail.walkInBranch
+                      : "—"}
+                  </dd>
+                </div>
+              ) : null}
             </dl>
           </div>
 

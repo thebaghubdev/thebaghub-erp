@@ -5,8 +5,16 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
-import type { InquiryItemSnapshot } from '../inquiries/entities/inquiry.entity';
+import { Between, EntityManager, In, Repository } from 'typeorm';
+import {
+  Inquiry,
+  type InquiryItemSnapshot,
+} from '../inquiries/entities/inquiry.entity';
+import {
+  formatInventorySku,
+  utcDayRange,
+  utcInventoryDayLockKey,
+} from './inventory-sku.util';
 import { Employee } from '../employees/entities/employee.entity';
 import { InventoryItem } from './entities/inventory-item.entity';
 import { ItemAuthentication } from './entities/item-authentication.entity';
@@ -111,6 +119,64 @@ export class InventoryService {
     @InjectRepository(ItemAuthenticationMetric)
     private readonly itemAuthMetricRepo: Repository<ItemAuthenticationMetric>,
   ) {}
+
+  /**
+   * Creates one inventory row and a pending item_authentication row (same as
+   * schedule receive). Caller may wrap in a transaction with other writes.
+   */
+  async createInventoryAndItemAuthenticationForInquiry(
+    em: EntityManager,
+    inquiry: Pick<Inquiry, 'id' | 'consignorId' | 'offerTransactionType'>,
+    itemSnapshot: InquiryItemSnapshot,
+    currentBranch: string,
+  ): Promise<void> {
+    const refDate = new Date();
+    await em.query(
+      `SELECT pg_advisory_xact_lock(hashtext($1::text)::bigint)`,
+      [utcInventoryDayLockKey(refDate)],
+    );
+    const bounds = utcDayRange(refDate);
+    const countToday = await em.count(InventoryItem, {
+      where: { dateReceived: Between(bounds.start, bounds.end) },
+    });
+    const seq = countToday + 1;
+    const sku = formatInventorySku(refDate, seq);
+    const transactionType =
+      inquiry.offerTransactionType === 'direct_purchase' ||
+      inquiry.offerTransactionType === 'consignment'
+        ? inquiry.offerTransactionType
+        : null;
+
+    const inventoryRow = em.create(InventoryItem, {
+      sku,
+      dateReceived: refDate,
+      inquiryId: inquiry.id,
+      consignorId: inquiry.consignorId,
+      status: FOR_AUTHENTICATION_INVENTORY_STATUS,
+      transactionType,
+      currentBranch,
+      itemSnapshot,
+      createdById: null,
+      updatedById: null,
+    });
+    await em.save(inventoryRow);
+
+    const itemAuth = em.create(ItemAuthentication, {
+      inventoryItemId: inventoryRow.id,
+      assignedToId: null,
+      authenticationStatus: 'Pending',
+      rating: null,
+      authenticatorNotes: null,
+      marketResearchNotes: null,
+      marketResearchLink: null,
+      marketPrice: null,
+      retailPrice: null,
+      dimensions: null,
+      createdById: null,
+      updatedById: null,
+    });
+    await em.save(itemAuth);
+  }
 
   async getItemAuthenticationMetricsForInventoryItem(
     inventoryItemId: string,

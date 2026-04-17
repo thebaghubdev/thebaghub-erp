@@ -1,7 +1,8 @@
 import { createColumnHelper } from "@tanstack/react-table";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { DataTable } from "../components/data-table/DataTable";
+import { StaffWalkInConsignmentWizard } from "../components/StaffWalkInConsignmentWizard";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
@@ -25,9 +26,30 @@ type InquiryRow = {
   consentDirectPurchase: boolean;
   offerTransactionType: "consignment" | "direct_purchase" | null;
   offerPrice: string | null;
+  isWalkIn: boolean;
 };
 
 type InquiryTab = "all" | "create";
+
+const LEAVE_TAB_MSG =
+  "You have unsaved changes to this consignment inquiry. Switch tabs anyway?";
+
+type ClientAccountRow = {
+  id: string;
+  userId: string;
+  username: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  contactNumber: string;
+  createdAt: string;
+};
+
+function formatConsignorSummary(c: ClientAccountRow): string {
+  const name = [c.firstName, c.lastName].filter(Boolean).join(" ").trim();
+  const primary = name || c.username;
+  return `${primary} · ${c.email}`;
+}
 
 function yesNo(v: boolean) {
   return v ? "Yes" : "No";
@@ -49,6 +71,17 @@ const inquiryColumns = [
     cell: ({ getValue }) => (
       <span className="break-words font-medium text-slate-900 dark:text-slate-100">
         {getValue()}
+      </span>
+    ),
+  }),
+  columnHelper.accessor((row) => Boolean(row.isWalkIn), {
+    id: "isWalkIn",
+    header: () => (
+      <span className="whitespace-normal leading-tight">Walk-in?</span>
+    ),
+    cell: ({ getValue }) => (
+      <span className="block text-center text-slate-700 dark:text-slate-300">
+        {yesNo(getValue())}
       </span>
     ),
   }),
@@ -123,13 +156,16 @@ const inquiryColumns = [
       </span>
     ),
   }),
-  columnHelper.accessor((row) => formatOfferTransactionLabel(row.offerTransactionType), {
-    id: "offerTransactionType",
-    header: "Transaction type",
-    cell: ({ getValue }) => (
-      <span className="text-slate-700 dark:text-slate-300">{getValue()}</span>
-    ),
-  }),
+  columnHelper.accessor(
+    (row) => formatOfferTransactionLabel(row.offerTransactionType),
+    {
+      id: "offerTransactionType",
+      header: "Transaction type",
+      cell: ({ getValue }) => (
+        <span className="text-slate-700 dark:text-slate-300">{getValue()}</span>
+      ),
+    },
+  ),
   columnHelper.accessor((row) => yesNo(row.consentDirectPurchase), {
     id: "consentDirectPurchase",
     header: () => (
@@ -163,6 +199,25 @@ export function InquiryPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [clients, setClients] = useState<ClientAccountRow[]>([]);
+  const [clientsLoading, setClientsLoading] = useState(false);
+  const [clientsError, setClientsError] = useState<string | null>(null);
+  const [selectedClientId, setSelectedClientId] = useState("");
+  const [wizardDirty, setWizardDirty] = useState(false);
+
+  const sortedClients = useMemo(() => {
+    return [...clients].sort((a, b) => {
+      const ln = a.lastName.localeCompare(b.lastName);
+      if (ln !== 0) return ln;
+      return a.firstName.localeCompare(b.firstName);
+    });
+  }, [clients]);
+
+  const selectedClient = useMemo(
+    () => clients.find((c) => c.id === selectedClientId) ?? null,
+    [clients, selectedClientId],
+  );
+
   const loadInquiries = useCallback(async () => {
     setError(null);
     setLoading(true);
@@ -182,8 +237,49 @@ export function InquiryPage() {
     if (tab === "all") void loadInquiries();
   }, [tab, loadInquiries]);
 
+  useEffect(() => {
+    if (tab === "all") setWizardDirty(false);
+  }, [tab]);
+
+  useEffect(() => {
+    if (tab !== "create" || !token) return;
+    let cancelled = false;
+    void (async () => {
+      setClientsError(null);
+      setClientsLoading(true);
+      try {
+        const res = await apiFetch("/api/accounts/clients", {}, token);
+        if (!res.ok) throw new Error(`Request failed (${res.status})`);
+        const data = (await res.json()) as ClientAccountRow[];
+        if (!cancelled) setClients(data);
+      } catch (e) {
+        if (!cancelled) {
+          setClientsError(
+            e instanceof Error ? e.message : "Failed to load client accounts",
+          );
+          setClients([]);
+        }
+      } finally {
+        if (!cancelled) setClientsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [tab, token]);
+
   const tabBtn =
     "-mb-px border-b-2 border-transparent px-4 py-2 text-sm font-medium transition-colors focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500";
+
+  const consignorSelectField =
+    "box-border h-11 min-h-11 w-full max-w-xl rounded-lg border border-slate-300 bg-white px-3 py-0 text-sm leading-5 text-slate-900 outline-none ring-violet-500 focus:ring-2 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100";
+
+  const requestTab = (next: InquiryTab) => {
+    if (tab === "create" && next === "all" && wizardDirty) {
+      if (!window.confirm(LEAVE_TAB_MSG)) return;
+    }
+    setTab(next);
+  };
 
   return (
     <div className="w-full min-w-0">
@@ -203,7 +299,7 @@ export function InquiryPage() {
               ? "border-violet-600 text-violet-700 dark:text-violet-300"
               : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
           }`}
-          onClick={() => setTab("all")}
+          onClick={() => requestTab("all")}
         >
           All Inquiries
         </button>
@@ -218,7 +314,7 @@ export function InquiryPage() {
               ? "border-violet-600 text-violet-700 dark:text-violet-300"
               : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
           }`}
-          onClick={() => setTab("create")}
+          onClick={() => requestTab("create")}
         >
           Create Inquiry
         </button>
@@ -243,7 +339,7 @@ export function InquiryPage() {
             getRowAriaLabel={(row) =>
               `Inquiry ${row.sku}, ${row.itemLabel || "item"}`
             }
-            tableClassName="w-full min-w-[980px] table-fixed border-collapse text-left"
+            tableClassName="w-full min-w-[1040px] table-fixed border-collapse text-left"
           />
         </section>
       )}
@@ -253,8 +349,63 @@ export function InquiryPage() {
           id="panel-create"
           role="tabpanel"
           aria-labelledby="tab-create"
-          className="min-h-[12rem]"
-        />
+          className="min-h-[12rem] max-w-3xl space-y-6"
+        >
+          <div>
+            <label
+              htmlFor="walk-in-consignor"
+              className="mb-2 block text-sm font-medium text-slate-800 dark:text-slate-200"
+            >
+              Consignor (client account)
+            </label>
+            <select
+              id="walk-in-consignor"
+              className={consignorSelectField}
+              value={selectedClientId}
+              onChange={(e) => setSelectedClientId(e.target.value)}
+              disabled={clientsLoading || !!clientsError}
+              aria-busy={clientsLoading}
+            >
+              <option value="">
+                {clientsLoading ? "Loading clients…" : "Select a consignor…"}
+              </option>
+              {sortedClients.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {formatConsignorSummary(c)}
+                </option>
+              ))}
+            </select>
+            <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+              Walk-in consignments must be tied to an existing client account.
+              The consignor needs to have registered in the app before you can
+              create an inquiry on their behalf.
+            </p>
+            {clientsError && (
+              <p
+                className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200"
+                role="alert"
+              >
+                {clientsError}
+              </p>
+            )}
+            {!clientsLoading && !clientsError && sortedClients.length === 0 && (
+              <p className="mt-3 text-sm text-amber-800 dark:text-amber-200">
+                No client accounts found. Register a client before recording a
+                walk-in inquiry.
+              </p>
+            )}
+          </div>
+
+          {selectedClient && (
+            <StaffWalkInConsignmentWizard
+              key={selectedClient.id}
+              portalToken={token}
+              consignorClientId={selectedClient.id}
+              onDirtyChange={setWizardDirty}
+              onSubmitted={() => setTab("all")}
+            />
+          )}
+        </section>
       )}
     </div>
   );
