@@ -25,6 +25,8 @@ import {
 } from './consignment-schedules/entities/consignment-schedule.entities';
 import { InventoryModule } from './inventory/inventory.module';
 import { InventoryItem } from './inventory/entities/inventory-item.entity';
+import { ItemAuthentication } from './inventory/entities/item-authentication.entity';
+import { ItemAuthenticationMetric } from './inventory/entities/item-authentication-metric.entity';
 import { AuthenticationMetricsModule } from './authentication-metrics/authentication-metrics.module';
 
 @Module({
@@ -51,6 +53,8 @@ import { AuthenticationMetricsModule } from './authentication-metrics/authentica
           ConsignmentSchedule,
           ConsignmentScheduleItem,
           InventoryItem,
+          ItemAuthentication,
+          ItemAuthenticationMetric,
         ],
         synchronize:
           config.get<string>('NODE_ENV', 'development') !== 'production',

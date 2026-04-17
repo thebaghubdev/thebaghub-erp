@@ -20,6 +20,8 @@ type InventoryRow = {
   currentBranch: string;
   itemLabel: string;
   inclusions: string;
+  assignedToName: string | null;
+  authenticationStatus: string;
 };
 
 type InventoryTab = "all" | "add";

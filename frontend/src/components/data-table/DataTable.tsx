@@ -23,6 +23,13 @@ const thBase =
 const tdBase =
   "min-w-0 px-2 py-2 align-top text-xs sm:px-3 sm:py-2.5 sm:text-sm";
 
+/** Leading checkbox column: minimal width (table-fixed layouts). */
+const isCheckboxColumnId = (id: string) =>
+  id === "__select" || id === "select";
+
+const thCheckbox = `${thBase} w-9 max-w-9 px-1 text-center sm:w-10 sm:max-w-10 sm:px-1.5`;
+const tdCheckbox = `${tdBase} w-9 max-w-9 px-1 text-center align-middle sm:w-10 sm:max-w-10 sm:px-1.5`;
+
 /** Case-insensitive substring match on stringified cell value. */
 const includesStringFilter: FilterFn<unknown> = (
   row,
@@ -232,9 +239,16 @@ export function DataTable<TData extends object>({
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id}>
                 {headerGroup.headers.map((header) => (
-                  <th key={header.id} scope="col" className={thBase}>
-                    {header.isPlaceholder ? null : header.column.id ===
-                      "__select" ? (
+                  <th
+                    key={header.id}
+                    scope="col"
+                    className={
+                      isCheckboxColumnId(header.column.id) ? thCheckbox : thBase
+                    }
+                  >
+                    {header.isPlaceholder ? null : isCheckboxColumnId(
+                        header.column.id,
+                      ) ? (
                       flexRender(
                         header.column.columnDef.header,
                         header.getContext(),
@@ -272,7 +286,9 @@ export function DataTable<TData extends object>({
               {filterHeaderGroup?.headers.map((header) => (
                 <th
                   key={`f-${header.id}`}
-                  className={`${thBase} pb-2 pt-0 font-normal normal-case`}
+                  className={`${
+                    isCheckboxColumnId(header.column.id) ? thCheckbox : thBase
+                  } pb-2 pt-0 font-normal normal-case`}
                 >
                   {header.column.getCanFilter() ? (
                     <input
@@ -355,7 +371,14 @@ export function DataTable<TData extends object>({
                   }
                 >
                   {row.getVisibleCells().map((cell) => (
-                    <td key={cell.id} className={tdBase}>
+                    <td
+                      key={cell.id}
+                      className={
+                        isCheckboxColumnId(cell.column.id)
+                          ? tdCheckbox
+                          : tdBase
+                      }
+                    >
                       {flexRender(
                         cell.column.columnDef.cell,
                         cell.getContext(),

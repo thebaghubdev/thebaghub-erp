@@ -10,10 +10,8 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DatePickerField } from "../components/DatePickerField";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
-import { TablePaginationBar } from "../components/TablePaginationBar";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
-import { useClientPagination } from "../hooks/useClientPagination";
 import {
   branchLabel,
   modeOfTransferLabel,
@@ -160,9 +158,6 @@ export function ConsignmentScheduleDetailPage() {
   const [detail, setDetail] = useState<ConsignmentScheduleDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const scheduleInquiriesPagination = useClientPagination(
-    detail?.inquiries ?? [],
-  );
 
   const rescheduleTitleId = useId();
   const reschedulePickerId = useId();
@@ -638,52 +633,40 @@ export function ConsignmentScheduleDetailPage() {
                 No inquiries linked.
               </p>
             ) : (
-              <div className="mt-3 overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[420px] table-fixed border-collapse text-left text-sm">
-                    <thead className="border-b border-slate-200 dark:border-slate-700">
-                      <tr>
-                        <th className="pb-2 pr-3 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                          SKU
-                        </th>
-                        <th className="pb-2 pr-3 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                          Item
-                        </th>
-                        <th className="pb-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400" />
+              <div className="mt-3 overflow-x-auto">
+                <table className="w-full min-w-[420px] table-fixed border-collapse text-left text-sm">
+                  <thead>
+                    <tr>
+                      <th className="pb-2 pr-3 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                        SKU
+                      </th>
+                      <th className="pb-2 pr-3 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                        Item
+                      </th>
+                      <th className="pb-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {detail.inquiries.map((row) => (
+                      <tr key={row.id}>
+                        <td className="py-2 pr-3 align-top font-mono text-xs text-slate-900 dark:text-slate-100">
+                          {row.sku}
+                        </td>
+                        <td className="py-2 pr-3 align-top text-slate-800 dark:text-slate-200">
+                          {row.itemLabel}
+                        </td>
+                        <td className="py-2 text-right align-top">
+                          <Link
+                            to={`/portal/inquiries/${row.id}`}
+                            className="font-medium text-violet-700 hover:underline dark:text-violet-400"
+                          >
+                            View inquiry
+                          </Link>
+                        </td>
                       </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
-                      {scheduleInquiriesPagination.pageItems.map((row) => (
-                        <tr key={row.id}>
-                          <td className="py-2 pr-3 align-top font-mono text-xs text-slate-900 dark:text-slate-100">
-                            {row.sku}
-                          </td>
-                          <td className="py-2 pr-3 align-top text-slate-800 dark:text-slate-200">
-                            {row.itemLabel}
-                          </td>
-                          <td className="py-2 text-right align-top">
-                            <Link
-                              to={`/portal/inquiries/${row.id}`}
-                              className="font-medium text-violet-700 hover:underline dark:text-violet-400"
-                            >
-                              View inquiry
-                            </Link>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <div className="border-t border-slate-200 bg-slate-50/80 px-3 py-3 dark:border-slate-800 dark:bg-slate-950/40 sm:px-4">
-                  <TablePaginationBar
-                    totalCount={scheduleInquiriesPagination.totalCount}
-                    pageIndex={scheduleInquiriesPagination.pageIndex}
-                    pageSize={scheduleInquiriesPagination.pageSize}
-                    onPageIndexChange={scheduleInquiriesPagination.setPageIndex}
-                    onPageSizeChange={scheduleInquiriesPagination.setPageSize}
-                    itemLabel="inquiries"
-                  />
-                </div>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </section>
@@ -724,7 +707,7 @@ export function ConsignmentScheduleDetailPage() {
                         <tr>
                           <th
                             scope="col"
-                            className="w-10 pb-2 pr-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
+                            className="w-9 max-w-9 px-1 pb-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 sm:w-10 sm:max-w-10 sm:px-1.5"
                           >
                             <span className="sr-only">Confirm item received</span>
                           </th>
@@ -742,10 +725,10 @@ export function ConsignmentScheduleDetailPage() {
                       <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
                         {detail.inquiries.map((row) => (
                           <tr key={row.id}>
-                            <td className="py-2.5 pr-2 align-top">
+                            <td className="w-9 max-w-9 px-1 py-2.5 align-top sm:w-10 sm:max-w-10 sm:px-1.5">
                               <input
                                 type="checkbox"
-                                className="mt-0.5 h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500 dark:border-slate-600 dark:bg-slate-900"
+                                className="mx-auto mt-0.5 block h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500 dark:border-slate-600 dark:bg-slate-900"
                                 checked={!!receivedChecked[row.id]}
                                 onChange={() => {
                                   if (receivedChecked[row.id]) {

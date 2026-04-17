@@ -8,6 +8,7 @@ import { Between, Repository } from 'typeorm';
 import { Employee } from '../employees/entities/employee.entity';
 import { InquiryStatus } from '../enums/inquiry-status.enum';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
+import { ItemAuthentication } from '../inventory/entities/item-authentication.entity';
 import {
   Inquiry,
   type InquiryItemSnapshot,
@@ -413,6 +414,22 @@ export class ConsignmentSchedulesService {
           updatedById: null,
         });
         await em.save(inventoryRow);
+
+        const itemAuth = em.create(ItemAuthentication, {
+          inventoryItemId: inventoryRow.id,
+          assignedToId: null,
+          authenticationStatus: 'Pending',
+          rating: null,
+          authenticatorNotes: null,
+          marketResearchNotes: null,
+          marketResearchLink: null,
+          marketPrice: null,
+          retailPrice: null,
+          dimensions: null,
+          createdById: null,
+          updatedById: null,
+        });
+        await em.save(itemAuth);
       }
 
       await em.remove(schedule);

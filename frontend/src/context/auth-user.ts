@@ -15,6 +15,8 @@ export type AuthUser = {
   userType: string
   isAdmin: boolean
   employee: {
+    /** Employee row id; may be absent until next login after API update. */
+    id?: string
     firstName: string
     lastName: string
     position: string

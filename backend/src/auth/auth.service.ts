@@ -164,6 +164,7 @@ export class AuthService {
       userType: user.userType,
       isAdmin: user.isAdmin,
       employee: null as {
+        id: string;
         firstName: string;
         lastName: string;
         position: string;
@@ -186,6 +187,7 @@ export class AuthService {
       });
       if (emp) {
         base.employee = {
+          id: emp.id,
           firstName: emp.firstName,
           lastName: emp.lastName,
           position: emp.position,

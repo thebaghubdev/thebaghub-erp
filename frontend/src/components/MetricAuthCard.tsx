@@ -1,72 +1,99 @@
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 
 export type MetricVerdict = "pass" | "fail" | "skip";
 
-type PreviewItem = {
-  id: string;
-  file: File;
-  url: string;
+export type MetricDraftValue = {
+  metricStatus: MetricVerdict | null;
+  notes: string;
+  /** Persisted image payloads (e.g. data URLs from save). */
+  photos: string[];
+  /** Not yet saved (converted on save). */
+  files: File[];
 };
 
 type MetricAuthCardProps = {
   metricName: string;
   description: string | null;
+  value: MetricDraftValue;
+  onChange: (next: MetricDraftValue) => void;
+  /** When true, verdicts, notes, and photos cannot be changed. */
+  readOnly?: boolean;
 };
 
-function newPreviewId(): string {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-}
-
-export function MetricAuthCard({ metricName, description }: MetricAuthCardProps) {
+export function MetricAuthCard({
+  metricName,
+  description,
+  value,
+  onChange,
+  readOnly = false,
+}: MetricAuthCardProps) {
   const noteId = useId();
   const fileInputId = useId();
-  const [verdict, setVerdict] = useState<MetricVerdict | null>(null);
-  const [note, setNote] = useState("");
-  const [previews, setPreviews] = useState<PreviewItem[]>([]);
   const [dragOver, setDragOver] = useState(false);
-  const previewsRef = useRef(previews);
 
-  useEffect(() => {
-    previewsRef.current = previews;
-  }, [previews]);
+  const filePreviewItems = useMemo(
+    () =>
+      value.files.map((file) => ({
+        id: `${file.name}-${file.size}-${file.lastModified}`,
+        file,
+        url: URL.createObjectURL(file),
+      })),
+    [value.files],
+  );
 
   useEffect(() => {
     return () => {
-      previewsRef.current.forEach((p) => URL.revokeObjectURL(p.url));
+      filePreviewItems.forEach((p) => URL.revokeObjectURL(p.url));
     };
-  }, []);
+  }, [filePreviewItems]);
 
-  const addFiles = useCallback((fileList: FileList | File[]) => {
-    const arr = Array.from(fileList).filter((f) => f.type.startsWith("image/"));
-    if (arr.length === 0) return;
-    setPreviews((prev) => {
-      const next = [...prev];
-      for (const file of arr) {
-        next.push({
-          id: newPreviewId(),
-          file,
-          url: URL.createObjectURL(file),
-        });
-      }
-      return next;
-    });
-  }, []);
+  const patch = useCallback(
+    (partial: Partial<MetricDraftValue>) => {
+      onChange({ ...value, ...partial });
+    },
+    [value, onChange],
+  );
 
-  const removePreview = useCallback((id: string) => {
-    setPreviews((prev) => {
-      const item = prev.find((p) => p.id === id);
-      if (item) URL.revokeObjectURL(item.url);
-      return prev.filter((p) => p.id !== id);
-    });
-  }, []);
+  const addFiles = useCallback(
+    (fileList: FileList | File[]) => {
+      const arr = Array.from(fileList).filter((f) => f.type.startsWith("image/"));
+      if (arr.length === 0) return;
+      patch({ files: [...value.files, ...arr] });
+    },
+    [value.files, patch],
+  );
+
+  const removeFile = useCallback(
+    (file: File) => {
+      patch({
+        files: value.files.filter(
+          (f) =>
+            !(
+              f.name === file.name &&
+              f.size === file.size &&
+              f.lastModified === file.lastModified
+            ),
+        ),
+      });
+    },
+    [value.files, patch],
+  );
+
+  const removePhotoAt = useCallback(
+    (index: number) => {
+      patch({ photos: value.photos.filter((_, i) => i !== index) });
+    },
+    [value.photos, patch],
+  );
 
   const onDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
       setDragOver(false);
+      if (readOnly) return;
       if (e.dataTransfer.files?.length) addFiles(e.dataTransfer.files);
     },
-    [addFiles],
+    [addFiles, readOnly],
   );
 
   const verdictBtn = (v: MetricVerdict, label: string, icon: React.ReactNode) => (
@@ -74,10 +101,17 @@ export function MetricAuthCard({ metricName, description }: MetricAuthCardProps)
       type="button"
       title={label}
       aria-label={label}
-      aria-pressed={verdict === v}
-      onClick={() => setVerdict((cur) => (cur === v ? null : v))}
-      className={`inline-flex h-9 w-9 items-center justify-center rounded-lg border text-sm transition-colors focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500 ${
-        verdict === v
+      aria-pressed={value.metricStatus === v}
+      disabled={readOnly}
+      onClick={() =>
+        readOnly
+          ? undefined
+          : patch({
+              metricStatus: value.metricStatus === v ? null : v,
+            })
+      }
+      className={`inline-flex h-9 w-9 items-center justify-center rounded-lg border text-sm transition-colors focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500 disabled:cursor-not-allowed disabled:opacity-50 ${
+        value.metricStatus === v
           ? v === "pass"
             ? "border-emerald-500 bg-emerald-50 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200"
             : v === "fail"
@@ -155,9 +189,10 @@ export function MetricAuthCard({ metricName, description }: MetricAuthCardProps)
           <input
             id={noteId}
             type="text"
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
+            value={value.notes}
+            readOnly={readOnly}
+            onChange={(e) => patch({ notes: e.target.value })}
+            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 read-only:cursor-not-allowed read-only:bg-slate-50 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100 dark:read-only:bg-slate-900/80"
             placeholder="Optional notes…"
             autoComplete="off"
           />
@@ -168,15 +203,18 @@ export function MetricAuthCard({ metricName, description }: MetricAuthCardProps)
           </label>
           <div
             onDragOver={(e) => {
+              if (readOnly) return;
               e.preventDefault();
               setDragOver(true);
             }}
             onDragLeave={() => setDragOver(false)}
-            onDrop={onDrop}
+            onDrop={readOnly ? undefined : onDrop}
             className={`rounded-lg border-2 border-dashed px-3 py-6 text-center transition-colors ${
-              dragOver
-                ? "border-violet-500 bg-violet-50/50 dark:bg-violet-950/20"
-                : "border-slate-200 bg-slate-50/50 dark:border-slate-600 dark:bg-slate-950/40"
+              readOnly
+                ? "cursor-not-allowed border-slate-200 bg-slate-50/30 opacity-60 dark:border-slate-600 dark:bg-slate-950/20"
+                : dragOver
+                  ? "border-violet-500 bg-violet-50/50 dark:bg-violet-950/20"
+                  : "border-slate-200 bg-slate-50/50 dark:border-slate-600 dark:bg-slate-950/40"
             }`}
           >
             <input
@@ -184,8 +222,10 @@ export function MetricAuthCard({ metricName, description }: MetricAuthCardProps)
               type="file"
               accept="image/*"
               multiple
+              disabled={readOnly}
               className="sr-only"
               onChange={(e) => {
+                if (readOnly) return;
                 if (e.target.files?.length) addFiles(e.target.files);
                 e.target.value = "";
               }}
@@ -194,34 +234,53 @@ export function MetricAuthCard({ metricName, description }: MetricAuthCardProps)
               Drag images here or{" "}
               <label
                 htmlFor={fileInputId}
-                className="cursor-pointer font-medium text-violet-700 underline hover:text-violet-800 dark:text-violet-400"
+                className={
+                  readOnly
+                    ? "cursor-not-allowed text-slate-500"
+                    : "cursor-pointer font-medium text-violet-700 underline hover:text-violet-800 dark:text-violet-400"
+                }
               >
                 browse
               </label>
             </p>
             <p className="mt-1 text-[0.65rem] text-slate-500 dark:text-slate-500">
-              Previews only — not uploaded yet.
+              Images are stored when you save changes.
             </p>
           </div>
-          {previews.length > 0 ? (
+          {value.photos.length > 0 || filePreviewItems.length > 0 ? (
             <ul className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {previews.map((p) => (
+              {value.photos.map((src, i) => (
+                <li
+                  key={`srv-${i}-${src.slice(0, 24)}`}
+                  className="group relative aspect-square overflow-hidden rounded-lg border border-slate-200 bg-slate-100 dark:border-slate-600 dark:bg-slate-800"
+                >
+                  <img src={src} alt="" className="h-full w-full object-cover" />
+                  {!readOnly ? (
+                    <button
+                      type="button"
+                      onClick={() => removePhotoAt(i)}
+                      className="absolute right-1 top-1 rounded bg-slate-900/70 px-1.5 py-0.5 text-[0.65rem] font-medium text-white opacity-0 transition-opacity hover:bg-slate-900 group-hover:opacity-100"
+                    >
+                      Remove
+                    </button>
+                  ) : null}
+                </li>
+              ))}
+              {filePreviewItems.map((p) => (
                 <li
                   key={p.id}
                   className="group relative aspect-square overflow-hidden rounded-lg border border-slate-200 bg-slate-100 dark:border-slate-600 dark:bg-slate-800"
                 >
-                  <img
-                    src={p.url}
-                    alt=""
-                    className="h-full w-full object-cover"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => removePreview(p.id)}
-                    className="absolute right-1 top-1 rounded bg-slate-900/70 px-1.5 py-0.5 text-[0.65rem] font-medium text-white opacity-0 transition-opacity hover:bg-slate-900 group-hover:opacity-100"
-                  >
-                    Remove
-                  </button>
+                  <img src={p.url} alt="" className="h-full w-full object-cover" />
+                  {!readOnly ? (
+                    <button
+                      type="button"
+                      onClick={() => removeFile(p.file)}
+                      className="absolute right-1 top-1 rounded bg-slate-900/70 px-1.5 py-0.5 text-[0.65rem] font-medium text-white opacity-0 transition-opacity hover:bg-slate-900 group-hover:opacity-100"
+                    >
+                      Remove
+                    </button>
+                  ) : null}
                 </li>
               ))}
             </ul>

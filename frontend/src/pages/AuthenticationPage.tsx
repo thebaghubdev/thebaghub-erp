@@ -4,11 +4,9 @@ import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DataTable } from "../components/data-table/DataTable";
-import { InventoryStatusBadge } from "../components/InventoryStatusBadge";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
-import { branchLabel } from "../lib/consignment-schedule-labels";
 import { formatOfferTransactionLabel } from "../lib/format-offer-transaction-type";
 
 const FOR_AUTHENTICATION_STATUS = "For Authentication";
@@ -72,6 +70,8 @@ type InventoryRow = {
   currentBranch: string;
   itemLabel: string;
   inclusions: string;
+  assignedToName: string | null;
+  authenticationStatus: string;
 };
 
 type AuthenticationMetricRow = {
@@ -86,6 +86,11 @@ type AuthenticationMetricRow = {
 };
 
 type AuthenticationTab = "items" | "metrics";
+
+type AuthenticatorOption = {
+  id: string;
+  displayName: string;
+};
 
 const columnHelper = createColumnHelper<InventoryRow>();
 const metricColumnHelper = createColumnHelper<AuthenticationMetricRow>();
@@ -119,10 +124,6 @@ const authQueueColumns = [
     header: "Date received",
     cell: ({ getValue }) => <SubmittedAtCell iso={getValue()} />,
   }),
-  columnHelper.accessor("status", {
-    header: "Status",
-    cell: ({ row }) => <InventoryStatusBadge status={row.original.status} />,
-  }),
   columnHelper.accessor("transactionType", {
     header: "Transaction",
     cell: ({ row }) => (
@@ -136,12 +137,19 @@ const authQueueColumns = [
       </span>
     ),
   }),
-  columnHelper.accessor("currentBranch", {
-    header: "Branch",
+  columnHelper.accessor("assignedToName", {
+    id: "assignedToName",
+    header: "Assigned to",
     cell: ({ getValue }) => (
-      <span className="text-slate-700 dark:text-slate-300">
-        {branchLabel(getValue())}
+      <span className="break-words text-slate-700 dark:text-slate-300">
+        {getValue() ?? "—"}
       </span>
+    ),
+  }),
+  columnHelper.accessor("authenticationStatus", {
+    header: "Authentication status",
+    cell: ({ getValue }) => (
+      <span className="text-slate-700 dark:text-slate-300">{getValue()}</span>
     ),
   }),
 ];
@@ -235,6 +243,19 @@ export function AuthenticationPage() {
   const [createError, setCreateError] = useState<string | null>(null);
   const createModalTitleId = useId();
 
+  const [authItemSelectedIds, setAuthItemSelectedIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [assignModalOpen, setAssignModalOpen] = useState(false);
+  const [authenticators, setAuthenticators] = useState<AuthenticatorOption[]>(
+    [],
+  );
+  const [authenticatorsLoading, setAuthenticatorsLoading] = useState(false);
+  const [assignEmployeeId, setAssignEmployeeId] = useState("");
+  const [assignBusy, setAssignBusy] = useState(false);
+  const [assignError, setAssignError] = useState<string | null>(null);
+  const assignModalTitleId = useId();
+
   const load = useCallback(async () => {
     if (!token) return;
     setError(null);
@@ -323,6 +344,10 @@ export function AuthenticationPage() {
   }, [tab]);
 
   useEffect(() => {
+    if (tab !== "items") setAuthItemSelectedIds(new Set());
+  }, [tab]);
+
+  useEffect(() => {
     if (!createModalOpen) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && !createBusy) setCreateModalOpen(false);
@@ -356,6 +381,109 @@ export function AuthenticationPage() {
       setDeleteMetricsError(null);
     }
   }, [metricSelectedIds.size, deleteMetricsOpen]);
+
+  useEffect(() => {
+    if (!assignModalOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !assignBusy) setAssignModalOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [assignModalOpen, assignBusy]);
+
+  const toggleAuthItemRow = useCallback((id: string, selected: boolean) => {
+    setAuthItemSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (selected) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }, []);
+
+  const toggleAuthItemPage = useCallback((ids: string[], selected: boolean) => {
+    setAuthItemSelectedIds((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) {
+        if (selected) next.add(id);
+        else next.delete(id);
+      }
+      return next;
+    });
+  }, []);
+
+  const authItemsRowSelection = useMemo(
+    () => ({
+      selectedIds: authItemSelectedIds,
+      onToggleRow: toggleAuthItemRow,
+      onTogglePage: toggleAuthItemPage,
+    }),
+    [authItemSelectedIds, toggleAuthItemRow, toggleAuthItemPage],
+  );
+
+  const openAssignModal = useCallback(async () => {
+    if (!token) return;
+    setAssignError(null);
+    setAssignEmployeeId("");
+    setAssignModalOpen(true);
+    setAuthenticatorsLoading(true);
+    try {
+      const res = await apiFetch("/api/inventory/authenticators", {}, token);
+      if (!res.ok) throw new Error(`Request failed (${res.status})`);
+      const data = (await res.json()) as AuthenticatorOption[];
+      setAuthenticators(data);
+    } catch (e) {
+      setAssignError(
+        e instanceof Error ? e.message : "Failed to load authenticators",
+      );
+      setAuthenticators([]);
+    } finally {
+      setAuthenticatorsLoading(false);
+    }
+  }, [token]);
+
+  const submitAssignAuthenticator = useCallback(async () => {
+    if (!token) return;
+    if (!assignEmployeeId.trim()) {
+      setAssignError("Select an authenticator.");
+      return;
+    }
+    if (authItemSelectedIds.size === 0) return;
+    setAssignBusy(true);
+    setAssignError(null);
+    try {
+      const res = await apiFetch(
+        "/api/inventory/batch-assign-authenticator",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            inventoryItemIds: [...authItemSelectedIds],
+            employeeId: assignEmployeeId.trim(),
+          }),
+        },
+        token,
+      );
+      if (!res.ok) {
+        let msg = `Request failed (${res.status})`;
+        try {
+          const j = (await res.json()) as { message?: string | string[] };
+          if (Array.isArray(j.message)) msg = j.message.join("; ");
+          else if (typeof j.message === "string") msg = j.message;
+        } catch {
+          /* ignore */
+        }
+        throw new Error(msg);
+      }
+      setAssignModalOpen(false);
+      setAuthItemSelectedIds(new Set());
+      await load();
+    } catch (e) {
+      setAssignError(
+        e instanceof Error ? e.message : "Could not assign authenticator",
+      );
+    } finally {
+      setAssignBusy(false);
+    }
+  }, [token, assignEmployeeId, authItemSelectedIds, load]);
 
   const toggleMetricRow = useCallback((id: string, selected: boolean) => {
     setMetricSelectedIds((prev) => {
@@ -564,13 +692,116 @@ export function AuthenticationPage() {
             isLoading={loading}
             emptyMessage="No items awaiting authentication."
             hideEmptyState={!!error}
+            searchPlaceholder="Search items…"
             getRowId={(r) => r.id}
             onRowClick={(r) => navigate(`/portal/authentication/${r.id}`)}
             getRowAriaLabel={(r) =>
               `Authenticate inventory item ${r.sku}, ${r.itemLabel}`
             }
             tableClassName="w-full min-w-[980px] table-fixed border-collapse text-left"
+            paginationItemLabel="items"
+            rowSelection={authItemsRowSelection}
+            toolbarRight={
+              authItemSelectedIds.size > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => void openAssignModal()}
+                  className="rounded-lg bg-violet-600 px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-violet-700 focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500 disabled:opacity-50"
+                >
+                  Assign to Authenticator ({authItemSelectedIds.size})
+                </button>
+              ) : null
+            }
           />
+
+          {assignModalOpen && typeof document !== "undefined"
+            ? createPortal(
+                <div
+                  className="fixed inset-0 z-[100] flex items-end justify-center p-4 sm:items-center"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby={assignModalTitleId}
+                >
+                  <button
+                    type="button"
+                    className="absolute inset-0 bg-slate-900/50"
+                    aria-label="Close"
+                    disabled={assignBusy}
+                    onClick={() => !assignBusy && setAssignModalOpen(false)}
+                  />
+                  <div className="relative z-10 w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+                    <h2
+                      id={assignModalTitleId}
+                      className="text-lg font-semibold text-slate-900 dark:text-slate-100"
+                    >
+                      Assign to authenticator
+                    </h2>
+                    <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+                      {authItemSelectedIds.size} item
+                      {authItemSelectedIds.size === 1 ? "" : "s"} selected.
+                    </p>
+                    <label
+                      className={`${formLabelClass} mt-4`}
+                      htmlFor="assign-authenticator-select"
+                    >
+                      Authenticator
+                    </label>
+                    <select
+                      id="assign-authenticator-select"
+                      className={formFieldClass}
+                      value={assignEmployeeId}
+                      onChange={(e) => setAssignEmployeeId(e.target.value)}
+                      disabled={assignBusy || authenticatorsLoading}
+                    >
+                      <option value="">
+                        {authenticatorsLoading
+                          ? "Loading…"
+                          : "Select authenticator"}
+                      </option>
+                      {authenticators.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.displayName}
+                        </option>
+                      ))}
+                    </select>
+                    {!authenticatorsLoading && authenticators.length === 0 ? (
+                      <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                        No employees with the Authenticator position. Set
+                        position to Authenticator in Manage Accounts.
+                      </p>
+                    ) : null}
+                    {assignError ? (
+                      <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+                        {assignError}
+                      </p>
+                    ) : null}
+                    <div className="mt-5 flex justify-end gap-2">
+                      <button
+                        type="button"
+                        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+                        disabled={assignBusy}
+                        onClick={() => setAssignModalOpen(false)}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-lg bg-violet-600 px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-violet-700 disabled:opacity-50"
+                        disabled={
+                          assignBusy ||
+                          authenticatorsLoading ||
+                          authenticators.length === 0
+                        }
+                        onClick={() => void submitAssignAuthenticator()}
+                      >
+                        {assignBusy ? "Saving…" : "Save"}
+                      </button>
+                    </div>
+                  </div>
+                </div>,
+                document.body,
+              )
+            : null}
         </section>
       )}
 

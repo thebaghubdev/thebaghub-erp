@@ -27,6 +27,8 @@ type InventoryDetailForStaff = {
     clientItemId: string;
     form: Record<string, unknown>;
   };
+  assignedToEmployeeId?: string | null;
+  assignedToName?: string | null;
 };
 
 function formatDatePurchased(raw: unknown): string {
