@@ -6,6 +6,7 @@ import { AuthenticationMetric } from '../authentication-metrics/entities/authent
 import { Employee } from '../employees/entities/employee.entity';
 import { UserType } from '../enums/user-type.enum';
 import {
+  AUTHENTICATION_RATINGS_KEY,
   BRANDS_WE_CONSIGN_KEY,
   ITEM_CATEGORIES_KEY,
   POSITIONS_KEY,
@@ -114,6 +115,16 @@ export class SeedService implements OnModuleInit {
         type: 'string[]',
         value:
           '["Bag","Wallets/SLGs","Shoes","Belts","Shades","Watch","Scarves/Twillies","Hats/Caps","High End Jewelry","Designer Costumes Accessories","Designer Clothes"]',
+      },
+      {
+        key: AUTHENTICATION_RATINGS_KEY,
+        title: 'Authentication ratings',
+        description:
+          'Condition and grade labels used when authenticating inventory (e.g. Pristine, Excellent). Shown as the rating dropdown on item authentication.',
+        category: 'Authentication',
+        type: 'string[]',
+        value:
+          '["Brand new","Unused","Pristine (10)","Excellent (9.9)","Very good (9.8)","Good (9.7)","Fair (9.6)"]',
       },
     ];
 

@@ -2,3 +2,6 @@
 export const BRANDS_WE_CONSIGN_KEY = 'brands_we_consign';
 export const ITEM_CATEGORIES_KEY = 'item_categories';
 export const POSITIONS_KEY = 'positions';
+
+/** Dropdown options for inventory item authentication rating. */
+export const AUTHENTICATION_RATINGS_KEY = 'authentication_ratings';
