@@ -1,6 +1,7 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Employee } from '../employees/entities/employee.entity';
+import { InquiriesModule } from '../inquiries/inquiries.module';
 import { InventoryItem } from './entities/inventory-item.entity';
 import { ItemAuthentication } from './entities/item-authentication.entity';
 import { ItemAuthenticationMetric } from './entities/item-authentication-metric.entity';
@@ -9,6 +10,7 @@ import { InventoryService } from './inventory.service';
 
 @Module({
   imports: [
+    forwardRef(() => InquiriesModule),
     TypeOrmModule.forFeature([
       InventoryItem,
       ItemAuthentication,

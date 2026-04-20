@@ -27,6 +27,8 @@ type InquiryRow = {
   offerTransactionType: "consignment" | "direct_purchase" | null;
   offerPrice: string | null;
   isWalkIn: boolean;
+  contractStartDate: string | null;
+  contractExpirationDate: string | null;
 };
 
 type InquiryTab = "all" | "create";
@@ -53,6 +55,19 @@ function formatConsignorSummary(c: ClientAccountRow): string {
 
 function yesNo(v: boolean) {
   return v ? "Yes" : "No";
+}
+
+/** Calendar display for `YYYY-MM-DD` from API (avoids UTC/local midnight shifts). */
+function formatContractDateCell(raw: string | null | undefined): string {
+  if (raw == null || raw === "") return "—";
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw);
+  if (!m) return raw;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  return new Date(y, mo - 1, d).toLocaleDateString(undefined, {
+    dateStyle: "medium",
+  });
 }
 
 const columnHelper = createColumnHelper<InquiryRow>();
@@ -147,6 +162,30 @@ const inquiryColumns = [
     id: "status",
     header: "Status",
     cell: ({ row }) => <InquiryStatusBadge status={row.original.status} />,
+  }),
+  columnHelper.accessor("contractStartDate", {
+    id: "contractStartDate",
+    header: () => (
+      <span className="whitespace-normal leading-tight">Contract date</span>
+    ),
+    cell: ({ getValue }) => (
+      <span className="whitespace-nowrap text-slate-700 tabular-nums dark:text-slate-300">
+        {formatContractDateCell(getValue())}
+      </span>
+    ),
+  }),
+  columnHelper.accessor("contractExpirationDate", {
+    id: "contractExpirationDate",
+    header: () => (
+      <span className="whitespace-normal leading-tight">
+        Contract expiration
+      </span>
+    ),
+    cell: ({ getValue }) => (
+      <span className="whitespace-nowrap text-slate-700 tabular-nums dark:text-slate-300">
+        {formatContractDateCell(getValue())}
+      </span>
+    ),
   }),
   columnHelper.accessor("offerPrice", {
     header: () => <span title="Staff offer price (PHP)">Offer price</span>,
@@ -339,7 +378,7 @@ export function InquiryPage() {
             getRowAriaLabel={(row) =>
               `Inquiry ${row.sku}, ${row.itemLabel || "item"}`
             }
-            tableClassName="w-full min-w-[1040px] table-fixed border-collapse text-left"
+            tableClassName="w-full min-w-[1240px] table-fixed border-collapse text-left"
           />
         </section>
       )}

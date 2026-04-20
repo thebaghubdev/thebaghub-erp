@@ -94,6 +94,8 @@ export type DataTableProps<TData extends object> = {
     selectedIds: ReadonlySet<string>;
     onToggleRow: (id: string, selected: boolean) => void;
     onTogglePage: (ids: string[], selected: boolean) => void;
+    /** When false, the row checkbox is disabled and excluded from “select all on this page”. */
+    isRowSelectable?: (row: TData) => boolean;
   };
 };
 
@@ -130,11 +132,15 @@ export function DataTable<TData extends object>({
       return columns;
     }
     const rs = rowSelection;
+    const rowCanSelect = (original: TData) =>
+      rs.isRowSelectable ? rs.isRowSelectable(original) : true;
     const selectColumn: ColumnDef<TData, unknown> = {
       id: "__select",
       header: ({ table }) => {
         const pageRows = table.getPaginationRowModel().rows;
-        const ids = pageRows.map((r) => r.id);
+        const ids = pageRows
+          .filter((r) => rowCanSelect(r.original as TData))
+          .map((r) => r.id);
         const allSelected =
           ids.length > 0 && ids.every((id) => rs.selectedIds.has(id));
         const someSelected = ids.some((id) => rs.selectedIds.has(id));
@@ -142,6 +148,7 @@ export function DataTable<TData extends object>({
           <input
             type="checkbox"
             checked={allSelected}
+            disabled={ids.length === 0}
             ref={(el) => {
               if (el) el.indeterminate = !allSelected && someSelected;
             }}
@@ -150,23 +157,25 @@ export function DataTable<TData extends object>({
               rs.onTogglePage(ids, e.target.checked);
             }}
             aria-label="Select all rows on this page"
-            className="h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500 dark:border-slate-600 dark:bg-slate-900"
+            className="h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-600 dark:bg-slate-900"
           />
         );
       },
       cell: ({ row }) => {
         const id = getRowId(row.original, row.index);
+        const selectable = rowCanSelect(row.original as TData);
         return (
           <input
             type="checkbox"
+            disabled={!selectable}
             checked={rs.selectedIds.has(id)}
             onChange={(e) => {
               e.stopPropagation();
               rs.onToggleRow(id, e.target.checked);
             }}
             onClick={(e) => e.stopPropagation()}
-            aria-label="Select row"
-            className="h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500 dark:border-slate-600 dark:bg-slate-900"
+            aria-label={selectable ? "Select row" : "Row cannot be selected"}
+            className="h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-600 dark:bg-slate-900"
           />
         );
       },

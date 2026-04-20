@@ -1,8 +1,10 @@
 import {
   BadRequestException,
   ForbiddenException,
+  Inject,
   Injectable,
   NotFoundException,
+  forwardRef,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, EntityManager, In, Repository } from 'typeorm';
@@ -20,7 +22,9 @@ import { InventoryItem } from './entities/inventory-item.entity';
 import { ItemAuthentication } from './entities/item-authentication.entity';
 import { ItemAuthenticationMetric } from './entities/item-authentication-metric.entity';
 import { BatchAssignAuthenticatorDto } from './dto/batch-assign-authenticator.dto';
+import { ItemAuthenticationSnapshotFormDto } from './dto/item-authentication-snapshot-form.dto';
 import { SaveItemAuthenticationMetricsDto } from './dto/save-item-authentication-metrics.dto';
+import { InquiriesService } from '../inquiries/inquiries.service';
 
 export type InventoryListRow = {
   id: string;
@@ -105,7 +109,43 @@ function isAuthenticatorPosition(position: string): boolean {
   return position.trim().toLowerCase() === 'authenticator';
 }
 
+function mergeItemAuthenticationFormIntoSnapshot(
+  item: InventoryItem,
+  patch: ItemAuthenticationSnapshotFormDto,
+): void {
+  const base = item.itemSnapshot;
+  const form: Record<string, unknown> = {
+    ...(base.form ? { ...base.form } : {}),
+  };
+  const set = (key: keyof ItemAuthenticationSnapshotFormDto) => {
+    const v = patch[key];
+    if (v === undefined) return;
+    form[key] = String(v).trim();
+  };
+  set('itemModel');
+  set('brand');
+  set('category');
+  set('serialNumber');
+  set('color');
+  set('material');
+  set('inclusions');
+  set('dimensions');
+  set('rating');
+  set('marketPrice');
+  set('retailPrice');
+  set('marketResearchNotes');
+  set('marketResearchLink');
+  set('authenticatorNotes');
+  item.itemSnapshot = {
+    clientItemId: base.clientItemId,
+    images: Array.isArray(base.images) ? [...base.images] : [],
+    form,
+  };
+}
+
 const FOR_AUTHENTICATION_INVENTORY_STATUS = 'For Authentication';
+const FOR_PHOTOSHOOT_INVENTORY_STATUS = 'For Photoshoot';
+const APPROVED_ITEM_AUTHENTICATION_STATUS = 'Approved';
 
 @Injectable()
 export class InventoryService {
@@ -118,7 +158,50 @@ export class InventoryService {
     private readonly employeesRepo: Repository<Employee>,
     @InjectRepository(ItemAuthenticationMetric)
     private readonly itemAuthMetricRepo: Repository<ItemAuthenticationMetric>,
+    @Inject(forwardRef(() => InquiriesService))
+    private readonly inquiriesService: InquiriesService,
   ) {}
+
+  /**
+   * Ensures the actor may edit item-authentication data for this inventory row.
+   * Optionally creates a pending `item_authentication` row (save flow).
+   */
+  private async enforceAuthenticatorAccess(
+    inventoryItemId: string,
+    actor: { userId: string; isAdmin: boolean },
+    options: { createIfMissing: boolean },
+  ): Promise<ItemAuthentication> {
+    let auth = await this.itemAuthRepo.findOne({
+      where: { inventoryItemId },
+    });
+    if (!auth) {
+      if (!options.createIfMissing) {
+        throw new BadRequestException('Item authentication record not found.');
+      }
+      auth = this.itemAuthRepo.create({
+        inventoryItemId,
+        assignedToId: null,
+        authenticationStatus: 'Pending',
+        createdById: null,
+        updatedById: null,
+      });
+      await this.itemAuthRepo.save(auth);
+    }
+    if (!actor.isAdmin) {
+      const employee = await this.employeesRepo.findOne({
+        where: { userId: actor.userId },
+      });
+      const assigneeId = auth.assignedToId;
+      if (assigneeId != null) {
+        if (!employee?.id || employee.id !== assigneeId) {
+          throw new ForbiddenException(
+            'Only the assigned authenticator can perform this action.',
+          );
+        }
+      }
+    }
+    return auth;
+  }
 
   /**
    * Creates one inventory row and a pending item_authentication row (same as
@@ -165,13 +248,6 @@ export class InventoryService {
       inventoryItemId: inventoryRow.id,
       assignedToId: null,
       authenticationStatus: 'Pending',
-      rating: null,
-      authenticatorNotes: null,
-      marketResearchNotes: null,
-      marketResearchLink: null,
-      marketPrice: null,
-      retailPrice: null,
-      dimensions: null,
       createdById: null,
       updatedById: null,
     });
@@ -209,40 +285,22 @@ export class InventoryService {
     if (!item) {
       throw new NotFoundException('Inventory item not found');
     }
-    let auth = await this.itemAuthRepo.findOne({
-      where: { inventoryItemId },
+    const auth = await this.enforceAuthenticatorAccess(inventoryItemId, actor, {
+      createIfMissing: true,
     });
-    if (!auth) {
-      auth = this.itemAuthRepo.create({
-        inventoryItemId,
-        assignedToId: null,
-        authenticationStatus: 'Pending',
-        rating: null,
-        authenticatorNotes: null,
-        marketResearchNotes: null,
-        marketResearchLink: null,
-        marketPrice: null,
-        retailPrice: null,
-        dimensions: null,
-        createdById: null,
-        updatedById: null,
-      });
-      await this.itemAuthRepo.save(auth);
-    }
-    if (!actor.isAdmin) {
-      const employee = await this.employeesRepo.findOne({
-        where: { userId: actor.userId },
-      });
-      const assigneeId = auth.assignedToId;
-      if (assigneeId != null) {
-        if (!employee?.id || employee.id !== assigneeId) {
-          throw new ForbiddenException(
-            'Only the assigned authenticator can save metric results.',
-          );
-        }
-      }
-    }
     await this.itemAuthMetricRepo.manager.transaction(async (em) => {
+      if (dto.itemSnapshotForm) {
+        const inv = await em.findOne(InventoryItem, {
+          where: { id: inventoryItemId },
+        });
+        if (!inv) {
+          throw new NotFoundException('Inventory item not found');
+        }
+        mergeItemAuthenticationFormIntoSnapshot(inv, dto.itemSnapshotForm);
+        inv.updatedById = actor.userId;
+        await em.save(inv);
+      }
+
       const itemAuthId = auth!.id;
       for (const row of dto.rows) {
         const notes =
@@ -280,6 +338,44 @@ export class InventoryService {
       }
     });
     return { saved: dto.rows.length };
+  }
+
+  /**
+   * Marks inventory as For Photoshoot and sets inquiry contract dates when linked.
+   */
+  async approveAuthenticationForInventoryItem(
+    inventoryItemId: string,
+    actor: { userId: string; isAdmin: boolean },
+  ): Promise<{ status: string }> {
+    const item = await this.inventoryRepo.findOne({
+      where: { id: inventoryItemId },
+    });
+    if (!item) {
+      throw new NotFoundException('Inventory item not found');
+    }
+    if (item.status !== FOR_AUTHENTICATION_INVENTORY_STATUS) {
+      throw new BadRequestException(
+        `Only items in "${FOR_AUTHENTICATION_INVENTORY_STATUS}" status can be approved from authentication.`,
+      );
+    }
+    const auth = await this.enforceAuthenticatorAccess(inventoryItemId, actor, {
+      createIfMissing: false,
+    });
+    auth.authenticationStatus = APPROVED_ITEM_AUTHENTICATION_STATUS;
+    auth.updatedById = actor.userId;
+    await this.itemAuthRepo.save(auth);
+
+    item.status = FOR_PHOTOSHOOT_INVENTORY_STATUS;
+    item.updatedById = actor.userId;
+    await this.inventoryRepo.save(item);
+
+    if (item.inquiryId) {
+      await this.inquiriesService.populateContractDatesForInquiry(
+        item.inquiryId,
+      );
+    }
+
+    return { status: item.status };
   }
 
   async listAuthenticators(): Promise<
@@ -336,13 +432,6 @@ export class InventoryService {
             inventoryItemId,
             assignedToId: dto.employeeId,
             authenticationStatus: 'Pending',
-            rating: null,
-            authenticatorNotes: null,
-            marketResearchNotes: null,
-            marketResearchLink: null,
-            marketPrice: null,
-            retailPrice: null,
-            dimensions: null,
             createdById: actorUserId,
             updatedById: actorUserId,
           });

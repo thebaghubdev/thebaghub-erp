@@ -8,8 +8,16 @@ import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
 import { formatOfferTransactionLabel } from "../lib/format-offer-transaction-type";
+import { InventoryStatusBadge } from "../components/InventoryStatusBadge";
+import { ItemAuthenticationStatusBadge } from "../components/ItemAuthenticationStatusBadge";
 
 const FOR_AUTHENTICATION_STATUS = "For Authentication";
+const FOR_PHOTOSHOOT_STATUS = "For Photoshoot";
+
+const AUTHENTICATE_ITEMS_QUEUE_STATUSES = new Set([
+  FOR_AUTHENTICATION_STATUS,
+  FOR_PHOTOSHOOT_STATUS,
+]);
 
 const ITEM_CATEGORIES_KEY = "item_categories";
 const BRANDS_WE_CONSIGN_KEY = "brands_we_consign";
@@ -120,6 +128,14 @@ const authQueueColumns = [
       </span>
     ),
   }),
+  columnHelper.accessor("status", {
+    header: "Item status",
+    cell: ({ getValue }) => (
+      <span className="min-w-0 break-words">
+        <InventoryStatusBadge status={getValue()} />
+      </span>
+    ),
+  }),
   columnHelper.accessor("dateReceived", {
     header: "Date received",
     cell: ({ getValue }) => <SubmittedAtCell iso={getValue()} />,
@@ -149,7 +165,9 @@ const authQueueColumns = [
   columnHelper.accessor("authenticationStatus", {
     header: "Authentication status",
     cell: ({ getValue }) => (
-      <span className="text-slate-700 dark:text-slate-300">{getValue()}</span>
+      <span className="min-w-0 break-words">
+        <ItemAuthenticationStatusBadge status={getValue()} />
+      </span>
     ),
   }),
 ];
@@ -348,6 +366,22 @@ export function AuthenticationPage() {
   }, [tab]);
 
   useEffect(() => {
+    setAuthItemSelectedIds((prev) => {
+      if (prev.size === 0) return prev;
+      const byId = new Map(allRows.map((r) => [r.id, r]));
+      const next = new Set<string>();
+      for (const id of prev) {
+        const r = byId.get(id);
+        if (r && r.status === FOR_AUTHENTICATION_STATUS) next.add(id);
+      }
+      if (next.size === prev.size && [...prev].every((id) => next.has(id))) {
+        return prev;
+      }
+      return next;
+    });
+  }, [allRows]);
+
+  useEffect(() => {
     if (!createModalOpen) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && !createBusy) setCreateModalOpen(false);
@@ -416,6 +450,8 @@ export function AuthenticationPage() {
       selectedIds: authItemSelectedIds,
       onToggleRow: toggleAuthItemRow,
       onTogglePage: toggleAuthItemPage,
+      isRowSelectable: (r: InventoryRow) =>
+        r.status === FOR_AUTHENTICATION_STATUS,
     }),
     [authItemSelectedIds, toggleAuthItemRow, toggleAuthItemPage],
   );
@@ -627,7 +663,7 @@ export function AuthenticationPage() {
   }, [token, createForm, loadMetrics, itemCategories.length, brands.length]);
 
   const rows = useMemo(
-    () => allRows.filter((r) => r.status === FOR_AUTHENTICATION_STATUS),
+    () => allRows.filter((r) => AUTHENTICATE_ITEMS_QUEUE_STATUSES.has(r.status)),
     [allRows],
   );
 
@@ -690,15 +726,15 @@ export function AuthenticationPage() {
             data={rows}
             columns={authQueueColumns}
             isLoading={loading}
-            emptyMessage="No items awaiting authentication."
+            emptyMessage="No items in For Authentication or For Photoshoot."
             hideEmptyState={!!error}
             searchPlaceholder="Search items…"
             getRowId={(r) => r.id}
             onRowClick={(r) => navigate(`/portal/authentication/${r.id}`)}
             getRowAriaLabel={(r) =>
-              `Authenticate inventory item ${r.sku}, ${r.itemLabel}`
+              `Authenticate inventory item ${r.sku}, ${r.itemLabel}, status ${r.status}`
             }
-            tableClassName="w-full min-w-[980px] table-fixed border-collapse text-left"
+            tableClassName="w-full min-w-[1080px] table-fixed border-collapse text-left"
             paginationItemLabel="items"
             rowSelection={authItemsRowSelection}
             toolbarRight={

@@ -1,11 +1,13 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { Link, useParams } from "react-router-dom";
 import {
   MetricAuthCard,
@@ -23,6 +25,19 @@ import {
 } from "../lib/filter-authentication-metrics";
 
 const AUTHENTICATION_RATINGS_KEY = "authentication_ratings";
+const FOR_AUTHENTICATION_INVENTORY_STATUS = "For Authentication";
+
+async function readApiErrorMessage(res: Response): Promise<string> {
+  try {
+    const body = (await res.json()) as { message?: unknown };
+    const m = body.message;
+    if (typeof m === "string") return m;
+    if (Array.isArray(m)) return m.map((x) => String(x)).join("; ");
+  } catch {
+    /* ignore */
+  }
+  return `Request failed (${res.status})`;
+}
 
 type SettingApiRow = {
   key: string;
@@ -51,6 +66,7 @@ const authInputClass =
 /** API fields used on this page only (decoupled from inventory detail UI). */
 type ItemAuthenticationPayload = {
   sku: string;
+  status: string;
   assignedToEmployeeId: string | null;
   assignedToName: string | null;
   itemSnapshot: {
@@ -86,6 +102,69 @@ function serializeDraftRecord(d: Record<string, MetricDraftValue>): string {
   );
 }
 
+function verdictLabel(v: MetricVerdict | null): string {
+  if (v === "pass") return "Passed";
+  if (v === "fail") return "Failed";
+  if (v === "skip") return "Skipped";
+  return "—";
+}
+
+/**
+ * Required Authentication details before Approve (all non-empty after trim).
+ * Authenticator notes are optional.
+ */
+function authenticationDetailsAreComplete(p: {
+  itemModel: string;
+  brand: string;
+  category: string;
+  serialNumber: string;
+  color: string;
+  material: string;
+  inclusions: string;
+  dimensions: string;
+  rating: string;
+  marketPrice: string;
+  retailPrice: string;
+  marketResearchNotes: string;
+  marketResearchLink: string;
+}): boolean {
+  return (
+    str(p.itemModel) !== "" &&
+    str(p.brand) !== "" &&
+    str(p.category) !== "" &&
+    str(p.serialNumber) !== "" &&
+    str(p.color) !== "" &&
+    str(p.material) !== "" &&
+    str(p.inclusions) !== "" &&
+    str(p.dimensions) !== "" &&
+    str(p.rating) !== "" &&
+    str(p.marketPrice) !== "" &&
+    str(p.retailPrice) !== "" &&
+    str(p.marketResearchNotes) !== "" &&
+    str(p.marketResearchLink) !== ""
+  );
+}
+
+/** Snapshot form fields persisted on `inventory_items.item_snapshot.form`. */
+function serializeAuthFormFromApiForm(f: Record<string, unknown>): string {
+  return JSON.stringify({
+    itemModel: str(f.itemModel),
+    brand: str(f.brand),
+    category: str(f.category),
+    serialNumber: str(f.serialNumber),
+    color: str(f.color),
+    material: str(f.material),
+    inclusions: str(f.inclusions),
+    dimensions: str(f.dimensions),
+    rating: str(f.rating),
+    marketPrice: str(f.marketPrice),
+    retailPrice: str(f.retailPrice),
+    marketResearchNotes: str(f.marketResearchNotes),
+    marketResearchLink: str(f.marketResearchLink),
+    authenticatorNotes: str(f.authenticatorNotes),
+  });
+}
+
 async function filesToDataUrls(files: File[]): Promise<string[]> {
   const out: string[] = [];
   for (const f of files) {
@@ -119,6 +198,15 @@ export function ItemAuthenticationPage() {
   const savedSerializedRef = useRef<string>("");
   const [saveBusy, setSaveBusy] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [approveModalOpen, setApproveModalOpen] = useState(false);
+  const [approveGateMessage, setApproveGateMessage] = useState<string | null>(
+    null,
+  );
+  const [approveBusy, setApproveBusy] = useState(false);
+  const [approveModalError, setApproveModalError] = useState<string | null>(
+    null,
+  );
+  const approveModalTitleId = useId();
 
   const [authRatings, setAuthRatings] = useState<string[]>([]);
   const [authRatingsLoading, setAuthRatingsLoading] = useState(true);
@@ -268,6 +356,13 @@ export function ItemAuthenticationPage() {
     setItemFormColor(str(f.color));
     setItemFormMaterial(str(f.material));
     setItemFormInclusions(str(f.inclusions));
+    setDimensions(str(f.dimensions));
+    setRating(str(f.rating));
+    setMarketPrice(str(f.marketPrice));
+    setRetailPrice(str(f.retailPrice));
+    setMarketResearchNotes(str(f.marketResearchNotes));
+    setResearchSourceLink(str(f.marketResearchLink));
+    setNotes(str(f.authenticatorNotes));
   }, [detail]);
 
   const filteredMetrics = useMemo(() => {
@@ -313,10 +408,172 @@ export function ItemAuthenticationPage() {
     return myEmployeeId === assigneeId;
   }, [detail, user]);
 
-  const isDirty = useMemo(() => {
+  const metricsDirty = useMemo(() => {
     if (!canEditMetrics || entriesLoading) return false;
     return serializeDraftRecord(draftByMetricId) !== savedSerializedRef.current;
   }, [draftByMetricId, canEditMetrics, entriesLoading]);
+
+  const authFormDirty = useMemo(() => {
+    if (!canEditMetrics || !detail) return false;
+    const baseline = serializeAuthFormFromApiForm(detail.itemSnapshot.form);
+    const current = JSON.stringify({
+      itemModel: itemFormModel,
+      brand: itemFormBrand,
+      category: itemFormCategory,
+      serialNumber: itemFormSerial,
+      color: itemFormColor,
+      material: itemFormMaterial,
+      inclusions: itemFormInclusions,
+      dimensions,
+      rating,
+      marketPrice,
+      retailPrice,
+      marketResearchNotes,
+      marketResearchLink: researchSourceLink,
+      authenticatorNotes: notes,
+    });
+    return baseline !== current;
+  }, [
+    canEditMetrics,
+    detail,
+    itemFormModel,
+    itemFormBrand,
+    itemFormCategory,
+    itemFormSerial,
+    itemFormColor,
+    itemFormMaterial,
+    itemFormInclusions,
+    dimensions,
+    rating,
+    marketPrice,
+    retailPrice,
+    marketResearchNotes,
+    researchSourceLink,
+    notes,
+  ]);
+
+  const isDirty = metricsDirty || authFormDirty;
+
+  const approveSummaryRows = useMemo(() => {
+    const out: Array<{
+      id: string;
+      metric: string;
+      metricStatus: MetricVerdict | null;
+      notes: string;
+    }> = [];
+    for (const m of filteredMetrics) {
+      const d = draftByMetricId[m.id];
+      if (!d) continue;
+      const notesTrim = d.notes.trim();
+      const hasNotes = notesTrim !== "";
+      const hasVerdict =
+        d.metricStatus === "pass" ||
+        d.metricStatus === "fail" ||
+        d.metricStatus === "skip";
+      if (!hasNotes && !hasVerdict) continue;
+      out.push({
+        id: m.id,
+        metric: m.metric,
+        metricStatus: d.metricStatus,
+        notes: notesTrim,
+      });
+    }
+    return out;
+  }, [filteredMetrics, draftByMetricId]);
+
+  useEffect(() => {
+    if (!approveModalOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !approveBusy) setApproveModalOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [approveModalOpen, approveBusy]);
+
+  useEffect(() => {
+    setApproveGateMessage(null);
+  }, [
+    itemFormModel,
+    itemFormBrand,
+    itemFormCategory,
+    itemFormSerial,
+    itemFormColor,
+    itemFormMaterial,
+    itemFormInclusions,
+    dimensions,
+    rating,
+    marketPrice,
+    retailPrice,
+    marketResearchNotes,
+    researchSourceLink,
+    notes,
+  ]);
+
+  const tryOpenApproveModal = useCallback(() => {
+    if (
+      !authenticationDetailsAreComplete({
+        itemModel: itemFormModel,
+        brand: itemFormBrand,
+        category: itemFormCategory,
+        serialNumber: itemFormSerial,
+        color: itemFormColor,
+        material: itemFormMaterial,
+        inclusions: itemFormInclusions,
+        dimensions,
+        rating,
+        marketPrice,
+        retailPrice,
+        marketResearchNotes,
+        marketResearchLink: researchSourceLink,
+      })
+    ) {
+      setApproveGateMessage(
+        "Complete every required field in Authentication details (item details, dimensions, rating, prices, research, and link). Notes are optional.",
+      );
+      return;
+    }
+    setApproveGateMessage(null);
+    setApproveModalOpen(true);
+    setApproveModalError(null);
+  }, [
+    itemFormModel,
+    itemFormBrand,
+    itemFormCategory,
+    itemFormSerial,
+    itemFormColor,
+    itemFormMaterial,
+    itemFormInclusions,
+    dimensions,
+    rating,
+    marketPrice,
+    retailPrice,
+    marketResearchNotes,
+    researchSourceLink,
+  ]);
+
+  const confirmApproveAuthentication = useCallback(async () => {
+    if (!token || !id) return;
+    setApproveModalError(null);
+    setApproveBusy(true);
+    try {
+      const res = await apiFetch(
+        `/api/inventory/${id}/approve-authentication`,
+        { method: "POST" },
+        token,
+      );
+      if (!res.ok) {
+        throw new Error(await readApiErrorMessage(res));
+      }
+      setApproveModalOpen(false);
+      await load();
+    } catch (e) {
+      setApproveModalError(
+        e instanceof Error ? e.message : "Could not approve item",
+      );
+    } finally {
+      setApproveBusy(false);
+    }
+  }, [token, id, load]);
 
   const saveChanges = useCallback(async () => {
     if (!token || !id || !canEditMetrics) return;
@@ -340,11 +597,31 @@ export function ItemAuthenticationPage() {
       const payloadRows = rows.filter(
         (r): r is NonNullable<(typeof rows)[number]> => r != null,
       );
+      const itemSnapshotForm = {
+        itemModel: itemFormModel,
+        brand: itemFormBrand,
+        category: itemFormCategory,
+        serialNumber: itemFormSerial,
+        color: itemFormColor,
+        material: itemFormMaterial,
+        inclusions: itemFormInclusions,
+        dimensions,
+        rating,
+        marketPrice,
+        retailPrice,
+        marketResearchNotes,
+        marketResearchLink: researchSourceLink,
+        authenticatorNotes: notes,
+      };
+
       const res = await apiFetch(
         `/api/inventory/${id}/item-authentication-metrics`,
         {
           method: "POST",
-          body: JSON.stringify({ rows: payloadRows }),
+          body: JSON.stringify({
+            rows: payloadRows,
+            itemSnapshotForm,
+          }),
         },
         token,
       );
@@ -368,14 +645,36 @@ export function ItemAuthenticationPage() {
         const data = (await refreshed.json()) as MetricEntryApi[];
         setMetricEntries(Array.isArray(data) ? data : []);
       }
+      await load();
     } catch (e) {
       setSaveError(
-        e instanceof Error ? e.message : "Could not save metric results",
+        e instanceof Error ? e.message : "Could not save changes",
       );
     } finally {
       setSaveBusy(false);
     }
-  }, [token, id, canEditMetrics, filteredMetrics, draftByMetricId]);
+  }, [
+    token,
+    id,
+    canEditMetrics,
+    filteredMetrics,
+    draftByMetricId,
+    itemFormModel,
+    itemFormBrand,
+    itemFormCategory,
+    itemFormSerial,
+    itemFormColor,
+    itemFormMaterial,
+    itemFormInclusions,
+    dimensions,
+    rating,
+    marketPrice,
+    retailPrice,
+    marketResearchNotes,
+    researchSourceLink,
+    notes,
+    load,
+  ]);
 
   if (loading) {
     return (
@@ -446,6 +745,15 @@ export function ItemAuthenticationPage() {
         </p>
       ) : null}
 
+      {approveGateMessage ? (
+        <p
+          className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/35 dark:text-amber-100"
+          role="status"
+        >
+          {approveGateMessage}
+        </p>
+      ) : null}
+
       <div className="flex flex-wrap justify-end gap-3">
         {canEditMetrics && isDirty ? (
           <button
@@ -457,7 +765,128 @@ export function ItemAuthenticationPage() {
             {saveBusy ? "Saving…" : "Save changes"}
           </button>
         ) : null}
+        {canEditMetrics &&
+        detail.status === FOR_AUTHENTICATION_INVENTORY_STATUS ? (
+          <button
+            type="button"
+            onClick={() => tryOpenApproveModal()}
+            disabled={saveBusy || approveBusy}
+            className="shrink-0 rounded-lg border border-emerald-600 bg-white px-4 py-2 text-sm font-medium text-emerald-800 shadow-sm hover:bg-emerald-50 disabled:opacity-50 dark:border-emerald-500 dark:bg-slate-900 dark:text-emerald-200 dark:hover:bg-emerald-950/40"
+          >
+            Approve
+          </button>
+        ) : null}
       </div>
+
+      {approveModalOpen && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-[100] flex items-end justify-center p-4 sm:items-center"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby={approveModalTitleId}
+            >
+              <button
+                type="button"
+                className="absolute inset-0 bg-slate-900/50"
+                aria-label="Close"
+                disabled={approveBusy}
+                onClick={() => {
+                  if (!approveBusy) setApproveModalOpen(false);
+                }}
+              />
+              <div className="relative z-10 flex max-h-[min(90vh,32rem)] w-full max-w-lg flex-col rounded-2xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900">
+                <div className="shrink-0 border-b border-slate-100 px-5 py-4 dark:border-slate-800">
+                  <h2
+                    id={approveModalTitleId}
+                    className="text-base font-semibold text-slate-900 dark:text-slate-100"
+                  >
+                    Review metrics before approval
+                  </h2>
+                  <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+                    Metrics with a pass, fail, skip, or notes. Confirming sets
+                    this item to <span className="font-medium">For Photoshoot</span>{" "}
+                    and updates contract dates on the linked inquiry when
+                    applicable.
+                  </p>
+                </div>
+                <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+                  {approveSummaryRows.length === 0 ? (
+                    <p className="text-sm text-slate-600 dark:text-slate-400">
+                      No metrics with a pass, fail, skip, or notes yet. Complete
+                      the checklist below first.
+                    </p>
+                  ) : (
+                    <ul className="list-outside list-disc space-y-2 pl-5 text-sm text-slate-800 dark:text-slate-200">
+                      {approveSummaryRows.map((row) => (
+                        <li key={row.id} className="pl-1">
+                          <span className="font-medium text-slate-900 dark:text-slate-100">
+                            {row.metric}
+                          </span>
+                          <span className="text-slate-600 dark:text-slate-400">
+                            {": "}
+                          </span>
+                          {row.metricStatus != null ? (
+                            <span
+                              className={
+                                row.metricStatus === "pass"
+                                  ? "font-semibold text-emerald-700 dark:text-emerald-400"
+                                  : row.metricStatus === "fail"
+                                    ? "font-semibold text-red-700 dark:text-red-400"
+                                    : "font-medium text-slate-800 dark:text-slate-200"
+                              }
+                            >
+                              {verdictLabel(row.metricStatus)}
+                            </span>
+                          ) : null}
+                          {row.metricStatus != null && row.notes ? (
+                            <span className="text-slate-500 dark:text-slate-400">
+                              {", "}
+                            </span>
+                          ) : null}
+                          {row.notes ? (
+                            <span className="whitespace-pre-wrap text-slate-700 dark:text-slate-300">
+                              {row.notes}
+                            </span>
+                          ) : null}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                <div className="shrink-0 border-t border-slate-100 px-5 py-4 dark:border-slate-800">
+                  {approveModalError ? (
+                    <p
+                      className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200"
+                      role="alert"
+                    >
+                      {approveModalError}
+                    </p>
+                  ) : null}
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <button
+                      type="button"
+                      disabled={approveBusy}
+                      onClick={() => setApproveModalOpen(false)}
+                      className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                    >
+                      Close
+                    </button>
+                    <button
+                      type="button"
+                      disabled={approveBusy}
+                      onClick={() => void confirmApproveAuthentication()}
+                      className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50 dark:bg-emerald-600 dark:hover:bg-emerald-500"
+                    >
+                      {approveBusy ? "Approving…" : "Confirm approval"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
 
       <section
         aria-labelledby="auth-detail-form-heading"
@@ -492,7 +921,11 @@ export function ItemAuthenticationPage() {
                 Authentication details
               </h2>
               <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                Draft fields — not saved to the server yet.
+                Item details and authentication fields are saved with{" "}
+                <span className="font-medium text-slate-600 dark:text-slate-300">
+                  Save changes
+                </span>{" "}
+                (together with metric results).
               </p>
             </div>
             <span

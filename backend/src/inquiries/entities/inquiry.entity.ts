@@ -95,6 +95,14 @@ export class Inquiry extends AuditedEntity {
   @Column({ name: 'walk_in_branch', type: 'varchar', length: 64, nullable: true })
   walkInBranch: string | null;
 
+  /** Calendar date when the consignment contract period starts (no time component). */
+  @Column({ name: 'contract_start_date', type: 'date', nullable: true })
+  contractStartDate: Date | null;
+
+  /** Calendar date when the consignment contract expires (no time component). */
+  @Column({ name: 'contract_expiration_date', type: 'date', nullable: true })
+  contractExpirationDate: Date | null;
+
   /** One line item per inquiry row (form + uploaded image locations). */
   @Column({ type: 'jsonb', name: 'item_snapshot' })
   itemSnapshot: InquiryItemSnapshot;

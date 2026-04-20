@@ -7,6 +7,7 @@ import {
   IsUUID,
   ValidateNested,
 } from 'class-validator';
+import { ItemAuthenticationSnapshotFormDto } from './item-authentication-snapshot-form.dto';
 
 export class ItemAuthenticationMetricEntryDto {
   @IsUUID()
@@ -32,4 +33,10 @@ export class SaveItemAuthenticationMetricsDto {
   @ValidateNested({ each: true })
   @Type(() => ItemAuthenticationMetricEntryDto)
   rows: ItemAuthenticationMetricEntryDto[];
+
+  /** When set, merged into `inventory_items.item_snapshot.form` for this item. */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ItemAuthenticationSnapshotFormDto)
+  itemSnapshotForm?: ItemAuthenticationSnapshotFormDto;
 }

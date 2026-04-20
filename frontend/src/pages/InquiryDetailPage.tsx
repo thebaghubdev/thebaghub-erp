@@ -62,6 +62,8 @@ type InquiryDetail = {
   notes: string | null;
   isWalkIn: boolean;
   walkInBranch: string | null;
+  contractStartDate: string | null;
+  contractExpirationDate: string | null;
   itemSnapshot: {
     clientItemId: string;
     form: Record<string, unknown>;
@@ -125,6 +127,19 @@ function formatDatePurchased(raw: unknown): string {
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return s;
   return d.toLocaleDateString(undefined, { dateStyle: "medium" });
+}
+
+/** Calendar display for contract `YYYY-MM-DD` from API (avoids UTC/local midnight shifts). */
+function formatContractDateOnly(raw: string | null | undefined): string {
+  if (raw == null || raw === "") return "";
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw);
+  if (!m) return raw;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  return new Date(y, mo - 1, d).toLocaleDateString(undefined, {
+    dateStyle: "medium",
+  });
 }
 
 function str(v: unknown): string {
@@ -631,6 +646,26 @@ export function InquiryDetailPage() {
                     {detail.walkInBranch?.trim()
                       ? detail.walkInBranch
                       : "—"}
+                  </dd>
+                </div>
+              ) : null}
+              {detail.contractStartDate ? (
+                <div>
+                  <dt className="text-slate-500 dark:text-slate-400">
+                    Contract date
+                  </dt>
+                  <dd className="tabular-nums text-slate-900 dark:text-slate-100">
+                    {formatContractDateOnly(detail.contractStartDate)}
+                  </dd>
+                </div>
+              ) : null}
+              {detail.contractExpirationDate ? (
+                <div>
+                  <dt className="text-slate-500 dark:text-slate-400">
+                    Contract expiration
+                  </dt>
+                  <dd className="tabular-nums text-slate-900 dark:text-slate-100">
+                    {formatContractDateOnly(detail.contractExpirationDate)}
                   </dd>
                 </div>
               ) : null}

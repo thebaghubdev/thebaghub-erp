@@ -65,6 +65,18 @@ export class InventoryController {
     });
   }
 
+  @Post(':id/approve-authentication')
+  @HttpCode(HttpStatus.OK)
+  approveAuthentication(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() req: { user: JwtUser },
+  ) {
+    return this.inventoryService.approveAuthenticationForInventoryItem(id, {
+      userId: req.user.userId,
+      isAdmin: req.user.isAdmin,
+    });
+  }
+
   @Get(':id')
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.inventoryService.findOneForStaff(id);

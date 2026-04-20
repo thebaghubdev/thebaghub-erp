@@ -9,6 +9,7 @@ import {
   AUTHENTICATION_RATINGS_KEY,
   BRANDS_WE_CONSIGN_KEY,
   CONSIGNMENT_LIMIT_PER_DAY_KEY,
+  CONTRACT_EXPIRATION_DAYS_KEY,
   ITEM_CATEGORIES_KEY,
   POSITIONS_KEY,
 } from '../settings/consignment-setting-keys';
@@ -135,6 +136,14 @@ export class SeedService implements OnModuleInit {
         category: 'Consignment',
         type: 'number',
         value: '10',
+      },
+      {
+        key: CONTRACT_EXPIRATION_DAYS_KEY,
+        title: 'Contract expiration days',
+        description: 'Number of days after which a contract will expire.',
+        category: 'Consignment',
+        type: 'number',
+        value: '60',
       },
     ];
 

@@ -1,7 +1,9 @@
 import {
   BadRequestException,
+  Inject,
   Injectable,
   NotFoundException,
+  forwardRef,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { plainToInstance } from 'class-transformer';
@@ -14,6 +16,8 @@ import { InventoryItem } from '../inventory/entities/inventory-item.entity';
 import { InventoryService } from '../inventory/inventory.service';
 import { InquiryStatus } from '../enums/inquiry-status.enum';
 import { JwtUser } from '../auth/jwt-user';
+import { CONTRACT_EXPIRATION_DAYS_KEY } from '../settings/consignment-setting-keys';
+import { Setting } from '../settings/entities/setting.entity';
 import {
   InquiryAuditService,
   cloneInquiryForAudit,
@@ -112,6 +116,19 @@ function snapshotFormString(form: Record<string, unknown>, key: string): string 
   return String(v).trim();
 }
 
+/** `YYYY-MM-DD` for API JSON, or null when unset. */
+function inquiryDateOnlyToIso(
+  d: Date | string | null | undefined,
+): string | null {
+  if (d == null) return null;
+  if (typeof d === 'string') {
+    const day = d.slice(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : null;
+  }
+  if (!(d instanceof Date) || Number.isNaN(d.getTime())) return null;
+  return d.toISOString().slice(0, 10);
+}
+
 export type StaffInquiryRow = {
   id: string;
   sku: string;
@@ -138,6 +155,8 @@ export type StaffInquiryRow = {
   notes: string | null;
   isWalkIn: boolean;
   walkInBranch: string | null;
+  contractStartDate: string | null;
+  contractExpirationDate: string | null;
 };
 
 /** Client/staff API shape (public URL for signature image). */
@@ -183,8 +202,11 @@ export class InquiriesService {
     private readonly clientsRepo: Repository<Client>,
     @InjectRepository(ConsignmentScheduleItem)
     private readonly scheduleItemRepo: Repository<ConsignmentScheduleItem>,
+    @InjectRepository(Setting)
+    private readonly settingsRepo: Repository<Setting>,
     private readonly s3: S3StorageService,
     private readonly inquiryAudit: InquiryAuditService,
+    @Inject(forwardRef(() => InventoryService))
     private readonly inventoryService: InventoryService,
   ) {}
 
@@ -283,6 +305,8 @@ export class InquiriesService {
         r.walkInBranch != null && String(r.walkInBranch).trim() !== ''
           ? String(r.walkInBranch).trim()
           : null,
+      contractStartDate: inquiryDateOnlyToIso(r.contractStartDate),
+      contractExpirationDate: inquiryDateOnlyToIso(r.contractExpirationDate),
     };
   }
 
@@ -960,5 +984,44 @@ export class InquiriesService {
       label,
     });
     return this.findOneForStaff(id);
+  }
+
+  /**
+   * Sets `contractStartDate` to today (UTC calendar date) and `contractExpirationDate`
+   * to that date plus the number of days from setting {@link CONTRACT_EXPIRATION_DAYS_KEY}.
+   */
+  async populateContractDatesForInquiry(inquiryId: string): Promise<Inquiry> {
+    const inquiry = await this.inquiriesRepo.findOne({
+      where: { id: inquiryId },
+    });
+    if (!inquiry) {
+      throw new NotFoundException('Inquiry not found');
+    }
+
+    const settingRow = await this.settingsRepo.findOne({
+      where: { key: CONTRACT_EXPIRATION_DAYS_KEY },
+    });
+    if (!settingRow) {
+      throw new BadRequestException(
+        `Setting "${CONTRACT_EXPIRATION_DAYS_KEY}" is not configured`,
+      );
+    }
+    const days = Number.parseInt(String(settingRow.value).trim(), 10);
+    if (!Number.isFinite(days) || days < 0) {
+      throw new BadRequestException(
+        `Setting "${CONTRACT_EXPIRATION_DAYS_KEY}" must be a non-negative integer`,
+      );
+    }
+
+    const now = new Date();
+    const start = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+    );
+    const expiration = new Date(start);
+    expiration.setUTCDate(expiration.getUTCDate() + days);
+
+    inquiry.contractStartDate = start;
+    inquiry.contractExpirationDate = expiration;
+    return this.inquiriesRepo.save(inquiry);
   }
 }

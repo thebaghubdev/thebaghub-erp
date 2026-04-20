@@ -35,37 +35,4 @@ export class ItemAuthentication extends AuditedEntity {
     default: 'Pending',
   })
   authenticationStatus: string;
-
-  @Column({ type: 'varchar', length: 64, nullable: true })
-  rating: string | null;
-
-  @Column({ name: 'authenticator_notes', type: 'text', nullable: true })
-  authenticatorNotes: string | null;
-
-  @Column({ name: 'market_research_notes', type: 'text', nullable: true })
-  marketResearchNotes: string | null;
-
-  @Column({ name: 'market_research_link', type: 'text', nullable: true })
-  marketResearchLink: string | null;
-
-  @Column({
-    name: 'market_price',
-    type: 'numeric',
-    precision: 12,
-    scale: 2,
-    nullable: true,
-  })
-  marketPrice: string | null;
-
-  @Column({
-    name: 'retail_price',
-    type: 'numeric',
-    precision: 12,
-    scale: 2,
-    nullable: true,
-  })
-  retailPrice: string | null;
-
-  @Column({ type: 'varchar', length: 512, nullable: true })
-  dimensions: string | null;
 }
