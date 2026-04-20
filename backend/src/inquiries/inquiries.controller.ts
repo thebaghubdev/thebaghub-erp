@@ -17,6 +17,7 @@ import { JwtUser } from '../auth/jwt-user';
 import { StaffOnlyGuard } from '../auth/staff-only.guard';
 import type { MulterFile } from './multer-file.type';
 import { UpdateInquiryNotesDto } from './dto/update-inquiry-notes.dto';
+import { SubmitAuthenticatedReturnNewOfferDto } from './dto/submit-authenticated-return-new-offer.dto';
 import { SubmitOfferDto } from './dto/submit-offer.dto';
 import { InquiriesService } from './inquiries.service';
 import { InquiryAuditService } from './inquiry-audit.service';
@@ -78,6 +79,19 @@ export class InquiriesController {
     @Body() body: SubmitOfferDto,
   ) {
     return this.inquiriesService.submitOffer(id, body, req.user);
+  }
+
+  @Post(':id/authenticated-return-new-offer')
+  submitAuthenticatedReturnNewOffer(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: SubmitAuthenticatedReturnNewOfferDto,
+  ) {
+    return this.inquiriesService.submitAuthenticatedReturnNewOffer(
+      id,
+      body,
+      req.user,
+    );
   }
 
   @Patch(':id/notes')

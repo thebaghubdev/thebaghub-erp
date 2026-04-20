@@ -3,6 +3,7 @@ const STATUS_LABELS: Record<string, string> = {
   for_pullout_scheduled: "For Pullout: Scheduled",
   for_processing: "For Processing",
   authenticated_returned: "Authenticated: Returned",
+  authenticated_new_offer: "Authenticated: New Offer",
 };
 
 /** Human-readable inquiry status for tables and detail headers. */

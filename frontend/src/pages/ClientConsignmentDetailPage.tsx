@@ -67,7 +67,10 @@ function canClientCancelInquiry(status: string): boolean {
 }
 
 function isAwaitingOfferConfirmation(status: string): boolean {
-  return status.trim().toLowerCase() === "for_offer_confirmation";
+  const s = status.trim().toLowerCase();
+  return (
+    s === "for_offer_confirmation" || s === "authenticated_new_offer"
+  );
 }
 
 /** Extra photos only while the inquiry is still triage / offer phase. */

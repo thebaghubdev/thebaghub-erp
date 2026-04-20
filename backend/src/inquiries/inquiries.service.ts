@@ -22,6 +22,7 @@ import {
   InquiryAuditService,
   cloneInquiryForAudit,
 } from './inquiry-audit.service';
+import { SubmitAuthenticatedReturnNewOfferDto } from './dto/submit-authenticated-return-new-offer.dto';
 import { UpdateInquiryNotesDto } from './dto/update-inquiry-notes.dto';
 import { SubmitOfferDto } from './dto/submit-offer.dto';
 import { ConfirmOfferDto } from './dto/confirm-offer.dto';
@@ -189,12 +190,14 @@ export type ClientOfferConfirmationView = {
 
 export type StaffInquiryDetail = StaffInquiryRow & {
   updatedAt: Date;
+  /** Set when an `inventory_items` row links to this inquiry (`inquiry_id`). */
+  linkedInventoryItemId: string | null;
   itemSnapshot: {
     clientItemId: string;
     form: Record<string, unknown>;
     images: Array<{ key: string; url: string }>;
   };
-  /** Present when status is authenticated returned (coordinator review). */
+  /** Present when status is authenticated returned or authenticated new offer (coordinator review). */
   authenticatedReturnDetail?: {
     authenticationSummary: Array<{
       metric: string;
@@ -231,6 +234,8 @@ export class InquiriesService {
   constructor(
     @InjectRepository(Inquiry)
     private readonly inquiriesRepo: Repository<Inquiry>,
+    @InjectRepository(InventoryItem)
+    private readonly inventoryItemRepo: Repository<InventoryItem>,
     @InjectRepository(Client)
     private readonly clientsRepo: Repository<Client>,
     @InjectRepository(ConsignmentScheduleItem)
@@ -383,16 +388,25 @@ export class InquiriesService {
       key: img.key,
       url: this.s3.getPublicUrl(img.key),
     }));
+    const linkedInv = await this.inventoryItemRepo.findOne({
+      where: { inquiryId: r.id },
+      select: { id: true },
+    });
+
     const detail: StaffInquiryDetail = {
       ...base,
       updatedAt: r.updatedAt,
+      linkedInventoryItemId: linkedInv?.id ?? null,
       itemSnapshot: {
         clientItemId: r.itemSnapshot.clientItemId,
         form: (r.itemSnapshot.form ?? {}) as Record<string, unknown>,
         images,
       },
     };
-    if (r.status === InquiryStatus.AUTHENTICATED_RETURNED) {
+    if (
+      r.status === InquiryStatus.AUTHENTICATED_RETURNED ||
+      r.status === InquiryStatus.AUTHENTICATED_NEW_OFFER
+    ) {
       const authenticationSummary =
         await this.inventoryService.getAuthenticationSummaryForInquiry(r.id);
       const rawKeys = Array.isArray(r.returnPhotos)
@@ -640,7 +654,10 @@ export class InquiriesService {
     if (!r) {
       throw new NotFoundException('Inquiry not found');
     }
-    if (r.status !== InquiryStatus.FOR_OFFER_CONFIRMATION) {
+    if (
+      r.status !== InquiryStatus.FOR_OFFER_CONFIRMATION &&
+      r.status !== InquiryStatus.AUTHENTICATED_NEW_OFFER
+    ) {
       throw new BadRequestException(
         'The offer can only be confirmed while it is awaiting your confirmation',
       );
@@ -685,6 +702,9 @@ export class InquiriesService {
     r.preferredPaymentMethod = dto.paymentMethod;
     r.offerSignatureKey = signatureKey;
 
+    const isAuthenticatedNewOfferConfirm =
+      r.status === InquiryStatus.AUTHENTICATED_NEW_OFFER;
+
     if (r.isWalkIn) {
       const branch = r.walkInBranch?.trim();
       if (!branch) {
@@ -697,9 +717,19 @@ export class InquiriesService {
           where: { inquiryId: r.id },
         });
         if (existingInv) {
-          throw new BadRequestException(
-            'Inventory already exists for this inquiry',
+          if (!isAuthenticatedNewOfferConfirm) {
+            throw new BadRequestException(
+              'Inventory already exists for this inquiry',
+            );
+          }
+          r.status = InquiryStatus.FOR_PROCESSING;
+          await em.save(r);
+          await this.inventoryService.finalizeInventoryAfterAuthenticatedNewOfferConfirm(
+            em,
+            r.id,
+            r.offerTransactionType,
           );
+          return;
         }
         r.status = InquiryStatus.FOR_PROCESSING;
         await em.save(r);
@@ -710,9 +740,25 @@ export class InquiriesService {
           branch,
         );
       });
+    } else if (isAuthenticatedNewOfferConfirm) {
+      await this.inquiriesRepo.manager.transaction(async (em) => {
+        r.status = InquiryStatus.FOR_PROCESSING;
+        await em.save(r);
+        await this.inventoryService.finalizeInventoryAfterAuthenticatedNewOfferConfirm(
+          em,
+          r.id,
+          r.offerTransactionType,
+        );
+      });
     } else {
       r.status = InquiryStatus.FOR_DELIVERY;
       await this.inquiriesRepo.save(r);
+    }
+
+    if (isAuthenticatedNewOfferConfirm) {
+      const withContract = await this.populateContractDatesForInquiry(r.id);
+      r.contractStartDate = withContract.contractStartDate;
+      r.contractExpirationDate = withContract.contractExpirationDate;
     }
 
     await this.inquiryAudit.recordDiff(
@@ -1015,6 +1061,41 @@ export class InquiriesService {
     r.offerTransactionType = dto.transactionType;
     r.offerPrice = dto.offerPrice.toFixed(2);
     r.status = InquiryStatus.FOR_OFFER_CONFIRMATION;
+    r.preferredPaymentMethod = null;
+    r.offerSignatureKey = null;
+    await this.inquiriesRepo.save(r);
+    const label = await this.inquiryAudit.staffActorLabel(user.userId);
+    await this.inquiryAudit.recordDiff(id, before, r, {
+      userId: user.userId,
+      label,
+    });
+    return this.findOneForStaff(id);
+  }
+
+  async submitAuthenticatedReturnNewOffer(
+    id: string,
+    dto: SubmitAuthenticatedReturnNewOfferDto,
+    user: JwtUser,
+  ): Promise<StaffInquiryDetail> {
+    const r = await this.inquiriesRepo.findOne({
+      where: { id },
+      relations: { consignor: true },
+    });
+    if (!r) {
+      throw new NotFoundException('Inquiry not found');
+    }
+    if (InquiriesService.terminalInquiryStatuses.has(r.status)) {
+      throw new BadRequestException('Cannot update this inquiry');
+    }
+    if (r.status !== InquiryStatus.AUTHENTICATED_RETURNED) {
+      throw new BadRequestException(
+        'A new offer can only be created while the inquiry is Authenticated: Returned',
+      );
+    }
+
+    const before = cloneInquiryForAudit(r);
+    r.offerPrice = dto.offerPrice.toFixed(2);
+    r.status = InquiryStatus.AUTHENTICATED_NEW_OFFER;
     r.preferredPaymentMethod = null;
     r.offerSignatureKey = null;
     await this.inquiriesRepo.save(r);

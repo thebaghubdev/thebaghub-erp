@@ -77,6 +77,8 @@ type InquiryDetail = {
   walkInBranch: string | null;
   contractStartDate: string | null;
   contractExpirationDate: string | null;
+  /** Present when an inventory line references this inquiry. */
+  linkedInventoryItemId: string | null;
   itemSnapshot: {
     clientItemId: string;
     form: Record<string, unknown>;
@@ -85,20 +87,11 @@ type InquiryDetail = {
   authenticatedReturnDetail?: AuthenticatedReturnDetail;
 };
 
-function canShowStaffActions(status: string): boolean {
+/** Staff can change offer price / transaction type for these statuses only. */
+function canShowUpdateOfferButton(status: string): boolean {
   const s = status.trim().toLowerCase();
-  if (
-    s === "for_delivery_scheduled" ||
-    s === "for_pullout_scheduled" ||
-    s === "for_processing"
-  ) {
-    return false;
-  }
   return (
-    s === "pending" ||
-    s === "for_offer_confirmation" ||
-    s === "for_delivery" ||
-    s === "for_pullout"
+    s === "for_offer_confirmation" || s === "authenticated_new_offer"
   );
 }
 
@@ -176,6 +169,10 @@ function isAuthenticatedReturnedStatus(status: string): boolean {
   return status.trim().toLowerCase() === "authenticated_returned";
 }
 
+function isAuthenticatedNewOfferStatus(status: string): boolean {
+  return status.trim().toLowerCase() === "authenticated_new_offer";
+}
+
 function authMetricVerdictLabel(v: string | null): string {
   if (v === "pass") return "Passed";
   if (v === "fail") return "Failed";
@@ -246,7 +243,7 @@ export function InquiryDetailPage() {
   const [txnType, setTxnType] = useState<TransactionType>("consignment");
   const [offerPriceInput, setOfferPriceInput] = useState("");
   const [actionBusy, setActionBusy] = useState<
-    "decline" | "offer" | "notes" | null
+    "decline" | "offer" | "notes" | "createNewOffer" | null
   >(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [declineConfirmOpen, setDeclineConfirmOpen] = useState(false);
@@ -254,6 +251,9 @@ export function InquiryDetailPage() {
   const [notesDraft, setNotesDraft] = useState("");
   const offerModalTitleId = useId();
   const notesModalTitleId = useId();
+  const createNewOfferModalTitleId = useId();
+  const [createNewOfferModalOpen, setCreateNewOfferModalOpen] = useState(false);
+  const [createNewOfferPriceInput, setCreateNewOfferPriceInput] = useState("");
   const [auditOpen, setAuditOpen] = useState(false);
   const [auditRows, setAuditRows] = useState<InquiryAuditRow[] | null>(null);
   const [auditLoading, setAuditLoading] = useState(false);
@@ -337,6 +337,16 @@ export function InquiryDetailPage() {
     return () => window.removeEventListener("keydown", onKey);
   }, [notesModalOpen, actionBusy]);
 
+  useEffect(() => {
+    if (!createNewOfferModalOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && actionBusy === null)
+        setCreateNewOfferModalOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [createNewOfferModalOpen, actionBusy]);
+
   const confirmDecline = useCallback(async () => {
     if (!id || !token) return;
     setActionError(null);
@@ -364,7 +374,12 @@ export function InquiryDetailPage() {
   const openOfferModal = useCallback(() => {
     if (!detail) return;
     setActionError(null);
-    setTxnType("consignment");
+    setTxnType(
+      detail.consentDirectPurchase &&
+        detail.offerTransactionType === "direct_purchase"
+        ? "direct_purchase"
+        : "consignment",
+    );
     setOfferPriceInput(
       detail.offerPrice != null && detail.offerPrice !== ""
         ? (() => {
@@ -425,6 +440,56 @@ export function InquiryDetailPage() {
     setNotesModalOpen(true);
   }, [detail]);
 
+  const openCreateNewOfferModal = useCallback(() => {
+    if (!detail?.authenticatedReturnDetail) return;
+    setActionError(null);
+    setCreateNewOfferPriceInput(
+      detail.offerPrice != null && detail.offerPrice !== ""
+        ? (() => {
+            const n = parsePhpStringToNumber(String(detail.offerPrice));
+            return n != null ? n.toFixed(2) : String(detail.offerPrice);
+          })()
+        : "",
+    );
+    setCreateNewOfferModalOpen(true);
+  }, [detail]);
+
+  const submitAuthenticatedReturnNewOffer = useCallback(
+    async (e: FormEvent) => {
+      e.preventDefault();
+      if (!id || !token || !detail?.authenticatedReturnDetail) return;
+      const price = parsePhpStringToNumber(createNewOfferPriceInput);
+      if (price == null || price <= 0) {
+        setActionError("Enter a valid offer price greater than zero.");
+        return;
+      }
+      setActionError(null);
+      setActionBusy("createNewOffer");
+      try {
+        const res = await apiFetch(
+          `/api/inquiries/${id}/authenticated-return-new-offer`,
+          {
+            method: "POST",
+            body: JSON.stringify({ offerPrice: price }),
+          },
+          token,
+        );
+        if (!res.ok) throw new Error(await readApiErrorMessage(res));
+        const data = (await res.json()) as InquiryDetail;
+        setDetail(data);
+        setAuditRows(null);
+        setCreateNewOfferModalOpen(false);
+      } catch (err) {
+        setActionError(
+          err instanceof Error ? err.message : "Could not save new offer",
+        );
+      } finally {
+        setActionBusy(null);
+      }
+    },
+    [id, token, detail, createNewOfferPriceInput],
+  );
+
   const saveNotes = useCallback(
     async (e: FormEvent) => {
       e.preventDefault();
@@ -478,7 +543,8 @@ export function InquiryDetailPage() {
       {actionError &&
       !offerModalOpen &&
       !declineConfirmOpen &&
-      !notesModalOpen ? (
+      !notesModalOpen &&
+      !createNewOfferModalOpen ? (
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
           {actionError}
         </p>
@@ -512,30 +578,47 @@ export function InquiryDetailPage() {
               >
                 {actionBusy === "notes" ? "Saving…" : "Update Notes"}
               </button>
-              {canShowStaffActions(detail.status) ? (
-                <>
-                  <button
-                    type="button"
-                    disabled={actionBusy !== null}
-                    onClick={() => {
-                      setActionError(null);
-                      setDeclineConfirmOpen(true);
-                    }}
-                    className="rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-800 shadow-sm hover:bg-red-50 disabled:opacity-50 dark:border-red-900 dark:bg-slate-950 dark:text-red-200 dark:hover:bg-red-950/40"
-                  >
-                    {actionBusy === "decline" ? "Declining…" : "Decline"}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={actionBusy !== null}
-                    onClick={openOfferModal}
-                    className="rounded-lg bg-violet-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-violet-700 disabled:opacity-50 dark:bg-violet-600 dark:hover:bg-violet-500"
-                  >
-                    {isPending(detail.status)
-                      ? "Make an offer"
-                      : "Update the offer"}
-                  </button>
-                </>
+              {isAuthenticatedReturnedStatus(detail.status) &&
+              detail.authenticatedReturnDetail ? (
+                <button
+                  type="button"
+                  disabled={actionBusy !== null}
+                  onClick={openCreateNewOfferModal}
+                  className="rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-teal-700 disabled:opacity-50 dark:bg-teal-600 dark:hover:bg-teal-500"
+                >
+                  Create New Offer
+                </button>
+              ) : null}
+              {isPending(detail.status) ? (
+                <button
+                  type="button"
+                  disabled={actionBusy !== null}
+                  onClick={() => {
+                    setActionError(null);
+                    setDeclineConfirmOpen(true);
+                  }}
+                  className="rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-800 shadow-sm hover:bg-red-50 disabled:opacity-50 dark:border-red-900 dark:bg-slate-950 dark:text-red-200 dark:hover:bg-red-950/40"
+                >
+                  {actionBusy === "decline" ? "Declining…" : "Decline"}
+                </button>
+              ) : null}
+              {canShowUpdateOfferButton(detail.status) ? (
+                <button
+                  type="button"
+                  disabled={actionBusy !== null}
+                  onClick={openOfferModal}
+                  className="rounded-lg bg-violet-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-violet-700 disabled:opacity-50 dark:bg-violet-600 dark:hover:bg-violet-500"
+                >
+                  Update the offer
+                </button>
+              ) : null}
+              {detail.linkedInventoryItemId ? (
+                <Link
+                  to={`/portal/inventory/${detail.linkedInventoryItemId}`}
+                  className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-800"
+                >
+                  View in Inventory
+                </Link>
               ) : null}
             </div>
 
@@ -709,7 +792,8 @@ export function InquiryDetailPage() {
               ) : null}
             </dl>
 
-            {isAuthenticatedReturnedStatus(detail.status) &&
+            {(isAuthenticatedReturnedStatus(detail.status) ||
+              isAuthenticatedNewOfferStatus(detail.status)) &&
             detail.authenticatedReturnDetail ? (
               <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50/80 p-4 text-sm dark:border-amber-900/50 dark:bg-amber-950/25">
                 <h3 className="text-xs font-semibold uppercase tracking-wide text-amber-900 dark:text-amber-200">
@@ -1122,9 +1206,7 @@ export function InquiryDetailPage() {
                       id={offerModalTitleId}
                       className="text-base font-semibold text-slate-900 dark:text-slate-100"
                     >
-                      {isPending(detail.status)
-                        ? "Make an offer"
-                        : "Update the offer"}
+                      Update the offer
                     </h2>
                     <form
                       onSubmit={(e) => void submitOffer(e)}
@@ -1154,7 +1236,9 @@ export function InquiryDetailPage() {
                             setTxnType(e.target.value as TransactionType)
                           }
                           disabled={
-                            !detail.consentDirectPurchase || actionBusy !== null
+                            isAuthenticatedNewOfferStatus(detail.status) ||
+                            !detail.consentDirectPurchase ||
+                            actionBusy !== null
                           }
                           className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 disabled:cursor-not-allowed disabled:bg-slate-100 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100 dark:disabled:bg-slate-900"
                         >
@@ -1163,7 +1247,13 @@ export function InquiryDetailPage() {
                             Direct purchase
                           </option>
                         </select>
-                        {!detail.consentDirectPurchase ? (
+                        {isAuthenticatedNewOfferStatus(detail.status) ? (
+                          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                            After an authentication return, only the offer price
+                            can be updated; transaction type stays as set
+                            before return.
+                          </p>
+                        ) : !detail.consentDirectPurchase ? (
                           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                             The consignor did not consent to direct purchase;
                             only consignment is available.
@@ -1205,9 +1295,94 @@ export function InquiryDetailPage() {
                         >
                           {actionBusy === "offer"
                             ? "Saving…"
-                            : isPending(detail.status)
-                              ? "Submit offer"
-                              : "Update the offer"}
+                            : "Update the offer"}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>,
+                document.body,
+              )
+            : null}
+
+          {createNewOfferModalOpen &&
+          detail?.authenticatedReturnDetail &&
+          typeof document !== "undefined"
+            ? createPortal(
+                <div
+                  className="fixed inset-0 z-[100] flex items-end justify-center p-4 sm:items-center"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby={createNewOfferModalTitleId}
+                >
+                  <button
+                    type="button"
+                    className="absolute inset-0 bg-slate-900/50"
+                    aria-label="Close new offer form"
+                    onClick={() =>
+                      actionBusy === null && setCreateNewOfferModalOpen(false)
+                    }
+                  />
+                  <div className="relative z-10 w-full max-w-md rounded-2xl border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+                    <h2
+                      id={createNewOfferModalTitleId}
+                      className="text-base font-semibold text-slate-900 dark:text-slate-100"
+                    >
+                      Create New Offer
+                    </h2>
+                    <form
+                      onSubmit={(e) => void submitAuthenticatedReturnNewOffer(e)}
+                      className="mt-4 space-y-4"
+                    >
+                      <div className="rounded-lg border border-slate-200 bg-slate-50/90 px-3 py-2.5 text-sm dark:border-slate-600 dark:bg-slate-950/60">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                          Suggested price range
+                        </p>
+                        <p className="mt-2 tabular-nums font-medium text-slate-900 dark:text-slate-100">
+                          {formatSuggestedPriceRange(
+                            detail.authenticatedReturnDetail,
+                          )}
+                        </p>
+                      </div>
+                      {actionError && createNewOfferModalOpen ? (
+                        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+                          {actionError}
+                        </p>
+                      ) : null}
+                      <div>
+                        <label
+                          htmlFor="new-offer-price"
+                          className="block text-sm font-medium text-slate-700 dark:text-slate-300"
+                        >
+                          New Offer Price (PHP)
+                        </label>
+                        <div className="mt-1">
+                          <PhpPriceInput
+                            id="new-offer-price"
+                            value={createNewOfferPriceInput}
+                            onChange={setCreateNewOfferPriceInput}
+                            disabled={actionBusy !== null}
+                            required
+                            className="w-full rounded-lg border border-slate-300 bg-white py-2 pr-3 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
+                            placeholder="0.00"
+                          />
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap justify-end gap-2 pt-2">
+                        <button
+                          type="button"
+                          disabled={actionBusy !== null}
+                          onClick={() => setCreateNewOfferModalOpen(false)}
+                          className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={actionBusy !== null}
+                          className="rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-teal-700 disabled:opacity-50 dark:bg-teal-600 dark:hover:bg-teal-500"
+                        >
+                          {actionBusy === "createNewOffer" ? "Saving…" : "Save"}
                         </button>
                       </div>
                     </form>

@@ -269,6 +269,41 @@ export class InventoryService {
     await em.save(itemAuth);
   }
 
+  /**
+   * Client re-confirmed after authentication return and a new staff offer:
+   * linked inventory moves to photoshoot; authentication marked approved.
+   */
+  async finalizeInventoryAfterAuthenticatedNewOfferConfirm(
+    em: EntityManager,
+    inquiryId: string,
+    offerTransactionType: 'consignment' | 'direct_purchase' | null,
+  ): Promise<void> {
+    const existingInv = await em.findOne(InventoryItem, {
+      where: { inquiryId },
+    });
+    if (!existingInv) {
+      return;
+    }
+    const tx =
+      offerTransactionType === 'direct_purchase' ||
+      offerTransactionType === 'consignment'
+        ? offerTransactionType
+        : null;
+    existingInv.status = FOR_PHOTOSHOOT_INVENTORY_STATUS;
+    existingInv.transactionType = tx;
+    existingInv.updatedById = null;
+    await em.save(existingInv);
+    const auth = await em.findOne(ItemAuthentication, {
+      where: { inventoryItemId: existingInv.id },
+    });
+    if (auth) {
+      auth.authenticationStatus = APPROVED_ITEM_AUTHENTICATION_STATUS;
+      auth.assignedToId = null;
+      auth.updatedById = null;
+      await em.save(auth);
+    }
+  }
+
   async getItemAuthenticationMetricsForInventoryItem(
     inventoryItemId: string,
   ): Promise<ItemAuthenticationMetricApiRow[]> {

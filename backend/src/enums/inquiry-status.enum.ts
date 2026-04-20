@@ -11,6 +11,8 @@ export enum InquiryStatus {
   FOR_PROCESSING = 'for_processing',
   /** Authenticator returned item to coordinator (inventory also marked returned). */
   AUTHENTICATED_RETURNED = 'authenticated_returned',
+  /** Staff set a new offer price after authentication return; awaiting next step. */
+  AUTHENTICATED_NEW_OFFER = 'authenticated_new_offer',
   DECLINED = 'declined',
   CANCELLED = 'cancelled',
 }
