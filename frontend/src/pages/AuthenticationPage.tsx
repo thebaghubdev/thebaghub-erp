@@ -737,7 +737,6 @@ export function AuthenticationPage() {
             getRowAriaLabel={(r) =>
               `Authenticate inventory item ${r.sku}, ${r.itemLabel}, status ${r.status}`
             }
-            tableClassName="w-full min-w-[1080px] table-fixed border-collapse text-left"
             paginationItemLabel="items"
             rowSelection={authItemsRowSelection}
             toolbarRight={
@@ -865,7 +864,6 @@ export function AuthenticationPage() {
             hideEmptyState={!!metricsError}
             searchPlaceholder="Search metrics…"
             getRowId={(r) => r.id}
-            tableClassName="w-full min-w-[1120px] table-fixed border-collapse text-left"
             paginationItemLabel="metrics"
             rowSelection={metricsRowSelection}
             toolbarRight={

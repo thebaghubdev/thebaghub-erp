@@ -2,6 +2,51 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/**
+ * Themed scrollbars (slate surfaces, violet-adjacent neutrals).
+ * Works with `html.dark` toggle; Firefox uses `scrollbar-color`, WebKit uses pseudo-elements.
+ */
+html {
+  --app-scrollbar-track: #f1f5f9;
+  --app-scrollbar-thumb: #cbd5e1;
+  --app-scrollbar-thumb-hover: #94a3b8;
+}
+
+html.dark {
+  --app-scrollbar-track: #1e293b;
+  --app-scrollbar-thumb: #475569;
+  --app-scrollbar-thumb-hover: #64748b;
+}
+
+.app-themed-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--app-scrollbar-thumb) var(--app-scrollbar-track);
+}
+
+.app-themed-scrollbar::-webkit-scrollbar {
+  height: 10px;
+  width: 10px;
+}
+
+.app-themed-scrollbar::-webkit-scrollbar-track {
+  background: var(--app-scrollbar-track);
+  border-radius: 9999px;
+}
+
+.app-themed-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--app-scrollbar-thumb);
+  border-radius: 9999px;
+  border: 2px solid var(--app-scrollbar-track);
+}
+
+.app-themed-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--app-scrollbar-thumb-hover);
+}
+
+.app-themed-scrollbar::-webkit-scrollbar-corner {
+  background: var(--app-scrollbar-track);
+}
+
 body {
   margin: 0;
   min-height: 100svh;

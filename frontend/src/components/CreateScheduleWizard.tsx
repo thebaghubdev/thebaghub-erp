@@ -563,7 +563,6 @@ export function CreateScheduleWizard({ onScheduleSaved }: Props) {
             hideEmptyState={!!inquiryError}
             getRowId={(row) => row.id}
             getRowAriaLabel={(row) => `Inquiry ${row.sku}`}
-            tableClassName="w-full min-w-[640px] table-fixed border-collapse text-left"
           />
           <div className="flex flex-wrap justify-between gap-2 pt-2">
             <button

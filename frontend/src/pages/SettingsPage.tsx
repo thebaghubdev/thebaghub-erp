@@ -223,7 +223,7 @@ export function SettingsPage() {
       return (
         <div className="space-y-3">
           <div
-            className="max-h-60 space-y-1.5 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50/80 p-3 dark:border-slate-700 dark:bg-slate-950/40"
+            className="app-themed-scrollbar max-h-60 space-y-1.5 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50/80 p-3 dark:border-slate-700 dark:bg-slate-950/40"
             role="group"
             aria-label={`Select options for ${s.title}`}
           >
@@ -361,24 +361,24 @@ export function SettingsPage() {
             <h3 className="border-b border-slate-100 bg-slate-50 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600 dark:border-slate-800 dark:bg-slate-950/50 dark:text-slate-400">
               {category}
             </h3>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[720px] table-fixed border-collapse text-left text-sm">
+            <div className="app-themed-scrollbar min-w-0 overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]">
+              <table className="w-max min-w-full border-collapse text-left text-sm">
                 <colgroup>
-                  <col className="w-[18%]" />
-                  <col className="w-[34%]" />
-                  <col />
-                  <col className="w-32" />
+                  <col className="max-w-[10rem] min-w-0 w-[18%]" />
+                  <col className="max-w-[10rem] min-w-0 w-[34%]" />
+                  <col className="max-w-[10rem] min-w-0" />
+                  <col className="max-w-[10rem] min-w-0" />
                 </colgroup>
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                   {category === GENERAL_CATEGORY && (
                     <tr className="align-top hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                      <td className="min-w-0 align-top px-4 py-3 font-medium text-slate-900 dark:text-slate-100">
+                      <td className="max-w-[10rem] min-w-0 align-top px-4 py-3 font-medium text-slate-900 dark:text-slate-100">
                         Appearance
                       </td>
-                      <td className="min-w-0 align-top px-4 py-3 text-slate-600 dark:text-slate-400">
+                      <td className="max-w-[10rem] min-w-0 align-top px-4 py-3 text-slate-600 dark:text-slate-400">
                         Switch between light and dark interface for the app.
                       </td>
-                      <td className="min-w-0 align-top px-4 py-3">
+                      <td className="max-w-[10rem] min-w-0 align-top px-4 py-3">
                         <button
                           type="button"
                           onClick={toggleTheme}
@@ -394,7 +394,7 @@ export function SettingsPage() {
                           theme.
                         </span>
                       </td>
-                      <td className="align-top px-4 py-3 text-right text-slate-400 dark:text-slate-600">
+                      <td className="max-w-[10rem] min-w-0 align-top px-4 py-3 text-right text-slate-400 dark:text-slate-600">
                         —
                       </td>
                     </tr>
@@ -406,18 +406,18 @@ export function SettingsPage() {
                         key={s.id}
                         className="align-top hover:bg-slate-50 dark:hover:bg-slate-800/50"
                       >
-                        <td className="min-w-0 align-top px-4 py-3 font-medium text-slate-900 dark:text-slate-100">
+                        <td className="max-w-[10rem] min-w-0 align-top px-4 py-3 font-medium text-slate-900 dark:text-slate-100">
                           {s.title}
                         </td>
-                        <td className="min-w-0 align-top px-4 py-3 text-slate-600 dark:text-slate-400">
+                        <td className="max-w-[10rem] min-w-0 align-top px-4 py-3 text-slate-600 dark:text-slate-400">
                           {s.description ?? '—'}
                         </td>
-                        <td className="min-w-0 align-top px-4 py-3">
+                        <td className="max-w-[10rem] min-w-0 align-top px-4 py-3">
                           {isEditing
                             ? renderValueEditor(s)
                             : renderValueReadOnly(s)}
                         </td>
-                        <td className="align-top px-4 py-3 text-right">
+                        <td className="max-w-[10rem] min-w-0 align-top px-4 py-3 text-right">
                           {isEditing ? (
                             <div className="flex flex-col items-end gap-2">
                               {saveError && (

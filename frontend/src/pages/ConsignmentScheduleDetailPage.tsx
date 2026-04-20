@@ -746,29 +746,29 @@ export function ConsignmentScheduleDetailPage() {
                 No inquiries linked.
               </p>
             ) : (
-              <div className="mt-3 overflow-x-auto">
-                <table className="w-full min-w-[420px] table-fixed border-collapse text-left text-sm">
+              <div className="app-themed-scrollbar mt-3 min-w-0 overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]">
+                <table className="w-max min-w-full border-collapse text-left text-sm">
                   <thead>
                     <tr>
-                      <th className="pb-2 pr-3 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                      <th className="max-w-[10rem] min-w-0 pb-2 pr-3 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                         SKU
                       </th>
-                      <th className="pb-2 pr-3 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                      <th className="max-w-[10rem] min-w-0 pb-2 pr-3 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                         Item
                       </th>
-                      <th className="pb-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400" />
+                      <th className="max-w-[10rem] min-w-0 pb-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400" />
                     </tr>
                   </thead>
                   <tbody>
                     {detail.inquiries.map((row) => (
                       <tr key={row.id}>
-                        <td className="py-2 pr-3 align-top font-mono text-xs text-slate-900 dark:text-slate-100">
+                        <td className="max-w-[10rem] min-w-0 py-2 pr-3 align-top font-mono text-xs text-slate-900 dark:text-slate-100">
                           {row.sku}
                         </td>
-                        <td className="py-2 pr-3 align-top text-slate-800 dark:text-slate-200">
+                        <td className="max-w-[10rem] min-w-0 py-2 pr-3 align-top text-slate-800 dark:text-slate-200">
                           {row.itemLabel}
                         </td>
-                        <td className="py-2 text-right align-top">
+                        <td className="max-w-[10rem] min-w-0 py-2 text-right align-top">
                           <Link
                             to={`/portal/inquiries/${row.id}`}
                             className="font-medium text-violet-700 hover:underline dark:text-violet-400"
@@ -814,8 +814,8 @@ export function ConsignmentScheduleDetailPage() {
                   </p>
                 </div>
                 <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-                  <div className="overflow-x-auto">
-                    <table className="w-full min-w-[520px] table-fixed border-collapse text-left text-sm">
+                  <div className="app-themed-scrollbar min-w-0 overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]">
+                    <table className="w-max min-w-full border-collapse text-left text-sm">
                       <thead className="border-b border-slate-200 dark:border-slate-700">
                         <tr>
                           <th
@@ -824,13 +824,13 @@ export function ConsignmentScheduleDetailPage() {
                           >
                             <span className="sr-only">Confirm item received</span>
                           </th>
-                          <th className="pb-2 pr-3 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                          <th className="max-w-[10rem] min-w-0 pb-2 pr-3 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                             SKU
                           </th>
-                          <th className="pb-2 pr-3 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                          <th className="max-w-[10rem] min-w-0 pb-2 pr-3 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                             Item
                           </th>
-                          <th className="pb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                          <th className="max-w-[10rem] min-w-0 pb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                             Inclusions
                           </th>
                         </tr>
@@ -861,17 +861,17 @@ export function ConsignmentScheduleDetailPage() {
                                 aria-label={`Mark received ${row.sku}`}
                               />
                             </td>
-                            <td className="py-2.5 pr-3 align-top font-mono text-xs text-slate-900 dark:text-slate-100">
+                            <td className="max-w-[10rem] min-w-0 py-2.5 pr-3 align-top font-mono text-xs text-slate-900 dark:text-slate-100">
                               {row.sku}
                             </td>
-                            <td className="py-2.5 pr-3 align-top text-slate-800 dark:text-slate-200">
+                            <td className="max-w-[10rem] min-w-0 py-2.5 pr-3 align-top text-slate-800 dark:text-slate-200">
                               {receiptItemEdits[row.id]
                                 ? itemLabelFromReceiptForm(
                                     receiptItemEdits[row.id],
                                   )
                                 : row.itemLabel}
                             </td>
-                            <td className="py-2.5 align-top whitespace-pre-wrap text-slate-700 dark:text-slate-300">
+                            <td className="max-w-[10rem] min-w-0 py-2.5 align-top whitespace-pre-wrap text-slate-700 dark:text-slate-300">
                               {receiptItemEdits[row.id]
                                 ? receiptItemEdits[row.id].inclusions.trim() ||
                                   "—"

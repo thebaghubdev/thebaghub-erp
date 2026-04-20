@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ConsignmentInquiryWizard } from '../components/ConsignmentInquiryWizard'
 import { SubmittedAtCell } from '../components/SubmittedAtCell'
+import { HorizontalScrollMirror } from '../components/HorizontalScrollMirror'
 import { TablePaginationBar } from '../components/TablePaginationBar'
 import { useClientAuth } from '../context/client-auth'
 import { apiFetch } from '../lib/api'
@@ -132,25 +133,25 @@ export function ConsignItemsPage() {
                 itemLabel="inquiries"
               />
             </div>
-            <div className="overflow-x-auto">
-            <table className="w-full table-fixed border-collapse text-left text-sm">
+            <HorizontalScrollMirror>
+            <table className="w-max min-w-full border-collapse text-left text-sm">
                 <thead className="border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-600">
                   <tr>
                     <th
                       scope="col"
-                      className="min-w-0 w-[32%] px-2 py-2.5 sm:w-[34%] sm:px-4 sm:py-3"
+                      className="max-w-[10rem] min-w-0 px-2 py-2.5 sm:px-4 sm:py-3"
                     >
                       Item
                     </th>
                     <th
                       scope="col"
-                      className="w-[22%] px-2 py-2.5 sm:px-4 sm:py-3"
+                      className="max-w-[10rem] min-w-0 px-2 py-2.5 sm:px-4 sm:py-3"
                     >
                       Status
                     </th>
                     <th
                       scope="col"
-                      className="min-w-0 w-[28%] px-2 py-2.5 sm:px-4 sm:py-3"
+                      className="max-w-[10rem] min-w-0 px-2 py-2.5 sm:px-4 sm:py-3"
                     >
                       Submitted
                     </th>
@@ -193,20 +194,20 @@ export function ConsignItemsPage() {
                         }
                       }}
                     >
-                      <td className="px-4 py-3 font-medium text-slate-900">
+                      <td className="max-w-[10rem] min-w-0 break-words px-4 py-3 font-medium text-slate-900">
                         {row.itemLabel}
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="max-w-[10rem] min-w-0 px-4 py-3">
                         <InquiryStatusBadge status={row.status} />
                       </td>
-                      <td className="min-w-0 px-2 py-2.5 align-top sm:px-4 sm:py-3">
+                      <td className="max-w-[10rem] min-w-0 px-2 py-2.5 align-top sm:px-4 sm:py-3">
                         <SubmittedAtCell iso={row.createdAt} />
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-            </div>
+            </HorizontalScrollMirror>
           </div>
         </section>
       )}

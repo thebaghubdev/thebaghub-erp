@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { HireDatePicker } from '../components/HireDatePicker'
+import { HorizontalScrollMirror } from '../components/HorizontalScrollMirror'
 import { TablePaginationBar } from '../components/TablePaginationBar'
 import { usePortalAuth } from '../context/portal-auth'
 import { apiFetch } from '../lib/api'
@@ -292,29 +293,29 @@ export function ManageAccountsPage() {
                 itemLabel="accounts"
               />
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[800px] text-left text-sm">
+            <HorizontalScrollMirror>
+              <table className="w-max min-w-full border-collapse text-left text-sm">
                 <thead className="border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-600 dark:border-slate-800 dark:bg-slate-950/50 dark:text-slate-400">
                   <tr>
-                    <th scope="col" className="px-4 py-3">
+                    <th scope="col" className="max-w-[10rem] min-w-0 px-4 py-3">
                       Username
                     </th>
-                    <th scope="col" className="px-4 py-3">
+                    <th scope="col" className="max-w-[10rem] min-w-0 px-4 py-3">
                       Name
                     </th>
-                    <th scope="col" className="px-4 py-3">
+                    <th scope="col" className="max-w-[10rem] min-w-0 px-4 py-3">
                       Email
                     </th>
-                    <th scope="col" className="px-4 py-3">
+                    <th scope="col" className="max-w-[10rem] min-w-0 px-4 py-3">
                       Contact
                     </th>
-                    <th scope="col" className="px-4 py-3">
+                    <th scope="col" className="max-w-[10rem] min-w-0 px-4 py-3">
                       Position
                     </th>
-                    <th scope="col" className="px-4 py-3">
+                    <th scope="col" className="max-w-[10rem] min-w-0 px-4 py-3">
                       Hire date
                     </th>
-                    <th scope="col" className="px-4 py-3 text-right">
+                    <th scope="col" className="max-w-[10rem] min-w-0 px-4 py-3 text-right">
                       Actions
                     </th>
                   </tr>
@@ -345,25 +346,25 @@ export function ManageAccountsPage() {
                       key={row.id}
                       className="hover:bg-slate-50 dark:hover:bg-slate-800/50"
                     >
-                      <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-700 dark:text-slate-300">
+                      <td className="max-w-[10rem] min-w-0 truncate px-4 py-3 font-mono text-xs text-slate-700 dark:text-slate-300">
                         {row.username}
                       </td>
-                      <td className="px-4 py-3 font-medium text-slate-900 dark:text-slate-100">
+                      <td className="max-w-[10rem] min-w-0 break-words px-4 py-3 font-medium text-slate-900 dark:text-slate-100">
                         {row.firstName} {row.lastName}
                       </td>
-                      <td className="px-4 py-3 text-slate-700 dark:text-slate-300">
+                      <td className="max-w-[10rem] min-w-0 break-words px-4 py-3 text-slate-700 dark:text-slate-300">
                         {row.email}
                       </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-slate-600 dark:text-slate-400">
+                      <td className="max-w-[10rem] min-w-0 truncate px-4 py-3 text-slate-600 dark:text-slate-400">
                         {row.contactNumber}
                       </td>
-                      <td className="px-4 py-3 text-slate-700 dark:text-slate-300">
+                      <td className="max-w-[10rem] min-w-0 break-words px-4 py-3 text-slate-700 dark:text-slate-300">
                         {row.position}
                       </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-slate-600 dark:text-slate-400">
+                      <td className="max-w-[10rem] min-w-0 truncate px-4 py-3 text-slate-600 dark:text-slate-400">
                         {row.hireDate}
                       </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-right">
+                      <td className="max-w-[10rem] min-w-0 truncate px-4 py-3 text-right">
                         {row.isAdmin ? (
                           <span
                             className="text-xs text-slate-400 dark:text-slate-500"
@@ -385,7 +386,7 @@ export function ManageAccountsPage() {
                   ))}
                 </tbody>
               </table>
-            </div>
+            </HorizontalScrollMirror>
           </div>
         </section>
       )}
@@ -410,23 +411,23 @@ export function ManageAccountsPage() {
                 itemLabel="accounts"
               />
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[640px] text-left text-sm">
+            <HorizontalScrollMirror>
+              <table className="w-max min-w-full border-collapse text-left text-sm">
                 <thead className="border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-600 dark:border-slate-800 dark:bg-slate-950/50 dark:text-slate-400">
                   <tr>
-                    <th scope="col" className="px-4 py-3">
+                    <th scope="col" className="max-w-[10rem] min-w-0 px-4 py-3">
                       Username
                     </th>
-                    <th scope="col" className="px-4 py-3">
+                    <th scope="col" className="max-w-[10rem] min-w-0 px-4 py-3">
                       Name
                     </th>
-                    <th scope="col" className="px-4 py-3">
+                    <th scope="col" className="max-w-[10rem] min-w-0 px-4 py-3">
                       Email
                     </th>
-                    <th scope="col" className="px-4 py-3">
+                    <th scope="col" className="max-w-[10rem] min-w-0 px-4 py-3">
                       Contact
                     </th>
-                    <th scope="col" className="px-4 py-3">
+                    <th scope="col" className="max-w-[10rem] min-w-0 px-4 py-3">
                       Created
                     </th>
                   </tr>
@@ -457,26 +458,26 @@ export function ManageAccountsPage() {
                       key={row.id}
                       className="hover:bg-slate-50 dark:hover:bg-slate-800/50"
                     >
-                      <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-700 dark:text-slate-300">
+                      <td className="max-w-[10rem] min-w-0 truncate px-4 py-3 font-mono text-xs text-slate-700 dark:text-slate-300">
                         {row.username}
                       </td>
-                      <td className="px-4 py-3 font-medium text-slate-900 dark:text-slate-100">
+                      <td className="max-w-[10rem] min-w-0 break-words px-4 py-3 font-medium text-slate-900 dark:text-slate-100">
                         {row.firstName} {row.lastName}
                       </td>
-                      <td className="px-4 py-3 text-slate-700 dark:text-slate-300">
+                      <td className="max-w-[10rem] min-w-0 break-words px-4 py-3 text-slate-700 dark:text-slate-300">
                         {row.email}
                       </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-slate-600 dark:text-slate-400">
+                      <td className="max-w-[10rem] min-w-0 truncate px-4 py-3 text-slate-600 dark:text-slate-400">
                         {row.contactNumber}
                       </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-slate-600 dark:text-slate-400">
+                      <td className="max-w-[10rem] min-w-0 truncate px-4 py-3 text-slate-600 dark:text-slate-400">
                         {new Date(row.createdAt).toLocaleString()}
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-            </div>
+            </HorizontalScrollMirror>
           </div>
         </section>
       )}

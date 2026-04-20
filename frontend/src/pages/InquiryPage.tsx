@@ -378,7 +378,6 @@ export function InquiryPage() {
             getRowAriaLabel={(row) =>
               `Inquiry ${row.sku}, ${row.itemLabel || "item"}`
             }
-            tableClassName="w-full min-w-[1240px] table-fixed border-collapse text-left"
           />
         </section>
       )}

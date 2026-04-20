@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { Link, useParams } from "react-router-dom";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
+import { HorizontalScrollMirror } from "../components/HorizontalScrollMirror";
 import { TablePaginationBar } from "../components/TablePaginationBar";
 import { usePortalAuth } from "../context/portal-auth";
 import { useClientPagination } from "../hooks/useClientPagination";
@@ -1050,23 +1051,23 @@ export function InquiryDetailPage() {
                         itemLabel="entries"
                       />
                     </div>
-                    <div className="overflow-x-auto">
-                      <table className="w-full min-w-[640px] border-collapse text-left text-sm">
+                    <HorizontalScrollMirror>
+                      <table className="w-max min-w-full border-collapse text-left text-sm">
                         <thead>
                           <tr className="border-b border-slate-200 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:text-slate-400">
-                            <th scope="col" className="py-2 pr-3">
+                            <th scope="col" className="max-w-[10rem] min-w-0 py-2 pr-3">
                               Property
                             </th>
-                            <th scope="col" className="py-2 pr-3">
+                            <th scope="col" className="max-w-[10rem] min-w-0 py-2 pr-3">
                               From
                             </th>
-                            <th scope="col" className="py-2 pr-3">
+                            <th scope="col" className="max-w-[10rem] min-w-0 py-2 pr-3">
                               To
                             </th>
-                            <th scope="col" className="py-2 pr-3">
+                            <th scope="col" className="max-w-[10rem] min-w-0 py-2 pr-3">
                               Updated by
                             </th>
-                            <th scope="col" className="py-2">
+                            <th scope="col" className="max-w-[10rem] min-w-0 py-2">
                               Date
                             </th>
                           </tr>
@@ -1074,26 +1075,26 @@ export function InquiryDetailPage() {
                         <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
                           {auditPagination.pageItems.map((row) => (
                             <tr key={row.id}>
-                              <td className="max-w-[12rem] py-2 pr-3 align-top font-medium text-slate-800 dark:text-slate-200">
+                              <td className="max-w-[10rem] min-w-0 py-2 pr-3 align-top font-medium break-words text-slate-800 dark:text-slate-200">
                                 {row.propertyName}
                               </td>
-                              <td className="max-w-[14rem] py-2 pr-3 align-top whitespace-pre-wrap break-words text-slate-600 dark:text-slate-400">
+                              <td className="max-w-[10rem] min-w-0 py-2 pr-3 align-top whitespace-pre-wrap break-words text-slate-600 dark:text-slate-400">
                                 {row.fromValue ?? "—"}
                               </td>
-                              <td className="max-w-[14rem] py-2 pr-3 align-top whitespace-pre-wrap break-words text-slate-600 dark:text-slate-400">
+                              <td className="max-w-[10rem] min-w-0 py-2 pr-3 align-top whitespace-pre-wrap break-words text-slate-600 dark:text-slate-400">
                                 {row.toValue ?? "—"}
                               </td>
-                              <td className="py-2 pr-3 align-top text-slate-700 dark:text-slate-300">
+                              <td className="max-w-[10rem] min-w-0 py-2 pr-3 align-top break-words text-slate-700 dark:text-slate-300">
                                 {row.updatedBy}
                               </td>
-                              <td className="py-2 align-top text-slate-600 dark:text-slate-400">
+                              <td className="max-w-[10rem] min-w-0 py-2 align-top text-slate-600 dark:text-slate-400">
                                 <SubmittedAtCell iso={row.updatedAt} />
                               </td>
                             </tr>
                           ))}
                         </tbody>
                       </table>
-                    </div>
+                    </HorizontalScrollMirror>
                   </div>
                 )}
               </div>

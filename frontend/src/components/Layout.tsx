@@ -86,7 +86,7 @@ export function Layout() {
             <SettingsNavButton />
           </div>
         </header>
-        <main className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-4">
+        <main className="app-themed-scrollbar min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-4">
           <Outlet />
         </main>
       </div>

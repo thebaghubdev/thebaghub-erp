@@ -1,4 +1,5 @@
 import { type ReactNode, useMemo, useState } from "react";
+import { HorizontalScrollMirror } from "../HorizontalScrollMirror";
 import {
   type ColumnDef,
   type ColumnFiltersState,
@@ -18,17 +19,19 @@ const inputClass =
   "w-full min-h-8 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-900 placeholder:text-slate-400 focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500";
 
 const thBase =
-  "px-2 py-2 text-left text-[0.65rem] font-semibold uppercase tracking-wide sm:px-3 sm:py-2.5 sm:text-xs text-slate-600 dark:text-slate-400";
+  "max-w-[10rem] min-w-0 break-words px-2 py-2 text-left text-[0.65rem] font-semibold uppercase tracking-wide sm:px-3 sm:py-2.5 sm:text-xs text-slate-600 dark:text-slate-400";
 
 const tdBase =
-  "min-w-0 px-2 py-2 align-top text-xs sm:px-3 sm:py-2.5 sm:text-sm";
+  "max-w-[10rem] min-w-0 break-words px-2 py-2 align-top text-xs sm:px-3 sm:py-2.5 sm:text-sm";
 
-/** Leading checkbox column: minimal width (table-fixed layouts). */
+/** Leading checkbox column: narrow; no max-w cap (checkbox only). */
 const isCheckboxColumnId = (id: string) =>
   id === "__select" || id === "select";
 
-const thCheckbox = `${thBase} w-9 max-w-9 px-1 text-center sm:w-10 sm:max-w-10 sm:px-1.5`;
-const tdCheckbox = `${tdBase} w-9 max-w-9 px-1 text-center align-middle sm:w-10 sm:max-w-10 sm:px-1.5`;
+const thCheckbox =
+  "w-9 max-w-9 min-w-0 px-1 py-2 text-center text-[0.65rem] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400 sm:w-10 sm:max-w-10 sm:px-1.5 sm:py-2.5 sm:text-xs";
+const tdCheckbox =
+  "w-9 max-w-9 min-w-0 px-1 py-2 text-center align-middle text-xs sm:w-10 sm:max-w-10 sm:px-1.5 sm:py-2.5 sm:text-sm";
 
 /** Case-insensitive substring match on stringified cell value. */
 const includesStringFilter: FilterFn<unknown> = (
@@ -77,7 +80,7 @@ export type DataTableProps<TData extends object> = {
   /** When filters/search yield no rows */
   noResultsMessage?: string;
   searchPlaceholder?: string;
-  /** Applied to <table> e.g. min-w-[1020px] */
+  /** Applied to <table> (default uses w-max min-w-full so wide tables can scroll horizontally). */
   tableClassName?: string;
   /** Stable row id for React keys (defaults to JSON index — pass if rows have id) */
   getRowId?: (originalRow: TData, index: number) => string;
@@ -107,7 +110,7 @@ export function DataTable<TData extends object>({
   hideEmptyState = false,
   noResultsMessage = "No rows match your search or filters.",
   searchPlaceholder = "Search all columns…",
-  tableClassName = "w-full min-w-[640px] table-fixed border-collapse text-left",
+  tableClassName = "w-max min-w-full border-collapse text-left",
   getRowId,
   onRowClick,
   getRowAriaLabel,
@@ -256,7 +259,7 @@ export function DataTable<TData extends object>({
             itemLabel={paginationItemLabel}
           />
         </div>
-        <div className="overflow-x-auto overscroll-x-contain">
+        <HorizontalScrollMirror>
         <table className={tableClassName}>
           <thead className="border-b border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950/50">
             {table.getHeaderGroups().map((headerGroup) => (
@@ -412,7 +415,7 @@ export function DataTable<TData extends object>({
               ))}
           </tbody>
         </table>
-        </div>
+        </HorizontalScrollMirror>
       </div>
     </div>
   );
