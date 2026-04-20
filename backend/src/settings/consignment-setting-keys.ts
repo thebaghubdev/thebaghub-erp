@@ -1,7 +1,5 @@
-/** Settings keys used by the client consign-item form (string[] JSON values). */
 export const BRANDS_WE_CONSIGN_KEY = 'brands_we_consign';
 export const ITEM_CATEGORIES_KEY = 'item_categories';
 export const POSITIONS_KEY = 'positions';
-
-/** Dropdown options for inventory item authentication rating. */
 export const AUTHENTICATION_RATINGS_KEY = 'authentication_ratings';
+export const CONSIGNMENT_LIMIT_PER_DAY_KEY = 'consignment_limit_per_day';

@@ -13,6 +13,11 @@ import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
 import {
+  countScheduledInquiriesOnDay,
+  parseDailyLimit,
+  type ScheduleListRowForLimit,
+} from "../lib/consignment-daily-limit";
+import {
   branchLabel,
   modeOfTransferLabel,
   scheduleTypeLabel,
@@ -173,6 +178,16 @@ export function ConsignmentScheduleDetailPage() {
   const [rescheduleReasonText, setRescheduleReasonText] = useState("");
   const [rescheduleBusy, setRescheduleBusy] = useState(false);
   const [rescheduleError, setRescheduleError] = useState<string | null>(null);
+  const [rescheduleLimitConfirmOpen, setRescheduleLimitConfirmOpen] =
+    useState(false);
+  const [allSchedulesForLimit, setAllSchedulesForLimit] = useState<
+    ScheduleListRowForLimit[]
+  >([]);
+  const [rescheduleDailyLimit, setRescheduleDailyLimit] = useState<
+    number | null
+  >(null);
+  const [rescheduleCapacityLoading, setRescheduleCapacityLoading] =
+    useState(false);
 
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
@@ -275,6 +290,10 @@ export function ConsignmentScheduleDetailPage() {
     setRescheduleYmd(isoDeliveryToYmd(detail.deliveryDate));
     setRescheduleReasonText("");
     setRescheduleError(null);
+    setRescheduleLimitConfirmOpen(false);
+    setAllSchedulesForLimit([]);
+    setRescheduleDailyLimit(null);
+    setRescheduleCapacityLoading(true);
     setRescheduleOpen(true);
   }, [detail]);
 
@@ -282,26 +301,67 @@ export function ConsignmentScheduleDetailPage() {
     if (rescheduleBusy) return;
     setRescheduleOpen(false);
     setRescheduleError(null);
+    setRescheduleLimitConfirmOpen(false);
   }, [rescheduleBusy]);
 
   useEffect(() => {
     if (!rescheduleOpen) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !rescheduleBusy) closeReschedule();
+      if (
+        e.key === "Escape" &&
+        !rescheduleBusy &&
+        !rescheduleLimitConfirmOpen
+      ) {
+        closeReschedule();
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [rescheduleOpen, rescheduleBusy, closeReschedule]);
+  }, [
+    rescheduleOpen,
+    rescheduleBusy,
+    rescheduleLimitConfirmOpen,
+    closeReschedule,
+  ]);
 
-  const submitReschedule = useCallback(async () => {
-    if (!id || !token || !rescheduleYmd.trim()) {
-      setRescheduleError("Please select a delivery date.");
-      return;
-    }
-    if (!rescheduleReasonText.trim()) {
-      setRescheduleError("Please enter a reschedule reason.");
-      return;
-    }
+  useEffect(() => {
+    if (!rescheduleOpen || !token) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const [schedRes, limitRes] = await Promise.all([
+          apiFetch("/api/consignment-schedules", {}, token),
+          apiFetch("/api/settings/consignment_limit_per_day", {}, token),
+        ]);
+        if (cancelled) return;
+        if (schedRes.ok) {
+          const data = (await schedRes.json()) as ScheduleListRowForLimit[];
+          setAllSchedulesForLimit(Array.isArray(data) ? data : []);
+        } else {
+          setAllSchedulesForLimit([]);
+        }
+        if (limitRes.ok) {
+          const body = (await limitRes.json()) as { value?: string };
+          setRescheduleDailyLimit(parseDailyLimit(body?.value));
+        } else {
+          setRescheduleDailyLimit(null);
+        }
+      } catch {
+        if (!cancelled) {
+          setAllSchedulesForLimit([]);
+          setRescheduleDailyLimit(null);
+        }
+      } finally {
+        if (!cancelled) setRescheduleCapacityLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [rescheduleOpen, token]);
+
+  const executeReschedulePatch = useCallback(async () => {
+    if (!id || !token) return;
     setRescheduleError(null);
     setRescheduleBusy(true);
     try {
@@ -323,6 +383,7 @@ export function ConsignmentScheduleDetailPage() {
       const data = (await res.json()) as ConsignmentScheduleDetail;
       setDetail(data);
       setRescheduleOpen(false);
+      setRescheduleLimitConfirmOpen(false);
     } catch (e) {
       setRescheduleError(
         e instanceof Error ? e.message : "Could not reschedule.",
@@ -331,6 +392,58 @@ export function ConsignmentScheduleDetailPage() {
       setRescheduleBusy(false);
     }
   }, [id, token, rescheduleYmd, rescheduleReasonText]);
+
+  const submitReschedule = useCallback(() => {
+    if (!id || !token || !detail || !rescheduleYmd.trim()) {
+      setRescheduleError("Please select a delivery date.");
+      return;
+    }
+    if (!rescheduleReasonText.trim()) {
+      setRescheduleError("Please enter a reschedule reason.");
+      return;
+    }
+    setRescheduleError(null);
+
+    const movingCount =
+      typeof detail.inquiryCount === "number"
+        ? detail.inquiryCount
+        : detail.inquiries.length;
+    const otherOnNewDate = countScheduledInquiriesOnDay({
+      rows: allSchedulesForLimit,
+      dayKeyYmd: rescheduleYmd.trim(),
+      branch: detail.branch,
+      scheduleType: detail.type,
+      excludeScheduleId: detail.id,
+    });
+
+    if (
+      rescheduleDailyLimit != null &&
+      movingCount > 0 &&
+      otherOnNewDate + movingCount > rescheduleDailyLimit
+    ) {
+      setRescheduleLimitConfirmOpen(true);
+      return;
+    }
+    void executeReschedulePatch();
+  }, [
+    id,
+    token,
+    detail,
+    rescheduleYmd,
+    rescheduleReasonText,
+    allSchedulesForLimit,
+    rescheduleDailyLimit,
+    executeReschedulePatch,
+  ]);
+
+  const closeRescheduleLimitDialog = useCallback(() => {
+    setRescheduleLimitConfirmOpen(false);
+  }, []);
+
+  const confirmRescheduleDespiteDailyLimit = useCallback(() => {
+    setRescheduleLimitConfirmOpen(false);
+    void executeReschedulePatch();
+  }, [executeReschedulePatch]);
 
   const openReceived = useCallback(() => {
     if (!detail?.inquiries.length) return;
@@ -1161,7 +1274,7 @@ export function ConsignmentScheduleDetailPage() {
                 type="button"
                 className="absolute inset-0 bg-slate-900/50"
                 aria-label="Close"
-                disabled={rescheduleBusy}
+                disabled={rescheduleBusy || rescheduleLimitConfirmOpen}
                 onClick={closeReschedule}
               />
               <div className="relative z-10 w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-700 dark:bg-slate-900">
@@ -1186,10 +1299,11 @@ export function ConsignmentScheduleDetailPage() {
                     id={reschedulePickerId}
                     value={rescheduleYmd}
                     onChange={setRescheduleYmd}
-                    disabled={rescheduleBusy}
+                    disabled={rescheduleBusy || rescheduleCapacityLoading}
                     triggerClassName={dateTriggerClass}
                     placeholder="Select date"
                     dialogAriaLabel="Choose new delivery date"
+                    disablePast
                   />
                 </div>
                 <div className="mt-4">
@@ -1204,13 +1318,18 @@ export function ConsignmentScheduleDetailPage() {
                     id={rescheduleReasonId}
                     value={rescheduleReasonText}
                     onChange={(e) => setRescheduleReasonText(e.target.value)}
-                    disabled={rescheduleBusy}
+                    disabled={rescheduleBusy || rescheduleCapacityLoading}
                     rows={4}
                     required
                     placeholder="e.g. Client requested a different date…"
                     className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
                   />
                 </div>
+                {rescheduleCapacityLoading ? (
+                  <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+                    Loading daily capacity…
+                  </p>
+                ) : null}
                 {rescheduleError ? (
                   <p
                     className="mt-3 text-sm text-red-600 dark:text-red-400"
@@ -1223,7 +1342,7 @@ export function ConsignmentScheduleDetailPage() {
                   <button
                     type="button"
                     className={btnSecondary}
-                    disabled={rescheduleBusy}
+                    disabled={rescheduleBusy || rescheduleCapacityLoading}
                     onClick={closeReschedule}
                   >
                     Cancel
@@ -1231,8 +1350,8 @@ export function ConsignmentScheduleDetailPage() {
                   <button
                     type="button"
                     className="inline-flex items-center justify-center rounded-lg bg-violet-600 px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-violet-700 disabled:opacity-50 dark:bg-violet-600 dark:hover:bg-violet-500"
-                    disabled={rescheduleBusy}
-                    onClick={() => void submitReschedule()}
+                    disabled={rescheduleBusy || rescheduleCapacityLoading}
+                    onClick={() => submitReschedule()}
                   >
                     {rescheduleBusy ? "Saving…" : "Save"}
                   </button>
@@ -1242,6 +1361,17 @@ export function ConsignmentScheduleDetailPage() {
             document.body,
           )
         : null}
+
+      <ConfirmDialog
+        open={rescheduleLimitConfirmOpen}
+        title="Daily limit exceeded"
+        description="You have exceeded the daily consignment limit for this date and branch. Still wish to proceed?"
+        cancelLabel="Go back"
+        confirmLabel="Proceed anyway"
+        busy={rescheduleBusy}
+        onCancel={closeRescheduleLimitDialog}
+        onConfirm={confirmRescheduleDespiteDailyLimit}
+      />
 
       <ConfirmDialog
         open={deleteOpen}

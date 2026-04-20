@@ -1,7 +1,4 @@
-import {
-  createColumnHelper,
-  type CellContext,
-} from "@tanstack/react-table";
+import { createColumnHelper, type CellContext } from "@tanstack/react-table";
 import { format } from "date-fns";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { DataTable } from "./data-table/DataTable";
@@ -18,8 +15,14 @@ import {
   type ScheduleKind,
   scheduleTypeLabel,
 } from "../lib/consignment-schedule-labels";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { InquiryStatusBadge } from "./InquiryStatusBadge";
 import { formatOfferTransactionLabel } from "../lib/format-offer-transaction-type";
+import {
+  countScheduledInquiriesOnDay,
+  parseDailyLimit,
+  type ScheduleListRowForLimit,
+} from "../lib/consignment-daily-limit";
 import { formatPhpDisplay } from "../lib/format-php";
 
 type WizardInquiryRow = {
@@ -81,12 +84,18 @@ export function CreateScheduleWizard({ onScheduleSaved }: Props) {
   const [inquiries, setInquiries] = useState<WizardInquiryRow[]>([]);
   const [inquiryLoading, setInquiryLoading] = useState(false);
   const [inquiryError, setInquiryError] = useState<string | null>(null);
+  const [scheduleRowsForLimit, setScheduleRowsForLimit] = useState<
+    ScheduleListRowForLimit[]
+  >([]);
+  const [dailyLimit, setDailyLimit] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   const [step1Error, setStep1Error] = useState<string | null>(null);
   const [step2Error, setStep2Error] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveLoading, setSaveLoading] = useState(false);
+  const [limitExceededDialogOpen, setLimitExceededDialogOpen] =
+    useState(false);
 
   useEffect(() => {
     if (scheduleKind === "delivery") {
@@ -103,24 +112,47 @@ export function CreateScheduleWizard({ onScheduleSaved }: Props) {
   const modeOptions =
     scheduleKind === "delivery" ? DELIVERY_MODE_OPTIONS : PULLOUT_MODE_OPTIONS;
 
-  const loadInquiries = useCallback(async () => {
+  const loadStep2Data = useCallback(async () => {
     setInquiryError(null);
     setInquiryLoading(true);
-    const status =
-      scheduleKind === "delivery" ? "for_delivery" : "for_pullout";
+    const status = scheduleKind === "delivery" ? "for_delivery" : "for_pullout";
     try {
-      const res = await apiFetch(
-        `/api/inquiries?status=${encodeURIComponent(status)}`,
+      const [inqRes, schedRes] = await Promise.all([
+        apiFetch(
+          `/api/inquiries?status=${encodeURIComponent(status)}`,
+          {},
+          token,
+        ),
+        apiFetch("/api/consignment-schedules", {}, token),
+      ]);
+      if (!inqRes.ok) {
+        throw new Error(await readApiErrorMessage(inqRes));
+      }
+      if (!schedRes.ok) {
+        throw new Error(await readApiErrorMessage(schedRes));
+      }
+      const inqData = (await inqRes.json()) as WizardInquiryRow[];
+      const schedData = (await schedRes.json()) as ScheduleListRowForLimit[];
+      setInquiries(Array.isArray(inqData) ? inqData : []);
+      setScheduleRowsForLimit(Array.isArray(schedData) ? schedData : []);
+
+      const limitRes = await apiFetch(
+        "/api/settings/consignment_limit_per_day",
         {},
         token,
       );
-      if (!res.ok) throw new Error(`Request failed (${res.status})`);
-      const data = (await res.json()) as WizardInquiryRow[];
-      setInquiries(Array.isArray(data) ? data : []);
+      if (limitRes.ok) {
+        const body = (await limitRes.json()) as { value?: string };
+        setDailyLimit(parseDailyLimit(body?.value));
+      } else {
+        setDailyLimit(null);
+      }
     } catch (e) {
       setInquiries([]);
+      setScheduleRowsForLimit([]);
+      setDailyLimit(null);
       setInquiryError(
-        e instanceof Error ? e.message : "Failed to load inquiries",
+        e instanceof Error ? e.message : "Failed to load step data",
       );
     } finally {
       setInquiryLoading(false);
@@ -129,8 +161,8 @@ export function CreateScheduleWizard({ onScheduleSaved }: Props) {
 
   useEffect(() => {
     if (step !== 2) return;
-    void loadInquiries();
-  }, [step, loadInquiries]);
+    void loadStep2Data();
+  }, [step, loadStep2Data, deliveryDate, branch, scheduleKind]);
 
   const toggleId = useCallback((id: string, checked: boolean) => {
     setSelectedIds((prev) => {
@@ -154,16 +186,30 @@ export function CreateScheduleWizard({ onScheduleSaved }: Props) {
   );
 
   const allSelected =
-    inquiries.length > 0 &&
-    inquiries.every((r) => selectedIds.includes(r.id));
+    inquiries.length > 0 && inquiries.every((r) => selectedIds.includes(r.id));
 
   const selectedRows = useMemo(() => {
     const set = new Set(selectedIds);
     return inquiries.filter((r) => set.has(r.id));
   }, [inquiries, selectedIds]);
 
-  const canAdvanceFromStep1 =
-    deliveryDate.trim() !== "" && mode !== "";
+  const scheduledConsignmentCount = useMemo(() => {
+    const dayKey = deliveryDate.trim();
+    if (!dayKey) return 0;
+    return countScheduledInquiriesOnDay({
+      rows: scheduleRowsForLimit,
+      dayKeyYmd: dayKey,
+      branch,
+      scheduleType: scheduleKind,
+    });
+  }, [scheduleRowsForLimit, deliveryDate, branch, scheduleKind]);
+
+  const availableSlots =
+    dailyLimit != null
+      ? Math.max(0, dailyLimit - scheduledConsignmentCount)
+      : null;
+
+  const canAdvanceFromStep1 = deliveryDate.trim() !== "" && mode !== "";
 
   const canAdvanceFromStep2 = selectedIds.length > 0;
 
@@ -185,8 +231,26 @@ export function CreateScheduleWizard({ onScheduleSaved }: Props) {
       setStep2Error("Select at least one inquiry to continue.");
       return;
     }
+    const n = selectedIds.length;
+    if (
+      dailyLimit != null &&
+      n > 0 &&
+      scheduledConsignmentCount + n > dailyLimit
+    ) {
+      setLimitExceededDialogOpen(true);
+      return;
+    }
     setStep(3);
   };
+
+  const closeLimitExceededDialog = useCallback(() => {
+    setLimitExceededDialogOpen(false);
+  }, []);
+
+  const confirmProceedOverDailyLimit = useCallback(() => {
+    setLimitExceededDialogOpen(false);
+    setStep(3);
+  }, []);
 
   useEffect(() => {
     if (selectedIds.length > 0) setStep2Error(null);
@@ -333,6 +397,15 @@ export function CreateScheduleWizard({ onScheduleSaved }: Props) {
 
   return (
     <div className="max-w-3xl">
+      <ConfirmDialog
+        open={limitExceededDialogOpen}
+        title="Daily limit exceeded"
+        description="You have exceeded the daily consignment limit for this date and branch. Still wish to proceed?"
+        cancelLabel="Go back"
+        confirmLabel="Proceed anyway"
+        onCancel={closeLimitExceededDialog}
+        onConfirm={confirmProceedOverDailyLimit}
+      />
       <p className="mb-4 text-sm text-slate-600 dark:text-slate-400">
         Step {step} of 3 — Create schedule
       </p>
@@ -357,9 +430,7 @@ export function CreateScheduleWizard({ onScheduleSaved }: Props) {
             <select
               id="sched-type"
               value={scheduleKind}
-              onChange={(e) =>
-                setScheduleKind(e.target.value as ScheduleKind)
-              }
+              onChange={(e) => setScheduleKind(e.target.value as ScheduleKind)}
               className={inputSelectClass}
             >
               <option value="delivery">Delivery</option>
@@ -428,13 +499,49 @@ export function CreateScheduleWizard({ onScheduleSaved }: Props) {
           <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">
             Select inquiry items
           </h2>
-          <p className="text-sm text-slate-600 dark:text-slate-400">
-            Showing inquiries with status{" "}
-            <span className="font-medium text-slate-800 dark:text-slate-200">
-              {scheduleKind === "delivery" ? "For Delivery" : "For Pullout"}
-            </span>
-            . Select one or more rows.
-          </p>
+          {deliveryDate.trim() !== "" && (
+            <div className="rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-3 text-sm dark:border-slate-700 dark:bg-slate-950/40">
+              <p className="font-medium text-slate-800 dark:text-slate-200">
+                {deliveryDateLabel} · {branchLabel(branch)} ·{" "}
+                {scheduleTypeLabel(scheduleKind)}
+              </p>
+              <dl className="mt-2 flex flex-wrap items-baseline gap-x-5 gap-y-1 text-sm">
+                <div className="flex items-baseline gap-1.5">
+                  <dt className="shrink-0 text-slate-500 dark:text-slate-400">
+                    Scheduled consignments
+                  </dt>
+                  <dd className="font-semibold tabular-nums text-slate-900 dark:text-slate-100">
+                    {inquiryLoading ? "…" : scheduledConsignmentCount}
+                  </dd>
+                </div>
+                {dailyLimit != null ? (
+                  <>
+                    <div className="flex items-baseline gap-1.5">
+                      <dt className="shrink-0 text-slate-500 dark:text-slate-400">
+                        Daily limit
+                      </dt>
+                      <dd className="font-semibold tabular-nums text-slate-900 dark:text-slate-100">
+                        {inquiryLoading ? "…" : dailyLimit}
+                      </dd>
+                    </div>
+                    <div className="flex items-baseline gap-1.5">
+                      <dt className="shrink-0 text-slate-500 dark:text-slate-400">
+                        Available
+                      </dt>
+                      <dd className="font-semibold tabular-nums text-violet-800 dark:text-violet-200">
+                        {inquiryLoading ? "…" : availableSlots}
+                      </dd>
+                    </div>
+                  </>
+                ) : (
+                  <div className="min-w-0 text-slate-600 dark:text-slate-400">
+                    No daily limit is configured (setting missing or invalid).
+                    You can still create the schedule.
+                  </div>
+                )}
+              </dl>
+            </div>
+          )}
           {step2Error && (
             <p
               className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100"

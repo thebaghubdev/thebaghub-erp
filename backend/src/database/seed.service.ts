@@ -8,6 +8,7 @@ import { UserType } from '../enums/user-type.enum';
 import {
   AUTHENTICATION_RATINGS_KEY,
   BRANDS_WE_CONSIGN_KEY,
+  CONSIGNMENT_LIMIT_PER_DAY_KEY,
   ITEM_CATEGORIES_KEY,
   POSITIONS_KEY,
 } from '../settings/consignment-setting-keys';
@@ -125,6 +126,15 @@ export class SeedService implements OnModuleInit {
         type: 'string[]',
         value:
           '["Brand new","Unused","Pristine (10)","Excellent (9.9)","Very good (9.8)","Good (9.7)","Fair (9.6)"]',
+      },
+      {
+        key: CONSIGNMENT_LIMIT_PER_DAY_KEY,
+        title: 'Consignment limit per day',
+        description:
+          'Maximum number of consignments we can accommodate per day.',
+        category: 'Consignment',
+        type: 'number',
+        value: '10',
       },
     ];
 
