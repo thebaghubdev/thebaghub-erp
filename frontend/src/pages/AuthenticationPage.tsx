@@ -13,10 +13,13 @@ import { ItemAuthenticationStatusBadge } from "../components/ItemAuthenticationS
 
 const FOR_AUTHENTICATION_STATUS = "For Authentication";
 const FOR_PHOTOSHOOT_STATUS = "For Photoshoot";
+/** Matches `AUTHENTICATED_RETURNED_INVENTORY_STATUS` after return-to-coordinator. */
+const AUTHENTICATED_RETURNED_INVENTORY_STATUS = "Authenticated: Returned";
 
 const AUTHENTICATE_ITEMS_QUEUE_STATUSES = new Set([
   FOR_AUTHENTICATION_STATUS,
   FOR_PHOTOSHOOT_STATUS,
+  AUTHENTICATED_RETURNED_INVENTORY_STATUS,
 ]);
 
 const ITEM_CATEGORIES_KEY = "item_categories";
@@ -726,7 +729,7 @@ export function AuthenticationPage() {
             data={rows}
             columns={authQueueColumns}
             isLoading={loading}
-            emptyMessage="No items in For Authentication or For Photoshoot."
+            emptyMessage="No items in For Authentication, For Photoshoot, or Authenticated: Returned."
             hideEmptyState={!!error}
             searchPlaceholder="Search items…"
             getRowId={(r) => r.id}

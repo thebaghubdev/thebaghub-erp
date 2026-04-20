@@ -34,6 +34,18 @@ type InquiryAuditRow = {
   updatedAt: string;
 };
 
+type AuthenticatedReturnDetail = {
+  authenticationSummary: Array<{
+    metric: string;
+    metricStatus: string | null;
+    notes: string | null;
+  }>;
+  priceRangeMin: string | null;
+  priceRangeMax: string | null;
+  returnReasons: string | null;
+  returnPhotoUrls: string[];
+};
+
 type InquiryDetail = {
   id: string;
   sku: string;
@@ -69,6 +81,7 @@ type InquiryDetail = {
     form: Record<string, unknown>;
     images: Array<{ key: string; url: string }>;
   };
+  authenticatedReturnDetail?: AuthenticatedReturnDetail;
 };
 
 function canShowStaffActions(status: string): boolean {
@@ -156,6 +169,30 @@ function meaningfulSellingPrice(v: unknown): string | null {
 
 function yesNo(v: unknown): string {
   return v === true || v === "true" ? "Yes" : "No";
+}
+
+function isAuthenticatedReturnedStatus(status: string): boolean {
+  return status.trim().toLowerCase() === "authenticated_returned";
+}
+
+function authMetricVerdictLabel(v: string | null): string {
+  if (v === "pass") return "Passed";
+  if (v === "fail") return "Failed";
+  if (v === "skip") return "Skipped";
+  return "—";
+}
+
+function formatSuggestedPriceRange(ar: AuthenticatedReturnDetail): string {
+  const hasMin =
+    ar.priceRangeMin != null && String(ar.priceRangeMin).trim() !== "";
+  const hasMax =
+    ar.priceRangeMax != null && String(ar.priceRangeMax).trim() !== "";
+  if (!hasMin && !hasMax) return "—";
+  if (hasMin && hasMax) {
+    return `${formatPhpDisplay(ar.priceRangeMin)} – ${formatPhpDisplay(ar.priceRangeMax)}`;
+  }
+  if (hasMin) return formatPhpDisplay(ar.priceRangeMin);
+  return formatPhpDisplay(ar.priceRangeMax);
 }
 
 const cardClass =
@@ -670,6 +707,127 @@ export function InquiryDetailPage() {
                 </div>
               ) : null}
             </dl>
+
+            {isAuthenticatedReturnedStatus(detail.status) &&
+            detail.authenticatedReturnDetail ? (
+              <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50/80 p-4 text-sm dark:border-amber-900/50 dark:bg-amber-950/25">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-amber-900 dark:text-amber-200">
+                  Authentication return
+                </h3>
+                <div className="mt-3 space-y-4 text-slate-800 dark:text-slate-200">
+                  <div>
+                    <p className="text-xs font-medium text-slate-600 dark:text-slate-400">
+                      Authentication result summary
+                    </p>
+                    {detail.authenticatedReturnDetail.authenticationSummary
+                      .length === 0 ? (
+                      <p className="mt-1 text-slate-600 dark:text-slate-400">
+                        No metric checklist entries with pass, fail, skip, or
+                        notes.
+                      </p>
+                    ) : (
+                      <ul className="mt-2 list-outside list-disc space-y-2 pl-5">
+                        {detail.authenticatedReturnDetail.authenticationSummary.map(
+                          (row, idx) => (
+                            <li key={`${row.metric}-${idx}`} className="pl-1">
+                              <span className="font-medium text-slate-900 dark:text-slate-100">
+                                {row.metric}
+                              </span>
+                              <span className="text-slate-600 dark:text-slate-400">
+                                {": "}
+                              </span>
+                              {row.metricStatus != null ? (
+                                <span
+                                  className={
+                                    row.metricStatus === "pass"
+                                      ? "font-semibold text-emerald-700 dark:text-emerald-400"
+                                      : row.metricStatus === "fail"
+                                        ? "font-semibold text-red-700 dark:text-red-400"
+                                        : "font-medium text-slate-800 dark:text-slate-200"
+                                  }
+                                >
+                                  {authMetricVerdictLabel(row.metricStatus)}
+                                </span>
+                              ) : null}
+                              {row.metricStatus != null && row.notes ? (
+                                <span className="text-slate-500 dark:text-slate-400">
+                                  {", "}
+                                </span>
+                              ) : null}
+                              {row.notes ? (
+                                <span className="whitespace-pre-wrap text-slate-700 dark:text-slate-300">
+                                  {row.notes}
+                                </span>
+                              ) : null}
+                            </li>
+                          ),
+                        )}
+                      </ul>
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-slate-600 dark:text-slate-400">
+                      Suggested price range
+                    </p>
+                    <p className="mt-1 tabular-nums font-medium text-slate-900 dark:text-slate-100">
+                      {formatSuggestedPriceRange(
+                        detail.authenticatedReturnDetail,
+                      )}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-slate-600 dark:text-slate-400">
+                      Reasons for returning
+                    </p>
+                    {detail.authenticatedReturnDetail.returnReasons ? (
+                      <p className="mt-1 whitespace-pre-wrap text-slate-800 dark:text-slate-200">
+                        {detail.authenticatedReturnDetail.returnReasons}
+                      </p>
+                    ) : (
+                      <p className="mt-1 text-slate-500 dark:text-slate-400">
+                        —
+                      </p>
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-slate-600 dark:text-slate-400">
+                      Flaw photos
+                    </p>
+                    {detail.authenticatedReturnDetail.returnPhotoUrls.length ===
+                    0 ? (
+                      <p className="mt-1 text-slate-500 dark:text-slate-400">
+                        —
+                      </p>
+                    ) : (
+                      <ul className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                        {detail.authenticatedReturnDetail.returnPhotoUrls.map(
+                          (url, i) => (
+                            <li
+                              key={`${url}-${i}`}
+                              className="overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-600 dark:bg-slate-900"
+                            >
+                              <a
+                                href={url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="block"
+                              >
+                                <img
+                                  src={url}
+                                  alt={`Flaw photo ${i + 1}`}
+                                  className="h-32 w-full object-cover"
+                                  loading="lazy"
+                                />
+                              </a>
+                            </li>
+                          ),
+                        )}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : null}
           </div>
 
           <div className={cardClass}>

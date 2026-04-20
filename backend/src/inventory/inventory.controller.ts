@@ -14,6 +14,7 @@ import { JwtUser } from '../auth/jwt-user';
 import { StaffOnlyGuard } from '../auth/staff-only.guard';
 import { BatchAssignAuthenticatorDto } from './dto/batch-assign-authenticator.dto';
 import { SaveItemAuthenticationMetricsDto } from './dto/save-item-authentication-metrics.dto';
+import { ReturnToCoordinatorDto } from './dto/return-to-coordinator.dto';
 import { InventoryService } from './inventory.service';
 
 @Controller('inventory')
@@ -72,6 +73,19 @@ export class InventoryController {
     @Req() req: { user: JwtUser },
   ) {
     return this.inventoryService.approveAuthenticationForInventoryItem(id, {
+      userId: req.user.userId,
+      isAdmin: req.user.isAdmin,
+    });
+  }
+
+  @Post(':id/return-to-coordinator')
+  @HttpCode(HttpStatus.OK)
+  returnToCoordinator(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ReturnToCoordinatorDto,
+    @Req() req: { user: JwtUser },
+  ) {
+    return this.inventoryService.returnToCoordinatorForInventoryItem(id, dto, {
       userId: req.user.userId,
       isAdmin: req.user.isAdmin,
     });

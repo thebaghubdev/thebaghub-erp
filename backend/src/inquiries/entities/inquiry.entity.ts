@@ -103,6 +103,34 @@ export class Inquiry extends AuditedEntity {
   @Column({ name: 'contract_expiration_date', type: 'date', nullable: true })
   contractExpirationDate: Date | null;
 
+  /** Authenticator return-to-coordinator narrative (issues, flaws, damages, etc.). */
+  @Column({ name: 'return_reasons', type: 'text', nullable: true })
+  returnReasons: string | null;
+
+  /** S3 object keys for photos attached to an authenticator return. */
+  @Column({ name: 'return_photos', type: 'jsonb', nullable: true })
+  returnPhotos: string[] | null;
+
+  /** Optional suggested price range lower bound (PHP). */
+  @Column({
+    name: 'price_range_min',
+    type: 'numeric',
+    precision: 12,
+    scale: 2,
+    nullable: true,
+  })
+  priceRangeMin: string | null;
+
+  /** Optional suggested price range upper bound (PHP). */
+  @Column({
+    name: 'price_range_max',
+    type: 'numeric',
+    precision: 12,
+    scale: 2,
+    nullable: true,
+  })
+  priceRangeMax: string | null;
+
   /** One line item per inquiry row (form + uploaded image locations). */
   @Column({ type: 'jsonb', name: 'item_snapshot' })
   itemSnapshot: InquiryItemSnapshot;

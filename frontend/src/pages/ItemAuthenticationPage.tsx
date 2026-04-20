@@ -17,6 +17,7 @@ import {
 import { PhpPriceInput } from "../components/PhpPriceInput";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
+import { formatPhpDisplay, parsePhpStringToNumber } from "../lib/format-php";
 import {
   type AuthenticationMetricApi,
   filterMetricsForItem,
@@ -69,6 +70,8 @@ type ItemAuthenticationPayload = {
   status: string;
   assignedToEmployeeId: string | null;
   assignedToName: string | null;
+  /** Staff offer on linked inquiry; null when missing or no inquiry. */
+  inquiryOfferPrice: string | null;
   itemSnapshot: {
     form: Record<string, unknown>;
   };
@@ -207,6 +210,28 @@ export function ItemAuthenticationPage() {
     null,
   );
   const approveModalTitleId = useId();
+
+  type ReturnCoordinatorPreview = {
+    id: string;
+    file: File;
+    url: string;
+  };
+  const [returnCoordinatorModalOpen, setReturnCoordinatorModalOpen] =
+    useState(false);
+  const [returnCoordinatorReason, setReturnCoordinatorReason] = useState("");
+  const [returnCoordinatorIssuePreviews, setReturnCoordinatorIssuePreviews] =
+    useState<ReturnCoordinatorPreview[]>([]);
+  const returnCoordinatorFileInputRef = useRef<HTMLInputElement>(null);
+  const returnCoordinatorPreviewsRef = useRef<ReturnCoordinatorPreview[]>([]);
+  const returnCoordinatorModalTitleId = useId();
+  returnCoordinatorPreviewsRef.current = returnCoordinatorIssuePreviews;
+  const [returnCoordinatorPriceFrom, setReturnCoordinatorPriceFrom] =
+    useState("");
+  const [returnCoordinatorPriceTo, setReturnCoordinatorPriceTo] = useState("");
+  const [returnCoordinatorBusy, setReturnCoordinatorBusy] = useState(false);
+  const [returnCoordinatorError, setReturnCoordinatorError] = useState<
+    string | null
+  >(null);
 
   const [authRatings, setAuthRatings] = useState<string[]>([]);
   const [authRatingsLoading, setAuthRatingsLoading] = useState(true);
@@ -575,6 +600,136 @@ export function ItemAuthenticationPage() {
     }
   }, [token, id, load]);
 
+  const closeReturnCoordinatorModal = useCallback(() => {
+    setReturnCoordinatorIssuePreviews((prev) => {
+      for (const p of prev) URL.revokeObjectURL(p.url);
+      return [];
+    });
+    setReturnCoordinatorReason("");
+    setReturnCoordinatorPriceFrom("");
+    setReturnCoordinatorPriceTo("");
+    setReturnCoordinatorError(null);
+    setReturnCoordinatorModalOpen(false);
+  }, []);
+
+  const openReturnCoordinatorModal = useCallback(() => {
+    setReturnCoordinatorIssuePreviews((prev) => {
+      for (const p of prev) URL.revokeObjectURL(p.url);
+      return [];
+    });
+    setReturnCoordinatorReason("");
+    setReturnCoordinatorPriceFrom("");
+    setReturnCoordinatorPriceTo("");
+    setReturnCoordinatorError(null);
+    setReturnCoordinatorModalOpen(true);
+  }, []);
+
+  const submitReturnToCoordinator = useCallback(async () => {
+    if (!token || !id) return;
+    setReturnCoordinatorError(null);
+    const nFrom = parsePhpStringToNumber(returnCoordinatorPriceFrom);
+    const nTo = parsePhpStringToNumber(returnCoordinatorPriceTo);
+    if (
+      (returnCoordinatorPriceFrom.trim() !== "" && nFrom == null) ||
+      (returnCoordinatorPriceTo.trim() !== "" && nTo == null)
+    ) {
+      setReturnCoordinatorError(
+        "Enter valid amounts for the suggested price range, or leave both empty.",
+      );
+      return;
+    }
+    if (nFrom != null && nTo != null && nFrom > nTo) {
+      setReturnCoordinatorError(
+        "Suggested range: minimum cannot be greater than maximum.",
+      );
+      return;
+    }
+    setReturnCoordinatorBusy(true);
+    try {
+      const files = returnCoordinatorIssuePreviews.map((p) => p.file);
+      const dataUrls = files.length > 0 ? await filesToDataUrls(files) : [];
+      const body: Record<string, unknown> = {};
+      const r = returnCoordinatorReason.trim();
+      if (r !== "") body.returnReasons = r;
+      if (nFrom != null) body.priceRangeMin = nFrom.toFixed(2);
+      if (nTo != null) body.priceRangeMax = nTo.toFixed(2);
+      if (dataUrls.length > 0) body.returnPhotos = dataUrls;
+
+      const res = await apiFetch(
+        `/api/inventory/${id}/return-to-coordinator`,
+        { method: "POST", body: JSON.stringify(body) },
+        token,
+      );
+      if (!res.ok) {
+        throw new Error(await readApiErrorMessage(res));
+      }
+      closeReturnCoordinatorModal();
+      await load();
+    } catch (e) {
+      setReturnCoordinatorError(
+        e instanceof Error ? e.message : "Could not submit return",
+      );
+    } finally {
+      setReturnCoordinatorBusy(false);
+    }
+  }, [
+    token,
+    id,
+    returnCoordinatorReason,
+    returnCoordinatorPriceFrom,
+    returnCoordinatorPriceTo,
+    returnCoordinatorIssuePreviews,
+    closeReturnCoordinatorModal,
+    load,
+  ]);
+
+  const addReturnCoordinatorImageFiles = useCallback(
+    (list: FileList | File[]) => {
+      const images = Array.from(list).filter((f) => /^image\//u.test(f.type));
+      if (images.length === 0) return;
+      setReturnCoordinatorIssuePreviews((prev) => {
+        const added = images.map((file) => ({
+          id: crypto.randomUUID(),
+          file,
+          url: URL.createObjectURL(file),
+        }));
+        return [...prev, ...added];
+      });
+    },
+    [],
+  );
+
+  const removeReturnCoordinatorPreview = useCallback((previewId: string) => {
+    setReturnCoordinatorIssuePreviews((prev) => {
+      const target = prev.find((p) => p.id === previewId);
+      if (target) URL.revokeObjectURL(target.url);
+      return prev.filter((p) => p.id !== previewId);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!returnCoordinatorModalOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !returnCoordinatorBusy) {
+        closeReturnCoordinatorModal();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [
+    returnCoordinatorModalOpen,
+    returnCoordinatorBusy,
+    closeReturnCoordinatorModal,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      for (const p of returnCoordinatorPreviewsRef.current) {
+        URL.revokeObjectURL(p.url);
+      }
+    };
+  }, []);
+
   const saveChanges = useCallback(async () => {
     if (!token || !id || !canEditMetrics) return;
     setSaveBusy(true);
@@ -647,9 +802,7 @@ export function ItemAuthenticationPage() {
       }
       await load();
     } catch (e) {
-      setSaveError(
-        e instanceof Error ? e.message : "Could not save changes",
-      );
+      setSaveError(e instanceof Error ? e.message : "Could not save changes");
     } finally {
       setSaveBusy(false);
     }
@@ -724,6 +877,17 @@ export function ItemAuthenticationPage() {
           </p>
           <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
             <span className="font-medium text-slate-700 dark:text-slate-300">
+              Offer price:
+            </span>{" "}
+            <span className="tabular-nums text-slate-800 dark:text-slate-200">
+              {detail.inquiryOfferPrice != null &&
+              detail.inquiryOfferPrice !== ""
+                ? formatPhpDisplay(detail.inquiryOfferPrice)
+                : "—"}
+            </span>
+          </p>
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+            <span className="font-medium text-slate-700 dark:text-slate-300">
               Assigned to:
             </span>{" "}
             {detail.assignedToName ?? "—"}
@@ -754,28 +918,52 @@ export function ItemAuthenticationPage() {
         </p>
       ) : null}
 
-      <div className="flex flex-wrap justify-end gap-3">
-        {canEditMetrics && isDirty ? (
-          <button
-            type="button"
-            onClick={() => void saveChanges()}
-            disabled={saveBusy}
-            className="shrink-0 rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-violet-700 disabled:opacity-50"
-          >
-            {saveBusy ? "Saving…" : "Save changes"}
-          </button>
-        ) : null}
-        {canEditMetrics &&
-        detail.status === FOR_AUTHENTICATION_INVENTORY_STATUS ? (
-          <button
-            type="button"
-            onClick={() => tryOpenApproveModal()}
-            disabled={saveBusy || approveBusy}
-            className="shrink-0 rounded-lg border border-emerald-600 bg-white px-4 py-2 text-sm font-medium text-emerald-800 shadow-sm hover:bg-emerald-50 disabled:opacity-50 dark:border-emerald-500 dark:bg-slate-900 dark:text-emerald-200 dark:hover:bg-emerald-950/40"
-          >
-            Approve
-          </button>
-        ) : null}
+      <div className="flex w-full flex-wrap items-center gap-3">
+        <div className="flex min-w-0 flex-wrap gap-3">
+          {canEditMetrics && isDirty ? (
+            <button
+              type="button"
+              onClick={() => void saveChanges()}
+              disabled={saveBusy}
+              className="shrink-0 rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-violet-700 disabled:opacity-50"
+            >
+              {saveBusy ? "Saving…" : "Save changes"}
+            </button>
+          ) : null}
+        </div>
+        <div className="flex min-w-0 flex-1 flex-wrap justify-end gap-3">
+          {canEditMetrics &&
+          detail.status === FOR_AUTHENTICATION_INVENTORY_STATUS ? (
+            <>
+              <button
+                type="button"
+                onClick={() => tryOpenApproveModal()}
+                disabled={
+                  saveBusy ||
+                  approveBusy ||
+                  returnCoordinatorModalOpen ||
+                  returnCoordinatorBusy
+                }
+                className="shrink-0 rounded-lg border border-emerald-600 bg-white px-4 py-2 text-sm font-medium text-emerald-800 shadow-sm hover:bg-emerald-50 disabled:opacity-50 dark:border-emerald-500 dark:bg-slate-900 dark:text-emerald-200 dark:hover:bg-emerald-950/40"
+              >
+                Approve
+              </button>
+              <button
+                type="button"
+                onClick={() => openReturnCoordinatorModal()}
+                disabled={
+                  saveBusy ||
+                  approveBusy ||
+                  approveModalOpen ||
+                  returnCoordinatorBusy
+                }
+                className="shrink-0 rounded-lg border border-amber-600 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-950 shadow-sm hover:bg-amber-100 disabled:opacity-50 dark:border-amber-500 dark:bg-amber-950/40 dark:text-amber-100 dark:hover:bg-amber-950/70"
+              >
+                Return to coordinator
+              </button>
+            </>
+          ) : null}
+        </div>
       </div>
 
       {approveModalOpen && typeof document !== "undefined"
@@ -805,8 +993,9 @@ export function ItemAuthenticationPage() {
                   </h2>
                   <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
                     Metrics with a pass, fail, skip, or notes. Confirming sets
-                    this item to <span className="font-medium">For Photoshoot</span>{" "}
-                    and updates contract dates on the linked inquiry when
+                    this item to{" "}
+                    <span className="font-medium">For Photoshoot</span> and
+                    updates contract dates on the linked inquiry when
                     applicable.
                   </p>
                 </div>
@@ -879,6 +1068,269 @@ export function ItemAuthenticationPage() {
                       className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50 dark:bg-emerald-600 dark:hover:bg-emerald-500"
                     >
                       {approveBusy ? "Approving…" : "Confirm approval"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+
+      {returnCoordinatorModalOpen && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-[100] flex items-end justify-center p-4 sm:items-center"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby={returnCoordinatorModalTitleId}
+            >
+              <button
+                type="button"
+                className="absolute inset-0 bg-slate-900/50"
+                aria-label="Close"
+                disabled={returnCoordinatorBusy}
+                onClick={() => {
+                  if (!returnCoordinatorBusy) closeReturnCoordinatorModal();
+                }}
+              />
+              <div className="relative z-10 flex max-h-[min(92vh,44rem)] w-full max-w-lg flex-col rounded-2xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900">
+                <div className="shrink-0 border-b border-slate-100 px-5 py-4 dark:border-slate-800">
+                  <h2
+                    id={returnCoordinatorModalTitleId}
+                    className="text-base font-semibold text-slate-900 dark:text-slate-100"
+                  >
+                    Return to coordinator
+                  </h2>
+                  <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+                    Review metrics, add context and optional suggested pricing,
+                    then submit. Issue photos are uploaded when you submit.
+                  </p>
+                </div>
+                <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-4">
+                  <div>
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                      Metric summary
+                    </h3>
+                    {approveSummaryRows.length === 0 ? (
+                      <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+                        No metrics with a pass, fail, skip, or notes yet.
+                      </p>
+                    ) : (
+                      <ul className="mt-2 list-outside list-disc space-y-2 pl-5 text-sm text-slate-800 dark:text-slate-200">
+                        {approveSummaryRows.map((row) => (
+                          <li key={row.id} className="pl-1">
+                            <span className="font-medium text-slate-900 dark:text-slate-100">
+                              {row.metric}
+                            </span>
+                            <span className="text-slate-600 dark:text-slate-400">
+                              {": "}
+                            </span>
+                            {row.metricStatus != null ? (
+                              <span
+                                className={
+                                  row.metricStatus === "pass"
+                                    ? "font-semibold text-emerald-700 dark:text-emerald-400"
+                                    : row.metricStatus === "fail"
+                                      ? "font-semibold text-red-700 dark:text-red-400"
+                                      : "font-medium text-slate-800 dark:text-slate-200"
+                                }
+                              >
+                                {verdictLabel(row.metricStatus)}
+                              </span>
+                            ) : null}
+                            {row.metricStatus != null && row.notes ? (
+                              <span className="text-slate-500 dark:text-slate-400">
+                                {", "}
+                              </span>
+                            ) : null}
+                            {row.notes ? (
+                              <span className="whitespace-pre-wrap text-slate-700 dark:text-slate-300">
+                                {row.notes}
+                              </span>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="return-coordinator-reason"
+                      className={authFieldLabel}
+                    >
+                      Reasons for returning (issues, flaws, damages, etc.)
+                    </label>
+                    <textarea
+                      id="return-coordinator-reason"
+                      rows={4}
+                      value={returnCoordinatorReason}
+                      onChange={(e) =>
+                        setReturnCoordinatorReason(e.target.value)
+                      }
+                      className={`${authInputClass} resize-y`}
+                      placeholder="Describe what needs coordinator attention…"
+                      autoComplete="off"
+                      disabled={returnCoordinatorBusy}
+                    />
+                  </div>
+                  <div>
+                    <p className={authFieldLabel}>Offer price</p>
+                    <p className="text-sm font-medium tabular-nums text-slate-900 dark:text-slate-100">
+                      {detail.inquiryOfferPrice != null &&
+                      detail.inquiryOfferPrice !== ""
+                        ? formatPhpDisplay(detail.inquiryOfferPrice)
+                        : "—"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className={authFieldLabel}>
+                      Suggested price range (optional)
+                    </p>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div>
+                        <label
+                          htmlFor="return-coordinator-price-from"
+                          className="mb-1 block text-xs text-slate-600 dark:text-slate-400"
+                        >
+                          From
+                        </label>
+                        <PhpPriceInput
+                          id="return-coordinator-price-from"
+                          value={returnCoordinatorPriceFrom}
+                          onChange={setReturnCoordinatorPriceFrom}
+                          className={authInputClass}
+                          disabled={returnCoordinatorBusy}
+                          placeholder="0.00"
+                        />
+                      </div>
+                      <div>
+                        <label
+                          htmlFor="return-coordinator-price-to"
+                          className="mb-1 block text-xs text-slate-600 dark:text-slate-400"
+                        >
+                          To
+                        </label>
+                        <PhpPriceInput
+                          id="return-coordinator-price-to"
+                          value={returnCoordinatorPriceTo}
+                          onChange={setReturnCoordinatorPriceTo}
+                          className={authInputClass}
+                          disabled={returnCoordinatorBusy}
+                          placeholder="0.00"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                  <div>
+                    <p className={authFieldLabel}>Issue photos</p>
+                    <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">
+                      Drag images here or click to choose files. Previews are
+                      local until you submit.
+                    </p>
+                    <input
+                      ref={returnCoordinatorFileInputRef}
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      className="sr-only"
+                      tabIndex={-1}
+                      disabled={returnCoordinatorBusy}
+                      onChange={(e) => {
+                        const fl = e.target.files;
+                        if (fl && fl.length > 0)
+                          addReturnCoordinatorImageFiles(fl);
+                        e.target.value = "";
+                      }}
+                    />
+                    <button
+                      type="button"
+                      disabled={returnCoordinatorBusy}
+                      onClick={() =>
+                        returnCoordinatorFileInputRef.current?.click()
+                      }
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (returnCoordinatorBusy) return;
+                        const fl = e.dataTransfer.files;
+                        if (fl && fl.length > 0)
+                          addReturnCoordinatorImageFiles(fl);
+                      }}
+                      className="flex w-full flex-col items-center justify-center rounded-xl border-2 border-dashed border-amber-300/80 bg-amber-50/50 px-4 py-8 text-center text-sm text-amber-950 transition-colors hover:border-amber-400 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-amber-700/60 dark:bg-amber-950/20 dark:text-amber-100 dark:hover:border-amber-600 dark:hover:bg-amber-950/35"
+                    >
+                      <span className="font-medium">
+                        Drop images here or click to browse
+                      </span>
+                      <span className="mt-1 text-xs text-amber-800/80 dark:text-amber-200/80">
+                        PNG, JPEG, WebP, etc.
+                      </span>
+                    </button>
+                    {returnCoordinatorIssuePreviews.length > 0 ? (
+                      <ul className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                        {returnCoordinatorIssuePreviews.map((p) => (
+                          <li
+                            key={p.id}
+                            className="relative overflow-hidden rounded-lg border border-slate-200 bg-slate-50 dark:border-slate-600 dark:bg-slate-800"
+                          >
+                            <img
+                              src={p.url}
+                              alt={
+                                p.file.name
+                                  ? `Preview: ${p.file.name}`
+                                  : "Issue preview"
+                              }
+                              className="h-28 w-full object-cover"
+                            />
+                            <button
+                              type="button"
+                              disabled={returnCoordinatorBusy}
+                              onClick={() =>
+                                removeReturnCoordinatorPreview(p.id)
+                              }
+                              className="absolute right-1 top-1 rounded-md bg-slate-900/75 px-1.5 py-0.5 text-xs font-medium text-white hover:bg-slate-900 disabled:opacity-50"
+                              aria-label={`Remove ${p.file.name || "image"}`}
+                            >
+                              Remove
+                            </button>
+                            <p className="truncate px-1.5 py-1 text-[0.65rem] text-slate-600 dark:text-slate-400">
+                              {p.file.name || "Image"}
+                            </p>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </div>
+                </div>
+                <div className="shrink-0 border-t border-slate-100 px-5 py-4 dark:border-slate-800">
+                  {returnCoordinatorError ? (
+                    <p
+                      className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200"
+                      role="alert"
+                    >
+                      {returnCoordinatorError}
+                    </p>
+                  ) : null}
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <button
+                      type="button"
+                      disabled={returnCoordinatorBusy}
+                      onClick={() => closeReturnCoordinatorModal()}
+                      className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                    >
+                      Close
+                    </button>
+                    <button
+                      type="button"
+                      disabled={returnCoordinatorBusy}
+                      onClick={() => void submitReturnToCoordinator()}
+                      className="rounded-lg border border-amber-600 bg-amber-500 px-3 py-2 text-sm font-medium text-amber-950 shadow-sm hover:bg-amber-400 disabled:opacity-50 dark:border-amber-500 dark:bg-amber-600 dark:text-amber-50 dark:hover:bg-amber-500"
+                    >
+                      {returnCoordinatorBusy ? "Submitting…" : "Submit return"}
                     </button>
                   </div>
                 </div>

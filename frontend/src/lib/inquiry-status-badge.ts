@@ -12,6 +12,7 @@ const BY_STATUS: Record<string, string> = {
   for_delivery_scheduled: "text-indigo-800 dark:text-indigo-300",
   for_pullout_scheduled: "text-indigo-800 dark:text-indigo-300",
   for_processing: "text-orange-800 dark:text-orange-300",
+  authenticated_returned: "text-amber-800 dark:text-amber-300",
   declined: "text-red-800 dark:text-red-300",
   cancelled: "text-zinc-600 dark:text-zinc-400",
 };

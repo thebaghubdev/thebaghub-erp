@@ -21,9 +21,11 @@ import { Employee } from '../employees/entities/employee.entity';
 import { InventoryItem } from './entities/inventory-item.entity';
 import { ItemAuthentication } from './entities/item-authentication.entity';
 import { ItemAuthenticationMetric } from './entities/item-authentication-metric.entity';
+import { AuthenticationMetric } from '../authentication-metrics/entities/authentication-metric.entity';
 import { BatchAssignAuthenticatorDto } from './dto/batch-assign-authenticator.dto';
 import { ItemAuthenticationSnapshotFormDto } from './dto/item-authentication-snapshot-form.dto';
 import { SaveItemAuthenticationMetricsDto } from './dto/save-item-authentication-metrics.dto';
+import { ReturnToCoordinatorDto } from './dto/return-to-coordinator.dto';
 import { InquiriesService } from '../inquiries/inquiries.service';
 
 export type InventoryListRow = {
@@ -61,6 +63,8 @@ export type InventoryDetailForStaff = {
   /** Employee id when an authenticator is assigned (item_authentication.assigned_to_id). */
   assignedToEmployeeId: string | null;
   assignedToName: string | null;
+  /** Staff offer on linked inquiry (`inquiries.offer_price`), if any. */
+  inquiryOfferPrice: string | null;
   itemSnapshot: {
     clientItemId: string;
     form: Record<string, unknown>;
@@ -72,6 +76,13 @@ export type ItemAuthenticationMetricApiRow = {
   notes: string | null;
   metricStatus: string | null;
   photos: string[] | null;
+};
+
+/** One line in the authentication checklist summary (linked inquiry detail). */
+export type AuthenticationSummaryRowForInquiry = {
+  metric: string;
+  metricStatus: string | null;
+  notes: string | null;
 };
 
 function itemLabelFromSnapshot(
@@ -145,7 +156,9 @@ function mergeItemAuthenticationFormIntoSnapshot(
 
 const FOR_AUTHENTICATION_INVENTORY_STATUS = 'For Authentication';
 const FOR_PHOTOSHOOT_INVENTORY_STATUS = 'For Photoshoot';
+const AUTHENTICATED_RETURNED_INVENTORY_STATUS = 'Authenticated: Returned';
 const APPROVED_ITEM_AUTHENTICATION_STATUS = 'Approved';
+const RETURNED_ITEM_AUTHENTICATION_STATUS = 'Returned';
 
 @Injectable()
 export class InventoryService {
@@ -158,6 +171,8 @@ export class InventoryService {
     private readonly employeesRepo: Repository<Employee>,
     @InjectRepository(ItemAuthenticationMetric)
     private readonly itemAuthMetricRepo: Repository<ItemAuthenticationMetric>,
+    @InjectRepository(AuthenticationMetric)
+    private readonly authenticationMetricRepo: Repository<AuthenticationMetric>,
     @Inject(forwardRef(() => InquiriesService))
     private readonly inquiriesService: InquiriesService,
   ) {}
@@ -378,6 +393,91 @@ export class InventoryService {
     return { status: item.status };
   }
 
+  private normalizeOptionalPriceField(raw: string | undefined): string | null {
+    if (raw == null) return null;
+    const s = String(raw)
+      .trim()
+      .replace(/,/g, '')
+      .replace(/^\u20b1\s?/i, '');
+    if (s === '') return null;
+    const n = Number(s);
+    if (!Number.isFinite(n) || n < 0) {
+      throw new BadRequestException(
+        'Suggested price range values must be non-negative numbers.',
+      );
+    }
+    return n.toFixed(2);
+  }
+
+  /**
+   * Saves return-to-coordinator data on the linked inquiry, uploads issue photos to S3,
+   * and sets inventory / authentication status to returned.
+   */
+  async returnToCoordinatorForInventoryItem(
+    inventoryItemId: string,
+    dto: ReturnToCoordinatorDto,
+    actor: { userId: string; isAdmin: boolean },
+  ): Promise<{ status: string; authenticationStatus: string }> {
+    const item = await this.inventoryRepo.findOne({
+      where: { id: inventoryItemId },
+    });
+    if (!item) {
+      throw new NotFoundException('Inventory item not found');
+    }
+    if (!item.inquiryId) {
+      throw new BadRequestException(
+        'This inventory item is not linked to an inquiry.',
+      );
+    }
+    if (item.status !== FOR_AUTHENTICATION_INVENTORY_STATUS) {
+      throw new BadRequestException(
+        `Only items in "${FOR_AUTHENTICATION_INVENTORY_STATUS}" can be returned to the coordinator.`,
+      );
+    }
+    await this.enforceAuthenticatorAccess(inventoryItemId, actor, {
+      createIfMissing: false,
+    });
+    const auth = await this.itemAuthRepo.findOne({
+      where: { inventoryItemId },
+    });
+    if (!auth) {
+      throw new BadRequestException('Item authentication record not found.');
+    }
+
+    const reasons =
+      dto.returnReasons == null || dto.returnReasons.trim() === ''
+        ? null
+        : dto.returnReasons.trim();
+
+    const minStr = this.normalizeOptionalPriceField(dto.priceRangeMin);
+    const maxStr = this.normalizeOptionalPriceField(dto.priceRangeMax);
+    if (minStr != null && maxStr != null && Number(minStr) > Number(maxStr)) {
+      throw new BadRequestException(
+        'Suggested price range: minimum cannot be greater than maximum.',
+      );
+    }
+
+    await this.inquiriesService.applyAuthenticationReturn(item.inquiryId, {
+      returnReasons: reasons,
+      priceRangeMin: minStr,
+      priceRangeMax: maxStr,
+      photosDataUrls: dto.returnPhotos ?? [],
+    });
+
+    item.status = AUTHENTICATED_RETURNED_INVENTORY_STATUS;
+    item.updatedById = actor.userId;
+    await this.inventoryRepo.save(item);
+
+    auth.authenticationStatus = RETURNED_ITEM_AUTHENTICATION_STATUS;
+    auth.updatedById = actor.userId;
+    await this.itemAuthRepo.save(auth);
+
+    return {
+      status: item.status,
+      authenticationStatus: auth.authenticationStatus,
+    };
+  }
+
   async listAuthenticators(): Promise<
     { id: string; displayName: string }[]
   > {
@@ -517,10 +617,59 @@ export class InventoryService {
       consignorPhone: c?.contactNumber?.trim() ?? null,
       assignedToEmployeeId: auth?.assignedToId ?? null,
       assignedToName: formatEmployeeName(auth?.assignedTo ?? null),
+      inquiryOfferPrice:
+        r.inquiry?.offerPrice != null && String(r.inquiry.offerPrice).trim() !== ''
+          ? String(r.inquiry.offerPrice)
+          : null,
       itemSnapshot: {
         clientItemId: r.itemSnapshot.clientItemId,
         form: (r.itemSnapshot.form ?? {}) as Record<string, unknown>,
       },
     };
+  }
+
+  /**
+   * Metrics with pass/fail/skip or notes for the inventory row linked to this inquiry.
+   */
+  async getAuthenticationSummaryForInquiry(
+    inquiryId: string,
+  ): Promise<AuthenticationSummaryRowForInquiry[]> {
+    const item = await this.inventoryRepo.findOne({
+      where: { inquiryId },
+      select: { id: true },
+    });
+    if (!item) {
+      return [];
+    }
+    const apiRows = await this.getItemAuthenticationMetricsForInventoryItem(
+      item.id,
+    );
+    const withData = apiRows.filter((row) => {
+      const notesTrim = row.notes == null ? '' : String(row.notes).trim();
+      const hasNotes = notesTrim !== '';
+      const hasVerdict =
+        row.metricStatus === 'pass' ||
+        row.metricStatus === 'fail' ||
+        row.metricStatus === 'skip';
+      return hasNotes || hasVerdict;
+    });
+    if (withData.length === 0) {
+      return [];
+    }
+    const metricIds = [
+      ...new Set(withData.map((r) => r.authenticationMetricId)),
+    ];
+    const defs = await this.authenticationMetricRepo.find({
+      where: { id: In(metricIds) },
+    });
+    const labelById = new Map(defs.map((d) => [d.id, d.metric]));
+    return withData.map((row) => ({
+      metric: labelById.get(row.authenticationMetricId) ?? 'Metric',
+      metricStatus: row.metricStatus,
+      notes:
+        row.notes == null || String(row.notes).trim() === ''
+          ? null
+          : String(row.notes).trim(),
+    }));
   }
 }

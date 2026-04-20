@@ -1,5 +1,6 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AuthenticationMetric } from '../authentication-metrics/entities/authentication-metric.entity';
 import { Employee } from '../employees/entities/employee.entity';
 import { InquiriesModule } from '../inquiries/inquiries.module';
 import { InventoryItem } from './entities/inventory-item.entity';
@@ -15,6 +16,7 @@ import { InventoryService } from './inventory.service';
       InventoryItem,
       ItemAuthentication,
       ItemAuthenticationMetric,
+      AuthenticationMetric,
       Employee,
     ]),
   ],

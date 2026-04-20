@@ -54,6 +54,27 @@ function extFromMime(mime: string): string {
   return 'bin';
 }
 
+const MAX_AUTH_RETURN_PHOTO_BYTES = 15 * 1024 * 1024;
+const MAX_AUTH_RETURN_PHOTOS = 20;
+
+function parseImageDataUrl(
+  dataUrl: string,
+): { buffer: Buffer; mime: string } | null {
+  const m = /^data:([^;]+);base64,(.*)$/s.exec(dataUrl.trim());
+  if (!m) return null;
+  const mime = m[1].toLowerCase();
+  if (!ALLOWED_IMAGE_MIMES.has(mime)) return null;
+  try {
+    const buffer = Buffer.from(m[2], 'base64');
+    if (buffer.length === 0 || buffer.length > MAX_AUTH_RETURN_PHOTO_BYTES) {
+      return null;
+    }
+    return { buffer, mime };
+  } catch {
+    return null;
+  }
+}
+
 /** UTC calendar day bounds for `d`. */
 function utcDayRange(d: Date): { start: Date; end: Date } {
   const start = new Date(
@@ -172,6 +193,18 @@ export type StaffInquiryDetail = StaffInquiryRow & {
     clientItemId: string;
     form: Record<string, unknown>;
     images: Array<{ key: string; url: string }>;
+  };
+  /** Present when status is authenticated returned (coordinator review). */
+  authenticatedReturnDetail?: {
+    authenticationSummary: Array<{
+      metric: string;
+      metricStatus: string | null;
+      notes: string | null;
+    }>;
+    priceRangeMin: string | null;
+    priceRangeMax: string | null;
+    returnReasons: string | null;
+    returnPhotoUrls: string[];
   };
 };
 
@@ -350,7 +383,7 @@ export class InquiriesService {
       key: img.key,
       url: this.s3.getPublicUrl(img.key),
     }));
-    return {
+    const detail: StaffInquiryDetail = {
       ...base,
       updatedAt: r.updatedAt,
       itemSnapshot: {
@@ -359,6 +392,32 @@ export class InquiriesService {
         images,
       },
     };
+    if (r.status === InquiryStatus.AUTHENTICATED_RETURNED) {
+      const authenticationSummary =
+        await this.inventoryService.getAuthenticationSummaryForInquiry(r.id);
+      const rawKeys = Array.isArray(r.returnPhotos)
+        ? r.returnPhotos.filter(
+            (k): k is string => typeof k === 'string' && k.trim() !== '',
+          )
+        : [];
+      detail.authenticatedReturnDetail = {
+        authenticationSummary,
+        priceRangeMin:
+          r.priceRangeMin != null && String(r.priceRangeMin).trim() !== ''
+            ? String(r.priceRangeMin)
+            : null,
+        priceRangeMax:
+          r.priceRangeMax != null && String(r.priceRangeMax).trim() !== ''
+            ? String(r.priceRangeMax)
+            : null,
+        returnReasons:
+          r.returnReasons != null && String(r.returnReasons).trim() !== ''
+            ? String(r.returnReasons).trim()
+            : null,
+        returnPhotoUrls: rawKeys.map((key) => this.s3.getPublicUrl(key)),
+      };
+    }
+    return detail;
   }
 
   async findMineForClient(user: JwtUser): Promise<
@@ -938,6 +997,11 @@ export class InquiriesService {
         'Cannot submit an offer for an inquiry that is in processing',
       );
     }
+    if (r.status === InquiryStatus.AUTHENTICATED_RETURNED) {
+      throw new BadRequestException(
+        'Cannot submit an offer for an inquiry that was returned from authentication',
+      );
+    }
 
     const form = (r.itemSnapshot?.form ?? {}) as Record<string, unknown>;
     const consentDirectPurchase = Boolean(form.consentDirectPurchase);
@@ -1023,5 +1087,51 @@ export class InquiriesService {
     inquiry.contractStartDate = start;
     inquiry.contractExpirationDate = expiration;
     return this.inquiriesRepo.save(inquiry);
+  }
+
+  /**
+   * Persists authenticator return metadata on the inquiry and uploads photos to S3.
+   */
+  async applyAuthenticationReturn(
+    inquiryId: string,
+    body: {
+      returnReasons: string | null;
+      priceRangeMin: string | null;
+      priceRangeMax: string | null;
+      photosDataUrls: string[];
+    },
+  ): Promise<void> {
+    const inquiry = await this.inquiriesRepo.findOne({
+      where: { id: inquiryId },
+    });
+    if (!inquiry) {
+      throw new NotFoundException('Inquiry not found');
+    }
+    if (body.photosDataUrls.length > MAX_AUTH_RETURN_PHOTOS) {
+      throw new BadRequestException(
+        `At most ${MAX_AUTH_RETURN_PHOTOS} return photos are allowed`,
+      );
+    }
+    const keys: string[] = [];
+    for (const raw of body.photosDataUrls) {
+      const s = String(raw).trim();
+      if (s === '') continue;
+      const parsed = parseImageDataUrl(s);
+      if (!parsed) {
+        throw new BadRequestException(
+          'Each return photo must be a valid image data URL',
+        );
+      }
+      const ext = extFromMime(parsed.mime);
+      const key = `inquiries/${inquiryId}/auth-return/${randomUUID()}.${ext}`;
+      await this.s3.putObject(key, parsed.buffer, parsed.mime);
+      keys.push(key);
+    }
+    inquiry.returnReasons = body.returnReasons;
+    inquiry.returnPhotos = keys.length > 0 ? keys : null;
+    inquiry.priceRangeMin = body.priceRangeMin;
+    inquiry.priceRangeMax = body.priceRangeMax;
+    inquiry.status = InquiryStatus.AUTHENTICATED_RETURNED;
+    await this.inquiriesRepo.save(inquiry);
   }
 }
