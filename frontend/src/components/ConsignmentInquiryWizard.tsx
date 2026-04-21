@@ -1,12 +1,28 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from 'react'
 import { useBlocker, type BlockerFunction } from 'react-router-dom'
 import { useClientAuth } from '../context/client-auth'
 import { apiFetch } from '../lib/api'
+import {
+  buildSnapshotFromWizardState,
+  emptyConsignmentFormSnapshot,
+  hydrateFromSnapshot,
+  isSnapshotV1,
+  stableStringify,
+} from '../lib/consignment-form-snapshot'
 import { formatPhpDisplay } from '../lib/format-php'
+import { ConfirmDialog } from './ConfirmDialog'
 import { ConsignItemForm } from './ConsignItemForm'
 import { ConsignItemPhotoStep } from './ConsignItemPhotoStep'
 import { NoticeDialog } from './NoticeDialog'
 import { TermsHtmlModal } from './TermsHtmlModal'
+import { UnsavedConsignmentDraftDialog } from './UnsavedConsignmentDraftDialog'
 import {
   emptyConsignItemForm,
   MAX_ITEMS_PER_INQUIRY,
@@ -28,6 +44,17 @@ const CONSIGNMENT_TERMS_URL = '/terms/consignment.txt'
 
 type Step = 1 | 2 | 3
 
+async function readApiErrorMessage(res: Response): Promise<string> {
+  try {
+    const j = (await res.json()) as { message?: string | string[] }
+    if (Array.isArray(j.message)) return j.message.join('; ')
+    if (typeof j.message === 'string') return j.message
+  } catch {
+    /* ignore */
+  }
+  return `Request failed (${res.status})`
+}
+
 function revokeAll(urls: LocalConsignImage[]) {
   for (const i of urls) URL.revokeObjectURL(i.previewUrl)
 }
@@ -38,13 +65,6 @@ function cloneItem(it: DraftConsignItem): DraftConsignItem {
     form: { ...it.form },
     images: it.images.map((i) => ({ ...i })),
   }
-}
-
-function isConsignFormPristine(form: ConsignItemFormData): boolean {
-  const empty = emptyConsignItemForm()
-  return (Object.keys(empty) as (keyof ConsignItemFormData)[]).every(
-    (k) => form[k] === empty[k],
-  )
 }
 
 function formatDate(iso: string) {
@@ -82,15 +102,26 @@ function ReviewChevron({ expanded }: { expanded: boolean }) {
 type ConsignmentInquiryWizardProps = {
   /** Called after a successful submit (e.g. switch to “All inquiries”). */
   onSubmitted?: () => void
-  /** True when the user has entered data that would be lost if they leave. */
+  /** True when the draft differs from the last saved server snapshot (unsaved edits). */
   onDirtyChange?: (dirty: boolean) => void
 }
 
-export function ConsignmentInquiryWizard({
-  onSubmitted,
-  onDirtyChange,
-}: ConsignmentInquiryWizardProps = {}) {
+export type ConsignmentInquiryWizardHandle = {
+  saveDraftToServer: () => Promise<boolean>
+}
+
+export const ConsignmentInquiryWizard = forwardRef<
+  ConsignmentInquiryWizardHandle,
+  ConsignmentInquiryWizardProps
+>(function ConsignmentInquiryWizard({ onSubmitted, onDirtyChange }, ref) {
   const { token } = useClientAuth()
+  const baselineRef = useRef<string | null>(null)
+  const compareTimerRef = useRef<number | null>(null)
+
+  const [snapshotReady, setSnapshotReady] = useState(false)
+  const [hasUnsavedEdits, setHasUnsavedEdits] = useState(false)
+  const [saveBusy, setSaveBusy] = useState(false)
+
   const [step, setStep] = useState<Step>(1)
   const [draftForm, setDraftForm] = useState<ConsignItemFormData>(() =>
     emptyConsignItemForm(),
@@ -115,6 +146,8 @@ export function ConsignmentInquiryWizard({
 
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
+  const [pendingDeleteItem, setPendingDeleteItem] =
+    useState<DraftConsignItem | null>(null)
   const [notice, setNotice] = useState<{
     open: boolean
     title: string
@@ -137,25 +170,66 @@ export function ConsignmentInquiryWizard({
     }
   }, [])
 
-  const isWizardDirty = useMemo(() => {
-    if (items.length > 0) return true
-    if (!isConsignFormPristine(draftForm)) return true
-    if (draftImages.length > 0) return true
-    if (step !== 1) return true
-    if (editingItemId != null || editBackup != null) return true
-    return false
-  }, [
-    items.length,
-    draftForm,
-    draftImages.length,
-    step,
-    editingItemId,
-    editBackup,
-  ])
+  useEffect(() => {
+    if (!token) {
+      baselineRef.current = stableStringify(emptyConsignmentFormSnapshot())
+      setSnapshotReady(true)
+      setHasUnsavedEdits(false)
+      return
+    }
+
+    let cancelled = false
+    void (async () => {
+      try {
+        const res = await apiFetch(
+          '/api/client/consignment-form-snapshot',
+          {},
+          token,
+        )
+        if (!res.ok || cancelled) {
+          if (!cancelled) {
+            baselineRef.current = stableStringify(emptyConsignmentFormSnapshot())
+          }
+          return
+        }
+        const data = (await res.json()) as { snapshot: unknown | null }
+        if (cancelled) return
+        const raw = data.snapshot
+        if (raw != null && isSnapshotV1(raw)) {
+          const h = hydrateFromSnapshot(raw)
+          setStep(h.step)
+          setItems(h.items)
+          setDraftForm(h.draftForm)
+          setDraftImages(h.draftImages)
+          setEditingItemId(h.editingItemId)
+          setEditInsertIndex(h.editInsertIndex)
+          setEditBackup(h.editBackup)
+          setInquiryConsignmentTermsAccepted(h.inquiryConsignmentTermsAccepted)
+          setReviewExpandedById(h.reviewExpandedById)
+          baselineRef.current = stableStringify(raw)
+        } else {
+          baselineRef.current = stableStringify(emptyConsignmentFormSnapshot())
+        }
+      } catch {
+        if (!cancelled) {
+          baselineRef.current = stableStringify(emptyConsignmentFormSnapshot())
+        }
+      } finally {
+        if (!cancelled) {
+          setSnapshotReady(true)
+          setHasUnsavedEdits(false)
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [token])
 
   useEffect(() => {
-    onDirtyChange?.(isWizardDirty)
-  }, [isWizardDirty, onDirtyChange])
+    onDirtyChange?.(hasUnsavedEdits)
+  }, [hasUnsavedEdits, onDirtyChange])
 
   useEffect(() => {
     return () => {
@@ -164,33 +238,67 @@ export function ConsignmentInquiryWizard({
   }, [onDirtyChange])
 
   useEffect(() => {
-    if (!isWizardDirty) return
+    if (!snapshotReady || baselineRef.current === null) return
+
+    window.clearTimeout(compareTimerRef.current ?? 0)
+    compareTimerRef.current = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const built = await buildSnapshotFromWizardState(
+            step,
+            items,
+            draftForm,
+            draftImages,
+            editingItemId,
+            editInsertIndex,
+            editBackup,
+            inquiryConsignmentTermsAccepted,
+            reviewExpandedById,
+          )
+          const next = stableStringify(built)
+          setHasUnsavedEdits(next !== baselineRef.current)
+        } catch {
+          setHasUnsavedEdits(true)
+        }
+      })()
+    }, 450)
+
+    return () => {
+      window.clearTimeout(compareTimerRef.current ?? 0)
+    }
+  }, [
+    snapshotReady,
+    step,
+    items,
+    draftForm,
+    draftImages,
+    editingItemId,
+    editInsertIndex,
+    editBackup,
+    inquiryConsignmentTermsAccepted,
+    reviewExpandedById,
+  ])
+
+  useEffect(() => {
+    if (!hasUnsavedEdits) return
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
       e.preventDefault()
       e.returnValue = ''
     }
     window.addEventListener('beforeunload', onBeforeUnload)
     return () => window.removeEventListener('beforeunload', onBeforeUnload)
-  }, [isWizardDirty])
+  }, [hasUnsavedEdits])
 
   const shouldBlockRouterNavigation = useCallback<BlockerFunction>(
     ({ currentLocation, nextLocation }) =>
-      isWizardDirty &&
+      hasUnsavedEdits &&
       !submitting &&
+      !saveBusy &&
       currentLocation.pathname !== nextLocation.pathname,
-    [isWizardDirty, submitting],
+    [hasUnsavedEdits, submitting, saveBusy],
   )
 
   const blocker = useBlocker(shouldBlockRouterNavigation)
-
-  useEffect(() => {
-    if (blocker.state !== 'blocked') return
-    const leave = window.confirm(
-      'You have unsaved changes to this consignment inquiry. Leave this page?',
-    )
-    if (leave) blocker.proceed()
-    else blocker.reset()
-  }, [blocker])
 
   const clearDraft = useCallback((revoke: boolean) => {
     if (revoke) revokeAll(draftImages)
@@ -229,18 +337,20 @@ export function ConsignmentInquiryWizard({
   }, [canGoToReview, abandonProgressAndGoToReview])
 
   const deleteItem = useCallback((item: DraftConsignItem) => {
-    if (
-      !window.confirm('Remove this item from the inquiry? This cannot be undone.')
-    ) {
-      return
-    }
+    setPendingDeleteItem(item)
+  }, [])
+
+  const confirmDeleteItem = useCallback(() => {
+    const item = pendingDeleteItem
+    if (!item) return
     revokeAll(item.images)
     setItems((prev) => prev.filter((i) => i.id !== item.id))
     setReviewExpandedById((prev) => {
       const { [item.id]: _, ...rest } = prev
       return rest
     })
-  }, [])
+    setPendingDeleteItem(null)
+  }, [pendingDeleteItem])
 
   const beginEditItem = useCallback((item: DraftConsignItem, index: number) => {
     setEditBackup(cloneItem(item))
@@ -385,6 +495,9 @@ export function ConsignmentInquiryWizard({
           /* ignore */
         }
 
+        baselineRef.current = stableStringify(emptyConsignmentFormSnapshot())
+        setHasUnsavedEdits(false)
+
         for (const it of items) revokeAll(it.images)
         setItems([])
         setReviewExpandedById({})
@@ -415,6 +528,70 @@ export function ConsignmentInquiryWizard({
     ],
   )
 
+  const persistDraft = useCallback(async (): Promise<boolean> => {
+    if (!token) return false
+    setSaveBusy(true)
+    setSubmitError(null)
+    try {
+      const snap = await buildSnapshotFromWizardState(
+        step,
+        items,
+        draftForm,
+        draftImages,
+        editingItemId,
+        editInsertIndex,
+        editBackup,
+        inquiryConsignmentTermsAccepted,
+        reviewExpandedById,
+      )
+      const res = await apiFetch(
+        '/api/client/consignment-form-snapshot',
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ snapshot: snap }),
+        },
+        token,
+      )
+      if (!res.ok) throw new Error(await readApiErrorMessage(res))
+      baselineRef.current = stableStringify(snap)
+      setHasUnsavedEdits(false)
+      setNotice({
+        open: true,
+        title: 'Saved',
+        message: 'Your changes were saved.',
+      })
+      return true
+    } catch (err) {
+      setNotice({
+        open: true,
+        title: 'Could not save',
+        message: err instanceof Error ? err.message : 'Save failed.',
+      })
+      return false
+    } finally {
+      setSaveBusy(false)
+    }
+  }, [
+    token,
+    step,
+    items,
+    draftForm,
+    draftImages,
+    editingItemId,
+    editInsertIndex,
+    editBackup,
+    inquiryConsignmentTermsAccepted,
+    reviewExpandedById,
+  ])
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      saveDraftToServer: () => persistDraft(),
+    }),
+    [persistDraft],
+  )
+
   const isEditing = editingItemId != null
   const atItemLimit = items.length >= MAX_ITEMS_PER_INQUIRY
   const cannotAddNewItem = !isEditing && atItemLimit
@@ -433,6 +610,45 @@ export function ConsignmentInquiryWizard({
         url={CONSIGNMENT_TERMS_URL}
         title="Consignment — terms and conditions"
       />
+      <UnsavedConsignmentDraftDialog
+        open={blocker.state === 'blocked'}
+        saveBusy={saveBusy}
+        onStay={() => blocker.reset()}
+        onLeaveWithoutSaving={() => blocker.proceed()}
+        onSave={async () => {
+          const ok = await persistDraft()
+          if (ok) blocker.proceed()
+        }}
+      />
+      <ConfirmDialog
+        open={pendingDeleteItem !== null}
+        title="Remove item"
+        description="Remove this item from the inquiry? This cannot be undone."
+        cancelLabel="Cancel"
+        confirmLabel="Remove"
+        danger
+        onCancel={() => setPendingDeleteItem(null)}
+        onConfirm={confirmDeleteItem}
+      />
+      {!snapshotReady ? (
+        <p className="text-sm text-slate-600 dark:text-slate-400">
+          Loading your saved draft…
+        </p>
+      ) : (
+        <>
+      {hasUnsavedEdits ? (
+        <p className="text-right text-sm text-slate-600 dark:text-slate-400">
+          You have unsaved changes.{' '}
+          <button
+            type="button"
+            disabled={saveBusy || submitting}
+            onClick={() => void persistDraft()}
+            className="font-medium text-violet-700 underline decoration-violet-400 underline-offset-2 hover:text-violet-900 disabled:cursor-not-allowed disabled:no-underline disabled:opacity-50 dark:text-violet-300 dark:hover:text-violet-100"
+          >
+            {saveBusy ? 'Saving…' : 'Click here to save them.'}
+          </button>
+        </p>
+      ) : null}
       <nav aria-label="Inquiry steps" className="flex gap-2 text-xs sm:text-sm">
         {([1, 2, 3] as const).map((n) => {
           const isCurrent = step === n
@@ -829,6 +1045,8 @@ export function ConsignmentInquiryWizard({
           </form>
         </section>
       )}
+        </>
+      )}
     </div>
   )
-}
+})

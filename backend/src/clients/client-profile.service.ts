@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { SaveConsignmentFormSnapshotDto } from './dto/save-consignment-form-snapshot.dto';
 import { UpdateClientBankDto } from './dto/update-client-bank.dto';
 import { Client } from './entities/client.entity';
 
@@ -61,5 +62,28 @@ export class ClientProfileService {
       bankCode: client.bankCode,
       bankBranch: client.bankBranch,
     };
+  }
+
+  async getConsignmentFormSnapshot(userId: string): Promise<{
+    snapshot: Record<string, unknown> | null;
+  }> {
+    const client = await this.clientsRepo.findOne({ where: { userId } });
+    if (!client) {
+      throw new NotFoundException('Client profile not found');
+    }
+    return { snapshot: client.consignmentFormSnapshot };
+  }
+
+  async saveConsignmentFormSnapshot(
+    userId: string,
+    dto: SaveConsignmentFormSnapshotDto,
+  ): Promise<{ ok: true }> {
+    const client = await this.clientsRepo.findOne({ where: { userId } });
+    if (!client) {
+      throw new NotFoundException('Client profile not found');
+    }
+    client.consignmentFormSnapshot = dto.snapshot;
+    await this.clientsRepo.save(client);
+    return { ok: true };
   }
 }

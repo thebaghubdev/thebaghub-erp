@@ -879,6 +879,12 @@ export class InquiriesService {
         results.push({ id: inquiry.id, sku, status: inquiry.status });
       }
 
+      await em.update(
+        Client,
+        { id: client.id },
+        { consignmentFormSnapshot: null },
+      );
+
       return { inquiries: results };
     });
   }

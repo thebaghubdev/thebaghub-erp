@@ -1,6 +1,7 @@
 import { createColumnHelper } from "@tanstack/react-table";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DataTable } from "../components/data-table/DataTable";
 import { StaffWalkInConsignmentWizard } from "../components/StaffWalkInConsignmentWizard";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
@@ -234,6 +235,9 @@ export function InquiryPage() {
   const navigate = useNavigate();
   const { token } = usePortalAuth();
   const [tab, setTab] = useState<InquiryTab>("all");
+  const [tabLeaveOpen, setTabLeaveOpen] = useState(false);
+  const [pendingInquiryTab, setPendingInquiryTab] =
+    useState<InquiryTab | null>(null);
   const [rows, setRows] = useState<InquiryRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -315,13 +319,31 @@ export function InquiryPage() {
 
   const requestTab = (next: InquiryTab) => {
     if (tab === "create" && next === "all" && wizardDirty) {
-      if (!window.confirm(LEAVE_TAB_MSG)) return;
+      setPendingInquiryTab(next);
+      setTabLeaveOpen(true);
+      return;
     }
     setTab(next);
   };
 
   return (
     <div className="w-full min-w-0">
+      <ConfirmDialog
+        open={tabLeaveOpen}
+        title="Unsaved changes"
+        description={LEAVE_TAB_MSG}
+        cancelLabel="Stay"
+        confirmLabel="Switch tab"
+        onCancel={() => {
+          setTabLeaveOpen(false);
+          setPendingInquiryTab(null);
+        }}
+        onConfirm={() => {
+          if (pendingInquiryTab !== null) setTab(pendingInquiryTab);
+          setTabLeaveOpen(false);
+          setPendingInquiryTab(null);
+        }}
+      />
       <div
         className="mb-6 flex items-end gap-2 border-b border-slate-200 dark:border-slate-800"
         role="tablist"

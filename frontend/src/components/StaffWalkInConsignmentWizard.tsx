@@ -4,6 +4,7 @@ import { apiFetch } from "../lib/api";
 import { formatPhpDisplay } from "../lib/format-php";
 import { StaffWalkInConsignmentItemForm } from "./StaffWalkInConsignmentItemForm";
 import { ConsignItemPhotoStep } from "./ConsignItemPhotoStep";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { NoticeDialog } from "./NoticeDialog";
 import {
   emptyConsignItemForm,
@@ -131,6 +132,9 @@ export function StaffWalkInConsignmentWizard({
     message: string;
   }>({ open: false, title: "Notice", message: "" });
 
+  const [pendingDeleteItem, setPendingDeleteItem] =
+    useState<DraftConsignItem | null>(null);
+
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [walkInBranch, setWalkInBranch] = useState<
@@ -199,15 +203,6 @@ export function StaffWalkInConsignmentWizard({
 
   const blocker = useBlocker(shouldBlockRouterNavigation);
 
-  useEffect(() => {
-    if (blocker.state !== "blocked") return;
-    const leave = window.confirm(
-      "You have unsaved changes to this consignment inquiry. Leave this page?",
-    );
-    if (leave) blocker.proceed();
-    else blocker.reset();
-  }, [blocker]);
-
   const clearDraft = useCallback(
     (revoke: boolean) => {
       if (revoke) revokeAll(draftImages);
@@ -246,13 +241,12 @@ export function StaffWalkInConsignmentWizard({
   }, [canGoToReview, abandonProgressAndGoToReview]);
 
   const deleteItem = useCallback((item: DraftConsignItem) => {
-    if (
-      !window.confirm(
-        "Remove this item from the inquiry? This cannot be undone.",
-      )
-    ) {
-      return;
-    }
+    setPendingDeleteItem(item);
+  }, []);
+
+  const confirmDeleteItem = useCallback(() => {
+    const item = pendingDeleteItem;
+    if (!item) return;
     revokeAll(item.images);
     setItems((prev) => {
       const next = prev.filter((i) => i.id !== item.id);
@@ -265,7 +259,8 @@ export function StaffWalkInConsignmentWizard({
       const { [item.id]: _, ...rest } = prev;
       return rest;
     });
-  }, []);
+    setPendingDeleteItem(null);
+  }, [pendingDeleteItem]);
 
   const beginEditItem = useCallback((item: DraftConsignItem, index: number) => {
     setEditBackup(cloneItem(item));
@@ -458,6 +453,25 @@ export function StaffWalkInConsignmentWizard({
         title={notice.title}
         message={notice.message}
         onClose={() => setNotice((n) => ({ ...n, open: false }))}
+      />
+      <ConfirmDialog
+        open={blocker.state === "blocked"}
+        title="Leave this page?"
+        description="You have unsaved changes to this consignment inquiry. Leave this page?"
+        cancelLabel="Stay"
+        confirmLabel="Leave"
+        onCancel={() => blocker.reset()}
+        onConfirm={() => blocker.proceed()}
+      />
+      <ConfirmDialog
+        open={pendingDeleteItem !== null}
+        title="Remove item"
+        description="Remove this item from the inquiry? This cannot be undone."
+        cancelLabel="Cancel"
+        confirmLabel="Remove"
+        danger
+        onCancel={() => setPendingDeleteItem(null)}
+        onConfirm={confirmDeleteItem}
       />
 
       <nav aria-label="Inquiry steps" className="flex gap-2 text-xs sm:text-sm">

@@ -1,6 +1,10 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ConsignmentInquiryWizard } from '../components/ConsignmentInquiryWizard'
+import {
+  ConsignmentInquiryWizard,
+  type ConsignmentInquiryWizardHandle,
+} from '../components/ConsignmentInquiryWizard'
+import { UnsavedConsignmentDraftDialog } from '../components/UnsavedConsignmentDraftDialog'
 import { SubmittedAtCell } from '../components/SubmittedAtCell'
 import { HorizontalScrollMirror } from '../components/HorizontalScrollMirror'
 import { TablePaginationBar } from '../components/TablePaginationBar'
@@ -21,14 +25,15 @@ type MyInquiryRow = {
 const tabBtn =
   '-mb-px border-b-2 border-transparent px-3 py-2 text-sm font-medium transition-colors focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500 sm:px-4'
 
-const LEAVE_TAB_MSG =
-  'You have unsaved changes to this consignment inquiry. Switch tabs anyway?'
-
 export function ConsignItemsPage() {
   const navigate = useNavigate()
   const { token } = useClientAuth()
+  const wizardRef = useRef<ConsignmentInquiryWizardHandle>(null)
   const [tab, setTab] = useState<ConsignmentsTab>('mine')
   const [wizardDirty, setWizardDirty] = useState(false)
+  const [tabLeaveOpen, setTabLeaveOpen] = useState(false)
+  const [pendingTab, setPendingTab] = useState<ConsignmentsTab | null>(null)
+  const [tabLeaveSaving, setTabLeaveSaving] = useState(false)
   const [rows, setRows] = useState<MyInquiryRow[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -58,13 +63,45 @@ export function ConsignItemsPage() {
 
   const requestTab = (next: ConsignmentsTab) => {
     if (tab === 'consign' && next === 'mine' && wizardDirty) {
-      if (!window.confirm(LEAVE_TAB_MSG)) return
+      setPendingTab(next)
+      setTabLeaveOpen(true)
+      return
     }
     setTab(next)
   }
 
+  const closeTabLeave = useCallback(() => {
+    setTabLeaveOpen(false)
+    setPendingTab(null)
+  }, [])
+
+  const confirmTabLeaveWithoutSaving = useCallback(() => {
+    if (pendingTab != null) setTab(pendingTab)
+    closeTabLeave()
+  }, [pendingTab, closeTabLeave])
+
+  const confirmTabLeaveWithSave = useCallback(async () => {
+    setTabLeaveSaving(true)
+    try {
+      const ok = await wizardRef.current?.saveDraftToServer()
+      if (ok && pendingTab != null) {
+        setTab(pendingTab)
+        closeTabLeave()
+      }
+    } finally {
+      setTabLeaveSaving(false)
+    }
+  }, [pendingTab, closeTabLeave])
+
   return (
     <div className="w-full min-w-0">
+      <UnsavedConsignmentDraftDialog
+        open={tabLeaveOpen}
+        saveBusy={tabLeaveSaving}
+        onStay={closeTabLeave}
+        onLeaveWithoutSaving={confirmTabLeaveWithoutSaving}
+        onSave={confirmTabLeaveWithSave}
+      />
       <div
         className="mb-4 flex items-end gap-1 border-b border-slate-200 sm:gap-2"
         role="tablist"
@@ -224,6 +261,7 @@ export function ConsignItemsPage() {
               before submitting.
             </p>
             <ConsignmentInquiryWizard
+              ref={wizardRef}
               onDirtyChange={setWizardDirty}
               onSubmitted={() => {
                 setTab('mine')

@@ -54,4 +54,8 @@ export class Client extends AuditedEntity {
 
   @Column({ name: 'bank_branch', type: 'varchar', length: 200, nullable: true })
   bankBranch: string | null;
+
+  /** Client draft for the multi-step consignment inquiry form (cleared when an inquiry is submitted). */
+  @Column({ name: 'consignment_form_snapshot', type: 'jsonb', nullable: true })
+  consignmentFormSnapshot: Record<string, unknown> | null;
 }

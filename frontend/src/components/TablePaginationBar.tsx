@@ -1,8 +1,48 @@
 const selectClass =
   "min-h-9 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-900 focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100";
 
-const btnClass =
-  "rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700";
+const iconNavBtnClass =
+  "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-800 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700";
+
+function ChevronLeftIcon({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      xmlns="http://www.w3.org/2000/svg"
+      fill="none"
+      viewBox="0 0 24 24"
+      strokeWidth={2}
+      stroke="currentColor"
+      aria-hidden
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M15.75 19.5 8.25 12l7.5-7.5"
+      />
+    </svg>
+  );
+}
+
+function ChevronRightIcon({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      xmlns="http://www.w3.org/2000/svg"
+      fill="none"
+      viewBox="0 0 24 24"
+      strokeWidth={2}
+      stroke="currentColor"
+      aria-hidden
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="m8.25 4.5 7.5 7.5-7.5 7.5"
+      />
+    </svg>
+  );
+}
 
 export type TablePaginationBarProps = {
   totalCount: number;
@@ -79,21 +119,21 @@ export function TablePaginationBar({
         <div className="flex items-center gap-1">
           <button
             type="button"
-            className={btnClass}
+            className={iconNavBtnClass}
             disabled={!canPrev}
             onClick={() => onPageIndexChange(safeIndex - 1)}
             aria-label="Previous page"
           >
-            Previous
+            <ChevronLeftIcon />
           </button>
           <button
             type="button"
-            className={btnClass}
+            className={iconNavBtnClass}
             disabled={!canNext}
             onClick={() => onPageIndexChange(safeIndex + 1)}
             aria-label="Next page"
           >
-            Next
+            <ChevronRightIcon />
           </button>
         </div>
       </div>
