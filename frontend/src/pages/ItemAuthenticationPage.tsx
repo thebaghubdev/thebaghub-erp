@@ -18,6 +18,7 @@ import { PhpPriceInput } from "../components/PhpPriceInput";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
 import { formatPhpDisplay, parsePhpStringToNumber } from "../lib/format-php";
+import { randomId } from "../lib/random-id";
 import {
   type AuthenticationMetricApi,
   filterMetricsForItem,
@@ -689,7 +690,7 @@ export function ItemAuthenticationPage() {
       if (images.length === 0) return;
       setReturnCoordinatorIssuePreviews((prev) => {
         const added = images.map((file) => ({
-          id: crypto.randomUUID(),
+          id: randomId(),
           file,
           url: URL.createObjectURL(file),
         }));

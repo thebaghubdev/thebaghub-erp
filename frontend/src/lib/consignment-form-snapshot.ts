@@ -1,3 +1,4 @@
+import { randomId } from './random-id'
 import {
   emptyConsignItemForm,
   type ConsignItemFormData,
@@ -93,7 +94,7 @@ export function deserializeDraftItem(ser: SerializedDraftItem): DraftConsignItem
   const images: LocalConsignImage[] = ser.images.map((s) => {
     const file = dataUrlToFile(s.dataUrl, s.name, s.type)
     return {
-      id: crypto.randomUUID(),
+      id: randomId(),
       file,
       previewUrl: URL.createObjectURL(file),
     }
@@ -144,7 +145,7 @@ export function hydrateFromSnapshot(snap: ConsignmentFormSnapshotV1): {
   const draftImages: LocalConsignImage[] = snap.draftImages.map((s) => {
     const file = dataUrlToFile(s.dataUrl, s.name, s.type)
     return {
-      id: crypto.randomUUID(),
+      id: randomId(),
       file,
       previewUrl: URL.createObjectURL(file),
     }

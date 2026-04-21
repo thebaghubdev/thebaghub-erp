@@ -17,6 +17,7 @@ import {
   stableStringify,
 } from '../lib/consignment-form-snapshot'
 import { formatPhpDisplay } from '../lib/format-php'
+import { randomId } from '../lib/random-id'
 import { ConfirmDialog } from './ConfirmDialog'
 import { ConsignItemForm } from './ConsignItemForm'
 import { ConsignItemPhotoStep } from './ConsignItemPhotoStep'
@@ -361,7 +362,7 @@ export const ConsignmentInquiryWizard = forwardRef<
     // Fresh preview URLs for the draft so removing a photo here cannot revoke backups.
     setDraftImages(
       item.images.map((i) => ({
-        id: crypto.randomUUID(),
+        id: randomId(),
         file: i.file,
         previewUrl: URL.createObjectURL(i.file),
       })),
@@ -398,7 +399,7 @@ export const ConsignmentInquiryWizard = forwardRef<
       return
     }
 
-    const id = editingItemId ?? crypto.randomUUID()
+    const id = editingItemId ?? randomId()
     const newItem: DraftConsignItem = {
       id,
       form: { ...draftForm },

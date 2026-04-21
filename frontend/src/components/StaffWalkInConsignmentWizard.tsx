@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useBlocker, type BlockerFunction } from "react-router-dom";
 import { apiFetch } from "../lib/api";
+import { randomId } from "../lib/random-id";
 import { formatPhpDisplay } from "../lib/format-php";
 import { StaffWalkInConsignmentItemForm } from "./StaffWalkInConsignmentItemForm";
 import { ConsignItemPhotoStep } from "./ConsignItemPhotoStep";
@@ -274,7 +275,7 @@ export function StaffWalkInConsignmentWizard({
     });
     setDraftImages(
       item.images.map((i) => ({
-        id: crypto.randomUUID(),
+        id: randomId(),
         file: i.file,
         previewUrl: URL.createObjectURL(i.file),
       })),
@@ -311,7 +312,7 @@ export function StaffWalkInConsignmentWizard({
       return;
     }
 
-    const id = editingItemId ?? crypto.randomUUID();
+    const id = editingItemId ?? randomId();
     const newItem: DraftConsignItem = {
       id,
       form: {

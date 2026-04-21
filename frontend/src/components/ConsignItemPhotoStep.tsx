@@ -1,4 +1,5 @@
-import { useCallback, useId, useRef, useState } from "react";
+import { useCallback, useId, useState } from "react";
+import { randomId } from "../lib/random-id";
 import type { LocalConsignImage } from "../types/consign-inquiry";
 
 /** Served from `public/photo-guide/` (kept in sync with `src/assets/photo-guide/`). */
@@ -7,6 +8,19 @@ const PHOTO_GUIDELINES_URL = "/photo-guide/guidelines.html";
 const dropzoneClass =
   "flex min-h-[11rem] cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50/80 px-4 py-8 text-center transition-colors hover:border-violet-400 hover:bg-violet-50/50 focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500 dark:border-slate-600 dark:bg-slate-900/60 dark:hover:border-violet-500 dark:hover:bg-violet-950/40 dark:focus-visible:ring-violet-400";
 
+/**
+ * iOS Safari / WebKit often returns an empty `File.type` for camera and Photos
+ * picks even though the file is an image. Without this, `type.startsWith("image/")`
+ * drops every file and nothing is added on mobile.
+ */
+function isImageFile(file: File): boolean {
+  if (file.type.startsWith("image/")) return true;
+  if (file.type !== "") return false;
+  const name = file.name.trim();
+  if (!name) return false;
+  return /\.(jpe?g|png|gif|webp|heic|heif|bmp|avif)$/i.test(name);
+}
+
 type Props = {
   images: LocalConsignImage[];
   onChange: (images: LocalConsignImage[]) => void;
@@ -14,19 +28,16 @@ type Props = {
 
 export function ConsignItemPhotoStep({ images, onChange }: Props) {
   const inputId = useId();
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragActive, setDragActive] = useState(false);
 
   const addFiles = useCallback(
     (fileList: FileList | File[]) => {
-      const list = Array.from(fileList).filter((f) =>
-        f.type.startsWith("image/"),
-      );
+      const list = Array.from(fileList).filter(isImageFile);
       if (list.length === 0) return;
       const next: LocalConsignImage[] = [
         ...images,
         ...list.map((file) => ({
-          id: crypto.randomUUID(),
+          id: randomId(),
           file,
           previewUrl: URL.createObjectURL(file),
         })),
@@ -84,7 +95,6 @@ export function ConsignItemPhotoStep({ images, onChange }: Props) {
       </div>
 
       <input
-        ref={fileInputRef}
         id={inputId}
         type="file"
         accept="image/*"
@@ -97,17 +107,10 @@ export function ConsignItemPhotoStep({ images, onChange }: Props) {
         }}
       />
 
-      <div
-        role="button"
-        tabIndex={0}
+      {/* Native <label> association opens the picker reliably on iOS; div + input.click() often fails. */}
+      <label
+        htmlFor={inputId}
         className={`${dropzoneClass} ${dragActive ? "border-violet-500 bg-violet-50 dark:border-violet-400 dark:bg-violet-950/50" : ""}`}
-        onClick={() => fileInputRef.current?.click()}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            fileInputRef.current?.click();
-          }
-        }}
         onDragEnter={(e) => {
           e.preventDefault();
           setDragActive(true);
@@ -147,9 +150,9 @@ export function ConsignItemPhotoStep({ images, onChange }: Props) {
           Drop images here or click to upload
         </span>
         <span className="text-xs text-slate-500 dark:text-slate-400">
-          PNG, JPG, WebP, GIF — multiple files
+          PNG, JPG, WebP, HEIC, GIF — multiple files
         </span>
-      </div>
+      </label>
 
       {images.length > 0 && (
         <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">
