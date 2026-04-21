@@ -27,6 +27,7 @@ import { InventoryModule } from './inventory/inventory.module';
 import { InventoryItem } from './inventory/entities/inventory-item.entity';
 import { ItemAuthentication } from './inventory/entities/item-authentication.entity';
 import { ItemAuthenticationMetric } from './inventory/entities/item-authentication-metric.entity';
+import { ItemPhotoshoot } from './inventory/entities/item-photoshoot.entity';
 import { AuthenticationMetricsModule } from './authentication-metrics/authentication-metrics.module';
 
 @Module({
@@ -55,6 +56,7 @@ import { AuthenticationMetricsModule } from './authentication-metrics/authentica
           InventoryItem,
           ItemAuthentication,
           ItemAuthenticationMetric,
+          ItemPhotoshoot,
         ],
         synchronize:
           config.get<string>('NODE_ENV', 'development') !== 'production',

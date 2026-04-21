@@ -51,6 +51,14 @@ export function Sidenav() {
           Authentication
         </NavLink>
         <NavLink
+          to="/portal/photoshoot"
+          className={({ isActive }) =>
+            [linkClass, isActive ? activeClass : ""].join(" ")
+          }
+        >
+          Photoshoot
+        </NavLink>
+        <NavLink
           to="/portal/accounts"
           className={({ isActive }) =>
             [linkClass, isActive ? activeClass : ""].join(" ")

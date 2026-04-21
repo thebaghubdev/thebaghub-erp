@@ -6,6 +6,7 @@ import { InquiriesModule } from '../inquiries/inquiries.module';
 import { InventoryItem } from './entities/inventory-item.entity';
 import { ItemAuthentication } from './entities/item-authentication.entity';
 import { ItemAuthenticationMetric } from './entities/item-authentication-metric.entity';
+import { ItemPhotoshoot } from './entities/item-photoshoot.entity';
 import { InventoryController } from './inventory.controller';
 import { InventoryService } from './inventory.service';
 
@@ -16,6 +17,7 @@ import { InventoryService } from './inventory.service';
       InventoryItem,
       ItemAuthentication,
       ItemAuthenticationMetric,
+      ItemPhotoshoot,
       AuthenticationMetric,
       Employee,
     ]),

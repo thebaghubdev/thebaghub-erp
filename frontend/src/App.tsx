@@ -26,6 +26,7 @@ import { ItemAuthenticationPage } from './pages/ItemAuthenticationPage'
 import { ConsignmentSchedulingPage } from './pages/ConsignmentSchedulingPage'
 import { InquiryPage } from './pages/InquiryPage'
 import { ManageAccountsPage } from './pages/ManageAccountsPage'
+import { PhotoshootPage } from './pages/PhotoshootPage'
 import { PortalLoginPage } from './pages/PortalLoginPage'
 import { PurchaseItemsPage } from './pages/PurchaseItemsPage'
 import { RegisterPage } from './pages/RegisterPage'
@@ -84,6 +85,7 @@ const router = createBrowserRouter([
             element: <ItemAuthenticationPage />,
           },
           { path: 'authentication', element: <AuthenticationPage /> },
+          { path: 'photoshoot', element: <PhotoshootPage /> },
           { path: 'settings', element: <SettingsPage /> },
           { path: 'accounts/register', element: <RegisterPage /> },
           { path: 'accounts', element: <ManageAccountsPage /> },

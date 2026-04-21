@@ -602,6 +602,16 @@ export function InquiryDetailPage() {
                   {actionBusy === "decline" ? "Declining…" : "Decline"}
                 </button>
               ) : null}
+              {isPending(detail.status) ? (
+                <button
+                  type="button"
+                  disabled={actionBusy !== null}
+                  onClick={openOfferModal}
+                  className="rounded-lg bg-violet-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-violet-700 disabled:opacity-50 dark:bg-violet-600 dark:hover:bg-violet-500"
+                >
+                  Create offer
+                </button>
+              ) : null}
               {canShowUpdateOfferButton(detail.status) ? (
                 <button
                   type="button"
@@ -1206,7 +1216,9 @@ export function InquiryDetailPage() {
                       id={offerModalTitleId}
                       className="text-base font-semibold text-slate-900 dark:text-slate-100"
                     >
-                      Update the offer
+                      {canShowUpdateOfferButton(detail.status)
+                        ? "Update the offer"
+                        : "Create offer"}
                     </h2>
                     <form
                       onSubmit={(e) => void submitOffer(e)}
@@ -1295,7 +1307,9 @@ export function InquiryDetailPage() {
                         >
                           {actionBusy === "offer"
                             ? "Saving…"
-                            : "Update the offer"}
+                            : canShowUpdateOfferButton(detail.status)
+                              ? "Update the offer"
+                              : "Create offer"}
                         </button>
                       </div>
                     </form>
