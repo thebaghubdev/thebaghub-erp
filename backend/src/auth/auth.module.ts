@@ -12,6 +12,7 @@ import { StaffOnlyGuard } from './staff-only.guard';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
+import { TurnstileService } from './turnstile.service';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { JwtStrategy } from './jwt.strategy';
   controllers: [AuthController],
   providers: [
     AuthService,
+    TurnstileService,
     JwtStrategy,
     AdminGuard,
     StaffOnlyGuard,

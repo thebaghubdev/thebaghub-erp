@@ -1,8 +1,10 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
@@ -15,6 +17,7 @@ import { LoginDto } from './dto/login.dto';
 import { RegisterClientDto } from './dto/register-client.dto';
 import { RegisterEmployeeDto } from './dto/register-employee.dto';
 import { JwtUser } from './jwt-user';
+import { TurnstileService } from './turnstile.service';
 
 @Injectable()
 export class AuthService {
@@ -26,9 +29,25 @@ export class AuthService {
     @InjectRepository(Client)
     private readonly clientsRepo: Repository<Client>,
     private readonly jwtService: JwtService,
+    private readonly config: ConfigService,
+    private readonly turnstile: TurnstileService,
   ) {}
 
   async registerClient(dto: RegisterClientDto) {
+    const turnstileSecret = this.config
+      .get<string>('TURNSTILE_SECRET_KEY', '')
+      ?.trim();
+    if (turnstileSecret) {
+      const token = dto.turnstileToken?.trim();
+      if (!token) {
+        throw new BadRequestException('Captcha verification is required');
+      }
+      const ok = await this.turnstile.verifyToken(token, turnstileSecret);
+      if (!ok) {
+        throw new BadRequestException('Captcha verification failed');
+      }
+    }
+
     const username = dto.email.trim().toLowerCase();
     const existing = await this.usersRepo.findOne({ where: { username } });
     if (existing) {

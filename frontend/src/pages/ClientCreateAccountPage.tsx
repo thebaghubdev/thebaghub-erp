@@ -1,15 +1,22 @@
 import { useState } from "react";
 import { Link, Navigate } from "react-router-dom";
 import { PasswordField } from "../components/PasswordField";
+import { TurnstileChallenge } from "../components/TurnstileChallenge";
 import { useClientAuth } from "../context/client-auth";
+
+const turnstileSiteKey =
+  import.meta.env.VITE_TURNSTILE_SITE_KEY?.trim() ?? "";
 
 export function ClientCreateAccountPage() {
   const { token } = useClientAuth();
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [contactNumber, setContactNumber] = useState("");
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const [captchaMountKey, setCaptchaMountKey] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -22,6 +29,14 @@ export function ClientCreateAccountPage() {
     e.preventDefault();
     setError(null);
     setSuccess(null);
+    if (password !== confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+    if (turnstileSiteKey && !turnstileToken) {
+      setError("Please complete the verification challenge.");
+      return;
+    }
     setSubmitting(true);
     try {
       const res = await fetch("/api/auth/register/client", {
@@ -33,6 +48,7 @@ export function ClientCreateAccountPage() {
           lastName: lastName.trim(),
           email: email.trim(),
           contactNumber: contactNumber.trim(),
+          ...(turnstileToken ? { turnstileToken } : {}),
         }),
       });
       const body = await res.json().catch(() => null);
@@ -46,12 +62,17 @@ export function ClientCreateAccountPage() {
       }
       setSuccess("Account created. You can sign in now.");
       setPassword("");
+      setConfirmPassword("");
       setFirstName("");
       setLastName("");
       setEmail("");
       setContactNumber("");
+      setTurnstileToken(null);
+      setCaptchaMountKey((k) => k + 1);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Registration failed");
+      setTurnstileToken(null);
+      setCaptchaMountKey((k) => k + 1);
     } finally {
       setSubmitting(false);
     }
@@ -93,6 +114,17 @@ export function ClientCreateAccountPage() {
             label="Password"
             value={password}
             onChange={setPassword}
+            minLength={8}
+            required
+            autoComplete="new-password"
+            comfortable
+            labelClassName="mb-1 block text-xs font-medium text-slate-700"
+          />
+          <PasswordField
+            id="ca-pass-confirm"
+            label="Confirm password"
+            value={confirmPassword}
+            onChange={setConfirmPassword}
             minLength={8}
             required
             autoComplete="new-password"
@@ -149,6 +181,14 @@ export function ClientCreateAccountPage() {
             />
           </div>
 
+          {turnstileSiteKey ? (
+            <TurnstileChallenge
+              key={captchaMountKey}
+              siteKey={turnstileSiteKey}
+              onTokenChange={setTurnstileToken}
+            />
+          ) : null}
+
           {error && (
             <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
               {error}
@@ -162,7 +202,10 @@ export function ClientCreateAccountPage() {
 
           <button
             type="submit"
-            disabled={submitting}
+            disabled={
+              submitting ||
+              (Boolean(turnstileSiteKey) && turnstileToken === null)
+            }
             className="min-h-11 rounded-xl bg-violet-600 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-violet-700 disabled:opacity-50"
           >
             {submitting ? "Creating…" : "Create account"}
