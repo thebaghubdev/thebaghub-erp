@@ -11,6 +11,7 @@ export const INQUIRY_STATUS_VALUES = [
   "for_processing",
   "authenticated_returned",
   "authenticated_new_offer",
+  "authenticated_for_3rd_party",
   "declined",
   "cancelled",
 ] as const;

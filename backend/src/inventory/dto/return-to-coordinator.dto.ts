@@ -1,30 +1,31 @@
 import {
+  ArrayMinSize,
   IsArray,
-  IsOptional,
+  IsNotEmpty,
   IsString,
   MaxLength,
 } from 'class-validator';
 
 export class ReturnToCoordinatorDto {
-  @IsOptional()
   @IsString()
+  @IsNotEmpty()
   @MaxLength(20000)
-  returnReasons?: string;
+  returnReasons: string;
 
-  /** Decimal string e.g. `1234.56`; optional. */
-  @IsOptional()
+  /** Decimal string e.g. `1234.56` (required with `priceRangeMax`). */
   @IsString()
+  @IsNotEmpty()
   @MaxLength(32)
-  priceRangeMin?: string;
+  priceRangeMin: string;
 
-  @IsOptional()
   @IsString()
+  @IsNotEmpty()
   @MaxLength(32)
-  priceRangeMax?: string;
+  priceRangeMax: string;
 
-  /** Image data URLs (`data:image/...;base64,...`). */
-  @IsOptional()
+  /** Image data URLs (`data:image/...;base64,...`); at least one required. */
   @IsArray()
+  @ArrayMinSize(1)
   @IsString({ each: true })
-  returnPhotos?: string[];
+  returnPhotos: string[];
 }

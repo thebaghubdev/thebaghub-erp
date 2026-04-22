@@ -14,6 +14,7 @@ import {
   type MetricDraftValue,
   type MetricVerdict,
 } from "../components/MetricAuthCard";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { PhpPriceInput } from "../components/PhpPriceInput";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
@@ -210,6 +211,16 @@ export function ItemAuthenticationPage() {
   const [approveModalError, setApproveModalError] = useState<string | null>(
     null,
   );
+  const [forThirdPartyAuthBusy, setForThirdPartyAuthBusy] = useState(false);
+  const [forThirdPartyAuthError, setForThirdPartyAuthError] = useState<
+    string | null
+  >(null);
+  const [thirdPartyConfirmOpen, setThirdPartyConfirmOpen] = useState(false);
+  const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
+  const actionsMenuRef = useRef<HTMLDivElement>(null);
+  const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
+  const [rejectAuthBusy, setRejectAuthBusy] = useState(false);
+  const [rejectAuthError, setRejectAuthError] = useState<string | null>(null);
   const approveModalTitleId = useId();
 
   type ReturnCoordinatorPreview = {
@@ -536,6 +547,8 @@ export function ItemAuthenticationPage() {
   ]);
 
   const tryOpenApproveModal = useCallback(() => {
+    setActionsMenuOpen(false);
+    setForThirdPartyAuthError(null);
     if (
       !authenticationDetailsAreComplete({
         itemModel: itemFormModel,
@@ -601,6 +614,58 @@ export function ItemAuthenticationPage() {
     }
   }, [token, id, load]);
 
+  const submitForThirdPartyAuthentication = useCallback(async () => {
+    if (!token || !id) return;
+    setForThirdPartyAuthError(null);
+    setForThirdPartyAuthBusy(true);
+    try {
+      const res = await apiFetch(
+        `/api/inventory/${id}/for-3rd-party-authentication`,
+        { method: "POST" },
+        token,
+      );
+      if (!res.ok) {
+        throw new Error(await readApiErrorMessage(res));
+      }
+      setActionsMenuOpen(false);
+      setThirdPartyConfirmOpen(false);
+      await load();
+    } catch (e) {
+      setForThirdPartyAuthError(
+        e instanceof Error
+          ? e.message
+          : "Could not send item for 3rd party authentication",
+      );
+    } finally {
+      setForThirdPartyAuthBusy(false);
+    }
+  }, [token, id, load]);
+
+  const submitRejectAuthentication = useCallback(async () => {
+    if (!token || !id) return;
+    setRejectAuthError(null);
+    setRejectAuthBusy(true);
+    try {
+      const res = await apiFetch(
+        `/api/inventory/${id}/reject-authentication`,
+        { method: "POST" },
+        token,
+      );
+      if (!res.ok) {
+        throw new Error(await readApiErrorMessage(res));
+      }
+      setRejectDialogOpen(false);
+      setActionsMenuOpen(false);
+      await load();
+    } catch (e) {
+      setRejectAuthError(
+        e instanceof Error ? e.message : "Could not reject this item",
+      );
+    } finally {
+      setRejectAuthBusy(false);
+    }
+  }, [token, id, load]);
+
   const closeReturnCoordinatorModal = useCallback(() => {
     setReturnCoordinatorIssuePreviews((prev) => {
       for (const p of prev) URL.revokeObjectURL(p.url);
@@ -614,6 +679,8 @@ export function ItemAuthenticationPage() {
   }, []);
 
   const openReturnCoordinatorModal = useCallback(() => {
+    setActionsMenuOpen(false);
+    setForThirdPartyAuthError(null);
     setReturnCoordinatorIssuePreviews((prev) => {
       for (const p of prev) URL.revokeObjectURL(p.url);
       return [];
@@ -628,33 +695,47 @@ export function ItemAuthenticationPage() {
   const submitReturnToCoordinator = useCallback(async () => {
     if (!token || !id) return;
     setReturnCoordinatorError(null);
-    const nFrom = parsePhpStringToNumber(returnCoordinatorPriceFrom);
-    const nTo = parsePhpStringToNumber(returnCoordinatorPriceTo);
-    if (
-      (returnCoordinatorPriceFrom.trim() !== "" && nFrom == null) ||
-      (returnCoordinatorPriceTo.trim() !== "" && nTo == null)
-    ) {
+    const fromTrim = returnCoordinatorPriceFrom.trim();
+    const toTrim = returnCoordinatorPriceTo.trim();
+    if (fromTrim === "" || toTrim === "") {
       setReturnCoordinatorError(
-        "Enter valid amounts for the suggested price range, or leave both empty.",
+        "Enter both the minimum and maximum for the suggested price range.",
       );
       return;
     }
-    if (nFrom != null && nTo != null && nFrom > nTo) {
+    const nFrom = parsePhpStringToNumber(returnCoordinatorPriceFrom);
+    const nTo = parsePhpStringToNumber(returnCoordinatorPriceTo);
+    if (nFrom == null || nTo == null) {
+      setReturnCoordinatorError(
+        "Enter valid amounts for the suggested price range.",
+      );
+      return;
+    }
+    if (nFrom > nTo) {
       setReturnCoordinatorError(
         "Suggested range: minimum cannot be greater than maximum.",
       );
       return;
     }
+    const r = returnCoordinatorReason.trim();
+    if (r === "") {
+      setReturnCoordinatorError("Enter reasons for renegotiation.");
+      return;
+    }
+    if (returnCoordinatorIssuePreviews.length === 0) {
+      setReturnCoordinatorError("Add at least one issue photo.");
+      return;
+    }
     setReturnCoordinatorBusy(true);
     try {
       const files = returnCoordinatorIssuePreviews.map((p) => p.file);
-      const dataUrls = files.length > 0 ? await filesToDataUrls(files) : [];
-      const body: Record<string, unknown> = {};
-      const r = returnCoordinatorReason.trim();
-      if (r !== "") body.returnReasons = r;
-      if (nFrom != null) body.priceRangeMin = nFrom.toFixed(2);
-      if (nTo != null) body.priceRangeMax = nTo.toFixed(2);
-      if (dataUrls.length > 0) body.returnPhotos = dataUrls;
+      const dataUrls = await filesToDataUrls(files);
+      const body: Record<string, unknown> = {
+        returnReasons: r,
+        priceRangeMin: nFrom.toFixed(2),
+        priceRangeMax: nTo.toFixed(2),
+        returnPhotos: dataUrls,
+      };
 
       const res = await apiFetch(
         `/api/inventory/${id}/return-to-coordinator`,
@@ -668,7 +749,7 @@ export function ItemAuthenticationPage() {
       await load();
     } catch (e) {
       setReturnCoordinatorError(
-        e instanceof Error ? e.message : "Could not submit return",
+        e instanceof Error ? e.message : "Could not submit renegotiation",
       );
     } finally {
       setReturnCoordinatorBusy(false);
@@ -721,6 +802,49 @@ export function ItemAuthenticationPage() {
     returnCoordinatorModalOpen,
     returnCoordinatorBusy,
     closeReturnCoordinatorModal,
+  ]);
+
+  useEffect(() => {
+    if (!actionsMenuOpen) return;
+    const onDocMouseDown = (e: MouseEvent) => {
+      const el = actionsMenuRef.current;
+      if (el && !el.contains(e.target as Node)) setActionsMenuOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setActionsMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onDocMouseDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDocMouseDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [actionsMenuOpen]);
+
+  useEffect(() => {
+    if (
+      saveBusy ||
+      approveBusy ||
+      forThirdPartyAuthBusy ||
+      rejectAuthBusy ||
+      rejectDialogOpen ||
+      thirdPartyConfirmOpen ||
+      approveModalOpen ||
+      returnCoordinatorModalOpen ||
+      returnCoordinatorBusy
+    ) {
+      setActionsMenuOpen(false);
+    }
+  }, [
+    saveBusy,
+    approveBusy,
+    forThirdPartyAuthBusy,
+    rejectAuthBusy,
+    rejectDialogOpen,
+    thirdPartyConfirmOpen,
+    approveModalOpen,
+    returnCoordinatorModalOpen,
+    returnCoordinatorBusy,
   ]);
 
   useEffect(() => {
@@ -857,6 +981,17 @@ export function ItemAuthenticationPage() {
       ? `${itemFormBrand} — ${itemFormModel}`
       : itemFormBrand || itemFormModel || "—";
 
+  const actionsTriggerDisabled =
+    saveBusy ||
+    approveBusy ||
+    forThirdPartyAuthBusy ||
+    rejectAuthBusy ||
+    rejectDialogOpen ||
+    thirdPartyConfirmOpen ||
+    approveModalOpen ||
+    returnCoordinatorModalOpen ||
+    returnCoordinatorBusy;
+
   return (
     <div className="w-full min-w-0 space-y-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -910,6 +1045,15 @@ export function ItemAuthenticationPage() {
         </p>
       ) : null}
 
+      {forThirdPartyAuthError && !thirdPartyConfirmOpen ? (
+        <p
+          className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200"
+          role="alert"
+        >
+          {forThirdPartyAuthError}
+        </p>
+      ) : null}
+
       {approveGateMessage ? (
         <p
           className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/35 dark:text-amber-100"
@@ -935,34 +1079,104 @@ export function ItemAuthenticationPage() {
         <div className="flex min-w-0 flex-1 flex-wrap justify-end gap-3">
           {canEditMetrics &&
           detail.status === FOR_AUTHENTICATION_INVENTORY_STATUS ? (
-            <>
+            <div className="relative" ref={actionsMenuRef}>
               <button
                 type="button"
-                onClick={() => tryOpenApproveModal()}
-                disabled={
-                  saveBusy ||
-                  approveBusy ||
-                  returnCoordinatorModalOpen ||
-                  returnCoordinatorBusy
+                disabled={actionsTriggerDisabled}
+                aria-expanded={actionsMenuOpen}
+                aria-haspopup="menu"
+                onClick={() =>
+                  actionsTriggerDisabled
+                    ? undefined
+                    : setActionsMenuOpen((o) => !o)
                 }
-                className="shrink-0 rounded-lg border border-emerald-600 bg-white px-4 py-2 text-sm font-medium text-emerald-800 shadow-sm hover:bg-emerald-50 disabled:opacity-50 dark:border-emerald-500 dark:bg-slate-900 dark:text-emerald-200 dark:hover:bg-emerald-950/40"
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
               >
-                Approve
+                {forThirdPartyAuthBusy || rejectAuthBusy
+                  ? "Working…"
+                  : "Actions"}
+                <svg
+                  className={`h-4 w-4 shrink-0 text-slate-500 transition-transform ${
+                    actionsMenuOpen ? "rotate-180" : ""
+                  }`}
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  aria-hidden
+                >
+                  <path
+                    d="M6 9l6 6 6-6"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
               </button>
-              <button
-                type="button"
-                onClick={() => openReturnCoordinatorModal()}
-                disabled={
-                  saveBusy ||
-                  approveBusy ||
-                  approveModalOpen ||
-                  returnCoordinatorBusy
-                }
-                className="shrink-0 rounded-lg border border-amber-600 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-950 shadow-sm hover:bg-amber-100 disabled:opacity-50 dark:border-amber-500 dark:bg-amber-950/40 dark:text-amber-100 dark:hover:bg-amber-950/70"
-              >
-                Return to coordinator
-              </button>
-            </>
+              {actionsMenuOpen && !actionsTriggerDisabled ? (
+                <ul
+                  role="menu"
+                  className="absolute right-0 top-full z-50 mt-1 min-w-[16rem] rounded-lg border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-600 dark:bg-slate-900"
+                >
+                  <li role="none">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="flex w-full items-center px-3 py-2 text-left text-sm text-emerald-900 hover:bg-emerald-50 dark:text-emerald-200 dark:hover:bg-emerald-950/50"
+                      onClick={() => {
+                        setActionsMenuOpen(false);
+                        tryOpenApproveModal();
+                      }}
+                    >
+                      Approve
+                    </button>
+                  </li>
+                  <li role="none">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="flex w-full items-center px-3 py-2 text-left text-sm text-amber-950 hover:bg-amber-50 dark:text-amber-100 dark:hover:bg-amber-950/50"
+                      onClick={() => {
+                        setActionsMenuOpen(false);
+                        openReturnCoordinatorModal();
+                      }}
+                    >
+                      Renegotiate
+                    </button>
+                  </li>
+                  <li role="none">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="flex w-full items-center px-3 py-2 text-left text-sm text-sky-950 hover:bg-sky-50 dark:text-sky-100 dark:hover:bg-sky-950/50"
+                      onClick={() => {
+                        setForThirdPartyAuthError(null);
+                        setActionsMenuOpen(false);
+                        setThirdPartyConfirmOpen(true);
+                      }}
+                    >
+                      For 3rd party authentication
+                    </button>
+                  </li>
+                  <li
+                    role="none"
+                    className="mt-0.5 border-t border-slate-100 pt-0.5 dark:border-slate-700"
+                  >
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="flex w-full items-center rounded-md px-3 py-2 text-left text-sm text-red-800 hover:bg-red-50 dark:text-red-200 dark:hover:bg-red-950/50"
+                      onClick={() => {
+                        setRejectAuthError(null);
+                        setActionsMenuOpen(false);
+                        setRejectDialogOpen(true);
+                      }}
+                    >
+                      Reject
+                    </button>
+                  </li>
+                </ul>
+              ) : null}
+            </div>
           ) : null}
         </div>
       </div>
@@ -1101,11 +1315,11 @@ export function ItemAuthenticationPage() {
                     id={returnCoordinatorModalTitleId}
                     className="text-base font-semibold text-slate-900 dark:text-slate-100"
                   >
-                    Return to coordinator
+                    Renegotiate
                   </h2>
                   <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-                    Review metrics, add context and optional suggested pricing,
-                    then submit. Issue photos are uploaded when you submit.
+                    Review metrics, then enter reasons, suggested price range,
+                    and at least one issue photo before you submit.
                   </p>
                 </div>
                 <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-4">
@@ -1160,7 +1374,7 @@ export function ItemAuthenticationPage() {
                       htmlFor="return-coordinator-reason"
                       className={authFieldLabel}
                     >
-                      Reasons for returning (issues, flaws, damages, etc.)
+                      Reasons for renegotiation (issues, flaws, damages, etc.)
                     </label>
                     <textarea
                       id="return-coordinator-reason"
@@ -1185,9 +1399,7 @@ export function ItemAuthenticationPage() {
                     </p>
                   </div>
                   <div>
-                    <p className={authFieldLabel}>
-                      Suggested price range (optional)
-                    </p>
+                    <p className={authFieldLabel}>Suggested price range</p>
                     <div className="grid gap-3 sm:grid-cols-2">
                       <div>
                         <label
@@ -1226,8 +1438,8 @@ export function ItemAuthenticationPage() {
                   <div>
                     <p className={authFieldLabel}>Issue photos</p>
                     <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">
-                      Drag images here or click to choose files. Previews are
-                      local until you submit.
+                      At least one image is required. Drag images here or click
+                      to choose files.
                     </p>
                     <input
                       ref={returnCoordinatorFileInputRef}
@@ -1331,7 +1543,7 @@ export function ItemAuthenticationPage() {
                       onClick={() => void submitReturnToCoordinator()}
                       className="rounded-lg border border-amber-600 bg-amber-500 px-3 py-2 text-sm font-medium text-amber-950 shadow-sm hover:bg-amber-400 disabled:opacity-50 dark:border-amber-500 dark:bg-amber-600 dark:text-amber-50 dark:hover:bg-amber-500"
                     >
-                      {returnCoordinatorBusy ? "Submitting…" : "Submit return"}
+                      {returnCoordinatorBusy ? "Submitting…" : "Submit"}
                     </button>
                   </div>
                 </div>
@@ -1340,6 +1552,41 @@ export function ItemAuthenticationPage() {
             document.body,
           )
         : null}
+
+      <ConfirmDialog
+        open={thirdPartyConfirmOpen}
+        title="Send for 3rd party authentication?"
+        description="This will notify the coordinator and the consignor that the item needs an additional payment for 3rd party authentication."
+        cancelLabel="Cancel"
+        confirmLabel="Confirm"
+        busy={forThirdPartyAuthBusy}
+        errorMessage={forThirdPartyAuthError}
+        onCancel={() => {
+          if (!forThirdPartyAuthBusy) {
+            setThirdPartyConfirmOpen(false);
+            setForThirdPartyAuthError(null);
+          }
+        }}
+        onConfirm={() => void submitForThirdPartyAuthentication()}
+      />
+
+      <ConfirmDialog
+        open={rejectDialogOpen}
+        title="Reject this item?"
+        description="The inventory item will be marked Authentication Rejected and removed from the in-house authentication queue."
+        cancelLabel="Cancel"
+        confirmLabel="Reject"
+        danger
+        busy={rejectAuthBusy}
+        errorMessage={rejectAuthError}
+        onCancel={() => {
+          if (!rejectAuthBusy) {
+            setRejectDialogOpen(false);
+            setRejectAuthError(null);
+          }
+        }}
+        onConfirm={() => void submitRejectAuthentication()}
+      />
 
       <section
         aria-labelledby="auth-detail-form-heading"

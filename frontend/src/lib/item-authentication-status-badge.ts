@@ -5,6 +5,10 @@ const BY_STATUS: Record<string, string> = {
   pending: "text-amber-800 dark:text-amber-300",
   approved: "text-emerald-800 dark:text-emerald-300",
   returned: "text-amber-800 dark:text-amber-300",
+  "for renegotiation": "text-amber-800 dark:text-amber-300",
+  "3rd party authentication": "text-sky-800 dark:text-sky-300",
+  "for 3rd party authentication": "text-sky-800 dark:text-sky-300",
+  rejected: "text-red-800 dark:text-red-300",
 };
 
 export function itemAuthenticationStatusBadgeClassName(status: string): string {

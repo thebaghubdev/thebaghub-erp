@@ -4,7 +4,10 @@ const DEFAULT = "text-slate-700 dark:text-slate-300";
 const BY_STATUS: Record<string, string> = {
   "for authentication": "text-amber-800 dark:text-amber-300",
   "for photoshoot": "text-violet-800 dark:text-violet-300",
+  "authenticated: for 3rd party authentication": "text-sky-800 dark:text-sky-300",
   "authenticated: returned": "text-amber-800 dark:text-amber-300",
+  "authenticated: for renegotiation": "text-amber-800 dark:text-amber-300",
+  "authentication rejected": "text-red-800 dark:text-red-300",
 };
 
 export function inventoryStatusBadgeClassName(status: string): string {

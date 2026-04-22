@@ -15,13 +15,17 @@ import { picklistToFilterOptions } from "../lib/picklist-to-filter-options";
 
 const FOR_AUTHENTICATION_STATUS = "For Authentication";
 const FOR_PHOTOSHOOT_STATUS = "For Photoshoot";
-/** Matches `AUTHENTICATED_RETURNED_INVENTORY_STATUS` after return-to-coordinator. */
-const AUTHENTICATED_RETURNED_INVENTORY_STATUS = "Authenticated: Returned";
+/** Matches `AUTHENTICATED_FOR_RENEGOTIATION_INVENTORY_STATUS` after renegotiate flow. */
+const AUTHENTICATED_FOR_RENEGOTIATION_INVENTORY_STATUS =
+  "Authenticated: For renegotiation";
+const AUTHENTICATED_FOR_3RD_PARTY_INVENTORY_STATUS =
+  "Authenticated: For 3rd party authentication";
 
 const AUTHENTICATE_ITEMS_QUEUE_STATUSES = new Set([
   FOR_AUTHENTICATION_STATUS,
   FOR_PHOTOSHOOT_STATUS,
-  AUTHENTICATED_RETURNED_INVENTORY_STATUS,
+  AUTHENTICATED_FOR_RENEGOTIATION_INVENTORY_STATUS,
+  AUTHENTICATED_FOR_3RD_PARTY_INVENTORY_STATUS,
 ]);
 
 const ITEM_CATEGORIES_KEY = "item_categories";
@@ -740,7 +744,7 @@ export function AuthenticationPage() {
             data={rows}
             columns={authQueueColumns}
             isLoading={loading}
-            emptyMessage="No items in For Authentication, For Photoshoot, or Authenticated: Returned."
+            emptyMessage="No items in For Authentication, For Photoshoot, Authenticated: For 3rd party authentication, or Authenticated: For renegotiation."
             hideEmptyState={!!error}
             searchPlaceholder="Search items…"
             statusFilterOptions={INVENTORY_ITEM_STATUS_FILTER_OPTIONS}

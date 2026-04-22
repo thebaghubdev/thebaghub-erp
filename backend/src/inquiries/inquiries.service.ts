@@ -197,7 +197,7 @@ export type StaffInquiryDetail = StaffInquiryRow & {
     form: Record<string, unknown>;
     images: Array<{ key: string; url: string }>;
   };
-  /** Present when status is authenticated returned or authenticated new offer (coordinator review). */
+  /** Present when status is authenticated for renegotiation or authenticated new offer (coordinator review). */
   authenticatedReturnDetail?: {
     authenticationSummary: Array<{
       metric: string;
@@ -1051,7 +1051,12 @@ export class InquiriesService {
     }
     if (r.status === InquiryStatus.AUTHENTICATED_RETURNED) {
       throw new BadRequestException(
-        'Cannot submit an offer for an inquiry that was returned from authentication',
+        'Cannot submit an offer for an inquiry that is pending renegotiation after authentication',
+      );
+    }
+    if (r.status === InquiryStatus.AUTHENTICATED_FOR_3RD_PARTY) {
+      throw new BadRequestException(
+        'Cannot submit an offer for an inquiry that is pending payment for 3rd party authentication',
       );
     }
 
@@ -1095,7 +1100,7 @@ export class InquiriesService {
     }
     if (r.status !== InquiryStatus.AUTHENTICATED_RETURNED) {
       throw new BadRequestException(
-        'A new offer can only be created while the inquiry is Authenticated: Returned',
+        'A new offer can only be created while the inquiry is Authenticated: For renegotiation',
       );
     }
 
@@ -1213,6 +1218,9 @@ export class InquiriesService {
       const key = `inquiries/${inquiryId}/auth-return/${randomUUID()}.${ext}`;
       await this.s3.putObject(key, parsed.buffer, parsed.mime);
       keys.push(key);
+    }
+    if (keys.length === 0) {
+      throw new BadRequestException('At least one valid issue photo is required.');
     }
     inquiry.returnReasons = body.returnReasons;
     inquiry.returnPhotos = keys.length > 0 ? keys : null;

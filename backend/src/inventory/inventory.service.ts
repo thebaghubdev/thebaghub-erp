@@ -26,6 +26,7 @@ import { BatchAssignAuthenticatorDto } from './dto/batch-assign-authenticator.dt
 import { ItemAuthenticationSnapshotFormDto } from './dto/item-authentication-snapshot-form.dto';
 import { SaveItemAuthenticationMetricsDto } from './dto/save-item-authentication-metrics.dto';
 import { ReturnToCoordinatorDto } from './dto/return-to-coordinator.dto';
+import { InquiryStatus } from '../enums/inquiry-status.enum';
 import { InquiriesService } from '../inquiries/inquiries.service';
 
 export type InventoryListRow = {
@@ -156,9 +157,15 @@ function mergeItemAuthenticationFormIntoSnapshot(
 
 const FOR_AUTHENTICATION_INVENTORY_STATUS = 'For Authentication';
 const FOR_PHOTOSHOOT_INVENTORY_STATUS = 'For Photoshoot';
-const AUTHENTICATED_RETURNED_INVENTORY_STATUS = 'Authenticated: Returned';
+const AUTHENTICATED_FOR_RENEGOTIATION_INVENTORY_STATUS =
+  'Authenticated: For renegotiation';
 const APPROVED_ITEM_AUTHENTICATION_STATUS = 'Approved';
-const RETURNED_ITEM_AUTHENTICATION_STATUS = 'Returned';
+const FOR_RENEGOTIATION_ITEM_AUTHENTICATION_STATUS = 'For renegotiation';
+const AUTHENTICATED_FOR_3RD_PARTY_INVENTORY_STATUS =
+  'Authenticated: For 3rd party authentication';
+const FOR_3RD_PARTY_ITEM_AUTHENTICATION_STATUS = 'For 3rd party authentication';
+const AUTHENTICATION_REJECTED_INVENTORY_STATUS = 'Authentication Rejected';
+const REJECTED_ITEM_AUTHENTICATION_STATUS = 'Rejected';
 
 @Injectable()
 export class InventoryService {
@@ -428,6 +435,123 @@ export class InventoryService {
     return { status: item.status };
   }
 
+  /**
+   * Sends the item to paid 3rd party authentication: inquiry, inventory, and
+   * item-auth are updated in one transaction. Requires a linked inquiry.
+   */
+  async markForThirdPartyAuthenticationForInventoryItem(
+    inventoryItemId: string,
+    actor: { userId: string; isAdmin: boolean },
+  ): Promise<{ status: string; authenticationStatus: string }> {
+    const item0 = await this.inventoryRepo.findOne({
+      where: { id: inventoryItemId },
+    });
+    if (!item0) {
+      throw new NotFoundException('Inventory item not found');
+    }
+    if (!item0.inquiryId) {
+      throw new BadRequestException(
+        'This inventory item is not linked to an inquiry.',
+      );
+    }
+    if (item0.status !== FOR_AUTHENTICATION_INVENTORY_STATUS) {
+      throw new BadRequestException(
+        `Only items in "${FOR_AUTHENTICATION_INVENTORY_STATUS}" can be sent for 3rd party authentication.`,
+      );
+    }
+    await this.enforceAuthenticatorAccess(inventoryItemId, actor, {
+      createIfMissing: false,
+    });
+
+    const { status, authenticationStatus } =
+      await this.inventoryRepo.manager.transaction(
+        async (em: EntityManager) => {
+          const item = await em.findOne(InventoryItem, {
+            where: { id: inventoryItemId },
+          });
+          if (!item || !item.inquiryId) {
+            throw new NotFoundException('Inventory item or inquiry not found');
+          }
+          if (item.status !== FOR_AUTHENTICATION_INVENTORY_STATUS) {
+            throw new BadRequestException(
+              `This item is no longer in "${FOR_AUTHENTICATION_INVENTORY_STATUS}" status.`,
+            );
+          }
+          const inquiry = await em.findOne(Inquiry, {
+            where: { id: item.inquiryId },
+          });
+          if (!inquiry) {
+            throw new NotFoundException('Inquiry not found');
+          }
+          if (
+            inquiry.status === InquiryStatus.DECLINED ||
+            inquiry.status === InquiryStatus.CANCELLED
+          ) {
+            throw new BadRequestException('This inquiry cannot be updated');
+          }
+          const auth = await em.findOne(ItemAuthentication, {
+            where: { inventoryItemId },
+          });
+          if (!auth) {
+            throw new BadRequestException('Item authentication record not found.');
+          }
+
+          inquiry.status = InquiryStatus.AUTHENTICATED_FOR_3RD_PARTY;
+          await em.save(inquiry);
+
+          auth.authenticationStatus = FOR_3RD_PARTY_ITEM_AUTHENTICATION_STATUS;
+          auth.updatedById = actor.userId;
+          await em.save(auth);
+
+          item.status = AUTHENTICATED_FOR_3RD_PARTY_INVENTORY_STATUS;
+          item.updatedById = actor.userId;
+          await em.save(item);
+
+          return {
+            status: item.status,
+            authenticationStatus: auth.authenticationStatus,
+          };
+        },
+      );
+
+    return { status, authenticationStatus };
+  }
+
+  /**
+   * Rejects the item at authentication: inventory and item-auth are marked rejected.
+   */
+  async rejectAuthenticationForInventoryItem(
+    inventoryItemId: string,
+    actor: { userId: string; isAdmin: boolean },
+  ): Promise<{ status: string; authenticationStatus: string }> {
+    const item = await this.inventoryRepo.findOne({
+      where: { id: inventoryItemId },
+    });
+    if (!item) {
+      throw new NotFoundException('Inventory item not found');
+    }
+    if (item.status !== FOR_AUTHENTICATION_INVENTORY_STATUS) {
+      throw new BadRequestException(
+        `Only items in "${FOR_AUTHENTICATION_INVENTORY_STATUS}" can be rejected from authentication.`,
+      );
+    }
+    const auth = await this.enforceAuthenticatorAccess(inventoryItemId, actor, {
+      createIfMissing: false,
+    });
+    auth.authenticationStatus = REJECTED_ITEM_AUTHENTICATION_STATUS;
+    auth.updatedById = actor.userId;
+    await this.itemAuthRepo.save(auth);
+
+    item.status = AUTHENTICATION_REJECTED_INVENTORY_STATUS;
+    item.updatedById = actor.userId;
+    await this.inventoryRepo.save(item);
+
+    return {
+      status: item.status,
+      authenticationStatus: auth.authenticationStatus,
+    };
+  }
+
   private normalizeOptionalPriceField(raw: string | undefined): string | null {
     if (raw == null) return null;
     const s = String(raw)
@@ -446,7 +570,7 @@ export class InventoryService {
 
   /**
    * Saves return-to-coordinator data on the linked inquiry, uploads issue photos to S3,
-   * and sets inventory / authentication status to returned.
+   * and sets inventory / authentication status for renegotiation.
    */
   async returnToCoordinatorForInventoryItem(
     inventoryItemId: string,
@@ -479,14 +603,19 @@ export class InventoryService {
       throw new BadRequestException('Item authentication record not found.');
     }
 
-    const reasons =
-      dto.returnReasons == null || dto.returnReasons.trim() === ''
-        ? null
-        : dto.returnReasons.trim();
+    const reasons = dto.returnReasons.trim();
+    if (reasons === '') {
+      throw new BadRequestException('Reasons for renegotiation are required.');
+    }
 
     const minStr = this.normalizeOptionalPriceField(dto.priceRangeMin);
     const maxStr = this.normalizeOptionalPriceField(dto.priceRangeMax);
-    if (minStr != null && maxStr != null && Number(minStr) > Number(maxStr)) {
+    if (minStr == null || maxStr == null) {
+      throw new BadRequestException(
+        'Suggested price range (minimum and maximum) is required.',
+      );
+    }
+    if (Number(minStr) > Number(maxStr)) {
       throw new BadRequestException(
         'Suggested price range: minimum cannot be greater than maximum.',
       );
@@ -496,14 +625,14 @@ export class InventoryService {
       returnReasons: reasons,
       priceRangeMin: minStr,
       priceRangeMax: maxStr,
-      photosDataUrls: dto.returnPhotos ?? [],
+      photosDataUrls: dto.returnPhotos,
     });
 
-    item.status = AUTHENTICATED_RETURNED_INVENTORY_STATUS;
+    item.status = AUTHENTICATED_FOR_RENEGOTIATION_INVENTORY_STATUS;
     item.updatedById = actor.userId;
     await this.inventoryRepo.save(item);
 
-    auth.authenticationStatus = RETURNED_ITEM_AUTHENTICATION_STATUS;
+    auth.authenticationStatus = FOR_RENEGOTIATION_ITEM_AUTHENTICATION_STATUS;
     auth.updatedById = actor.userId;
     await this.itemAuthRepo.save(auth);
 

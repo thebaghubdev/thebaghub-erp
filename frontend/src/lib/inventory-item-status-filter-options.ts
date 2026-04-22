@@ -9,7 +9,15 @@ export const INVENTORY_ITEM_STATUS_FILTER_OPTIONS: {
   { value: "For Authentication", label: "For Authentication" },
   { value: "For Photoshoot", label: "For Photoshoot" },
   {
-    value: "Authenticated: Returned",
-    label: "Authenticated: Returned",
+    value: "Authenticated: For 3rd party authentication",
+    label: "Authenticated: For 3rd party authentication",
+  },
+  {
+    value: "Authenticated: For renegotiation",
+    label: "Authenticated: For renegotiation",
+  },
+  {
+    value: "Authentication Rejected",
+    label: "Authentication Rejected",
   },
 ];

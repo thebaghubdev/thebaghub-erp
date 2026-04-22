@@ -91,6 +91,33 @@ export class InventoryController {
     });
   }
 
+  @Post(':id/for-3rd-party-authentication')
+  @HttpCode(HttpStatus.OK)
+  forThirdPartyAuthentication(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() req: { user: JwtUser },
+  ) {
+    return this.inventoryService.markForThirdPartyAuthenticationForInventoryItem(
+      id,
+      {
+        userId: req.user.userId,
+        isAdmin: req.user.isAdmin,
+      },
+    );
+  }
+
+  @Post(':id/reject-authentication')
+  @HttpCode(HttpStatus.OK)
+  rejectAuthentication(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() req: { user: JwtUser },
+  ) {
+    return this.inventoryService.rejectAuthenticationForInventoryItem(id, {
+      userId: req.user.userId,
+      isAdmin: req.user.isAdmin,
+    });
+  }
+
   @Get(':id')
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.inventoryService.findOneForStaff(id);

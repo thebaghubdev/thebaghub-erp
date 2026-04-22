@@ -90,9 +90,7 @@ type InquiryDetail = {
 /** Staff can change offer price / transaction type for these statuses only. */
 function canShowUpdateOfferButton(status: string): boolean {
   const s = status.trim().toLowerCase();
-  return (
-    s === "for_offer_confirmation" || s === "authenticated_new_offer"
-  );
+  return s === "for_offer_confirmation" || s === "authenticated_new_offer";
 }
 
 function isPending(status: string): boolean {
@@ -705,7 +703,10 @@ export function InquiryDetailPage() {
                           Account name
                         </dt>
                         <dd>
-                          {detail.clientOfferConfirmation.bankDetails.accountName}
+                          {
+                            detail.clientOfferConfirmation.bankDetails
+                              .accountName
+                          }
                         </dd>
                       </div>
                       <div>
@@ -713,14 +714,19 @@ export function InquiryDetailPage() {
                           Account number
                         </dt>
                         <dd className="font-mono text-xs">
-                          {detail.clientOfferConfirmation.bankDetails.accountNumber}
+                          {
+                            detail.clientOfferConfirmation.bankDetails
+                              .accountNumber
+                          }
                         </dd>
                       </div>
                       <div>
                         <dt className="text-slate-500 dark:text-slate-400">
                           Branch
                         </dt>
-                        <dd>{detail.clientOfferConfirmation.bankDetails.branch}</dd>
+                        <dd>
+                          {detail.clientOfferConfirmation.bankDetails.branch}
+                        </dd>
                       </div>
                     </>
                   ) : null}
@@ -774,9 +780,7 @@ export function InquiryDetailPage() {
                     Receiving branch
                   </dt>
                   <dd className="text-slate-900 dark:text-slate-100">
-                    {detail.walkInBranch?.trim()
-                      ? detail.walkInBranch
-                      : "—"}
+                    {detail.walkInBranch?.trim() ? detail.walkInBranch : "—"}
                   </dd>
                 </div>
               ) : null}
@@ -872,7 +876,7 @@ export function InquiryDetailPage() {
                   </div>
                   <div>
                     <p className="text-xs font-medium text-slate-600 dark:text-slate-400">
-                      Reasons for returning
+                      Reasons for renegotiation
                     </p>
                     {detail.authenticatedReturnDetail.returnReasons ? (
                       <p className="mt-1 whitespace-pre-wrap text-slate-800 dark:text-slate-200">
@@ -1141,7 +1145,9 @@ export function InquiryDetailPage() {
                         pageSize={auditPagination.pageSize}
                         onPageIndexChange={auditPagination.setPageIndex}
                         onPageSizeChange={auditPagination.setPageSize}
-                        disabled={auditLoading && (auditRows?.length ?? 0) === 0}
+                        disabled={
+                          auditLoading && (auditRows?.length ?? 0) === 0
+                        }
                         itemLabel="entries"
                       />
                     </div>
@@ -1149,19 +1155,34 @@ export function InquiryDetailPage() {
                       <table className="w-max min-w-full border-collapse text-left text-sm">
                         <thead>
                           <tr className="border-b border-slate-200 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:text-slate-400">
-                            <th scope="col" className="max-w-[10rem] min-w-0 py-2 pr-3">
+                            <th
+                              scope="col"
+                              className="max-w-[10rem] min-w-0 py-2 pr-3"
+                            >
                               Property
                             </th>
-                            <th scope="col" className="max-w-[10rem] min-w-0 py-2 pr-3">
+                            <th
+                              scope="col"
+                              className="max-w-[10rem] min-w-0 py-2 pr-3"
+                            >
                               From
                             </th>
-                            <th scope="col" className="max-w-[10rem] min-w-0 py-2 pr-3">
+                            <th
+                              scope="col"
+                              className="max-w-[10rem] min-w-0 py-2 pr-3"
+                            >
                               To
                             </th>
-                            <th scope="col" className="max-w-[10rem] min-w-0 py-2 pr-3">
+                            <th
+                              scope="col"
+                              className="max-w-[10rem] min-w-0 py-2 pr-3"
+                            >
                               Updated by
                             </th>
-                            <th scope="col" className="max-w-[10rem] min-w-0 py-2">
+                            <th
+                              scope="col"
+                              className="max-w-[10rem] min-w-0 py-2"
+                            >
                               Date
                             </th>
                           </tr>
@@ -1262,8 +1283,8 @@ export function InquiryDetailPage() {
                         {isAuthenticatedNewOfferStatus(detail.status) ? (
                           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                             After an authentication return, only the offer price
-                            can be updated; transaction type stays as set
-                            before return.
+                            can be updated; transaction type stays as set before
+                            return.
                           </p>
                         ) : !detail.consentDirectPurchase ? (
                           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
@@ -1345,7 +1366,9 @@ export function InquiryDetailPage() {
                       Create New Offer
                     </h2>
                     <form
-                      onSubmit={(e) => void submitAuthenticatedReturnNewOffer(e)}
+                      onSubmit={(e) =>
+                        void submitAuthenticatedReturnNewOffer(e)
+                      }
                       className="mt-4 space-y-4"
                     >
                       <div className="rounded-lg border border-slate-200 bg-slate-50/90 px-3 py-2.5 text-sm dark:border-slate-600 dark:bg-slate-950/60">
