@@ -10,6 +10,8 @@ import { apiFetch } from "../lib/api";
 import { formatOfferTransactionLabel } from "../lib/format-offer-transaction-type";
 import { InventoryStatusBadge } from "../components/InventoryStatusBadge";
 import { ItemAuthenticationStatusBadge } from "../components/ItemAuthenticationStatusBadge";
+import { INVENTORY_ITEM_STATUS_FILTER_OPTIONS } from "../lib/inventory-item-status-filter-options";
+import { picklistToFilterOptions } from "../lib/picklist-to-filter-options";
 
 const FOR_AUTHENTICATION_STATUS = "For Authentication";
 const FOR_PHOTOSHOOT_STATUS = "For Photoshoot";
@@ -276,6 +278,15 @@ export function AuthenticationPage() {
   const [assignBusy, setAssignBusy] = useState(false);
   const [assignError, setAssignError] = useState<string | null>(null);
   const assignModalTitleId = useId();
+
+  const metricCategoryFilterOptions = useMemo(
+    () =>
+      picklistToFilterOptions([
+        ...itemCategories,
+        ...metricRows.map((r) => r.category),
+      ]),
+    [itemCategories, metricRows],
+  );
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -732,6 +743,7 @@ export function AuthenticationPage() {
             emptyMessage="No items in For Authentication, For Photoshoot, or Authenticated: Returned."
             hideEmptyState={!!error}
             searchPlaceholder="Search items…"
+            statusFilterOptions={INVENTORY_ITEM_STATUS_FILTER_OPTIONS}
             getRowId={(r) => r.id}
             onRowClick={(r) => navigate(`/portal/authentication/${r.id}`)}
             getRowAriaLabel={(r) =>
@@ -863,6 +875,8 @@ export function AuthenticationPage() {
             emptyMessage="No authentication metrics found."
             hideEmptyState={!!metricsError}
             searchPlaceholder="Search metrics…"
+            brandFilterSuggestions={brands}
+            categoryFilterOptions={metricCategoryFilterOptions}
             getRowId={(r) => r.id}
             paginationItemLabel="metrics"
             rowSelection={metricsRowSelection}

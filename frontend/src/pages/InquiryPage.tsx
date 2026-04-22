@@ -10,6 +10,8 @@ import { apiFetch } from "../lib/api";
 import { InquiryStatusBadge } from "../components/InquiryStatusBadge";
 import { formatOfferTransactionLabel } from "../lib/format-offer-transaction-type";
 import { formatPhpDisplay } from "../lib/format-php";
+import { INQUIRY_STATUS_FILTER_OPTIONS } from "../lib/inquiry-status-filter-options";
+import { picklistToFilterOptions } from "../lib/picklist-to-filter-options";
 
 type InquiryRow = {
   id: string;
@@ -241,6 +243,12 @@ export function InquiryPage() {
   const [rows, setRows] = useState<InquiryRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [inquiryBrandPicklist, setInquiryBrandPicklist] = useState<string[]>(
+    [],
+  );
+  const [inquiryCategoryPicklist, setInquiryCategoryPicklist] = useState<
+    string[]
+  >([]);
 
   const [clients, setClients] = useState<ClientAccountRow[]>([]);
   const [clientsLoading, setClientsLoading] = useState(false);
@@ -261,6 +269,15 @@ export function InquiryPage() {
     [clients, selectedClientId],
   );
 
+  const inquiryCategoryFilterOptions = useMemo(
+    () =>
+      picklistToFilterOptions([
+        ...inquiryCategoryPicklist,
+        ...rows.map((r) => r.category),
+      ]),
+    [inquiryCategoryPicklist, rows],
+  );
+
   const loadInquiries = useCallback(async () => {
     setError(null);
     setLoading(true);
@@ -279,6 +296,43 @@ export function InquiryPage() {
   useEffect(() => {
     if (tab === "all") void loadInquiries();
   }, [tab, loadInquiries]);
+
+  useEffect(() => {
+    if (tab !== "all" || !token) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await apiFetch(
+          "/api/client/consignment-form/options",
+          {},
+          token,
+        );
+        if (cancelled || !res.ok) return;
+        const data = (await res.json()) as {
+          brands?: unknown;
+          categories?: unknown;
+        };
+        const brands = Array.isArray(data.brands)
+          ? data.brands.filter((b): b is string => typeof b === "string")
+          : [];
+        const categories = Array.isArray(data.categories)
+          ? data.categories.filter((c): c is string => typeof c === "string")
+          : [];
+        if (!cancelled) {
+          setInquiryBrandPicklist(brands);
+          setInquiryCategoryPicklist(categories);
+        }
+      } catch {
+        if (!cancelled) {
+          setInquiryBrandPicklist([]);
+          setInquiryCategoryPicklist([]);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [tab, token]);
 
   useEffect(() => {
     if (tab === "all") setWizardDirty(false);
@@ -395,6 +449,9 @@ export function InquiryPage() {
             isLoading={loading}
             emptyMessage="No inquiries yet."
             hideEmptyState={!!error}
+            brandFilterSuggestions={inquiryBrandPicklist}
+            statusFilterOptions={INQUIRY_STATUS_FILTER_OPTIONS}
+            categoryFilterOptions={inquiryCategoryFilterOptions}
             getRowId={(row) => row.id}
             onRowClick={(row) => navigate(`/portal/inquiries/${row.id}`)}
             getRowAriaLabel={(row) =>

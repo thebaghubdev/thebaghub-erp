@@ -1,6 +1,7 @@
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactNode, useId, useMemo, useState } from "react";
 import { HorizontalScrollMirror } from "../HorizontalScrollMirror";
 import {
+  type Column,
   type ColumnDef,
   type ColumnFiltersState,
   type FilterFn,
@@ -48,6 +49,22 @@ const includesStringFilter: FilterFn<unknown> = (
   return String(v).toLowerCase().includes(q);
 };
 
+/** Exact match on columns that use a select filter (e.g. status, category). */
+function buildTableFilterFn<TData extends object>(
+  exactMatchColumnIds: ReadonlySet<string>,
+): FilterFn<TData> {
+  return (row, columnId, filterValue) => {
+    if (exactMatchColumnIds.has(columnId)) {
+      const q = String(filterValue ?? "").trim();
+      if (!q) return true;
+      const v = row.getValue(columnId);
+      if (v == null) return false;
+      return String(v) === q;
+    }
+    return includesStringFilter(row, columnId, filterValue) as boolean;
+  };
+}
+
 /**
  * Search across all primitive values on the row (for global search box).
  */
@@ -66,6 +83,107 @@ function globalMultiColumnFilter<T extends object>(
     if (typeof v === "object") return false;
     return String(v).toLowerCase().includes(q);
   });
+}
+
+const BRAND_FILTER_LIST_CAP = 80;
+
+/** Distinct non-empty `brand` field values from table rows (for filter suggestions). */
+function uniqueBrandsFromRows<TData extends object>(rows: TData[]): string[] {
+  const seen = new Set<string>();
+  for (const row of rows) {
+    const v = (row as Record<string, unknown>)["brand"];
+    if (typeof v !== "string") continue;
+    const t = v.trim();
+    if (t) seen.add(t);
+  }
+  return [...seen].sort((a, b) => a.localeCompare(b));
+}
+
+function mergeBrandSuggestions(
+  fromData: string[],
+  extras: string[] | undefined,
+): string[] {
+  if (!extras?.length) return fromData;
+  const merged = new Set(fromData);
+  for (const b of extras) {
+    const t = typeof b === "string" ? b.trim() : "";
+    if (t) merged.add(t);
+  }
+  return [...merged].sort((a, b) => a.localeCompare(b));
+}
+
+function BrandColumnFilter<TData extends object>({
+  column,
+  suggestions,
+  listId,
+  inputClassName,
+}: {
+  column: Column<TData, unknown>;
+  suggestions: string[];
+  listId: string;
+  inputClassName: string;
+}) {
+  const raw = String(column.getFilterValue() ?? "");
+  const q = raw.trim().toLowerCase();
+  const options = useMemo(() => {
+    const matched = q
+      ? suggestions.filter((b) => b.toLowerCase().includes(q))
+      : suggestions;
+    return matched.slice(0, BRAND_FILTER_LIST_CAP);
+  }, [suggestions, q]);
+
+  return (
+    <>
+      <input
+        type="search"
+        value={raw}
+        onChange={(e) => column.setFilterValue(e.target.value)}
+        list={listId}
+        placeholder="Search brand…"
+        className={inputClassName}
+        aria-label="Filter brand"
+        autoComplete="off"
+      />
+      <datalist id={listId}>
+        {options.map((b) => (
+          <option key={b} value={b} />
+        ))}
+      </datalist>
+    </>
+  );
+}
+
+export type StatusFilterOption = { value: string; label: string };
+
+function TableSelectColumnFilter<TData extends object>({
+  column,
+  options,
+  inputClassName,
+  emptyOptionLabel,
+  ariaLabel,
+}: {
+  column: Column<TData, unknown>;
+  options: StatusFilterOption[];
+  inputClassName: string;
+  emptyOptionLabel: string;
+  ariaLabel: string;
+}) {
+  const raw = String(column.getFilterValue() ?? "");
+  return (
+    <select
+      value={raw}
+      onChange={(e) => column.setFilterValue(e.target.value)}
+      className={`${inputClassName} cursor-pointer`}
+      aria-label={ariaLabel}
+    >
+      <option value="">{emptyOptionLabel}</option>
+      {options.map((o) => (
+        <option key={o.value} value={o.value}>
+          {o.label}
+        </option>
+      ))}
+    </select>
+  );
 }
 
 export type DataTableProps<TData extends object> = {
@@ -92,6 +210,19 @@ export type DataTableProps<TData extends object> = {
   paginationItemLabel?: string;
   /** Shown on the right of the search row (e.g. bulk actions). */
   toolbarRight?: ReactNode;
+  /**
+   * Extra brand names for the Brand column filter datalist (merged with distinct
+   * `brand` values from `data`), e.g. configured picklist from settings.
+   */
+  brandFilterSuggestions?: string[];
+  /**
+   * When set, the `status` column filter is a select of these enum values (exact match).
+   */
+  statusFilterOptions?: StatusFilterOption[];
+  /**
+   * When set, the `category` column filter is a select of these values (exact match).
+   */
+  categoryFilterOptions?: StatusFilterOption[];
   /** When set, a leading checkbox column is shown; requires `getRowId`. */
   rowSelection?: {
     selectedIds: ReadonlySet<string>;
@@ -116,6 +247,9 @@ export function DataTable<TData extends object>({
   getRowAriaLabel,
   paginationItemLabel = "items",
   toolbarRight,
+  brandFilterSuggestions,
+  statusFilterOptions,
+  categoryFilterOptions,
   rowSelection,
 }: DataTableProps<TData>) {
   const [sorting, setSorting] = useState<SortingState>([]);
@@ -125,6 +259,16 @@ export function DataTable<TData extends object>({
     pageIndex: 0,
     pageSize: 10,
   });
+  const brandFilterListId = useId();
+
+  const brandSuggestions = useMemo(
+    () =>
+      mergeBrandSuggestions(
+        uniqueBrandsFromRows(data),
+        brandFilterSuggestions,
+      ),
+    [data, brandFilterSuggestions],
+  );
 
   const selectionKey = rowSelection
     ? [...rowSelection.selectedIds].sort().join(",")
@@ -190,11 +334,23 @@ export function DataTable<TData extends object>({
 
   const colCount = tableColumns.length;
 
+  const statusFilterSelect =
+    statusFilterOptions != null && statusFilterOptions.length > 0;
+  const categoryFilterSelect =
+    categoryFilterOptions != null && categoryFilterOptions.length > 0;
+
+  const exactFilterColumnIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (statusFilterSelect) ids.add("status");
+    if (categoryFilterSelect) ids.add("category");
+    return ids;
+  }, [statusFilterSelect, categoryFilterSelect]);
+
   const defaultColumn = useMemo(
     () => ({
-      filterFn: includesStringFilter as FilterFn<TData>,
+      filterFn: buildTableFilterFn<TData>(exactFilterColumnIds),
     }),
-    [],
+    [exactFilterColumnIds],
   );
 
   const table = useReactTable<TData>({
@@ -317,16 +473,45 @@ export function DataTable<TData extends object>({
                   } pb-2 pt-0 font-normal normal-case`}
                 >
                   {header.column.getCanFilter() ? (
-                    <input
-                      type="search"
-                      value={(header.column.getFilterValue() ?? "") as string}
-                      onChange={(e) =>
-                        header.column.setFilterValue(e.target.value)
-                      }
-                      placeholder="Filter…"
-                      className={inputClass}
-                      aria-label={`Filter ${header.column.id}`}
-                    />
+                    header.column.id === "brand" ? (
+                      <BrandColumnFilter
+                        column={
+                          header.column as Column<TData, unknown>
+                        }
+                        suggestions={brandSuggestions}
+                        listId={brandFilterListId}
+                        inputClassName={inputClass}
+                      />
+                    ) : header.column.id === "status" &&
+                      (statusFilterOptions?.length ?? 0) > 0 ? (
+                      <TableSelectColumnFilter
+                        column={header.column as Column<TData, unknown>}
+                        options={statusFilterOptions}
+                        inputClassName={inputClass}
+                        emptyOptionLabel="All statuses"
+                        ariaLabel="Filter status"
+                      />
+                    ) : header.column.id === "category" &&
+                      (categoryFilterOptions?.length ?? 0) > 0 ? (
+                      <TableSelectColumnFilter
+                        column={header.column as Column<TData, unknown>}
+                        options={categoryFilterOptions}
+                        inputClassName={inputClass}
+                        emptyOptionLabel="All categories"
+                        ariaLabel="Filter category"
+                      />
+                    ) : (
+                      <input
+                        type="search"
+                        value={(header.column.getFilterValue() ?? "") as string}
+                        onChange={(e) =>
+                          header.column.setFilterValue(e.target.value)
+                        }
+                        placeholder="Filter…"
+                        className={inputClass}
+                        aria-label={`Filter ${header.column.id}`}
+                      />
+                    )
                   ) : (
                     <span className="block h-8" aria-hidden />
                   )}

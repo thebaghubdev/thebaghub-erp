@@ -8,6 +8,7 @@ import { apiFetch } from "../lib/api";
 import { InventoryStatusBadge } from "../components/InventoryStatusBadge";
 import { branchLabel } from "../lib/consignment-schedule-labels";
 import { formatOfferTransactionLabel } from "../lib/format-offer-transaction-type";
+import { INVENTORY_ITEM_STATUS_FILTER_OPTIONS } from "../lib/inventory-item-status-filter-options";
 
 type InventoryRow = {
   id: string;
@@ -188,6 +189,7 @@ export function InventoryPage() {
             isLoading={loading}
             emptyMessage="No inventory items yet."
             hideEmptyState={!!error}
+            statusFilterOptions={INVENTORY_ITEM_STATUS_FILTER_OPTIONS}
             getRowId={(r) => r.id}
             onRowClick={(r) => navigate(`/portal/inventory/${r.id}`)}
             getRowAriaLabel={(r) =>

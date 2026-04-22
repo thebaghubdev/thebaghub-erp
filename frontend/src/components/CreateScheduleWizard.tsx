@@ -24,6 +24,7 @@ import {
   type ScheduleListRowForLimit,
 } from "../lib/consignment-daily-limit";
 import { formatPhpDisplay } from "../lib/format-php";
+import { INQUIRY_STATUS_FILTER_OPTIONS } from "../lib/inquiry-status-filter-options";
 
 type WizardInquiryRow = {
   id: string;
@@ -561,6 +562,7 @@ export function CreateScheduleWizard({ onScheduleSaved }: Props) {
             isLoading={inquiryLoading}
             emptyMessage="No inquiries match this status yet."
             hideEmptyState={!!inquiryError}
+            statusFilterOptions={INQUIRY_STATUS_FILTER_OPTIONS}
             getRowId={(row) => row.id}
             getRowAriaLabel={(row) => `Inquiry ${row.sku}`}
           />
