@@ -24,7 +24,9 @@ export function ClientLoginPage() {
       const target =
         redirectTo.startsWith("/") &&
         redirectTo !== "/login" &&
-        redirectTo !== "/create-account"
+        redirectTo !== "/create-account" &&
+        redirectTo !== "/verify-email" &&
+        redirectTo !== "/resend-verification"
           ? redirectTo
           : "/consignments";
       navigate(target, { replace: true });
@@ -105,6 +107,15 @@ export function ClientLoginPage() {
             className="font-medium text-violet-700 hover:text-violet-800"
           >
             Create an account
+          </Link>
+        </p>
+        <p className="mt-3 text-center text-sm text-slate-600">
+          Didn&apos;t get a verification email?{" "}
+          <Link
+            to="/resend-verification"
+            className="font-medium text-violet-700 hover:text-violet-800"
+          >
+            Resend link
           </Link>
         </p>
       </div>

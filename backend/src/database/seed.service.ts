@@ -57,6 +57,9 @@ export class SeedService implements OnModuleInit {
         passwordHash,
         userType: UserType.EMPLOYEE,
         isAdmin: true,
+        emailVerifiedAt: new Date(),
+        emailVerificationToken: null,
+        emailVerificationExpiresAt: null,
         createdById: null,
         updatedById: null,
       });

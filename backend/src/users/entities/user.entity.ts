@@ -19,4 +19,24 @@ export class User extends AuditedEntity {
   /** Administrator flag (register page, etc.). Distinct from UserType. */
   @Column({ name: 'is_admin', default: false })
   isAdmin: boolean;
+
+  /** Set when the client has confirmed their email (clients only; employees may ignore). */
+  @Column({ name: 'email_verified_at', type: 'timestamptz', nullable: true })
+  emailVerifiedAt: Date | null;
+
+  @Column({
+    name: 'email_verification_token',
+    type: 'varchar',
+    length: 128,
+    nullable: true,
+    unique: true,
+  })
+  emailVerificationToken: string | null;
+
+  @Column({
+    name: 'email_verification_expires_at',
+    type: 'timestamptz',
+    nullable: true,
+  })
+  emailVerificationExpiresAt: Date | null;
 }

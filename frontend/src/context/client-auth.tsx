@@ -118,9 +118,13 @@ export function ClientAuthProvider({ children }: { children: ReactNode }) {
     })
     const body = await res.json().catch(() => null)
     if (!res.ok) {
-      throw new Error(
-        typeof body?.message === 'string' ? body.message : 'Login failed',
-      )
+      const msg = body?.message
+      const text = Array.isArray(msg)
+        ? msg.join(', ')
+        : typeof msg === 'string'
+          ? msg
+          : 'Login failed'
+      throw new Error(text)
     }
     const accessToken = body.access_token as string
     const u = body.user as AuthUser

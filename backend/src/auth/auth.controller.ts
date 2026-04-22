@@ -4,6 +4,8 @@ import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterClientDto } from './dto/register-client.dto';
 import { RegisterEmployeeDto } from './dto/register-employee.dto';
+import { ResendClientVerificationDto } from './dto/resend-client-verification.dto';
+import { VerifyClientEmailDto } from './dto/verify-client-email.dto';
 import { JwtUser } from './jwt-user';
 import { Public } from '../decorators/public.decorator';
 
@@ -21,6 +23,18 @@ export class AuthController {
   @Post('register/client')
   registerClient(@Body() dto: RegisterClientDto) {
     return this.authService.registerClient(dto);
+  }
+
+  @Public()
+  @Post('verify-client-email')
+  verifyClientEmail(@Body() dto: VerifyClientEmailDto) {
+    return this.authService.verifyClientEmail(dto);
+  }
+
+  @Public()
+  @Post('resend-client-verification')
+  resendClientVerification(@Body() dto: ResendClientVerificationDto) {
+    return this.authService.resendClientVerification(dto);
   }
 
   @Get('me')

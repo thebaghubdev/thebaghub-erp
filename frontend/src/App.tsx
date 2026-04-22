@@ -14,6 +14,8 @@ import { RequireClientAuth } from './components/RequireClientAuth'
 import { RequirePortalAuth } from './components/RequirePortalAuth'
 import { ClientCreateAccountPage } from './pages/ClientCreateAccountPage'
 import { ClientLoginPage } from './pages/ClientLoginPage'
+import { ClientResendVerificationPage } from './pages/ClientResendVerificationPage'
+import { ClientVerifyEmailPage } from './pages/ClientVerifyEmailPage'
 import { ClientMyAccountPage } from './pages/ClientMyAccountPage'
 import { ClientConsignmentDetailPage } from './pages/ClientConsignmentDetailPage'
 import { ConsignItemsPage } from './pages/ConsignItemsPage'
@@ -105,6 +107,11 @@ const router = createBrowserRouter([
       { index: true, element: <Navigate to="/login" replace /> },
       { path: 'login', element: <ClientLoginPage /> },
       { path: 'create-account', element: <ClientCreateAccountPage /> },
+      { path: 'verify-email', element: <ClientVerifyEmailPage /> },
+      {
+        path: 'resend-verification',
+        element: <ClientResendVerificationPage />,
+      },
       {
         element: (
           <RequireClientAuth>

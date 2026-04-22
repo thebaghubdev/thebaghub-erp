@@ -5,6 +5,7 @@ import { PassportModule } from '@nestjs/passport';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Client } from '../clients/entities/client.entity';
 import { Employee } from '../employees/entities/employee.entity';
+import { MailModule } from '../mail/mail.module';
 import { User } from '../users/entities/user.entity';
 import { AdminGuard } from './admin.guard';
 import { ClientOnlyGuard } from './client-only.guard';
@@ -16,6 +17,7 @@ import { TurnstileService } from './turnstile.service';
 
 @Module({
   imports: [
+    MailModule,
     TypeOrmModule.forFeature([User, Employee, Client]),
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({

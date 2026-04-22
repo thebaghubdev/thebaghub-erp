@@ -2,25 +2,34 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
+import * as crypto from 'crypto';
 import { Repository } from 'typeorm';
 import { Client } from '../clients/entities/client.entity';
 import { Employee } from '../employees/entities/employee.entity';
 import { UserType } from '../enums/user-type.enum';
+import { MailService } from '../mail/mail.service';
 import { User } from '../users/entities/user.entity';
 import { LoginDto } from './dto/login.dto';
 import { RegisterClientDto } from './dto/register-client.dto';
 import { RegisterEmployeeDto } from './dto/register-employee.dto';
+import { ResendClientVerificationDto } from './dto/resend-client-verification.dto';
+import { VerifyClientEmailDto } from './dto/verify-client-email.dto';
 import { JwtUser } from './jwt-user';
 import { TurnstileService } from './turnstile.service';
 
+const CLIENT_VERIFICATION_HOURS = 48;
+
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     @InjectRepository(User)
     private readonly usersRepo: Repository<User>,
@@ -31,6 +40,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly config: ConfigService,
     private readonly turnstile: TurnstileService,
+    private readonly mail: MailService,
   ) {}
 
   async registerClient(dto: RegisterClientDto) {
@@ -54,6 +64,22 @@ export class AuthService {
       throw new ConflictException('An account with this email already exists');
     }
     const passwordHash = await bcrypt.hash(dto.password, 10);
+    const mailConfigured = this.mail.isConfigured();
+    if (!mailConfigured) {
+      this.logger.warn(
+        'MAIL_* is not set: new client accounts are treated as email-verified without sending mail.',
+      );
+    }
+    const verificationToken = mailConfigured
+      ? crypto.randomBytes(32).toString('hex')
+      : null;
+    const verificationExpires = mailConfigured ? new Date() : null;
+    if (verificationExpires) {
+      verificationExpires.setHours(
+        verificationExpires.getHours() + CLIENT_VERIFICATION_HOURS,
+      );
+    }
+    const emailVerifiedAt = mailConfigured ? null : new Date();
 
     await this.usersRepo.manager.transaction(async (em) => {
       const user = em.create(User, {
@@ -61,6 +87,9 @@ export class AuthService {
         passwordHash,
         userType: UserType.CLIENT,
         isAdmin: false,
+        emailVerifiedAt,
+        emailVerificationToken: verificationToken,
+        emailVerificationExpiresAt: verificationExpires,
         createdById: null,
         updatedById: null,
       });
@@ -81,10 +110,31 @@ export class AuthService {
     const clientRow = await this.clientsRepo.findOneOrFail({
       where: { userId: created.id },
     });
+
+    let verificationEmailSent = false;
+    if (mailConfigured && verificationToken) {
+      const origin = this.config
+        .get<string>('FRONTEND_ORIGIN', 'http://localhost:5173')
+        .replace(/\/$/, '');
+      const verifyUrl = `${origin}/verify-email?token=${encodeURIComponent(verificationToken)}`;
+      try {
+        await this.mail.sendClientEmailVerification({
+          to: dto.email.trim(),
+          firstName: dto.firstName.trim(),
+          verifyUrl,
+        });
+        verificationEmailSent = true;
+      } catch (err) {
+        this.logger.error('Failed to send verification email', err);
+      }
+    }
+
     return {
       id: created.id,
       username: created.username,
       userType: created.userType,
+      emailVerificationPending: mailConfigured,
+      verificationEmailSent,
       client: {
         id: clientRow.id,
         firstName: clientRow.firstName,
@@ -92,6 +142,78 @@ export class AuthService {
         email: clientRow.email,
       },
     };
+  }
+
+  async verifyClientEmail(dto: VerifyClientEmailDto) {
+    const token = dto.token.trim();
+    const user = await this.usersRepo.findOne({
+      where: { emailVerificationToken: token },
+    });
+    if (!user || user.userType !== UserType.CLIENT) {
+      throw new BadRequestException(
+        'This link is invalid or no longer active. If you already verified your email, try signing in.',
+      );
+    }
+    if (user.emailVerifiedAt) {
+      return { ok: true as const, alreadyVerified: true };
+    }
+    if (
+      !user.emailVerificationExpiresAt ||
+      user.emailVerificationExpiresAt < new Date()
+    ) {
+      throw new BadRequestException(
+        'This verification link has expired. Use “Resend verification email” on the sign-in page.',
+      );
+    }
+    user.emailVerifiedAt = new Date();
+    await this.usersRepo.save(user);
+    return { ok: true as const, alreadyVerified: false };
+  }
+
+  async resendClientVerification(dto: ResendClientVerificationDto) {
+    if (!this.mail.isConfigured()) {
+      throw new BadRequestException(
+        'Email is not configured on this server. Contact support.',
+      );
+    }
+    const username = dto.email.trim().toLowerCase();
+    const user = await this.usersRepo.findOne({ where: { username } });
+    if (
+      !user ||
+      user.userType !== UserType.CLIENT ||
+      user.emailVerifiedAt
+    ) {
+      return { ok: true as const };
+    }
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const verificationExpires = new Date();
+    verificationExpires.setHours(
+      verificationExpires.getHours() + CLIENT_VERIFICATION_HOURS,
+    );
+    user.emailVerificationToken = rawToken;
+    user.emailVerificationExpiresAt = verificationExpires;
+    await this.usersRepo.save(user);
+    const cli = await this.clientsRepo.findOne({
+      where: { userId: user.id },
+    });
+    const firstName = cli?.firstName?.trim() || 'there';
+    const origin = this.config
+      .get<string>('FRONTEND_ORIGIN', 'http://localhost:5173')
+      .replace(/\/$/, '');
+    const verifyUrl = `${origin}/verify-email?token=${encodeURIComponent(rawToken)}`;
+    try {
+      await this.mail.sendClientEmailVerification({
+        to: username,
+        firstName,
+        verifyUrl,
+      });
+    } catch (err) {
+      this.logger.error('Resend verification email failed', err);
+      throw new BadRequestException(
+        'Could not send email. Try again later or contact support.',
+      );
+    }
+    return { ok: true as const };
   }
 
   async login(dto: LoginDto) {
@@ -104,6 +226,11 @@ export class AuthService {
     const ok = await bcrypt.compare(dto.password, user.passwordHash);
     if (!ok) {
       throw new UnauthorizedException('Invalid username or password');
+    }
+    if (user.userType === UserType.CLIENT && !user.emailVerifiedAt) {
+      throw new UnauthorizedException(
+        'Please verify your email before signing in. Check your inbox or use “Resend verification email” below.',
+      );
     }
     const payload = {
       sub: user.id,
@@ -133,6 +260,9 @@ export class AuthService {
         passwordHash,
         userType: UserType.EMPLOYEE,
         isAdmin: false,
+        emailVerifiedAt: new Date(),
+        emailVerificationToken: null,
+        emailVerificationExpiresAt: null,
         createdById: actor.userId,
         updatedById: actor.userId,
       });

@@ -60,7 +60,19 @@ export function ClientCreateAccountPage() {
             : `Registration failed (${res.status})`;
         throw new Error(msg);
       }
-      setSuccess("Account created. You can sign in now.");
+      const pending = body?.emailVerificationPending === true;
+      const sent = body?.verificationEmailSent === true;
+      if (pending && sent) {
+        setSuccess(
+          "Check your email and click the verification link before signing in.",
+        );
+      } else if (pending && !sent) {
+        setSuccess(
+          "Account created, but we could not send the verification email. Use “Resend link” on the sign-in page.",
+        );
+      } else {
+        setSuccess("Account created. You can sign in now.");
+      }
       setPassword("");
       setConfirmPassword("");
       setFirstName("");
