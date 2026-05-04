@@ -11,6 +11,7 @@ import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { modeOfTransferLabel } from "../lib/consignment-schedule-labels";
 import { InquiryStatusBadge } from "../components/InquiryStatusBadge";
 import { formatPhpDisplay } from "../lib/format-php";
+import { randomId } from "../lib/random-id";
 
 type TransactionType = "consignment" | "direct_purchase";
 
@@ -59,6 +60,15 @@ type ClientInquiryDetail = {
     form: Record<string, unknown>;
     images: Array<{ key: string; url: string }>;
   };
+  /** When status is 3rd party authentication; from inquiry row. */
+  thirdPartyReauthenticationReasons: string | null;
+  /**
+   * When consignor owes the 3rd party auth fee: fee and payment method lines from app settings.
+   */
+  thirdPartyPaymentInfo: {
+    feeAmount: string;
+    paymentMethods: string[];
+  } | null;
 };
 
 function canClientCancelInquiry(status: string): boolean {
@@ -77,6 +87,15 @@ function isAwaitingOfferConfirmation(status: string): boolean {
 function canClientAddPhotos(status: string): boolean {
   const s = status.trim().toLowerCase();
   return s === "pending" || s === "for_offer_confirmation";
+}
+
+/** Consignor should see re-auth reasons and proof-of-payment (request or legacy 3rd party lane). */
+function isThirdPartyAuthPaymentFlowStatus(status: string): boolean {
+  const s = status.trim().toLowerCase();
+  return (
+    s === "authenticated_requested_for_reauthentication" ||
+    s === "authenticated_for_3rd_party"
+  );
 }
 
 function formatClientPaymentMethod(
@@ -152,6 +171,22 @@ function yesNo(v: unknown): string {
 
 const cardClass = "rounded-xl border border-slate-200 bg-white p-4 shadow-sm";
 
+const proofPaymentDropzoneClass =
+  "flex min-h-[10rem] cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50/80 px-4 py-6 text-center transition-colors hover:border-violet-400 hover:bg-violet-50/50 focus-within:outline focus-within:ring-2 focus-within:ring-violet-500 dark:border-slate-600 dark:bg-slate-900/60 dark:hover:border-violet-500 dark:hover:bg-violet-950/40 dark:focus-within:ring-violet-400";
+
+/**
+ * iOS / WebKit may return an empty `File.type` for photos; match ConsignItemPhotoStep.
+ */
+function isImageFile(file: File): boolean {
+  if (file.type.startsWith("image/")) return true;
+  if (file.type !== "") return false;
+  const name = file.name.trim();
+  if (!name) return false;
+  return /\.(jpe?g|png|gif|webp|heic|heif|bmp|avif)$/i.test(name);
+}
+
+type ProofPaymentPreview = { id: string; file: File; previewUrl: string };
+
 const CONSIGNMENT_TERMS_URL = "/terms/consignment.txt";
 
 export function ClientConsignmentDetailPage() {
@@ -180,6 +215,13 @@ export function ClientConsignmentDetailPage() {
   );
   const [signatureFieldKey, setSignatureFieldKey] = useState(0);
   const confirmOfferTitleId = useId();
+  const [proofPaymentModalOpen, setProofPaymentModalOpen] = useState(false);
+  const [proofPaymentImages, setProofPaymentImages] = useState<
+    ProofPaymentPreview[]
+  >([]);
+  const [proofDropActive, setProofDropActive] = useState(false);
+  const proofPaymentInputId = useId();
+  const proofPaymentTitleId = useId();
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -210,6 +252,53 @@ export function ClientConsignmentDetailPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const closeProofPaymentModal = useCallback(() => {
+    setProofPaymentImages((prev) => {
+      for (const p of prev) {
+        URL.revokeObjectURL(p.previewUrl);
+      }
+      return [];
+    });
+    setProofDropActive(false);
+    setProofPaymentModalOpen(false);
+  }, []);
+
+  useEffect(() => {
+    if (!proofPaymentModalOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeProofPaymentModal();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [proofPaymentModalOpen, closeProofPaymentModal]);
+
+  const addProofPaymentFiles = useCallback(
+    (fileList: FileList | File[]) => {
+      const list = Array.from(fileList).filter(isImageFile);
+      if (list.length === 0) return;
+      setProofPaymentImages((prev) => {
+        const next: ProofPaymentPreview[] = [
+          ...prev,
+          ...list.map((file) => ({
+            id: randomId(),
+            file,
+            previewUrl: URL.createObjectURL(file),
+          })),
+        ];
+        return next;
+      });
+    },
+    [],
+  );
+
+  const removeProofPaymentAt = useCallback((id: string) => {
+    setProofPaymentImages((prev) => {
+      const img = prev.find((i) => i.id === id);
+      if (img) URL.revokeObjectURL(img.previewUrl);
+      return prev.filter((i) => i.id !== id);
+    });
+  }, []);
 
   const confirmCancelInquiry = useCallback(async () => {
     if (!id || !token) return;
@@ -432,6 +521,46 @@ export function ClientConsignmentDetailPage() {
                     </dd>
                   </div>
                 </dl>
+              </div>
+            ) : null}
+
+            {isThirdPartyAuthPaymentFlowStatus(detail.status) ? (
+              <div className="mt-4 space-y-3">
+                <div className="rounded-lg border border-sky-200 bg-sky-50/80 p-3 text-sm dark:border-sky-900/50 dark:bg-sky-950/30">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-sky-900 dark:text-sky-200">
+                    Requested for reauthentication
+                  </h3>
+                  <p className="mt-2 text-sm leading-relaxed text-slate-700 dark:text-slate-300">
+                    For further processing, our authenticator has asked that this
+                    item complete an in-depth authentication with third-party
+                    providers. This requires an authentication fee of{" "}
+                    <span className="font-semibold tabular-nums text-slate-900 dark:text-slate-100">
+                      {formatPhpDisplay(
+                        detail.thirdPartyPaymentInfo?.feeAmount ?? "",
+                      )}
+                    </span>
+                    . Please send proof of payment using the button below to
+                    continue.
+                  </p>
+                  <p className="mt-3 text-xs font-medium text-slate-600 dark:text-slate-400">
+                    Reauthentication reasons
+                  </p>
+                  {detail.thirdPartyReauthenticationReasons != null &&
+                  detail.thirdPartyReauthenticationReasons.trim() !== "" ? (
+                    <p className="mt-2 whitespace-pre-wrap text-slate-800 dark:text-slate-200">
+                      {detail.thirdPartyReauthenticationReasons}
+                    </p>
+                  ) : (
+                    <p className="mt-2 text-slate-500 dark:text-slate-400">—</p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setProofPaymentModalOpen(true)}
+                  className="rounded-lg bg-sky-700 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-sky-800 dark:bg-sky-600 dark:hover:bg-sky-500"
+                >
+                  Send proof of payment
+                </button>
               </div>
             ) : null}
 
@@ -879,6 +1008,161 @@ export function ClientConsignmentDetailPage() {
                     </button>
                   </div>
                 </form>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+
+      {proofPaymentModalOpen && detail && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-[100] flex items-end justify-center p-4 sm:items-center"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby={proofPaymentTitleId}
+            >
+              <button
+                type="button"
+                className="absolute inset-0 bg-slate-900/50"
+                aria-label="Close send proof of payment"
+                onClick={closeProofPaymentModal}
+              />
+              <div className="relative z-10 max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+                <h2
+                  id={proofPaymentTitleId}
+                  className="text-base font-semibold text-slate-900 dark:text-slate-100"
+                >
+                  Send proof of payment
+                </h2>
+                <p className="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-300">
+                  Please pay the 3rd party authentication fee using one of the
+                  payment methods below, then upload a clear image of your proof
+                  of payment (e.g. receipt or transfer confirmation). This step
+                  only prepares your files on this device; nothing is sent to
+                  The Bag Hub yet.
+                </p>
+                <dl className="mt-4 space-y-2 text-sm text-slate-800 dark:text-slate-200">
+                  <div>
+                    <dt className="text-slate-500 dark:text-slate-400">
+                      Amount to pay
+                    </dt>
+                    <dd className="text-lg font-semibold tabular-nums text-slate-900 dark:text-slate-100">
+                      {formatPhpDisplay(
+                        detail.thirdPartyPaymentInfo?.feeAmount ?? "",
+                      )}
+                    </dd>
+                  </div>
+                </dl>
+                <div className="mt-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    Payment methods
+                  </p>
+                  {detail.thirdPartyPaymentInfo &&
+                  detail.thirdPartyPaymentInfo.paymentMethods.length > 0 ? (
+                    <ul className="mt-2 list-inside list-disc space-y-1 text-sm text-slate-800 dark:text-slate-200">
+                      {detail.thirdPartyPaymentInfo.paymentMethods.map(
+                        (line, i) => (
+                          <li
+                            key={`${i}-${line}`}
+                            className="whitespace-pre-wrap"
+                          >
+                            {line}
+                          </li>
+                        ),
+                      )}
+                    </ul>
+                  ) : (
+                    <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+                      No payment methods are listed yet. If this looks wrong,
+                      contact The Bag Hub.
+                    </p>
+                  )}
+                </div>
+                <input
+                  id={proofPaymentInputId}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="sr-only"
+                  aria-label="Select proof of payment images"
+                  onChange={(e) => {
+                    if (e.target.files?.length) {
+                      addProofPaymentFiles(e.target.files);
+                    }
+                    e.target.value = "";
+                  }}
+                />
+                <label
+                  htmlFor={proofPaymentInputId}
+                  className={`${proofPaymentDropzoneClass} mt-4 ${proofDropActive ? "border-violet-500 bg-violet-50 dark:border-violet-400 dark:bg-violet-950/50" : ""}`}
+                  onDragEnter={(e) => {
+                    e.preventDefault();
+                    setProofDropActive(true);
+                  }}
+                  onDragLeave={(e) => {
+                    e.preventDefault();
+                    if (
+                      !e.currentTarget.contains(e.relatedTarget as Node)
+                    ) {
+                      setProofDropActive(false);
+                    }
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "copy";
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setProofDropActive(false);
+                    if (e.dataTransfer.files?.length) {
+                      addProofPaymentFiles(e.dataTransfer.files);
+                    }
+                  }}
+                >
+                  <span className="text-sm font-medium text-slate-800 dark:text-slate-100">
+                    Drop images here or click to choose
+                  </span>
+                  <span className="text-xs text-slate-500 dark:text-slate-400">
+                    PNG, JPG, or other image formats. Previews only — not
+                    saved.
+                  </span>
+                </label>
+                {proofPaymentImages.length > 0 ? (
+                  <ul className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
+                    {proofPaymentImages.map((p) => (
+                      <li
+                        key={p.id}
+                        className="overflow-hidden rounded-lg border border-slate-200 bg-slate-50 dark:border-slate-600 dark:bg-slate-800"
+                      >
+                        <div className="relative aspect-square">
+                          <img
+                            src={p.previewUrl}
+                            alt=""
+                            className="h-full w-full object-cover"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => removeProofPaymentAt(p.id)}
+                            className="absolute right-1 top-1 rounded bg-slate-900/70 px-2 py-0.5 text-xs font-medium text-white hover:bg-slate-900"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+                <div className="mt-4 flex flex-wrap justify-end border-t border-slate-200 pt-3 dark:border-slate-600">
+                  <button
+                    type="button"
+                    onClick={closeProofPaymentModal}
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+                  >
+                    Close
+                  </button>
+                </div>
               </div>
             </div>,
             document.body,

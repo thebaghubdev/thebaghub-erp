@@ -72,6 +72,9 @@ type ItemAuthenticationPayload = {
   status: string;
   assignedToEmployeeId: string | null;
   assignedToName: string | null;
+  consignorName: string | null;
+  /** `item_authentication.authentication_status` */
+  authenticationStatus: string;
   /** Staff offer on linked inquiry; null when missing or no inquiry. */
   inquiryOfferPrice: string | null;
   itemSnapshot: {
@@ -215,13 +218,18 @@ export function ItemAuthenticationPage() {
   const [forThirdPartyAuthError, setForThirdPartyAuthError] = useState<
     string | null
   >(null);
-  const [thirdPartyConfirmOpen, setThirdPartyConfirmOpen] = useState(false);
+  const [thirdPartyModalOpen, setThirdPartyModalOpen] = useState(false);
+  const [
+    thirdPartyReauthenticationReason,
+    setThirdPartyReauthenticationReason,
+  ] = useState("");
   const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
   const actionsMenuRef = useRef<HTMLDivElement>(null);
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectAuthBusy, setRejectAuthBusy] = useState(false);
   const [rejectAuthError, setRejectAuthError] = useState<string | null>(null);
   const approveModalTitleId = useId();
+  const thirdPartyModalTitleId = useId();
 
   type ReturnCoordinatorPreview = {
     id: string;
@@ -528,6 +536,18 @@ export function ItemAuthenticationPage() {
   }, [approveModalOpen, approveBusy]);
 
   useEffect(() => {
+    if (!thirdPartyModalOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !forThirdPartyAuthBusy) {
+        setThirdPartyModalOpen(false);
+        setForThirdPartyAuthError(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [thirdPartyModalOpen, forThirdPartyAuthBusy]);
+
+  useEffect(() => {
     setApproveGateMessage(null);
   }, [
     itemFormModel,
@@ -616,30 +636,41 @@ export function ItemAuthenticationPage() {
 
   const submitForThirdPartyAuthentication = useCallback(async () => {
     if (!token || !id) return;
+    const trimmed = thirdPartyReauthenticationReason.trim();
+    if (!trimmed) {
+      setForThirdPartyAuthError("Reasons for re-authentication are required.");
+      return;
+    }
     setForThirdPartyAuthError(null);
     setForThirdPartyAuthBusy(true);
     try {
       const res = await apiFetch(
         `/api/inventory/${id}/for-3rd-party-authentication`,
-        { method: "POST" },
+        {
+          method: "POST",
+          body: JSON.stringify({
+            reauthenticationReasons: trimmed,
+          }),
+        },
         token,
       );
       if (!res.ok) {
         throw new Error(await readApiErrorMessage(res));
       }
       setActionsMenuOpen(false);
-      setThirdPartyConfirmOpen(false);
+      setThirdPartyModalOpen(false);
+      setThirdPartyReauthenticationReason("");
       await load();
     } catch (e) {
       setForThirdPartyAuthError(
         e instanceof Error
           ? e.message
-          : "Could not send item for 3rd party authentication",
+          : "Could not request 3rd party authentication",
       );
     } finally {
       setForThirdPartyAuthBusy(false);
     }
-  }, [token, id, load]);
+  }, [token, id, load, thirdPartyReauthenticationReason]);
 
   const submitRejectAuthentication = useCallback(async () => {
     if (!token || !id) return;
@@ -828,7 +859,7 @@ export function ItemAuthenticationPage() {
       forThirdPartyAuthBusy ||
       rejectAuthBusy ||
       rejectDialogOpen ||
-      thirdPartyConfirmOpen ||
+      thirdPartyModalOpen ||
       approveModalOpen ||
       returnCoordinatorModalOpen ||
       returnCoordinatorBusy
@@ -841,7 +872,7 @@ export function ItemAuthenticationPage() {
     forThirdPartyAuthBusy,
     rejectAuthBusy,
     rejectDialogOpen,
-    thirdPartyConfirmOpen,
+    thirdPartyModalOpen,
     approveModalOpen,
     returnCoordinatorModalOpen,
     returnCoordinatorBusy,
@@ -987,7 +1018,7 @@ export function ItemAuthenticationPage() {
     forThirdPartyAuthBusy ||
     rejectAuthBusy ||
     rejectDialogOpen ||
-    thirdPartyConfirmOpen ||
+    thirdPartyModalOpen ||
     approveModalOpen ||
     returnCoordinatorModalOpen ||
     returnCoordinatorBusy;
@@ -1013,6 +1044,12 @@ export function ItemAuthenticationPage() {
           </p>
           <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
             <span className="font-medium text-slate-700 dark:text-slate-300">
+              Consignor:
+            </span>{" "}
+            {detail.consignorName?.trim() ? detail.consignorName : "—"}
+          </p>
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+            <span className="font-medium text-slate-700 dark:text-slate-300">
               Offer price:
             </span>{" "}
             <span className="tabular-nums text-slate-800 dark:text-slate-200">
@@ -1027,6 +1064,12 @@ export function ItemAuthenticationPage() {
               Assigned to:
             </span>{" "}
             {detail.assignedToName ?? "—"}
+          </p>
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+            <span className="font-medium text-slate-700 dark:text-slate-300">
+              Authentication status:
+            </span>{" "}
+            {detail.authenticationStatus || "—"}
           </p>
         </div>
         <div className="flex shrink-0 flex-col items-stretch gap-2 sm:flex-row sm:items-center">
@@ -1045,7 +1088,7 @@ export function ItemAuthenticationPage() {
         </p>
       ) : null}
 
-      {forThirdPartyAuthError && !thirdPartyConfirmOpen ? (
+      {forThirdPartyAuthError && !thirdPartyModalOpen ? (
         <p
           className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200"
           role="alert"
@@ -1150,11 +1193,12 @@ export function ItemAuthenticationPage() {
                       className="flex w-full items-center px-3 py-2 text-left text-sm text-sky-950 hover:bg-sky-50 dark:text-sky-100 dark:hover:bg-sky-950/50"
                       onClick={() => {
                         setForThirdPartyAuthError(null);
+                        setThirdPartyReauthenticationReason("");
                         setActionsMenuOpen(false);
-                        setThirdPartyConfirmOpen(true);
+                        setThirdPartyModalOpen(true);
                       }}
                     >
-                      For 3rd party authentication
+                      Request for 3rd party authentication
                     </button>
                   </li>
                   <li
@@ -1553,22 +1597,146 @@ export function ItemAuthenticationPage() {
           )
         : null}
 
-      <ConfirmDialog
-        open={thirdPartyConfirmOpen}
-        title="Send for 3rd party authentication?"
-        description="This will notify the coordinator and the consignor that the item needs an additional payment for 3rd party authentication."
-        cancelLabel="Cancel"
-        confirmLabel="Confirm"
-        busy={forThirdPartyAuthBusy}
-        errorMessage={forThirdPartyAuthError}
-        onCancel={() => {
-          if (!forThirdPartyAuthBusy) {
-            setThirdPartyConfirmOpen(false);
-            setForThirdPartyAuthError(null);
-          }
-        }}
-        onConfirm={() => void submitForThirdPartyAuthentication()}
-      />
+      {thirdPartyModalOpen && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-[100] flex items-end justify-center p-4 sm:items-center"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby={thirdPartyModalTitleId}
+            >
+              <button
+                type="button"
+                className="absolute inset-0 bg-slate-900/50"
+                aria-label="Close"
+                disabled={forThirdPartyAuthBusy}
+                onClick={() => {
+                  if (!forThirdPartyAuthBusy) {
+                    setThirdPartyModalOpen(false);
+                    setForThirdPartyAuthError(null);
+                  }
+                }}
+              />
+              <div className="relative z-10 flex max-h-[min(92vh,44rem)] w-full max-w-lg flex-col rounded-2xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900">
+                <div className="shrink-0 border-b border-slate-100 px-5 py-4 dark:border-slate-800">
+                  <h2
+                    id={thirdPartyModalTitleId}
+                    className="text-base font-semibold text-slate-900 dark:text-slate-100"
+                  >
+                    Request for 3rd party authentication
+                  </h2>
+                  <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+                    This requests 3rd party re-authentication. Review the
+                    metrics summary below, then provide reasons for
+                    re-authentication.
+                  </p>
+                </div>
+                <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-4">
+                  <div>
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                      Metric summary
+                    </h3>
+                    {approveSummaryRows.length === 0 ? (
+                      <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+                        No metrics with a pass, fail, skip, or notes yet.
+                      </p>
+                    ) : (
+                      <ul className="mt-2 list-outside list-disc space-y-2 pl-5 text-sm text-slate-800 dark:text-slate-200">
+                        {approveSummaryRows.map((row) => (
+                          <li key={row.id} className="pl-1">
+                            <span className="font-medium text-slate-900 dark:text-slate-100">
+                              {row.metric}
+                            </span>
+                            <span className="text-slate-600 dark:text-slate-400">
+                              {": "}
+                            </span>
+                            {row.metricStatus != null ? (
+                              <span
+                                className={
+                                  row.metricStatus === "pass"
+                                    ? "font-semibold text-emerald-700 dark:text-emerald-400"
+                                    : row.metricStatus === "fail"
+                                      ? "font-semibold text-red-700 dark:text-red-400"
+                                      : "font-medium text-slate-800 dark:text-slate-200"
+                                }
+                              >
+                                {verdictLabel(row.metricStatus)}
+                              </span>
+                            ) : null}
+                            {row.metricStatus != null && row.notes ? (
+                              <span className="text-slate-500 dark:text-slate-400">
+                                {", "}
+                              </span>
+                            ) : null}
+                            {row.notes ? (
+                              <span className="whitespace-pre-wrap text-slate-700 dark:text-slate-300">
+                                {row.notes}
+                              </span>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="third-party-reauth-reason"
+                      className={authFieldLabel}
+                    >
+                      Reasons for re-authentication
+                    </label>
+                    <textarea
+                      id="third-party-reauth-reason"
+                      rows={4}
+                      value={thirdPartyReauthenticationReason}
+                      onChange={(e) =>
+                        setThirdPartyReauthenticationReason(e.target.value)
+                      }
+                      className={`${authInputClass} resize-y`}
+                      placeholder="Explain why 3rd party authentication is required…"
+                      autoComplete="off"
+                      disabled={forThirdPartyAuthBusy}
+                    />
+                  </div>
+                </div>
+                <div className="shrink-0 border-t border-slate-100 px-5 py-4 dark:border-slate-800">
+                  {forThirdPartyAuthError ? (
+                    <p
+                      className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200"
+                      role="alert"
+                    >
+                      {forThirdPartyAuthError}
+                    </p>
+                  ) : null}
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <button
+                      type="button"
+                      disabled={forThirdPartyAuthBusy}
+                      onClick={() => {
+                        setThirdPartyModalOpen(false);
+                        setForThirdPartyAuthError(null);
+                      }}
+                      className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      disabled={forThirdPartyAuthBusy}
+                      onClick={() => void submitForThirdPartyAuthentication()}
+                      className="rounded-lg border border-sky-600 bg-sky-500 px-3 py-2 text-sm font-medium text-sky-50 shadow-sm hover:bg-sky-400 disabled:opacity-50 dark:border-sky-500 dark:bg-sky-600 dark:hover:bg-sky-500"
+                    >
+                      {forThirdPartyAuthBusy
+                        ? "Requesting…"
+                        : "Request for 3rd party authentication"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
 
       <ConfirmDialog
         open={rejectDialogOpen}

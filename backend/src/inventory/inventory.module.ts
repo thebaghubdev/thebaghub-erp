@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthenticationMetric } from '../authentication-metrics/entities/authentication-metric.entity';
 import { Employee } from '../employees/entities/employee.entity';
 import { InquiriesModule } from '../inquiries/inquiries.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { InventoryItem } from './entities/inventory-item.entity';
 import { ItemAuthentication } from './entities/item-authentication.entity';
 import { ItemAuthenticationMetric } from './entities/item-authentication-metric.entity';
@@ -13,6 +14,7 @@ import { InventoryService } from './inventory.service';
 @Module({
   imports: [
     forwardRef(() => InquiriesModule),
+    NotificationsModule,
     TypeOrmModule.forFeature([
       InventoryItem,
       ItemAuthentication,

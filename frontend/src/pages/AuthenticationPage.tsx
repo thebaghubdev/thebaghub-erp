@@ -20,11 +20,14 @@ const AUTHENTICATED_FOR_RENEGOTIATION_INVENTORY_STATUS =
   "Authenticated: For renegotiation";
 const AUTHENTICATED_FOR_3RD_PARTY_INVENTORY_STATUS =
   "Authenticated: For 3rd party authentication";
+const AUTHENTICATED_REQUESTED_FOR_REAUTHENTICATION_INVENTORY_STATUS =
+  "Authenticated: Requested for Reauthentication";
 
 const AUTHENTICATE_ITEMS_QUEUE_STATUSES = new Set([
   FOR_AUTHENTICATION_STATUS,
   FOR_PHOTOSHOOT_STATUS,
   AUTHENTICATED_FOR_RENEGOTIATION_INVENTORY_STATUS,
+  AUTHENTICATED_REQUESTED_FOR_REAUTHENTICATION_INVENTORY_STATUS,
   AUTHENTICATED_FOR_3RD_PARTY_INVENTORY_STATUS,
 ]);
 
@@ -744,7 +747,7 @@ export function AuthenticationPage() {
             data={rows}
             columns={authQueueColumns}
             isLoading={loading}
-            emptyMessage="No items in For Authentication, For Photoshoot, Authenticated: For 3rd party authentication, or Authenticated: For renegotiation."
+            emptyMessage="No items in For Authentication, For Photoshoot, Authenticated: Requested for Reauthentication, Authenticated: For 3rd party authentication, or Authenticated: For renegotiation."
             hideEmptyState={!!error}
             searchPlaceholder="Search items…"
             statusFilterOptions={INVENTORY_ITEM_STATUS_FILTER_OPTIONS}

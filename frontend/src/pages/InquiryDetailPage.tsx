@@ -85,6 +85,8 @@ type InquiryDetail = {
     images: Array<{ key: string; url: string }>;
   };
   authenticatedReturnDetail?: AuthenticatedReturnDetail;
+  /** When status is 3rd party authentication; from inquiry row. */
+  thirdPartyReauthenticationReasons: string | null;
 };
 
 /** Staff can change offer price / transaction type for these statuses only. */
@@ -95,6 +97,14 @@ function canShowUpdateOfferButton(status: string): boolean {
 
 function isPending(status: string): boolean {
   return status.trim().toLowerCase() === "pending";
+}
+
+function isThirdPartyAuthPaymentFlowStatus(status: string): boolean {
+  const s = status.trim().toLowerCase();
+  return (
+    s === "authenticated_requested_for_reauthentication" ||
+    s === "authenticated_for_3rd_party"
+  );
 }
 
 function formatClientPaymentMethod(
@@ -576,6 +586,14 @@ export function InquiryDetailPage() {
               >
                 {actionBusy === "notes" ? "Saving…" : "Update Notes"}
               </button>
+              {detail.linkedInventoryItemId ? (
+                <Link
+                  to={`/portal/inventory/${detail.linkedInventoryItemId}`}
+                  className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-800"
+                >
+                  View in Inventory
+                </Link>
+              ) : null}
               {isAuthenticatedReturnedStatus(detail.status) &&
               detail.authenticatedReturnDetail ? (
                 <button
@@ -619,14 +637,6 @@ export function InquiryDetailPage() {
                 >
                   Update the offer
                 </button>
-              ) : null}
-              {detail.linkedInventoryItemId ? (
-                <Link
-                  to={`/portal/inventory/${detail.linkedInventoryItemId}`}
-                  className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-800"
-                >
-                  View in Inventory
-                </Link>
               ) : null}
             </div>
 
@@ -746,6 +756,25 @@ export function InquiryDetailPage() {
                     </div>
                   ) : null}
                 </dl>
+              </div>
+            ) : null}
+
+            {isThirdPartyAuthPaymentFlowStatus(detail.status) ? (
+              <div className="mt-4 rounded-lg border border-sky-200 bg-sky-50/80 p-3 text-sm dark:border-sky-900/50 dark:bg-sky-950/25">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-sky-900 dark:text-sky-200">
+                  Requested for reauthentication
+                </h3>
+                <p className="mt-1 text-xs font-medium text-slate-600 dark:text-slate-400">
+                  Reauthentication reasons
+                </p>
+                {detail.thirdPartyReauthenticationReasons != null &&
+                detail.thirdPartyReauthenticationReasons.trim() !== "" ? (
+                  <p className="mt-2 whitespace-pre-wrap text-slate-800 dark:text-slate-200">
+                    {detail.thirdPartyReauthenticationReasons}
+                  </p>
+                ) : (
+                  <p className="mt-2 text-slate-500 dark:text-slate-400">—</p>
+                )}
               </div>
             ) : null}
 

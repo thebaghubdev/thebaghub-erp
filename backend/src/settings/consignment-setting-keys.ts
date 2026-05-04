@@ -4,3 +4,6 @@ export const POSITIONS_KEY = 'positions';
 export const AUTHENTICATION_RATINGS_KEY = 'authentication_ratings';
 export const CONSIGNMENT_LIMIT_PER_DAY_KEY = 'consignment_limit_per_day';
 export const CONTRACT_EXPIRATION_DAYS_KEY = 'contract_expiration_days';
+export const THIRD_PARTY_AUTHENTICATION_FEE_KEY =
+  'third_party_authentication_fee';
+export const CLIENT_PAYMENT_METHODS_KEY = 'client_payment_methods';

@@ -38,6 +38,6 @@ import { TurnstileService } from './turnstile.service';
     StaffOnlyGuard,
     ClientOnlyGuard,
   ],
-  exports: [AuthService, ClientOnlyGuard],
+  exports: [AuthService, ClientOnlyGuard, JwtModule, StaffOnlyGuard],
 })
 export class AuthModule {}

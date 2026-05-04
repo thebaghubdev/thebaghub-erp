@@ -1,6 +1,7 @@
 import { NavLink, Outlet } from "react-router-dom";
 import { usePortalAuth } from "../context/portal-auth";
 import { Breadcrumb } from "./Breadcrumb";
+import { NotificationBell } from "./NotificationBell";
 import { Sidenav } from "./Sidenav";
 
 function CogIcon({ className }: { className?: string }) {
@@ -83,6 +84,7 @@ export function Layout() {
           <Breadcrumb />
           <div className="flex min-w-0 shrink items-center gap-3">
             <HeaderUser />
+            <NotificationBell />
             <SettingsNavButton />
           </div>
         </header>

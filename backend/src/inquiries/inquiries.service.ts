@@ -2,21 +2,28 @@ import {
   BadRequestException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
   forwardRef,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { plainToInstance } from 'class-transformer';
 import { validateOrReject } from 'class-validator';
 import { randomUUID } from 'node:crypto';
 import { Between, Repository } from 'typeorm';
 import { Client } from '../clients/entities/client.entity';
+import { MailService } from '../mail/mail.service';
 import { ConsignmentScheduleItem } from '../consignment-schedules/entities/consignment-schedule.entities';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
 import { InventoryService } from '../inventory/inventory.service';
 import { InquiryStatus } from '../enums/inquiry-status.enum';
 import { JwtUser } from '../auth/jwt-user';
-import { CONTRACT_EXPIRATION_DAYS_KEY } from '../settings/consignment-setting-keys';
+import {
+  CLIENT_PAYMENT_METHODS_KEY,
+  CONTRACT_EXPIRATION_DAYS_KEY,
+  THIRD_PARTY_AUTHENTICATION_FEE_KEY,
+} from '../settings/consignment-setting-keys';
 import { Setting } from '../settings/entities/setting.entity';
 import {
   InquiryAuditService,
@@ -35,6 +42,8 @@ import {
 } from './entities/inquiry.entity';
 import type { MulterFile } from './multer-file.type';
 import { S3StorageService } from './s3-storage.service';
+import { CONSIGNMENT_COORDINATOR_POSITION } from '../notifications/notification.constants';
+import { NotificationsService } from '../notifications/notifications.service';
 
 const ALLOWED_IMAGE_MIMES = new Set([
   'image/jpeg',
@@ -132,6 +141,20 @@ function itemLabelFromSnapshot(
   return `${brand} — ${model}`;
 }
 
+/** Brand + model for transactional copy (e.g. email); empty string when missing. */
+function brandAndModelForEmail(
+  snapshot: InquiryItemSnapshot | null | undefined,
+): string {
+  if (!snapshot?.form) return '';
+  const form = snapshot.form as { brand?: string; itemModel?: string };
+  const brand = (form.brand ?? '').trim();
+  const model = (form.itemModel ?? '').trim();
+  if (!brand && !model) return '';
+  if (!brand) return model;
+  if (!model) return brand;
+  return `${brand} ${model}`;
+}
+
 function snapshotFormString(form: Record<string, unknown>, key: string): string {
   const v = form[key];
   if (v == null) return '';
@@ -209,6 +232,10 @@ export type StaffInquiryDetail = StaffInquiryRow & {
     returnReasons: string | null;
     returnPhotoUrls: string[];
   };
+  /**
+   * When in 3rd party payment flow: why re-authentication was requested (see `authenticated_requested_for_reauthentication` / legacy `authenticated_for_3rd_party`).
+   */
+  thirdPartyReauthenticationReasons: string | null;
 };
 
 /** When status is for_delivery_scheduled, schedule row from staff calendar. */
@@ -227,10 +254,23 @@ export type ClientInquiryDetail = Omit<StaffInquiryRow, 'notes'> & {
   };
   /** Present when linked to a delivery schedule (for_delivery_scheduled). */
   deliverySchedule: ClientDeliveryScheduleInfo | null;
+  /**
+   * When in 3rd party payment flow: why re-authentication was requested.
+   */
+  thirdPartyReauthenticationReasons: string | null;
+  /**
+   * When in 3rd party payment flow: fee and payment instructions from settings.
+   */
+  thirdPartyPaymentInfo: {
+    feeAmount: string;
+    paymentMethods: string[];
+  } | null;
 };
 
 @Injectable()
 export class InquiriesService {
+  private readonly logger = new Logger(InquiriesService.name);
+
   constructor(
     @InjectRepository(Inquiry)
     private readonly inquiriesRepo: Repository<Inquiry>,
@@ -246,7 +286,161 @@ export class InquiriesService {
     private readonly inquiryAudit: InquiryAuditService,
     @Inject(forwardRef(() => InventoryService))
     private readonly inventoryService: InventoryService,
+    private readonly notifications: NotificationsService,
+    private readonly mail: MailService,
+    private readonly config: ConfigService,
   ) {}
+
+  /** Client portal URL for this inquiry (consignor reviews / confirms offer). */
+  private consignorInquiryUrl(inquiryId: string): string {
+    const origin = this.config
+      .get<string>('FRONTEND_ORIGIN', 'http://localhost:5173')
+      .replace(/\/$/, '');
+    return `${origin}/consignments/${inquiryId}`;
+  }
+
+  /**
+   * Consignor may owe the 3rd party auth fee: initial request, or legacy row still in the paid pipeline.
+   */
+  private inquiryIsInThirdPartyPaymentFlow(status: InquiryStatus): boolean {
+    return (
+      status === InquiryStatus.AUTHENTICATED_REQUESTED_FOR_REAUTHENTICATION ||
+      status === InquiryStatus.AUTHENTICATED_FOR_3RD_PARTY
+    );
+  }
+
+  private notifyConsignorOfferEmail(
+    inquiryId: string,
+    consignor: Client | null | undefined,
+  ): void {
+    if (!consignor?.email?.trim()) {
+      return;
+    }
+    if (!this.mail.isConfigured()) {
+      this.logger.debug(
+        'MAIL_* not configured; skipping consignor offer email',
+      );
+      return;
+    }
+    const firstName = consignor.firstName?.trim() || 'there';
+    const viewOfferUrl = this.consignorInquiryUrl(inquiryId);
+    void this.mail
+      .sendConsignorInquiryOfferAvailable({
+        to: consignor.email.trim(),
+        firstName,
+        viewOfferUrl,
+      })
+      .catch((err: unknown) => {
+        this.logger.error('Failed to send consignor offer email', err);
+      });
+  }
+
+  private notifyCoordinatorsConsignorConfirmedOffer(inquiry: {
+    id: string;
+    sku: string;
+  }): void {
+    void this.notifications
+      .notify({
+        message: `The consignor confirmed the offer for inquiry ${inquiry.sku}.`,
+        receiverRole: CONSIGNMENT_COORDINATOR_POSITION,
+        inquiryId: inquiry.id,
+      })
+      .catch((err: unknown) => {
+        this.logger.error(
+          'Failed to notify coordinators of offer confirmation',
+          err,
+        );
+      });
+  }
+
+  /**
+   * Invoked from inventory when an item is moved into the 3rd party re-auth / payment flow.
+   * Notifies consignment coordinators in-app; emails the consignor when mail is configured.
+   */
+  async onInquirySentForThirdPartyAuthentication(
+    inquiryId: string,
+  ): Promise<void> {
+    const r = await this.inquiriesRepo.findOne({
+      where: { id: inquiryId },
+      relations: { consignor: true },
+    });
+    if (!r) {
+      this.logger.warn(
+        `Inquiry ${inquiryId} not found for 3rd party auth notifications`,
+      );
+      return;
+    }
+    void this.notifications
+      .notify({
+        message: `Inquiry ${r.sku} was requested for 3rd party authentication.`,
+        receiverRole: CONSIGNMENT_COORDINATOR_POSITION,
+        inquiryId: r.id,
+      })
+      .catch((err: unknown) => {
+        this.logger.error(
+          'Failed to notify coordinators of 3rd party authentication',
+          err,
+        );
+      });
+
+    const c = r.consignor;
+    if (!c?.email?.trim()) {
+      return;
+    }
+    if (!this.mail.isConfigured()) {
+      this.logger.debug(
+        'MAIL_* not configured; skipping 3rd party consignor email',
+      );
+      return;
+    }
+    const firstName = c.firstName?.trim() || 'there';
+    const viewInquiryUrl = this.consignorInquiryUrl(r.id);
+    const itemBrandAndModel = brandAndModelForEmail(r.itemSnapshot);
+    void this.mail
+      .sendConsignorThirdPartyAuthNotice({
+        to: c.email.trim(),
+        firstName,
+        itemBrandAndModel,
+        viewInquiryUrl,
+      })
+      .catch((err: unknown) => {
+        this.logger.error(
+          'Failed to send 3rd party authentication consignor email',
+          err,
+        );
+      });
+  }
+
+  private async loadThirdPartyPaymentInfoFromSettings(): Promise<{
+    feeAmount: string;
+    paymentMethods: string[];
+  }> {
+    const feeRow = await this.settingsRepo.findOne({
+      where: { key: THIRD_PARTY_AUTHENTICATION_FEE_KEY },
+    });
+    const methodsRow = await this.settingsRepo.findOne({
+      where: { key: CLIENT_PAYMENT_METHODS_KEY },
+    });
+    const feeAmount =
+      feeRow?.value != null ? String(feeRow.value).trim() : '';
+    let paymentMethods: string[] = [];
+    if (methodsRow?.value) {
+      try {
+        const parsed = JSON.parse(methodsRow.value) as unknown;
+        if (
+          Array.isArray(parsed) &&
+          parsed.every((x) => typeof x === 'string')
+        ) {
+          paymentMethods = parsed
+            .map((s) => String(s).trim())
+            .filter((s) => s !== '');
+        }
+      } catch {
+        /* invalid JSON */
+      }
+    }
+    return { feeAmount, paymentMethods };
+  }
 
   private async loadDeliveryScheduleForInquiry(
     inquiryId: string,
@@ -393,6 +587,13 @@ export class InquiriesService {
       select: { id: true },
     });
 
+    const thirdPartyReauthenticationReasons =
+      this.inquiryIsInThirdPartyPaymentFlow(r.status) &&
+      r.thirdPartyReauthenticationReasons != null &&
+      String(r.thirdPartyReauthenticationReasons).trim() !== ''
+        ? String(r.thirdPartyReauthenticationReasons).trim()
+        : null;
+
     const detail: StaffInquiryDetail = {
       ...base,
       updatedAt: r.updatedAt,
@@ -402,6 +603,7 @@ export class InquiriesService {
         form: (r.itemSnapshot.form ?? {}) as Record<string, unknown>,
         images,
       },
+      thirdPartyReauthenticationReasons,
     };
     if (
       r.status === InquiryStatus.AUTHENTICATED_RETURNED ||
@@ -500,6 +702,17 @@ export class InquiriesService {
       r.id,
       r.status,
     );
+    const thirdPartyReauthenticationReasons =
+      this.inquiryIsInThirdPartyPaymentFlow(r.status) &&
+      r.thirdPartyReauthenticationReasons != null &&
+      String(r.thirdPartyReauthenticationReasons).trim() !== ''
+        ? String(r.thirdPartyReauthenticationReasons).trim()
+        : null;
+    const thirdPartyPaymentInfo = this.inquiryIsInThirdPartyPaymentFlow(
+      r.status,
+    )
+      ? await this.loadThirdPartyPaymentInfoFromSettings()
+      : null;
     return {
       ...rest,
       updatedAt: r.updatedAt,
@@ -509,6 +722,8 @@ export class InquiriesService {
         images,
       },
       deliverySchedule,
+      thirdPartyReauthenticationReasons,
+      thirdPartyPaymentInfo,
     };
   }
 
@@ -767,6 +982,7 @@ export class InquiriesService {
       r,
       this.inquiryAudit.consignorActor(user.userId),
     );
+    this.notifyCoordinatorsConsignorConfirmedOffer(r);
     return this.findOneForClient(user, inquiryId);
   }
 
@@ -886,6 +1102,22 @@ export class InquiriesService {
       );
 
       return { inquiries: results };
+    }).then((out) => {
+      const skus = out.inquiries.map((i) => i.sku).join(', ');
+      const text =
+        out.inquiries.length === 1
+          ? `A client submitted a new consignment inquiry (${skus}).`
+          : `A client submitted ${out.inquiries.length} new consignment inquiries: ${skus}.`;
+      void this.notifications
+        .notify({
+          message: text,
+          receiverRole: CONSIGNMENT_COORDINATOR_POSITION,
+          inquiryId: out.inquiries[0]?.id ?? null,
+        })
+        .catch((err) => {
+          this.logger.error('Failed to notify consignment coordinators', err);
+        });
+      return out;
     });
   }
 
@@ -1054,7 +1286,7 @@ export class InquiriesService {
         'Cannot submit an offer for an inquiry that is pending renegotiation after authentication',
       );
     }
-    if (r.status === InquiryStatus.AUTHENTICATED_FOR_3RD_PARTY) {
+    if (this.inquiryIsInThirdPartyPaymentFlow(r.status)) {
       throw new BadRequestException(
         'Cannot submit an offer for an inquiry that is pending payment for 3rd party authentication',
       );
@@ -1071,7 +1303,10 @@ export class InquiriesService {
     const before = cloneInquiryForAudit(r);
     r.offerTransactionType = dto.transactionType;
     r.offerPrice = dto.offerPrice.toFixed(2);
-    r.status = InquiryStatus.FOR_OFFER_CONFIRMATION;
+    /** Stay in post–auth renegotiation lane when the coordinator revises the offer. */
+    if (r.status !== InquiryStatus.AUTHENTICATED_NEW_OFFER) {
+      r.status = InquiryStatus.FOR_OFFER_CONFIRMATION;
+    }
     r.preferredPaymentMethod = null;
     r.offerSignatureKey = null;
     await this.inquiriesRepo.save(r);
@@ -1080,6 +1315,7 @@ export class InquiriesService {
       userId: user.userId,
       label,
     });
+    this.notifyConsignorOfferEmail(id, r.consignor);
     return this.findOneForStaff(id);
   }
 
@@ -1115,6 +1351,7 @@ export class InquiriesService {
       userId: user.userId,
       label,
     });
+    this.notifyConsignorOfferEmail(id, r.consignor);
     return this.findOneForStaff(id);
   }
 

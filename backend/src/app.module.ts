@@ -29,6 +29,8 @@ import { ItemAuthentication } from './inventory/entities/item-authentication.ent
 import { ItemAuthenticationMetric } from './inventory/entities/item-authentication-metric.entity';
 import { ItemPhotoshoot } from './inventory/entities/item-photoshoot.entity';
 import { AuthenticationMetricsModule } from './authentication-metrics/authentication-metrics.module';
+import { Notification } from './notifications/entities/notification.entity';
+import { NotificationsModule } from './notifications/notifications.module';
 
 @Module({
   imports: [
@@ -57,6 +59,7 @@ import { AuthenticationMetricsModule } from './authentication-metrics/authentica
           ItemAuthentication,
           ItemAuthenticationMetric,
           ItemPhotoshoot,
+          Notification,
         ],
         synchronize:
           config.get<string>('NODE_ENV', 'development') !== 'production',
@@ -71,6 +74,7 @@ import { AuthenticationMetricsModule } from './authentication-metrics/authentica
     ConsignmentSchedulesModule,
     InventoryModule,
     AuthenticationMetricsModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [

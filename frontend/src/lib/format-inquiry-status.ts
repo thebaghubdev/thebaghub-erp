@@ -4,6 +4,8 @@ const STATUS_LABELS: Record<string, string> = {
   for_processing: "For Processing",
   authenticated_returned: "Authenticated: For renegotiation",
   authenticated_new_offer: "Authenticated: New Offer",
+  authenticated_requested_for_reauthentication:
+    "Authenticated: Requested for Reauthentication",
   authenticated_for_3rd_party: "Authenticated: For 3rd party authentication",
 };
 

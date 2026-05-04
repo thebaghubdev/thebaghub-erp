@@ -2,6 +2,8 @@
 
 interface ImportMetaEnv {
   readonly VITE_TURNSTILE_SITE_KEY?: string;
+  /** e.g. `http://localhost:3000` if WebSocket is not behind the Vite dev proxy */
+  readonly VITE_SOCKET_URL?: string;
 }
 
 type TurnstileRenderOptions = {

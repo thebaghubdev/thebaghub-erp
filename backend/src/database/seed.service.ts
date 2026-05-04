@@ -8,10 +8,12 @@ import { UserType } from '../enums/user-type.enum';
 import {
   AUTHENTICATION_RATINGS_KEY,
   BRANDS_WE_CONSIGN_KEY,
+  CLIENT_PAYMENT_METHODS_KEY,
   CONSIGNMENT_LIMIT_PER_DAY_KEY,
   CONTRACT_EXPIRATION_DAYS_KEY,
   ITEM_CATEGORIES_KEY,
   POSITIONS_KEY,
+  THIRD_PARTY_AUTHENTICATION_FEE_KEY,
 } from '../settings/consignment-setting-keys';
 import { Setting } from '../settings/entities/setting.entity';
 import { User } from '../users/entities/user.entity';
@@ -147,6 +149,23 @@ export class SeedService implements OnModuleInit {
         category: 'Consignment',
         type: 'number',
         value: '60',
+      },
+      {
+        key: THIRD_PARTY_AUTHENTICATION_FEE_KEY,
+        title: 'Third party authentication fee',
+        description: 'Fee for third party authentication.',
+        category: 'Payments',
+        type: 'number',
+        value: '1500',
+      },
+      {
+        key: CLIENT_PAYMENT_METHODS_KEY,
+        title: 'Client payment methods',
+        description: 'Payment methods available for clients.',
+        category: 'Payments',
+        type: 'string[]',
+        value:
+          '["BPI - Account Name: The Bag Hub - BPI, Account Number: 0000-0000-0000-0000","BDO - Account Name: The Bag Hub - BDO, Account Number: 0000-0000-0000-0000", "GCash - Account Name: The Bag Hub - GCash, Account Number: 09123456789"]',
       },
     ];
 

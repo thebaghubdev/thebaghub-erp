@@ -14,6 +14,7 @@ import { JwtUser } from '../auth/jwt-user';
 import { StaffOnlyGuard } from '../auth/staff-only.guard';
 import { BatchAssignAuthenticatorDto } from './dto/batch-assign-authenticator.dto';
 import { SaveItemAuthenticationMetricsDto } from './dto/save-item-authentication-metrics.dto';
+import { ForThirdPartyAuthenticationDto } from './dto/for-third-party-authentication.dto';
 import { ReturnToCoordinatorDto } from './dto/return-to-coordinator.dto';
 import { InventoryService } from './inventory.service';
 
@@ -95,10 +96,12 @@ export class InventoryController {
   @HttpCode(HttpStatus.OK)
   forThirdPartyAuthentication(
     @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ForThirdPartyAuthenticationDto,
     @Req() req: { user: JwtUser },
   ) {
     return this.inventoryService.markForThirdPartyAuthenticationForInventoryItem(
       id,
+      dto,
       {
         userId: req.user.userId,
         isAdmin: req.user.isAdmin,

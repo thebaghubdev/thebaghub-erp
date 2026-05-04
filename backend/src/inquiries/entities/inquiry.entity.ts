@@ -131,6 +131,17 @@ export class Inquiry extends AuditedEntity {
   })
   priceRangeMax: string | null;
 
+  /**
+   * Authenticator narrative when sending the item for paid 3rd party authentication
+   * (in-house re-check / re-authentication path).
+   */
+  @Column({
+    name: 'third_party_reauthentication_reasons',
+    type: 'text',
+    nullable: true,
+  })
+  thirdPartyReauthenticationReasons: string | null;
+
   /** One line item per inquiry row (form + uploaded image locations). */
   @Column({ type: 'jsonb', name: 'item_snapshot' })
   itemSnapshot: InquiryItemSnapshot;

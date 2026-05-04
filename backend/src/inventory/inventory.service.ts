@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
   forwardRef,
 } from '@nestjs/common';
@@ -25,9 +26,12 @@ import { AuthenticationMetric } from '../authentication-metrics/entities/authent
 import { BatchAssignAuthenticatorDto } from './dto/batch-assign-authenticator.dto';
 import { ItemAuthenticationSnapshotFormDto } from './dto/item-authentication-snapshot-form.dto';
 import { SaveItemAuthenticationMetricsDto } from './dto/save-item-authentication-metrics.dto';
+import { ForThirdPartyAuthenticationDto } from './dto/for-third-party-authentication.dto';
 import { ReturnToCoordinatorDto } from './dto/return-to-coordinator.dto';
 import { InquiryStatus } from '../enums/inquiry-status.enum';
 import { InquiriesService } from '../inquiries/inquiries.service';
+import { CONSIGNMENT_COORDINATOR_POSITION } from '../notifications/notification.constants';
+import { NotificationsService } from '../notifications/notifications.service';
 
 export type InventoryListRow = {
   id: string;
@@ -64,6 +68,8 @@ export type InventoryDetailForStaff = {
   /** Employee id when an authenticator is assigned (item_authentication.assigned_to_id). */
   assignedToEmployeeId: string | null;
   assignedToName: string | null;
+  /** `item_authentication.authentication_status` (e.g. Pending, Approved). */
+  authenticationStatus: string;
   /** Staff offer on linked inquiry (`inquiries.offer_price`), if any. */
   inquiryOfferPrice: string | null;
   itemSnapshot: {
@@ -161,14 +167,17 @@ const AUTHENTICATED_FOR_RENEGOTIATION_INVENTORY_STATUS =
   'Authenticated: For renegotiation';
 const APPROVED_ITEM_AUTHENTICATION_STATUS = 'Approved';
 const FOR_RENEGOTIATION_ITEM_AUTHENTICATION_STATUS = 'For renegotiation';
-const AUTHENTICATED_FOR_3RD_PARTY_INVENTORY_STATUS =
-  'Authenticated: For 3rd party authentication';
-const FOR_3RD_PARTY_ITEM_AUTHENTICATION_STATUS = 'For 3rd party authentication';
+const AUTHENTICATED_REQUESTED_FOR_REAUTHENTICATION_INVENTORY_STATUS =
+  'Authenticated: Requested for Reauthentication';
+const REQUESTED_FOR_REAUTHENTICATION_ITEM_AUTH_STATUS =
+  'Requested for Reauthentication';
 const AUTHENTICATION_REJECTED_INVENTORY_STATUS = 'Authentication Rejected';
 const REJECTED_ITEM_AUTHENTICATION_STATUS = 'Rejected';
 
 @Injectable()
 export class InventoryService {
+  private readonly logger = new Logger(InventoryService.name);
+
   constructor(
     @InjectRepository(InventoryItem)
     private readonly inventoryRepo: Repository<InventoryItem>,
@@ -182,6 +191,7 @@ export class InventoryService {
     private readonly authenticationMetricRepo: Repository<AuthenticationMetric>,
     @Inject(forwardRef(() => InquiriesService))
     private readonly inquiriesService: InquiriesService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /**
@@ -436,11 +446,13 @@ export class InventoryService {
   }
 
   /**
-   * Sends the item to paid 3rd party authentication: inquiry, inventory, and
-   * item-auth are updated in one transaction. Requires a linked inquiry.
+   * Records an authenticator request for paid 3rd party re-authentication: inquiry,
+   * inventory, and item_auth are updated in one transaction. Consignor pays next.
+   * Requires a linked inquiry.
    */
   async markForThirdPartyAuthenticationForInventoryItem(
     inventoryItemId: string,
+    dto: ForThirdPartyAuthenticationDto,
     actor: { userId: string; isAdmin: boolean },
   ): Promise<{ status: string; authenticationStatus: string }> {
     const item0 = await this.inventoryRepo.findOne({
@@ -496,14 +508,16 @@ export class InventoryService {
             throw new BadRequestException('Item authentication record not found.');
           }
 
-          inquiry.status = InquiryStatus.AUTHENTICATED_FOR_3RD_PARTY;
+          inquiry.thirdPartyReauthenticationReasons = dto.reauthenticationReasons;
+          inquiry.status =
+            InquiryStatus.AUTHENTICATED_REQUESTED_FOR_REAUTHENTICATION;
           await em.save(inquiry);
 
-          auth.authenticationStatus = FOR_3RD_PARTY_ITEM_AUTHENTICATION_STATUS;
+          auth.authenticationStatus = REQUESTED_FOR_REAUTHENTICATION_ITEM_AUTH_STATUS;
           auth.updatedById = actor.userId;
           await em.save(auth);
 
-          item.status = AUTHENTICATED_FOR_3RD_PARTY_INVENTORY_STATUS;
+          item.status = AUTHENTICATED_REQUESTED_FOR_REAUTHENTICATION_INVENTORY_STATUS;
           item.updatedById = actor.userId;
           await em.save(item);
 
@@ -513,6 +527,12 @@ export class InventoryService {
           };
         },
       );
+
+    void this.inquiriesService
+      .onInquirySentForThirdPartyAuthentication(item0.inquiryId)
+      .catch((err: unknown) => {
+        this.logger.error('3rd party authentication notifications failed', err);
+      });
 
     return { status, authenticationStatus };
   }
@@ -635,6 +655,21 @@ export class InventoryService {
     auth.authenticationStatus = FOR_RENEGOTIATION_ITEM_AUTHENTICATION_STATUS;
     auth.updatedById = actor.userId;
     await this.itemAuthRepo.save(auth);
+
+    if (item.inquiryId) {
+      void this.notifications
+        .notify({
+          message: `An authenticator sent inventory item ${item.sku} back for renegotiation.`,
+          receiverRole: CONSIGNMENT_COORDINATOR_POSITION,
+          inquiryId: item.inquiryId,
+        })
+        .catch((err: unknown) => {
+          this.logger.error(
+            'Failed to notify coordinators of authentication renegotiation',
+            err,
+          );
+        });
+    }
 
     return {
       status: item.status,
@@ -781,6 +816,7 @@ export class InventoryService {
       consignorPhone: c?.contactNumber?.trim() ?? null,
       assignedToEmployeeId: auth?.assignedToId ?? null,
       assignedToName: formatEmployeeName(auth?.assignedTo ?? null),
+      authenticationStatus: auth?.authenticationStatus ?? 'Pending',
       inquiryOfferPrice:
         r.inquiry?.offerPrice != null && String(r.inquiry.offerPrice).trim() !== ''
           ? String(r.inquiry.offerPrice)
