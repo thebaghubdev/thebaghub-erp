@@ -16,6 +16,7 @@ import { Client } from '../clients/entities/client.entity';
 import { MailService } from '../mail/mail.service';
 import { ConsignmentScheduleItem } from '../consignment-schedules/entities/consignment-schedule.entities';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
+import { ItemAuthentication } from '../inventory/entities/item-authentication.entity';
 import { InventoryService } from '../inventory/inventory.service';
 import { InquiryStatus } from '../enums/inquiry-status.enum';
 import { JwtUser } from '../auth/jwt-user';
@@ -236,6 +237,7 @@ export type StaffInquiryDetail = StaffInquiryRow & {
    * When in 3rd party payment flow: why re-authentication was requested (see `authenticated_requested_for_reauthentication` / legacy `authenticated_for_3rd_party`).
    */
   thirdPartyReauthenticationReasons: string | null;
+  thirdPartyPaymentProofUrls: string[];
 };
 
 /** When status is for_delivery_scheduled, schedule row from staff calendar. */
@@ -265,6 +267,7 @@ export type ClientInquiryDetail = Omit<StaffInquiryRow, 'notes'> & {
     feeAmount: string;
     paymentMethods: string[];
   } | null;
+  thirdPartyPaymentProofUrls: string[];
 };
 
 @Injectable()
@@ -593,6 +596,13 @@ export class InquiriesService {
       String(r.thirdPartyReauthenticationReasons).trim() !== ''
         ? String(r.thirdPartyReauthenticationReasons).trim()
         : null;
+    const thirdPartyPaymentProofUrls =
+      this.inquiryIsInThirdPartyPaymentFlow(r.status) &&
+      Array.isArray(r.thirdPartyPaymentProofKeys)
+        ? r.thirdPartyPaymentProofKeys
+            .filter((k): k is string => typeof k === 'string' && k.trim() !== '')
+            .map((k) => this.s3.getPublicUrl(k))
+        : [];
 
     const detail: StaffInquiryDetail = {
       ...base,
@@ -604,6 +614,7 @@ export class InquiriesService {
         images,
       },
       thirdPartyReauthenticationReasons,
+      thirdPartyPaymentProofUrls,
     };
     if (
       r.status === InquiryStatus.AUTHENTICATED_RETURNED ||
@@ -713,6 +724,13 @@ export class InquiriesService {
     )
       ? await this.loadThirdPartyPaymentInfoFromSettings()
       : null;
+    const thirdPartyPaymentProofUrls =
+      this.inquiryIsInThirdPartyPaymentFlow(r.status) &&
+      Array.isArray(r.thirdPartyPaymentProofKeys)
+        ? r.thirdPartyPaymentProofKeys
+            .filter((k): k is string => typeof k === 'string' && k.trim() !== '')
+            .map((k) => this.s3.getPublicUrl(k))
+        : [];
     return {
       ...rest,
       updatedAt: r.updatedAt,
@@ -724,7 +742,116 @@ export class InquiriesService {
       deliverySchedule,
       thirdPartyReauthenticationReasons,
       thirdPartyPaymentInfo,
+      thirdPartyPaymentProofUrls,
     };
+  }
+
+  async uploadThirdPartyPaymentProof(
+    inquiryId: string,
+    files: MulterFile[] | undefined,
+    user: JwtUser,
+  ): Promise<StaffInquiryDetail> {
+    if (!files?.length) {
+      throw new BadRequestException('At least one image file is required');
+    }
+    const maxPerRequest = 20;
+    if (files.length > maxPerRequest) {
+      throw new BadRequestException(
+        `At most ${maxPerRequest} images per request`,
+      );
+    }
+    const r = await this.inquiriesRepo.findOne({ where: { id: inquiryId } });
+    if (!r) {
+      throw new NotFoundException('Inquiry not found');
+    }
+    if (r.status !== InquiryStatus.AUTHENTICATED_REQUESTED_FOR_REAUTHENTICATION) {
+      throw new BadRequestException(
+        'Proof of payment can only be uploaded while reauthentication payment is pending',
+      );
+    }
+    const existing = Array.isArray(r.thirdPartyPaymentProofKeys)
+      ? [...r.thirdPartyPaymentProofKeys]
+      : [];
+    for (const file of files) {
+      const mime = file.mimetype?.toLowerCase() ?? '';
+      if (!ALLOWED_IMAGE_MIMES.has(mime)) {
+        throw new BadRequestException(
+          `Unsupported image type: ${file.mimetype || 'unknown'}`,
+        );
+      }
+      const ext = extFromMime(mime);
+      const key = `inquiries/${inquiryId}/third-party-payment/${randomUUID()}.${ext}`;
+      await this.s3.putObject(key, file.buffer, mime);
+      existing.push(key);
+    }
+    const before = cloneInquiryForAudit(r);
+    r.thirdPartyPaymentProofKeys = existing;
+    r.updatedById = user.userId;
+    await this.inquiriesRepo.save(r);
+    const label = await this.inquiryAudit.staffActorLabel(user.userId);
+    await this.inquiryAudit.recordDiff(inquiryId, before, r, {
+      userId: user.userId,
+      label,
+    });
+    return this.findOneForStaff(inquiryId);
+  }
+
+  async markThirdPartyAuthenticationFeePaid(
+    inquiryId: string,
+    user: JwtUser,
+  ): Promise<StaffInquiryDetail> {
+    const r0 = await this.inquiriesRepo.findOne({ where: { id: inquiryId } });
+    if (!r0) {
+      throw new NotFoundException('Inquiry not found');
+    }
+    if (r0.status !== InquiryStatus.AUTHENTICATED_REQUESTED_FOR_REAUTHENTICATION) {
+      throw new BadRequestException(
+        'Inquiry is not waiting for reauthentication payment',
+      );
+    }
+    if (
+      !Array.isArray(r0.thirdPartyPaymentProofKeys) ||
+      r0.thirdPartyPaymentProofKeys.length === 0
+    ) {
+      throw new BadRequestException(
+        'Upload proof of payment before marking this inquiry as paid',
+      );
+    }
+    await this.inquiriesRepo.manager.transaction(async (em) => {
+      const r = await em.findOne(Inquiry, { where: { id: inquiryId } });
+      if (!r) {
+        throw new NotFoundException('Inquiry not found');
+      }
+      const inv = await em.findOne(InventoryItem, {
+        where: { inquiryId },
+      });
+      if (!inv) {
+        throw new BadRequestException(
+          'No linked inventory item was found for this inquiry.',
+        );
+      }
+      const auth = await em.findOneBy(ItemAuthentication, {
+        inventoryItemId: inv.id,
+      });
+      const before = cloneInquiryForAudit(r);
+      r.status = InquiryStatus.AUTHENTICATED_FOR_3RD_PARTY;
+      r.updatedById = user.userId;
+      await em.save(r);
+      inv.status = 'Authenticated: For 3rd party authentication';
+      inv.updatedById = user.userId;
+      await em.save(inv);
+      if (auth) {
+        auth.authenticationStatus = 'For 3rd party authentication';
+        auth.updatedById = user.userId;
+        await em.save(auth);
+      }
+      const label = await this.inquiryAudit.staffActorLabel(user.userId);
+      await this.inquiryAudit.recordDiff(inquiryId, before, r, {
+        userId: user.userId,
+        label,
+      });
+    });
+    return this.findOneForStaff(inquiryId);
   }
 
   /** Consignor withdraws the inquiry; only while still active (not terminal). */

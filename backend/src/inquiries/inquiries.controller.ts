@@ -102,4 +102,33 @@ export class InquiriesController {
   ) {
     return this.inquiriesService.updateNotes(id, body, req.user);
   }
+
+  @Post(':id/third-party-payment-proof')
+  @UseInterceptors(
+    FilesInterceptor('photos', 20, {
+      limits: { fileSize: 25 * 1024 * 1024 },
+    }),
+  )
+  uploadThirdPartyPaymentProof(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+    @UploadedFiles() files: MulterFile[],
+  ) {
+    return this.inquiriesService.uploadThirdPartyPaymentProof(
+      id,
+      files,
+      req.user,
+    );
+  }
+
+  @Post(':id/third-party-payment-paid')
+  markThirdPartyPaymentPaid(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.inquiriesService.markThirdPartyAuthenticationFeePaid(
+      id,
+      req.user,
+    );
+  }
 }

@@ -12,6 +12,7 @@ import { apiFetch } from "../lib/api";
 import { InquiryStatusBadge } from "../components/InquiryStatusBadge";
 import { formatOfferTransactionLabel } from "../lib/format-offer-transaction-type";
 import { formatPhpDisplay, parsePhpStringToNumber } from "../lib/format-php";
+import { randomId } from "../lib/random-id";
 
 type TransactionType = "consignment" | "direct_purchase";
 
@@ -87,6 +88,7 @@ type InquiryDetail = {
   authenticatedReturnDetail?: AuthenticatedReturnDetail;
   /** When status is 3rd party authentication; from inquiry row. */
   thirdPartyReauthenticationReasons: string | null;
+  thirdPartyPaymentProofUrls: string[];
 };
 
 /** Staff can change offer price / transaction type for these statuses only. */
@@ -204,6 +206,19 @@ function formatSuggestedPriceRange(ar: AuthenticatedReturnDetail): string {
 const cardClass =
   "rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900";
 
+const proofPaymentDropzoneClass =
+  "flex min-h-[10rem] cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50/80 px-4 py-6 text-center transition-colors hover:border-violet-400 hover:bg-violet-50/50 focus-within:outline focus-within:ring-2 focus-within:ring-violet-500 dark:border-slate-600 dark:bg-slate-900/60 dark:hover:border-violet-500 dark:hover:bg-violet-950/40 dark:focus-within:ring-violet-400";
+
+function isImageFile(file: File): boolean {
+  if (file.type.startsWith("image/")) return true;
+  if (file.type !== "") return false;
+  const name = file.name.trim();
+  if (!name) return false;
+  return /\.(jpe?g|png|gif|webp|heic|heif|bmp|avif)$/i.test(name);
+}
+
+type ProofPaymentPreview = { id: string; file: File; previewUrl: string };
+
 function OfferModalAskingPrices({ detail }: { detail: InquiryDetail }) {
   const consignmentAsk = meaningfulSellingPrice(detail.consignmentSellingPrice);
   const directAsk = detail.consentDirectPurchase
@@ -251,7 +266,13 @@ export function InquiryDetailPage() {
   const [txnType, setTxnType] = useState<TransactionType>("consignment");
   const [offerPriceInput, setOfferPriceInput] = useState("");
   const [actionBusy, setActionBusy] = useState<
-    "decline" | "offer" | "notes" | "createNewOffer" | null
+    | "decline"
+    | "offer"
+    | "notes"
+    | "createNewOffer"
+    | "uploadThirdPartyProof"
+    | "markThirdPartyPaid"
+    | null
   >(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [declineConfirmOpen, setDeclineConfirmOpen] = useState(false);
@@ -262,6 +283,14 @@ export function InquiryDetailPage() {
   const createNewOfferModalTitleId = useId();
   const [createNewOfferModalOpen, setCreateNewOfferModalOpen] = useState(false);
   const [createNewOfferPriceInput, setCreateNewOfferPriceInput] = useState("");
+  const [proofPaymentModalOpen, setProofPaymentModalOpen] = useState(false);
+  const [proofPaymentImages, setProofPaymentImages] = useState<
+    ProofPaymentPreview[]
+  >([]);
+  const [proofDropActive, setProofDropActive] = useState(false);
+  const [markPaidConfirmOpen, setMarkPaidConfirmOpen] = useState(false);
+  const proofPaymentInputId = useId();
+  const proofPaymentModalTitleId = useId();
   const [auditOpen, setAuditOpen] = useState(false);
   const [auditRows, setAuditRows] = useState<InquiryAuditRow[] | null>(null);
   const [auditLoading, setAuditLoading] = useState(false);
@@ -354,6 +383,48 @@ export function InquiryDetailPage() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [createNewOfferModalOpen, actionBusy]);
+
+  const closeProofPaymentModal = useCallback(() => {
+    if (actionBusy === "uploadThirdPartyProof") return;
+    setProofPaymentImages((prev) => {
+      for (const p of prev) {
+        URL.revokeObjectURL(p.previewUrl);
+      }
+      return [];
+    });
+    setProofDropActive(false);
+    setProofPaymentModalOpen(false);
+  }, [actionBusy]);
+
+  useEffect(() => {
+    if (!proofPaymentModalOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeProofPaymentModal();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [proofPaymentModalOpen, closeProofPaymentModal]);
+
+  const addProofPaymentFiles = useCallback((fileList: FileList | File[]) => {
+    const list = Array.from(fileList).filter(isImageFile);
+    if (list.length === 0) return;
+    setProofPaymentImages((prev) => [
+      ...prev,
+      ...list.map((file) => ({
+        id: randomId(),
+        file,
+        previewUrl: URL.createObjectURL(file),
+      })),
+    ]);
+  }, []);
+
+  const removeProofPaymentAt = useCallback((proofId: string) => {
+    setProofPaymentImages((prev) => {
+      const img = prev.find((i) => i.id === proofId);
+      if (img) URL.revokeObjectURL(img.previewUrl);
+      return prev.filter((i) => i.id !== proofId);
+    });
+  }, []);
 
   const confirmDecline = useCallback(async () => {
     if (!id || !token) return;
@@ -529,6 +600,58 @@ export function InquiryDetailPage() {
     [id, token, notesDraft],
   );
 
+  const saveThirdPartyPaymentProof = useCallback(async () => {
+    if (!id || !token || proofPaymentImages.length === 0) return;
+    setActionError(null);
+    setActionBusy("uploadThirdPartyProof");
+    try {
+      const fd = new FormData();
+      for (const p of proofPaymentImages) {
+        fd.append("photos", p.file);
+      }
+      const res = await apiFetch(
+        `/api/inquiries/${id}/third-party-payment-proof`,
+        { method: "POST", body: fd },
+        token,
+      );
+      if (!res.ok) throw new Error(await readApiErrorMessage(res));
+      const data = (await res.json()) as InquiryDetail;
+      setDetail(data);
+      closeProofPaymentModal();
+    } catch (err) {
+      setActionError(
+        err instanceof Error ? err.message : "Could not upload proof of payment",
+      );
+    } finally {
+      setActionBusy(null);
+    }
+  }, [id, token, proofPaymentImages, closeProofPaymentModal]);
+
+  const confirmMarkThirdPartyPaid = useCallback(async () => {
+    if (!id || !token) return;
+    setActionError(null);
+    setActionBusy("markThirdPartyPaid");
+    try {
+      const res = await apiFetch(
+        `/api/inquiries/${id}/third-party-payment-paid`,
+        { method: "POST" },
+        token,
+      );
+      if (!res.ok) throw new Error(await readApiErrorMessage(res));
+      const data = (await res.json()) as InquiryDetail;
+      setDetail(data);
+      setMarkPaidConfirmOpen(false);
+    } catch (err) {
+      setActionError(
+        err instanceof Error
+          ? err.message
+          : "Could not mark as paid for 3rd party authentication",
+      );
+    } finally {
+      setActionBusy(null);
+    }
+  }, [id, token]);
+
   const form = detail?.itemSnapshot.form ?? {};
 
   return (
@@ -637,6 +760,36 @@ export function InquiryDetailPage() {
                 >
                   Update the offer
                 </button>
+              ) : null}
+              {detail.status.trim().toLowerCase() ===
+              "authenticated_requested_for_reauthentication" ? (
+                <>
+                  <button
+                    type="button"
+                    disabled={actionBusy !== null}
+                    onClick={() => {
+                      setActionError(null);
+                      setProofPaymentModalOpen(true);
+                    }}
+                    className="rounded-lg bg-sky-700 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-sky-800 disabled:opacity-50 dark:bg-sky-600 dark:hover:bg-sky-500"
+                  >
+                    Upload proof of payment
+                  </button>
+                  <button
+                    type="button"
+                    disabled={
+                      actionBusy !== null ||
+                      detail.thirdPartyPaymentProofUrls.length === 0
+                    }
+                    onClick={() => {
+                      setActionError(null);
+                      setMarkPaidConfirmOpen(true);
+                    }}
+                    className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-emerald-600 dark:hover:bg-emerald-500"
+                  >
+                    Mark fee as paid
+                  </button>
+                </>
               ) : null}
             </div>
 
@@ -772,6 +925,30 @@ export function InquiryDetailPage() {
                   <p className="mt-2 whitespace-pre-wrap text-slate-800 dark:text-slate-200">
                     {detail.thirdPartyReauthenticationReasons}
                   </p>
+                ) : (
+                  <p className="mt-2 text-slate-500 dark:text-slate-400">—</p>
+                )}
+                <p className="mt-4 text-xs font-medium text-slate-600 dark:text-slate-400">
+                  Proof of payment
+                </p>
+                {detail.thirdPartyPaymentProofUrls.length > 0 ? (
+                  <ul className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    {detail.thirdPartyPaymentProofUrls.map((url, i) => (
+                      <li
+                        key={`${url}-${i}`}
+                        className="overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900"
+                      >
+                        <a href={url} target="_blank" rel="noopener noreferrer">
+                          <img
+                            src={url}
+                            alt={`Proof of payment ${i + 1}`}
+                            className="aspect-square w-full object-cover"
+                            loading="lazy"
+                          />
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
                 ) : (
                   <p className="mt-2 text-slate-500 dark:text-slate-400">—</p>
                 )}
@@ -1541,8 +1718,147 @@ export function InquiryDetailPage() {
                 document.body,
               )
             : null}
+
+          {proofPaymentModalOpen && detail && typeof document !== "undefined"
+            ? createPortal(
+                <div
+                  className="fixed inset-0 z-[100] flex items-end justify-center p-4 sm:items-center"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby={proofPaymentModalTitleId}
+                >
+                  <button
+                    type="button"
+                    className="absolute inset-0 bg-slate-900/50"
+                    aria-label="Close proof of payment modal"
+                    onClick={closeProofPaymentModal}
+                  />
+                  <div className="relative z-10 max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+                    <h2
+                      id={proofPaymentModalTitleId}
+                      className="text-base font-semibold text-slate-900 dark:text-slate-100"
+                    >
+                      Upload proof of payment
+                    </h2>
+                    <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+                      Upload one or more receipt/transfer images. Files are only
+                      saved when you click Save.
+                    </p>
+                    <input
+                      id={proofPaymentInputId}
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      className="sr-only"
+                      aria-label="Select proof of payment images"
+                      onChange={(e) => {
+                        if (e.target.files?.length) addProofPaymentFiles(e.target.files);
+                        e.target.value = "";
+                      }}
+                    />
+                    <label
+                      htmlFor={proofPaymentInputId}
+                      className={`${proofPaymentDropzoneClass} mt-4 ${proofDropActive ? "border-violet-500 bg-violet-50 dark:border-violet-400 dark:bg-violet-950/50" : ""}`}
+                      onDragEnter={(e) => {
+                        e.preventDefault();
+                        setProofDropActive(true);
+                      }}
+                      onDragLeave={(e) => {
+                        e.preventDefault();
+                        if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                          setProofDropActive(false);
+                        }
+                      }}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = "copy";
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setProofDropActive(false);
+                        if (e.dataTransfer.files?.length) {
+                          addProofPaymentFiles(e.dataTransfer.files);
+                        }
+                      }}
+                    >
+                      <span className="text-sm font-medium text-slate-800 dark:text-slate-100">
+                        Drop images here or click to choose
+                      </span>
+                      <span className="text-xs text-slate-500 dark:text-slate-400">
+                        PNG, JPG, or other image formats.
+                      </span>
+                    </label>
+                    {proofPaymentImages.length > 0 ? (
+                      <ul className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
+                        {proofPaymentImages.map((p) => (
+                          <li
+                            key={p.id}
+                            className="overflow-hidden rounded-lg border border-slate-200 bg-slate-50 dark:border-slate-600 dark:bg-slate-800"
+                          >
+                            <div className="relative aspect-square">
+                              <img
+                                src={p.previewUrl}
+                                alt=""
+                                className="h-full w-full object-cover"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => removeProofPaymentAt(p.id)}
+                                className="absolute right-1 top-1 rounded bg-slate-900/70 px-2 py-0.5 text-xs font-medium text-white hover:bg-slate-900"
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                    <div className="mt-4 flex flex-wrap justify-end gap-2 border-t border-slate-200 pt-3 dark:border-slate-600">
+                      <button
+                        type="button"
+                        disabled={actionBusy !== null}
+                        onClick={closeProofPaymentModal}
+                        className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        disabled={
+                          actionBusy !== null || proofPaymentImages.length === 0
+                        }
+                        onClick={() => void saveThirdPartyPaymentProof()}
+                        className="rounded-lg bg-sky-700 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-sky-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-sky-600 dark:hover:bg-sky-500"
+                      >
+                        {actionBusy === "uploadThirdPartyProof"
+                          ? "Saving…"
+                          : "Save"}
+                      </button>
+                    </div>
+                  </div>
+                </div>,
+                document.body,
+              )
+            : null}
         </>
       )}
+
+      <ConfirmDialog
+        open={markPaidConfirmOpen}
+        title="Mark 3rd party authentication fee as paid?"
+        description="This will move the inquiry and inventory item to For 3rd-party Authentication."
+        confirmLabel="Proceed"
+        cancelLabel="Cancel"
+        busy={actionBusy === "markThirdPartyPaid"}
+        errorMessage={actionError}
+        onCancel={() => {
+          if (actionBusy !== null) return;
+          setActionError(null);
+          setMarkPaidConfirmOpen(false);
+        }}
+        onConfirm={confirmMarkThirdPartyPaid}
+      />
 
       <ConfirmDialog
         open={declineConfirmOpen}

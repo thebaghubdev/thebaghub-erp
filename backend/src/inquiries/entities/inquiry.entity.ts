@@ -142,6 +142,14 @@ export class Inquiry extends AuditedEntity {
   })
   thirdPartyReauthenticationReasons: string | null;
 
+  /** S3 object keys for uploaded proof of payment for 3rd party authentication fee. */
+  @Column({
+    name: 'third_party_payment_proof_keys',
+    type: 'jsonb',
+    nullable: true,
+  })
+  thirdPartyPaymentProofKeys: string[] | null;
+
   /** One line item per inquiry row (form + uploaded image locations). */
   @Column({ type: 'jsonb', name: 'item_snapshot' })
   itemSnapshot: InquiryItemSnapshot;
