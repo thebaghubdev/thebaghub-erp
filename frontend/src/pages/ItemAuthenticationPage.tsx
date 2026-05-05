@@ -29,6 +29,8 @@ import {
 
 const AUTHENTICATION_RATINGS_KEY = "authentication_ratings";
 const FOR_AUTHENTICATION_INVENTORY_STATUS = "For Authentication";
+const AUTHENTICATED_FOR_THIRD_PARTY_INVENTORY_STATUS =
+  "Authenticated: For 3rd party authentication";
 
 async function readApiErrorMessage(res: Response): Promise<string> {
   try {
@@ -75,6 +77,12 @@ type ItemAuthenticationPayload = {
   consignorName: string | null;
   /** `item_authentication.authentication_status` */
   authenticationStatus: string;
+  thirdPartyAuthentication: {
+    selectedAuthenticator: "LegitGrails" | "Entrupy" | null;
+    certificateLink: string | null;
+    certificatePhotos: string[];
+    notes: string | null;
+  } | null;
   /** Staff offer on linked inquiry; null when missing or no inquiry. */
   inquiryOfferPrice: string | null;
   itemSnapshot: {
@@ -115,6 +123,10 @@ function verdictLabel(v: MetricVerdict | null): string {
   if (v === "fail") return "Failed";
   if (v === "skip") return "Skipped";
   return "—";
+}
+
+function isForThirdPartyAuthenticationStatus(status: string): boolean {
+  return status.trim().toLowerCase() === "for 3rd party authentication";
 }
 
 /**
@@ -271,6 +283,18 @@ export function ItemAuthenticationPage() {
   const [itemFormColor, setItemFormColor] = useState("");
   const [itemFormMaterial, setItemFormMaterial] = useState("");
   const [itemFormInclusions, setItemFormInclusions] = useState("");
+  const [thirdPartyAuthenticator, setThirdPartyAuthenticator] = useState<
+    "LegitGrails" | "Entrupy" | ""
+  >("");
+  const [thirdPartyCertificateLink, setThirdPartyCertificateLink] = useState("");
+  const [thirdPartyCertificateNotes, setThirdPartyCertificateNotes] = useState("");
+  const [thirdPartyCertificatePhotos, setThirdPartyCertificatePhotos] = useState<
+    string[]
+  >([]);
+  const [thirdPartyCertificateFiles, setThirdPartyCertificateFiles] = useState<
+    File[]
+  >([]);
+  const [thirdPartyPhotoDragOver, setThirdPartyPhotoDragOver] = useState(false);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -408,6 +432,19 @@ export function ItemAuthenticationPage() {
     setMarketResearchNotes(str(f.marketResearchNotes));
     setResearchSourceLink(str(f.marketResearchLink));
     setNotes(str(f.authenticatorNotes));
+    setThirdPartyAuthenticator(
+      detail.thirdPartyAuthentication?.selectedAuthenticator ?? "",
+    );
+    setThirdPartyCertificateLink(
+      detail.thirdPartyAuthentication?.certificateLink ?? "",
+    );
+    setThirdPartyCertificateNotes(detail.thirdPartyAuthentication?.notes ?? "");
+    setThirdPartyCertificatePhotos(
+      Array.isArray(detail.thirdPartyAuthentication?.certificatePhotos)
+        ? detail.thirdPartyAuthentication!.certificatePhotos
+        : [],
+    );
+    setThirdPartyCertificateFiles([]);
   }, [detail]);
 
   const filteredMetrics = useMemo(() => {
@@ -497,7 +534,45 @@ export function ItemAuthenticationPage() {
     notes,
   ]);
 
-  const isDirty = metricsDirty || authFormDirty;
+  const thirdPartyAuthDirty = useMemo(() => {
+    if (!canEditMetrics || !detail) return false;
+    if (!isForThirdPartyAuthenticationStatus(detail.authenticationStatus)) {
+      return false;
+    }
+    const tp = detail.thirdPartyAuthentication;
+    const baseline = JSON.stringify({
+      selectedAuthenticator:
+        tp?.selectedAuthenticator === "LegitGrails" ||
+        tp?.selectedAuthenticator === "Entrupy"
+          ? tp.selectedAuthenticator
+          : null,
+      certificateLink: (tp?.certificateLink ?? "").trim() || null,
+      notes: (tp?.notes ?? "").trim() || null,
+      photos: Array.isArray(tp?.certificatePhotos) ? [...tp.certificatePhotos] : [],
+    });
+    const current = JSON.stringify({
+      selectedAuthenticator:
+        thirdPartyAuthenticator === "LegitGrails" ||
+        thirdPartyAuthenticator === "Entrupy"
+          ? thirdPartyAuthenticator
+          : null,
+      certificateLink: thirdPartyCertificateLink.trim() || null,
+      notes: thirdPartyCertificateNotes.trim() || null,
+      photos: [...thirdPartyCertificatePhotos],
+    });
+    const hasUnsavedNewFiles = thirdPartyCertificateFiles.length > 0;
+    return baseline !== current || hasUnsavedNewFiles;
+  }, [
+    canEditMetrics,
+    detail,
+    thirdPartyAuthenticator,
+    thirdPartyCertificateLink,
+    thirdPartyCertificateNotes,
+    thirdPartyCertificatePhotos,
+    thirdPartyCertificateFiles,
+  ]);
+
+  const isDirty = metricsDirty || authFormDirty || thirdPartyAuthDirty;
 
   const approveSummaryRows = useMemo(() => {
     const out: Array<{
@@ -564,6 +639,8 @@ export function ItemAuthenticationPage() {
     marketResearchNotes,
     researchSourceLink,
     notes,
+    thirdPartyAuthenticator,
+    thirdPartyCertificateLink,
   ]);
 
   const tryOpenApproveModal = useCallback(() => {
@@ -591,10 +668,23 @@ export function ItemAuthenticationPage() {
       );
       return;
     }
+    if (detail && isForThirdPartyAuthenticationStatus(detail.authenticationStatus)) {
+      const hasAuthenticator =
+        thirdPartyAuthenticator === "LegitGrails" ||
+        thirdPartyAuthenticator === "Entrupy";
+      const hasCertLink = thirdPartyCertificateLink.trim() !== "";
+      if (!hasAuthenticator || !hasCertLink) {
+        setApproveGateMessage(
+          "Before approving, select a third-party authenticator (LegitGrails or Entrupy) and enter the certificate link in Third-party authentication. Save changes if you have not saved yet.",
+        );
+        return;
+      }
+    }
     setApproveGateMessage(null);
     setApproveModalOpen(true);
     setApproveModalError(null);
   }, [
+    detail,
     itemFormModel,
     itemFormBrand,
     itemFormCategory,
@@ -608,6 +698,8 @@ export function ItemAuthenticationPage() {
     retailPrice,
     marketResearchNotes,
     researchSourceLink,
+    thirdPartyAuthenticator,
+    thirdPartyCertificateLink,
   ]);
 
   const confirmApproveAuthentication = useCallback(async () => {
@@ -886,6 +978,45 @@ export function ItemAuthenticationPage() {
     };
   }, []);
 
+  const thirdPartyCertificateFilePreviews = useMemo(
+    () =>
+      thirdPartyCertificateFiles.map((file) => ({
+        id: `${file.name}-${file.size}-${file.lastModified}`,
+        file,
+        url: URL.createObjectURL(file),
+      })),
+    [thirdPartyCertificateFiles],
+  );
+
+  useEffect(() => {
+    return () => {
+      thirdPartyCertificateFilePreviews.forEach((p) => URL.revokeObjectURL(p.url));
+    };
+  }, [thirdPartyCertificateFilePreviews]);
+
+  const addThirdPartyCertificateFiles = useCallback((fileList: FileList | File[]) => {
+    const files = Array.from(fileList).filter((f) => f.type.startsWith("image/"));
+    if (files.length === 0) return;
+    setThirdPartyCertificateFiles((prev) => [...prev, ...files]);
+  }, []);
+
+  const removeThirdPartyCertificateFile = useCallback((file: File) => {
+    setThirdPartyCertificateFiles((prev) =>
+      prev.filter(
+        (f) =>
+          !(
+            f.name === file.name &&
+            f.size === file.size &&
+            f.lastModified === file.lastModified
+          ),
+      ),
+    );
+  }, []);
+
+  const removeThirdPartyCertificatePhotoAt = useCallback((idx: number) => {
+    setThirdPartyCertificatePhotos((prev) => prev.filter((_, i) => i !== idx));
+  }, []);
+
   const saveChanges = useCallback(async () => {
     if (!token || !id || !canEditMetrics) return;
     setSaveBusy(true);
@@ -924,6 +1055,13 @@ export function ItemAuthenticationPage() {
         marketResearchLink: researchSourceLink,
         authenticatorNotes: notes,
       };
+      const thirdPartyExtraPhotos = thirdPartyCertificateFiles.length
+        ? await filesToDataUrls(thirdPartyCertificateFiles)
+        : [];
+      const thirdPartyCertificatePhotosMerged = [
+        ...thirdPartyCertificatePhotos,
+        ...thirdPartyExtraPhotos,
+      ];
 
       const res = await apiFetch(
         `/api/inventory/${id}/item-authentication-metrics`,
@@ -932,6 +1070,28 @@ export function ItemAuthenticationPage() {
           body: JSON.stringify({
             rows: payloadRows,
             itemSnapshotForm,
+            thirdPartyAuthentication: isForThirdPartyAuthenticationStatus(
+              detail.authenticationStatus,
+            )
+              ? {
+                  selectedAuthenticator:
+                    thirdPartyAuthenticator === ""
+                      ? null
+                      : thirdPartyAuthenticator,
+                  certificateLink:
+                    thirdPartyCertificateLink.trim() === ""
+                      ? null
+                      : thirdPartyCertificateLink.trim(),
+                  certificatePhotos:
+                    thirdPartyCertificatePhotosMerged.length > 0
+                      ? thirdPartyCertificatePhotosMerged
+                      : null,
+                  notes:
+                    thirdPartyCertificateNotes.trim() === ""
+                      ? null
+                      : thirdPartyCertificateNotes.trim(),
+                }
+              : null,
           }),
         },
         token,
@@ -966,6 +1126,7 @@ export function ItemAuthenticationPage() {
     token,
     id,
     canEditMetrics,
+    detail,
     filteredMetrics,
     draftByMetricId,
     itemFormModel,
@@ -982,6 +1143,11 @@ export function ItemAuthenticationPage() {
     marketResearchNotes,
     researchSourceLink,
     notes,
+    thirdPartyAuthenticator,
+    thirdPartyCertificateLink,
+    thirdPartyCertificateNotes,
+    thirdPartyCertificatePhotos,
+    thirdPartyCertificateFiles,
     load,
   ]);
 
@@ -1022,6 +1188,14 @@ export function ItemAuthenticationPage() {
     approveModalOpen ||
     returnCoordinatorModalOpen ||
     returnCoordinatorBusy;
+
+  const showAuthenticationActionsMenu =
+    detail.status === FOR_AUTHENTICATION_INVENTORY_STATUS ||
+    detail.status === AUTHENTICATED_FOR_THIRD_PARTY_INVENTORY_STATUS ||
+    isForThirdPartyAuthenticationStatus(detail.authenticationStatus);
+  const hideRequestThirdPartyMenuItem =
+    isForThirdPartyAuthenticationStatus(detail.authenticationStatus) ||
+    detail.status === AUTHENTICATED_FOR_THIRD_PARTY_INVENTORY_STATUS;
 
   return (
     <div className="w-full min-w-0 space-y-8">
@@ -1120,8 +1294,7 @@ export function ItemAuthenticationPage() {
           ) : null}
         </div>
         <div className="flex min-w-0 flex-1 flex-wrap justify-end gap-3">
-          {canEditMetrics &&
-          detail.status === FOR_AUTHENTICATION_INVENTORY_STATUS ? (
+          {canEditMetrics && showAuthenticationActionsMenu ? (
             <div className="relative" ref={actionsMenuRef}>
               <button
                 type="button"
@@ -1186,21 +1359,23 @@ export function ItemAuthenticationPage() {
                       Renegotiate
                     </button>
                   </li>
-                  <li role="none">
-                    <button
-                      type="button"
-                      role="menuitem"
-                      className="flex w-full items-center px-3 py-2 text-left text-sm text-sky-950 hover:bg-sky-50 dark:text-sky-100 dark:hover:bg-sky-950/50"
-                      onClick={() => {
-                        setForThirdPartyAuthError(null);
-                        setThirdPartyReauthenticationReason("");
-                        setActionsMenuOpen(false);
-                        setThirdPartyModalOpen(true);
-                      }}
-                    >
-                      Request for 3rd party authentication
-                    </button>
-                  </li>
+                  {!hideRequestThirdPartyMenuItem ? (
+                    <li role="none">
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="flex w-full items-center px-3 py-2 text-left text-sm text-sky-950 hover:bg-sky-50 dark:text-sky-100 dark:hover:bg-sky-950/50"
+                        onClick={() => {
+                          setForThirdPartyAuthError(null);
+                          setThirdPartyReauthenticationReason("");
+                          setActionsMenuOpen(false);
+                          setThirdPartyModalOpen(true);
+                        }}
+                      >
+                        Request for 3rd party authentication
+                      </button>
+                    </li>
+                  ) : null}
                   <li
                     role="none"
                     className="mt-0.5 border-t border-slate-100 pt-0.5 dark:border-slate-700"
@@ -1788,13 +1963,6 @@ export function ItemAuthenticationPage() {
               >
                 Authentication details
               </h2>
-              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                Item details and authentication fields are saved with{" "}
-                <span className="font-medium text-slate-600 dark:text-slate-300">
-                  Save changes
-                </span>{" "}
-                (together with metric results).
-              </p>
             </div>
             <span
               className="shrink-0 text-slate-400 transition-transform duration-200 group-open/auth-detail:rotate-180 dark:text-slate-500"
@@ -1816,6 +1984,199 @@ export function ItemAuthenticationPage() {
             </span>
           </summary>
           <div className="border-t border-slate-100 px-4 pb-4 pt-4 dark:border-slate-800 sm:px-5 sm:pb-5">
+            {isForThirdPartyAuthenticationStatus(detail.authenticationStatus) ? (
+              <section
+                aria-labelledby="third-party-auth-heading"
+                className="mb-8 border-b border-slate-100 pb-8 dark:border-slate-800"
+              >
+                <h3
+                  id="third-party-auth-heading"
+                  className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
+                >
+                  Third-party authentication
+                </h3>
+                <p className="mt-2 text-xs leading-relaxed text-slate-600 dark:text-slate-400">
+                  Record the external authentication provider, attach certificate
+                  references and photos, and keep internal notes for the 3rd-party
+                  verification handoff.
+                </p>
+                <div className="mt-4 space-y-4 rounded-xl border border-sky-200 bg-sky-50/50 p-4 dark:border-sky-900/50 dark:bg-sky-950/20">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div>
+                    <label
+                      htmlFor="third-party-selected-authenticator"
+                      className={authFieldLabel}
+                    >
+                      Selected 3rd party authenticator
+                    </label>
+                    <select
+                      id="third-party-selected-authenticator"
+                      value={thirdPartyAuthenticator}
+                      onChange={(e) =>
+                        setThirdPartyAuthenticator(
+                          e.target.value as "LegitGrails" | "Entrupy" | "",
+                        )
+                      }
+                      disabled={!canEditMetrics}
+                      className={authInputClass}
+                    >
+                      <option value="">Select authenticator…</option>
+                      <option value="LegitGrails">LegitGrails</option>
+                      <option value="Entrupy">Entrupy</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="third-party-certificate-link"
+                      className={authFieldLabel}
+                    >
+                      Certificate link
+                    </label>
+                    <input
+                      id="third-party-certificate-link"
+                      type="url"
+                      inputMode="url"
+                      value={thirdPartyCertificateLink}
+                      onChange={(e) =>
+                        setThirdPartyCertificateLink(e.target.value)
+                      }
+                      disabled={!canEditMetrics}
+                      className={authInputClass}
+                      placeholder="https://"
+                      autoComplete="off"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <p className={authFieldLabel}>Certificate photos</p>
+                  <div
+                    onDragOver={(e) => {
+                      if (!canEditMetrics) return;
+                      e.preventDefault();
+                      setThirdPartyPhotoDragOver(true);
+                    }}
+                    onDragLeave={() => setThirdPartyPhotoDragOver(false)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setThirdPartyPhotoDragOver(false);
+                      if (!canEditMetrics) return;
+                      if (e.dataTransfer.files?.length) {
+                        addThirdPartyCertificateFiles(e.dataTransfer.files);
+                      }
+                    }}
+                    className={`rounded-lg border-2 border-dashed px-3 py-6 text-center transition-colors ${
+                      !canEditMetrics
+                        ? "cursor-not-allowed border-slate-200 bg-slate-50/30 opacity-60 dark:border-slate-600 dark:bg-slate-950/20"
+                        : thirdPartyPhotoDragOver
+                          ? "border-violet-500 bg-violet-50/50 dark:bg-violet-950/20"
+                          : "border-slate-200 bg-slate-50/50 dark:border-slate-600 dark:bg-slate-950/40"
+                    }`}
+                  >
+                    <input
+                      id="third-party-certificate-photos"
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      disabled={!canEditMetrics}
+                      className="sr-only"
+                      onChange={(e) => {
+                        if (!canEditMetrics) return;
+                        if (e.target.files?.length) {
+                          addThirdPartyCertificateFiles(e.target.files);
+                        }
+                        e.target.value = "";
+                      }}
+                    />
+                    <p className="text-xs text-slate-600 dark:text-slate-400">
+                      Drag images here or{" "}
+                      <label
+                        htmlFor="third-party-certificate-photos"
+                        className={
+                          !canEditMetrics
+                            ? "cursor-not-allowed text-slate-500"
+                            : "cursor-pointer font-medium text-violet-700 underline hover:text-violet-800 dark:text-violet-400"
+                        }
+                      >
+                        browse
+                      </label>
+                    </p>
+                    <p className="mt-1 text-[0.65rem] text-slate-500 dark:text-slate-500">
+                      Images are stored when you save changes.
+                    </p>
+                  </div>
+                  {thirdPartyCertificatePhotos.length > 0 ||
+                  thirdPartyCertificateFilePreviews.length > 0 ? (
+                    <ul className="mt-3 flex flex-wrap gap-2">
+                      {thirdPartyCertificatePhotos.map((src, i) => (
+                        <li
+                          key={`third-party-photo-${i}-${src.slice(0, 24)}`}
+                          className="group relative h-[10rem] w-[10rem] shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-100 dark:border-slate-600 dark:bg-slate-800"
+                        >
+                          <img
+                            src={src}
+                            alt=""
+                            className="h-full w-full object-cover"
+                          />
+                          {canEditMetrics ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                removeThirdPartyCertificatePhotoAt(i)
+                              }
+                              className="absolute right-1 top-1 rounded bg-slate-900/70 px-1.5 py-0.5 text-[0.65rem] font-medium text-white opacity-0 transition-opacity hover:bg-slate-900 group-hover:opacity-100"
+                            >
+                              Remove
+                            </button>
+                          ) : null}
+                        </li>
+                      ))}
+                      {thirdPartyCertificateFilePreviews.map((p) => (
+                        <li
+                          key={p.id}
+                          className="group relative h-[10rem] w-[10rem] shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-100 dark:border-slate-600 dark:bg-slate-800"
+                        >
+                          <img
+                            src={p.url}
+                            alt=""
+                            className="h-full w-full object-cover"
+                          />
+                          {canEditMetrics ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                removeThirdPartyCertificateFile(p.file)
+                              }
+                              className="absolute right-1 top-1 rounded bg-slate-900/70 px-1.5 py-0.5 text-[0.65rem] font-medium text-white opacity-0 transition-opacity hover:bg-slate-900 group-hover:opacity-100"
+                            >
+                              Remove
+                            </button>
+                          ) : null}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
+                <div>
+                  <label
+                    htmlFor="third-party-auth-notes"
+                    className={authFieldLabel}
+                  >
+                    Notes
+                  </label>
+                  <textarea
+                    id="third-party-auth-notes"
+                    value={thirdPartyCertificateNotes}
+                    onChange={(e) =>
+                      setThirdPartyCertificateNotes(e.target.value)
+                    }
+                    disabled={!canEditMetrics}
+                    rows={3}
+                    className={`${authInputClass} min-h-[4.5rem] resize-y`}
+                  />
+                </div>
+                </div>
+              </section>
+            ) : null}
             <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
               Item details
             </h3>

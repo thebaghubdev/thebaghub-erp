@@ -817,7 +817,8 @@ export class InquiriesService {
         'Upload proof of payment before marking this inquiry as paid',
       );
     }
-    await this.inquiriesRepo.manager.transaction(async (em) => {
+    const notifyPayload = await this.inquiriesRepo.manager.transaction(
+      async (em) => {
       const r = await em.findOne(Inquiry, { where: { id: inquiryId } });
       if (!r) {
         throw new NotFoundException('Inquiry not found');
@@ -850,7 +851,26 @@ export class InquiriesService {
         userId: user.userId,
         label,
       });
-    });
+      return {
+        inventorySku: inv.sku,
+        assignedAuthenticatorEmployeeId: auth?.assignedToId ?? null,
+      };
+    },
+    );
+    if (notifyPayload.assignedAuthenticatorEmployeeId) {
+      void this.notifications
+        .notify({
+          message: `Inventory item ${notifyPayload.inventorySku} is ready for 3rd party authentication.`,
+          receiverId: notifyPayload.assignedAuthenticatorEmployeeId,
+          inquiryId,
+        })
+        .catch((err: unknown) => {
+          this.logger.error(
+            'Failed to notify assigned authenticator for 3rd party authentication',
+            err,
+          );
+        });
+    }
     return this.findOneForStaff(inquiryId);
   }
 

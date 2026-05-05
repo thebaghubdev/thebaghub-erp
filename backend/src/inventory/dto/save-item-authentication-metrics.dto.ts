@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import {
   IsArray,
   IsIn,
+  IsObject,
   IsOptional,
   IsString,
   IsUUID,
@@ -39,4 +40,13 @@ export class SaveItemAuthenticationMetricsDto {
   @ValidateNested()
   @Type(() => ItemAuthenticationSnapshotFormDto)
   itemSnapshotForm?: ItemAuthenticationSnapshotFormDto;
+
+  @IsOptional()
+  @IsObject()
+  thirdPartyAuthentication?: {
+    selectedAuthenticator?: 'LegitGrails' | 'Entrupy' | null;
+    certificateLink?: string | null;
+    certificatePhotos?: string[] | null;
+    notes?: string | null;
+  };
 }

@@ -9,6 +9,13 @@ import { AuditedEntity } from '../../common/entities/audited.entity';
 import { Employee } from '../../employees/entities/employee.entity';
 import { InventoryItem } from './inventory-item.entity';
 
+export type ThirdPartyAuthenticationData = {
+  selectedAuthenticator: 'LegitGrails' | 'Entrupy' | null;
+  certificateLink: string | null;
+  certificatePhotos: string[];
+  notes: string | null;
+};
+
 @Entity('item_authentication')
 export class ItemAuthentication extends AuditedEntity {
   @PrimaryGeneratedColumn('uuid')
@@ -35,4 +42,11 @@ export class ItemAuthentication extends AuditedEntity {
     default: 'Pending',
   })
   authenticationStatus: string;
+
+  @Column({
+    name: 'third_party_authentication_data',
+    type: 'jsonb',
+    nullable: true,
+  })
+  thirdPartyAuthenticationData: ThirdPartyAuthenticationData | null;
 }

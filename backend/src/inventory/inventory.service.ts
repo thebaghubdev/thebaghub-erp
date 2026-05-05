@@ -70,6 +70,12 @@ export type InventoryDetailForStaff = {
   assignedToName: string | null;
   /** `item_authentication.authentication_status` (e.g. Pending, Approved). */
   authenticationStatus: string;
+  thirdPartyAuthentication: {
+    selectedAuthenticator: 'LegitGrails' | 'Entrupy' | null;
+    certificateLink: string | null;
+    certificatePhotos: string[];
+    notes: string | null;
+  } | null;
   /** Staff offer on linked inquiry (`inquiries.offer_price`), if any. */
   inquiryOfferPrice: string | null;
   itemSnapshot: {
@@ -125,6 +131,52 @@ function formatEmployeeName(
 
 function isAuthenticatorPosition(position: string): boolean {
   return position.trim().toLowerCase() === 'authenticator';
+}
+
+function normalizeThirdPartyAuthenticationData(
+  raw:
+    | {
+        selectedAuthenticator?: unknown;
+        certificateLink?: unknown;
+        certificatePhotos?: unknown;
+        notes?: unknown;
+      }
+    | null
+    | undefined,
+): {
+  selectedAuthenticator: 'LegitGrails' | 'Entrupy' | null;
+  certificateLink: string | null;
+  certificatePhotos: string[];
+  notes: string | null;
+} | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const selectedAuthenticator =
+    raw.selectedAuthenticator === 'LegitGrails' ||
+    raw.selectedAuthenticator === 'Entrupy'
+      ? raw.selectedAuthenticator
+      : null;
+  const certificateLink =
+    typeof raw.certificateLink === 'string' && raw.certificateLink.trim() !== ''
+      ? raw.certificateLink.trim()
+      : null;
+  const certificatePhotos = Array.isArray(raw.certificatePhotos)
+    ? raw.certificatePhotos
+        .filter((v): v is string => typeof v === 'string' && v.trim() !== '')
+        .map((v) => v.trim())
+    : [];
+  const notes =
+    typeof raw.notes === 'string' && raw.notes.trim() !== ''
+      ? raw.notes.trim()
+      : null;
+  if (
+    selectedAuthenticator == null &&
+    certificateLink == null &&
+    certificatePhotos.length === 0 &&
+    notes == null
+  ) {
+    return null;
+  }
+  return { selectedAuthenticator, certificateLink, certificatePhotos, notes };
 }
 
 function mergeItemAuthenticationFormIntoSnapshot(
@@ -369,6 +421,11 @@ export class InventoryService {
       }
 
       const itemAuthId = auth!.id;
+      auth.thirdPartyAuthenticationData = normalizeThirdPartyAuthenticationData(
+        dto.thirdPartyAuthentication,
+      );
+      auth.updatedById = actor.userId;
+      await em.save(auth);
       for (const row of dto.rows) {
         const notes =
           row.notes == null || String(row.notes).trim() === ''
@@ -817,6 +874,9 @@ export class InventoryService {
       assignedToEmployeeId: auth?.assignedToId ?? null,
       assignedToName: formatEmployeeName(auth?.assignedTo ?? null),
       authenticationStatus: auth?.authenticationStatus ?? 'Pending',
+      thirdPartyAuthentication: normalizeThirdPartyAuthenticationData(
+        auth?.thirdPartyAuthenticationData,
+      ),
       inquiryOfferPrice:
         r.inquiry?.offerPrice != null && String(r.inquiry.offerPrice).trim() !== ''
           ? String(r.inquiry.offerPrice)

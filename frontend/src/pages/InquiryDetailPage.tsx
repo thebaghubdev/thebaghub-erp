@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useId, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 import { createPortal } from "react-dom";
 import { Link, useParams } from "react-router-dom";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -289,6 +296,8 @@ export function InquiryDetailPage() {
   >([]);
   const [proofDropActive, setProofDropActive] = useState(false);
   const [markPaidConfirmOpen, setMarkPaidConfirmOpen] = useState(false);
+  const [moreActionsOpen, setMoreActionsOpen] = useState(false);
+  const moreActionsMenuRef = useRef<HTMLDivElement>(null);
   const proofPaymentInputId = useId();
   const proofPaymentModalTitleId = useId();
   const [auditOpen, setAuditOpen] = useState(false);
@@ -383,6 +392,23 @@ export function InquiryDetailPage() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [createNewOfferModalOpen, actionBusy]);
+
+  useEffect(() => {
+    if (!moreActionsOpen) return;
+    const onMouseDown = (e: MouseEvent) => {
+      const el = moreActionsMenuRef.current;
+      if (el && !el.contains(e.target as Node)) setMoreActionsOpen(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMoreActionsOpen(false);
+    };
+    window.addEventListener("mousedown", onMouseDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("mousedown", onMouseDown);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [moreActionsOpen]);
 
   const closeProofPaymentModal = useCallback(() => {
     if (actionBusy === "uploadThirdPartyProof") return;
@@ -620,7 +646,9 @@ export function InquiryDetailPage() {
       closeProofPaymentModal();
     } catch (err) {
       setActionError(
-        err instanceof Error ? err.message : "Could not upload proof of payment",
+        err instanceof Error
+          ? err.message
+          : "Could not upload proof of payment",
       );
     } finally {
       setActionBusy(null);
@@ -763,33 +791,76 @@ export function InquiryDetailPage() {
               ) : null}
               {detail.status.trim().toLowerCase() ===
               "authenticated_requested_for_reauthentication" ? (
-                <>
+                <div className="relative" ref={moreActionsMenuRef}>
                   <button
                     type="button"
                     disabled={actionBusy !== null}
+                    aria-expanded={moreActionsOpen}
+                    aria-haspopup="menu"
                     onClick={() => {
-                      setActionError(null);
-                      setProofPaymentModalOpen(true);
+                      setMoreActionsOpen((v) => !v);
                     }}
-                    className="rounded-lg bg-sky-700 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-sky-800 disabled:opacity-50 dark:bg-sky-600 dark:hover:bg-sky-500"
+                    className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
                   >
-                    Upload proof of payment
+                    More actions
+                    <svg
+                      className={`h-4 w-4 shrink-0 text-slate-500 transition-transform ${
+                        moreActionsOpen ? "rotate-180" : ""
+                      }`}
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      aria-hidden
+                    >
+                      <path
+                        d="M6 9l6 6 6-6"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
                   </button>
-                  <button
-                    type="button"
-                    disabled={
-                      actionBusy !== null ||
-                      detail.thirdPartyPaymentProofUrls.length === 0
-                    }
-                    onClick={() => {
-                      setActionError(null);
-                      setMarkPaidConfirmOpen(true);
-                    }}
-                    className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-emerald-600 dark:hover:bg-emerald-500"
-                  >
-                    Mark fee as paid
-                  </button>
-                </>
+                  {moreActionsOpen ? (
+                    <ul
+                      role="menu"
+                      className="absolute right-0 top-full z-50 mt-1 min-w-[16rem] rounded-lg border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-600 dark:bg-slate-900"
+                    >
+                      <li role="none">
+                        <button
+                          type="button"
+                          role="menuitem"
+                          disabled={actionBusy !== null}
+                          onClick={() => {
+                            setActionError(null);
+                            setMoreActionsOpen(false);
+                            setProofPaymentModalOpen(true);
+                          }}
+                          className="flex w-full items-center px-3 py-2 text-left text-sm text-slate-800 hover:bg-slate-50 disabled:opacity-50 dark:text-slate-100 dark:hover:bg-slate-800"
+                        >
+                          Upload proof of payment
+                        </button>
+                      </li>
+                      <li role="none">
+                        <button
+                          type="button"
+                          role="menuitem"
+                          disabled={
+                            actionBusy !== null ||
+                            detail.thirdPartyPaymentProofUrls.length === 0
+                          }
+                          onClick={() => {
+                            setActionError(null);
+                            setMoreActionsOpen(false);
+                            setMarkPaidConfirmOpen(true);
+                          }}
+                          className="flex w-full items-center px-3 py-2 text-left text-sm text-slate-800 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-slate-100 dark:hover:bg-slate-800"
+                        >
+                          Mark authentication fee as paid
+                        </button>
+                      </li>
+                    </ul>
+                  ) : null}
+                </div>
               ) : null}
             </div>
 
@@ -1752,7 +1823,8 @@ export function InquiryDetailPage() {
                       className="sr-only"
                       aria-label="Select proof of payment images"
                       onChange={(e) => {
-                        if (e.target.files?.length) addProofPaymentFiles(e.target.files);
+                        if (e.target.files?.length)
+                          addProofPaymentFiles(e.target.files);
                         e.target.value = "";
                       }}
                     />
@@ -1765,7 +1837,9 @@ export function InquiryDetailPage() {
                       }}
                       onDragLeave={(e) => {
                         e.preventDefault();
-                        if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                        if (
+                          !e.currentTarget.contains(e.relatedTarget as Node)
+                        ) {
                           setProofDropActive(false);
                         }
                       }}
