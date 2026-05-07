@@ -96,6 +96,20 @@ function crumbsForPath(pathname: string): Crumb[] {
     ];
   }
 
+  if (
+    /^\/portal\/photoshoot\/item\/.+/.test(normalized) &&
+    normalized !== "/portal/photoshoot"
+  ) {
+    return [
+      {
+        label: pathLabels["/portal/photoshoot"] ?? "Photoshoot",
+        to: "/portal/photoshoot",
+        current: false,
+      },
+      { label: "Photoshoot item", to: normalized, current: true },
+    ];
+  }
+
   return [];
 }
 

@@ -8,6 +8,7 @@ import {
   forwardRef,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { randomUUID } from 'node:crypto';
 import { Between, EntityManager, In, Repository } from 'typeorm';
 import {
   Inquiry,
@@ -21,9 +22,13 @@ import {
 import { Employee } from '../employees/entities/employee.entity';
 import { InventoryItem } from './entities/inventory-item.entity';
 import { ItemAuthentication } from './entities/item-authentication.entity';
+import { ItemPhotoshoot } from './entities/item-photoshoot.entity';
 import { ItemAuthenticationMetric } from './entities/item-authentication-metric.entity';
 import { AuthenticationMetric } from '../authentication-metrics/entities/authentication-metric.entity';
+import { CreateItemPhotoshootsDto } from './dto/create-item-photoshoots.dto';
 import { BatchAssignAuthenticatorDto } from './dto/batch-assign-authenticator.dto';
+import type { MulterFile } from '../inquiries/multer-file.type';
+import { S3StorageService } from '../inquiries/s3-storage.service';
 import { ItemAuthenticationSnapshotFormDto } from './dto/item-authentication-snapshot-form.dto';
 import { SaveItemAuthenticationMetricsDto } from './dto/save-item-authentication-metrics.dto';
 import { ForThirdPartyAuthenticationDto } from './dto/for-third-party-authentication.dto';
@@ -32,6 +37,57 @@ import { InquiryStatus } from '../enums/inquiry-status.enum';
 import { InquiriesService } from '../inquiries/inquiries.service';
 import { CONSIGNMENT_COORDINATOR_POSITION } from '../notifications/notification.constants';
 import { NotificationsService } from '../notifications/notifications.service';
+
+const PHOTOSHOOT_ALLOWED_IMAGE_MIMES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+  'image/heic',
+  'image/heif',
+]);
+
+function photoshootExtFromMime(mime: string): string {
+  const m = mime.toLowerCase();
+  if (m === 'image/jpeg') return 'jpg';
+  if (m === 'image/png') return 'png';
+  if (m === 'image/webp') return 'webp';
+  if (m === 'image/gif') return 'gif';
+  if (m === 'image/heic' || m === 'image/heif') return 'heic';
+  return 'bin';
+}
+
+function parsePhotoshootSnapshotImages(
+  snapshot: Record<string, unknown> | null,
+): Array<{ key: string; url: string }> {
+  if (!snapshot || typeof snapshot !== 'object') return [];
+  const images = snapshot['images'];
+  if (!Array.isArray(images)) return [];
+  const out: Array<{ key: string; url: string }> = [];
+  for (const img of images) {
+    if (!img || typeof img !== 'object') continue;
+    const rec = img as { key?: unknown; url?: unknown };
+    if (typeof rec.key !== 'string' || typeof rec.url !== 'string') continue;
+    const key = rec.key.trim();
+    const url = rec.url.trim();
+    if (!key || !url) continue;
+    out.push({ key, url });
+  }
+  return out;
+}
+
+export type ItemPhotoshootCalendarRow = {
+  id: string;
+  inventoryItemId: string;
+  /** `YYYY-MM-DD` */
+  photoshootDate: string;
+  sku: string;
+  itemLabel: string;
+  inclusions: string;
+  consignorName: string | null;
+  /** Saved S3-backed images from `photos_snapshot`. */
+  photos: Array<{ key: string; url: string }>;
+};
 
 export type InventoryListRow = {
   id: string;
@@ -119,6 +175,14 @@ function inclusionsFromSnapshot(
   if (v == null) return '—';
   const s = String(v).trim();
   return s.length > 0 ? s : '—';
+}
+
+function photoshootDayKey(value: Date | string): string {
+  if (typeof value === 'string') {
+    const m = /^(\d{4}-\d{2}-\d{2})/.exec(value);
+    return m ? m[1] : value.slice(0, 10);
+  }
+  return value.toISOString().slice(0, 10);
 }
 
 function formatEmployeeName(
@@ -231,6 +295,8 @@ export class InventoryService {
   private readonly logger = new Logger(InventoryService.name);
 
   constructor(
+    @InjectRepository(ItemPhotoshoot)
+    private readonly itemPhotoshootRepo: Repository<ItemPhotoshoot>,
     @InjectRepository(InventoryItem)
     private readonly inventoryRepo: Repository<InventoryItem>,
     @InjectRepository(ItemAuthentication)
@@ -244,6 +310,7 @@ export class InventoryService {
     @Inject(forwardRef(() => InquiriesService))
     private readonly inquiriesService: InquiriesService,
     private readonly notifications: NotificationsService,
+    private readonly s3: S3StorageService,
   ) {}
 
   /**
@@ -931,5 +998,170 @@ export class InventoryService {
           ? null
           : String(row.notes).trim(),
     }));
+  }
+
+  async listItemPhotoshootsForStaff(): Promise<ItemPhotoshootCalendarRow[]> {
+    const rows = await this.itemPhotoshootRepo.find({
+      relations: { inventoryItem: { consignor: true } },
+      order: { photoshootDate: 'ASC', id: 'ASC' },
+    });
+    return rows.map((p) => this.mapItemPhotoshootToCalendarRow(p));
+  }
+
+  async findOneItemPhotoshootForStaff(
+    id: string,
+  ): Promise<ItemPhotoshootCalendarRow> {
+    const p = await this.itemPhotoshootRepo.findOne({
+      where: { id },
+      relations: { inventoryItem: { consignor: true } },
+    });
+    if (!p) {
+      throw new NotFoundException('Photoshoot schedule not found');
+    }
+    return this.mapItemPhotoshootToCalendarRow(p);
+  }
+
+  private mapItemPhotoshootToCalendarRow(p: ItemPhotoshoot): ItemPhotoshootCalendarRow {
+    const inv = p.inventoryItem;
+    const c = inv.consignor;
+    const name = c
+      ? [c.firstName, c.lastName].filter(Boolean).join(' ').trim()
+      : '';
+    return {
+      id: p.id,
+      inventoryItemId: p.inventoryItemId,
+      photoshootDate: photoshootDayKey(p.photoshootDate),
+      sku: inv.sku,
+      itemLabel: itemLabelFromSnapshot(inv.itemSnapshot),
+      inclusions: inclusionsFromSnapshot(inv.itemSnapshot),
+      consignorName: name.length > 0 ? name : null,
+      photos: parsePhotoshootSnapshotImages(p.photosSnapshot),
+    };
+  }
+
+  async saveItemPhotoshootPhotos(
+    photoshootId: string,
+    files: MulterFile[],
+    retainKeysRaw: string | undefined,
+    actorUserId: string,
+  ): Promise<ItemPhotoshootCalendarRow> {
+    let retainKeys: string[] = [];
+    if (retainKeysRaw != null && String(retainKeysRaw).trim() !== '') {
+      try {
+        const parsed = JSON.parse(String(retainKeysRaw)) as unknown;
+        if (
+          !Array.isArray(parsed) ||
+          !parsed.every((x) => typeof x === 'string')
+        ) {
+          throw new BadRequestException(
+            'retainKeys must be a JSON array of strings',
+          );
+        }
+        const seen = new Set<string>();
+        for (const k of parsed as string[]) {
+          if (seen.has(k)) continue;
+          seen.add(k);
+          retainKeys.push(k);
+        }
+      } catch (e) {
+        if (e instanceof BadRequestException) throw e;
+        throw new BadRequestException('retainKeys must be valid JSON');
+      }
+    }
+
+    const row = await this.itemPhotoshootRepo.findOne({
+      where: { id: photoshootId },
+      relations: { inventoryItem: { consignor: true } },
+    });
+    if (!row) {
+      throw new NotFoundException('Photoshoot schedule not found');
+    }
+
+    const existingImages = parsePhotoshootSnapshotImages(row.photosSnapshot);
+    const existingByKey = new Map(existingImages.map((i) => [i.key, i]));
+    const retained: Array<{ key: string; url: string }> = [];
+    for (const key of retainKeys) {
+      const img = existingByKey.get(key);
+      if (!img) {
+        throw new BadRequestException(`Unknown image key: ${key}`);
+      }
+      retained.push(img);
+    }
+
+    const newImages: Array<{ key: string; url: string }> = [];
+    for (const file of files) {
+      const mime = file.mimetype?.toLowerCase() ?? '';
+      if (!PHOTOSHOOT_ALLOWED_IMAGE_MIMES.has(mime)) {
+        throw new BadRequestException(
+          `Unsupported image type: ${file.mimetype || 'unknown'}`,
+        );
+      }
+      const ext = photoshootExtFromMime(mime);
+      const key = `item-photoshoots/${photoshootId}/${randomUUID()}.${ext}`;
+      await this.s3.putObject(key, file.buffer, mime);
+      newImages.push({ key, url: this.s3.getPublicUrl(key) });
+    }
+
+    const merged = [...retained, ...newImages];
+    row.photosSnapshot = { images: merged };
+    row.updatedById = actorUserId;
+    await this.itemPhotoshootRepo.save(row);
+
+    return this.findOneItemPhotoshootForStaff(photoshootId);
+  }
+
+  async createItemPhotoshoots(
+    dto: CreateItemPhotoshootsDto,
+    actorUserId: string,
+  ): Promise<{ createdIds: string[] }> {
+    const dateStr = dto.photoshootDate.trim().slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      throw new BadRequestException('Invalid photoshoot date');
+    }
+    const photoshootDate = new Date(`${dateStr}T00:00:00.000Z`);
+    const uniqueIds = [...new Set(dto.inventoryItemIds)];
+    return this.inventoryRepo.manager.transaction(async (em) => {
+      const invRepo = em.getRepository(InventoryItem);
+      const psRepo = em.getRepository(ItemPhotoshoot);
+      const items = await invRepo.find({ where: { id: In(uniqueIds) } });
+      if (items.length !== uniqueIds.length) {
+        throw new NotFoundException('One or more inventory items were not found');
+      }
+      for (const item of items) {
+        if (item.status !== FOR_PHOTOSHOOT_INVENTORY_STATUS) {
+          throw new BadRequestException(
+            `Inventory ${item.sku} is not in status "${FOR_PHOTOSHOOT_INVENTORY_STATUS}"`,
+          );
+        }
+      }
+      const existing = await psRepo.find({
+        where: {
+          inventoryItemId: In(uniqueIds),
+          photoshootDate,
+        },
+      });
+      if (existing.length > 0) {
+        const blocked = new Set(existing.map((e) => e.inventoryItemId));
+        const skus = items
+          .filter((i) => blocked.has(i.id))
+          .map((i) => i.sku)
+          .sort();
+        throw new BadRequestException(
+          `Already scheduled for this date: ${skus.join(', ')}`,
+        );
+      }
+      const created = uniqueIds.map((inventoryItemId) =>
+        psRepo.create({
+          inventoryItemId,
+          photoshootDate,
+          employeeId: null,
+          photosSnapshot: null,
+          createdById: actorUserId,
+          updatedById: actorUserId,
+        }),
+      );
+      const saved = await psRepo.save(created);
+      return { createdIds: saved.map((r) => r.id) };
+    });
   }
 }

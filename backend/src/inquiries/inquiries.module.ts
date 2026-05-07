@@ -33,6 +33,6 @@ import { MailModule } from '../mail/mail.module';
   ],
   controllers: [InquiriesController, ClientConsignmentInquiryController],
   providers: [InquiriesService, S3StorageService, InquiryAuditService],
-  exports: [InquiryAuditService, InquiriesService],
+  exports: [InquiryAuditService, InquiriesService, S3StorageService],
 })
 export class InquiriesModule {}

@@ -6,12 +6,18 @@ import {
   HttpStatus,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Req,
+  UploadedFiles,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FilesInterceptor } from '@nestjs/platform-express';
 import { JwtUser } from '../auth/jwt-user';
 import { StaffOnlyGuard } from '../auth/staff-only.guard';
+import type { MulterFile } from '../inquiries/multer-file.type';
+import { CreateItemPhotoshootsDto } from './dto/create-item-photoshoots.dto';
 import { BatchAssignAuthenticatorDto } from './dto/batch-assign-authenticator.dto';
 import { SaveItemAuthenticationMetricsDto } from './dto/save-item-authentication-metrics.dto';
 import { ForThirdPartyAuthenticationDto } from './dto/for-third-party-authentication.dto';
@@ -31,6 +37,48 @@ export class InventoryController {
   @Get('authenticators')
   listAuthenticators() {
     return this.inventoryService.listAuthenticators();
+  }
+
+  @Get('item-photoshoots')
+  listItemPhotoshoots() {
+    return this.inventoryService.listItemPhotoshootsForStaff();
+  }
+
+  @Get('item-photoshoots/:photoshootId')
+  findOneItemPhotoshoot(
+    @Param('photoshootId', ParseUUIDPipe) photoshootId: string,
+  ) {
+    return this.inventoryService.findOneItemPhotoshootForStaff(photoshootId);
+  }
+
+  @Post('item-photoshoots')
+  @HttpCode(HttpStatus.CREATED)
+  createItemPhotoshoots(
+    @Body() dto: CreateItemPhotoshootsDto,
+    @Req() req: { user: JwtUser },
+  ) {
+    return this.inventoryService.createItemPhotoshoots(dto, req.user.userId);
+  }
+
+  @Patch('item-photoshoots/:photoshootId/photos')
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(
+    FilesInterceptor('photos', 50, {
+      limits: { fileSize: 25 * 1024 * 1024 },
+    }),
+  )
+  saveItemPhotoshootPhotos(
+    @Param('photoshootId', ParseUUIDPipe) photoshootId: string,
+    @UploadedFiles() files: MulterFile[] | undefined,
+    @Body('retainKeys') retainKeys: string | undefined,
+    @Req() req: { user: JwtUser },
+  ) {
+    return this.inventoryService.saveItemPhotoshootPhotos(
+      photoshootId,
+      files ?? [],
+      retainKeys,
+      req.user.userId,
+    );
   }
 
   @Post('batch-assign-authenticator')
