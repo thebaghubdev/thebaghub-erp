@@ -20,11 +20,7 @@ import { ItemAuthentication } from '../inventory/entities/item-authentication.en
 import { InventoryService } from '../inventory/inventory.service';
 import { InquiryStatus } from '../enums/inquiry-status.enum';
 import { JwtUser } from '../auth/jwt-user';
-import {
-  CLIENT_PAYMENT_METHODS_KEY,
-  CONTRACT_EXPIRATION_DAYS_KEY,
-  THIRD_PARTY_AUTHENTICATION_FEE_KEY,
-} from '../settings/consignment-setting-keys';
+import { CONTRACT_EXPIRATION_DAYS_KEY } from '../settings/consignment-setting-keys';
 import { Setting } from '../settings/entities/setting.entity';
 import {
   InquiryAuditService,
@@ -266,13 +262,6 @@ export type ClientInquiryDetail = Omit<StaffInquiryRow, 'notes'> & {
    * When in 3rd party payment flow: why re-authentication was requested.
    */
   thirdPartyReauthenticationReasons: string | null;
-  /**
-   * When in 3rd party payment flow: fee and payment instructions from settings.
-   */
-  thirdPartyPaymentInfo: {
-    feeAmount: string;
-    paymentMethods: string[];
-  } | null;
   thirdPartyPaymentProofUrls: string[];
   thirdPartyIssuePhotoUrls: string[];
   thirdPartyReauthenticationNotes: string | null;
@@ -422,36 +411,6 @@ export class InquiriesService {
           err,
         );
       });
-  }
-
-  private async loadThirdPartyPaymentInfoFromSettings(): Promise<{
-    feeAmount: string;
-    paymentMethods: string[];
-  }> {
-    const feeRow = await this.settingsRepo.findOne({
-      where: { key: THIRD_PARTY_AUTHENTICATION_FEE_KEY },
-    });
-    const methodsRow = await this.settingsRepo.findOne({
-      where: { key: CLIENT_PAYMENT_METHODS_KEY },
-    });
-    const feeAmount = feeRow?.value != null ? String(feeRow.value).trim() : '';
-    let paymentMethods: string[] = [];
-    if (methodsRow?.value) {
-      try {
-        const parsed = JSON.parse(methodsRow.value) as unknown;
-        if (
-          Array.isArray(parsed) &&
-          parsed.every((x) => typeof x === 'string')
-        ) {
-          paymentMethods = parsed
-            .map((s) => String(s).trim())
-            .filter((s) => s !== '');
-        }
-      } catch {
-        /* invalid JSON */
-      }
-    }
-    return { feeAmount, paymentMethods };
   }
 
   private async loadDeliveryScheduleForInquiry(
@@ -626,19 +585,14 @@ export class InquiriesService {
         : [];
 
     let thirdPartyReauthenticationNotes: string | null = null;
-    if (
-      linkedInv?.id &&
-      this.inquiryIsInThirdPartyPaymentFlow(r.status)
-    ) {
+    if (linkedInv?.id && this.inquiryIsInThirdPartyPaymentFlow(r.status)) {
       const authRow = await this.itemAuthRepo.findOne({
         where: { inventoryItemId: linkedInv.id },
         select: { reauthenticationNotes: true },
       });
       const raw = authRow?.reauthenticationNotes;
       thirdPartyReauthenticationNotes =
-        raw != null && String(raw).trim() !== ''
-          ? String(raw).trim()
-          : null;
+        raw != null && String(raw).trim() !== '' ? String(raw).trim() : null;
     }
 
     const detail: StaffInquiryDetail = {
@@ -758,11 +712,7 @@ export class InquiriesService {
       String(r.thirdPartyReauthenticationReasons).trim() !== ''
         ? String(r.thirdPartyReauthenticationReasons).trim()
         : null;
-    const thirdPartyPaymentInfo = this.inquiryIsInThirdPartyPaymentFlow(
-      r.status,
-    )
-      ? await this.loadThirdPartyPaymentInfoFromSettings()
-      : null;
+
     const thirdPartyPaymentProofUrls =
       this.inquiryIsInThirdPartyPaymentFlow(r.status) &&
       Array.isArray(r.thirdPartyPaymentProofKeys)
@@ -796,9 +746,7 @@ export class InquiriesService {
       });
       const raw = authRow?.reauthenticationNotes;
       thirdPartyReauthenticationNotes =
-        raw != null && String(raw).trim() !== ''
-          ? String(raw).trim()
-          : null;
+        raw != null && String(raw).trim() !== '' ? String(raw).trim() : null;
     }
     return {
       ...rest,
@@ -810,7 +758,6 @@ export class InquiriesService {
       },
       deliverySchedule,
       thirdPartyReauthenticationReasons,
-      thirdPartyPaymentInfo,
       thirdPartyPaymentProofUrls,
       thirdPartyIssuePhotoUrls,
       thirdPartyReauthenticationNotes,

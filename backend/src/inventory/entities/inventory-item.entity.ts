@@ -52,4 +52,16 @@ export class InventoryItem extends AuditedEntity {
 
   @Column({ name: 'item_snapshot', type: 'jsonb' })
   itemSnapshot: InquiryItemSnapshot;
+
+  @Column({
+    name: 'tbh_selling_price',
+    type: 'numeric',
+    precision: 12,
+    scale: 2,
+    nullable: true,
+  })
+  tbhSellingPrice: string | null;
+
+  @Column({ name: 'enable_discount', type: 'boolean', default: false })
+  enableDiscount: boolean;
 }

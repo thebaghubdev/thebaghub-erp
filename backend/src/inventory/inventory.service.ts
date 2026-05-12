@@ -134,6 +134,10 @@ export type InventoryDetailForStaff = {
   } | null;
   /** Staff offer on linked inquiry (`inquiries.offer_price`), if any. */
   inquiryOfferPrice: string | null;
+  /** TBH listed selling price (`inventory_items.tbh_selling_price`). */
+  tbhSellingPrice: string | null;
+  /** When true, VIP/program discount logic may apply (`inventory_items.enable_discount`). */
+  enableDiscount: boolean;
   itemSnapshot: {
     clientItemId: string;
     form: Record<string, unknown>;
@@ -961,6 +965,11 @@ export class InventoryService {
         String(r.inquiry.offerPrice).trim() !== ''
           ? String(r.inquiry.offerPrice)
           : null,
+      tbhSellingPrice:
+        r.tbhSellingPrice != null && String(r.tbhSellingPrice).trim() !== ''
+          ? String(r.tbhSellingPrice)
+          : null,
+      enableDiscount: r.enableDiscount,
       itemSnapshot: {
         clientItemId: r.itemSnapshot.clientItemId,
         form: (r.itemSnapshot.form ?? {}) as Record<string, unknown>,

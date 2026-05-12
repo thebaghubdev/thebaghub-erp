@@ -68,13 +68,6 @@ type ClientInquiryDetail = {
   };
   /** When status is 3rd party authentication; from inquiry row. */
   thirdPartyReauthenticationReasons: string | null;
-  /**
-   * When consignor owes the 3rd party auth fee: fee and payment method lines from app settings.
-   */
-  thirdPartyPaymentInfo: {
-    feeAmount: string;
-    paymentMethods: string[];
-  } | null;
   thirdPartyPaymentProofUrls: string[];
   thirdPartyIssuePhotoUrls: string[];
   /** Staff notes visible during third-party reauthentication. */

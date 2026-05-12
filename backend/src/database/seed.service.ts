@@ -8,12 +8,17 @@ import { UserType } from '../enums/user-type.enum';
 import {
   AUTHENTICATION_RATINGS_KEY,
   BRANDS_WE_CONSIGN_KEY,
-  CLIENT_PAYMENT_METHODS_KEY,
   CONSIGNMENT_LIMIT_PER_DAY_KEY,
   CONTRACT_EXPIRATION_DAYS_KEY,
   ITEM_CATEGORIES_KEY,
   POSITIONS_KEY,
-  THIRD_PARTY_AUTHENTICATION_FEE_KEY,
+  VIP_DIAMOND_DISCOUNT_CAP_PHP_KEY,
+  VIP_DIAMOND_DISCOUNT_PERCENT_KEY,
+  VIP_DIAMOND_THRESHOLD_PHP_KEY,
+  VIP_GOLD_DISCOUNT_CAP_PHP_KEY,
+  VIP_GOLD_DISCOUNT_PERCENT_KEY,
+  VIP_GOLD_THRESHOLD_PHP_KEY,
+  VIP_TIER_INACTIVITY_MONTHS_KEY,
 } from '../settings/consignment-setting-keys';
 import { Setting } from '../settings/entities/setting.entity';
 import { User } from '../users/entities/user.entity';
@@ -151,21 +156,67 @@ export class SeedService implements OnModuleInit {
         value: '60',
       },
       {
-        key: THIRD_PARTY_AUTHENTICATION_FEE_KEY,
-        title: 'Third party authentication fee',
-        description: 'Fee for third party authentication.',
-        category: 'Payments',
+        key: VIP_GOLD_THRESHOLD_PHP_KEY,
+        title: 'VIP Gold — qualification threshold (PHP)',
+        description:
+          'Total cumulative purchases plus consignments (PHP, whole pesos) at or above which a client qualifies for VIP Gold.',
+        category: 'VIP',
         type: 'number',
-        value: '1500',
+        value: '300000',
       },
       {
-        key: CLIENT_PAYMENT_METHODS_KEY,
-        title: 'Client payment methods',
-        description: 'Payment methods available for clients.',
-        category: 'Payments',
-        type: 'string[]',
-        value:
-          '["BPI - Account Name: The Bag Hub - BPI, Account Number: 0000-0000-0000-0000","BDO - Account Name: The Bag Hub - BDO, Account Number: 0000-0000-0000-0000", "GCash - Account Name: The Bag Hub - GCash, Account Number: 09123456789"]',
+        key: VIP_DIAMOND_THRESHOLD_PHP_KEY,
+        title: 'VIP Diamond — qualification threshold (PHP)',
+        description:
+          'Total cumulative purchases plus consignments (PHP, whole pesos) at or above which a client qualifies for VIP Diamond.',
+        category: 'VIP',
+        type: 'number',
+        value: '600000',
+      },
+      {
+        key: VIP_GOLD_DISCOUNT_PERCENT_KEY,
+        title: 'VIP Gold — discount (% of selling price)',
+        description:
+          'Percent of selling price for VIP Gold benefits. Effective discount should be min(percent of selling price, cap in PHP).',
+        category: 'VIP',
+        type: 'number',
+        value: '3',
+      },
+      {
+        key: VIP_GOLD_DISCOUNT_CAP_PHP_KEY,
+        title: 'VIP Gold — discount cap (PHP)',
+        description:
+          'Maximum discount amount in pesos for VIP Gold when applying the capped branch (min vs percent-off).',
+        category: 'VIP',
+        type: 'number',
+        value: '3000',
+      },
+      {
+        key: VIP_DIAMOND_DISCOUNT_PERCENT_KEY,
+        title: 'VIP Diamond — discount (% of selling price)',
+        description:
+          'Percent of selling price for VIP Diamond benefits. Effective discount should be min(percent of selling price, cap in PHP).',
+        category: 'VIP',
+        type: 'number',
+        value: '5',
+      },
+      {
+        key: VIP_DIAMOND_DISCOUNT_CAP_PHP_KEY,
+        title: 'VIP Diamond — discount cap (PHP)',
+        description:
+          'Maximum discount amount in pesos for VIP Diamond when applying the capped branch (min vs percent-off).',
+        category: 'VIP',
+        type: 'number',
+        value: '5000',
+      },
+      {
+        key: VIP_TIER_INACTIVITY_MONTHS_KEY,
+        title: 'VIP — inactivity before tier downgrade',
+        description:
+          'If a VIP client has no qualifying purchase or consignment within this many calendar months, their tier drops by one step (e.g. Diamond → Gold → regular client).',
+        category: 'VIP',
+        type: 'number',
+        value: '12',
       },
     ];
 
