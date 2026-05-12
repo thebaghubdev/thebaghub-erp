@@ -69,6 +69,30 @@ function crumbsForPath(pathname: string): Crumb[] {
     ];
   }
 
+  const inventoryAuthSuffix = /^\/portal\/inventory\/([^/]+)\/authentication$/;
+  const mInventoryAuth = inventoryAuthSuffix.exec(normalized);
+  if (mInventoryAuth) {
+    const itemId = mInventoryAuth[1];
+    const itemBase = `/portal/inventory/${itemId}`;
+    return [
+      {
+        label: pathLabels["/portal/inventory"] ?? "Inventory",
+        to: "/portal/inventory",
+        current: false,
+      },
+      {
+        label: "Item details",
+        to: itemBase,
+        current: false,
+      },
+      {
+        label: "Authentication results",
+        to: normalized,
+        current: true,
+      },
+    ];
+  }
+
   if (
     /^\/portal\/inventory\/.+/.test(normalized) &&
     normalized !== "/portal/inventory"

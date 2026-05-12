@@ -140,6 +140,8 @@ export type InventoryDetailForStaff = {
     certificatePhotos: string[];
     notes: string | null;
   } | null;
+  /** Staff-facing notes for consignor during third-party reauthentication handoff. */
+  reauthenticationNotes: string | null;
   /** Staff offer on linked inquiry (`inquiries.offer_price`), if any. */
   inquiryOfferPrice: string | null;
   /** TBH listed selling price (`inventory_items.tbh_selling_price`). */
@@ -995,6 +997,11 @@ export class InventoryService {
       thirdPartyAuthentication: normalizeThirdPartyAuthenticationData(
         auth?.thirdPartyAuthenticationData,
       ),
+      reauthenticationNotes:
+        auth?.reauthenticationNotes != null &&
+        String(auth.reauthenticationNotes).trim() !== ''
+          ? String(auth.reauthenticationNotes).trim()
+          : null,
       inquiryOfferPrice:
         r.inquiry?.offerPrice != null &&
         String(r.inquiry.offerPrice).trim() !== ''

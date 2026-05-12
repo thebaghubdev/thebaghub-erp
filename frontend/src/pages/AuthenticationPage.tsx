@@ -23,6 +23,9 @@ const AUTHENTICATED_FOR_3RD_PARTY_INVENTORY_STATUS =
 const AUTHENTICATED_REQUESTED_FOR_REAUTHENTICATION_INVENTORY_STATUS =
   "Authenticated: Requested for Reauthentication";
 
+/** Matches `APPROVED_ITEM_AUTHENTICATION_STATUS` in inventory service; hidden from this queue. */
+const APPROVED_ITEM_AUTHENTICATION_STATUS = "Approved";
+
 const AUTHENTICATE_ITEMS_QUEUE_STATUSES = new Set([
   FOR_AUTHENTICATION_STATUS,
   FOR_PHOTOSHOOT_STATUS,
@@ -393,7 +396,13 @@ export function AuthenticationPage() {
       const next = new Set<string>();
       for (const id of prev) {
         const r = byId.get(id);
-        if (r && r.status === FOR_AUTHENTICATION_STATUS) next.add(id);
+        if (
+          r &&
+          r.status === FOR_AUTHENTICATION_STATUS &&
+          r.authenticationStatus.trim() !== APPROVED_ITEM_AUTHENTICATION_STATUS
+        ) {
+          next.add(id);
+        }
       }
       if (next.size === prev.size && [...prev].every((id) => next.has(id))) {
         return prev;
@@ -472,7 +481,8 @@ export function AuthenticationPage() {
       onToggleRow: toggleAuthItemRow,
       onTogglePage: toggleAuthItemPage,
       isRowSelectable: (r: InventoryRow) =>
-        r.status === FOR_AUTHENTICATION_STATUS,
+        r.status === FOR_AUTHENTICATION_STATUS &&
+        r.authenticationStatus.trim() !== APPROVED_ITEM_AUTHENTICATION_STATUS,
     }),
     [authItemSelectedIds, toggleAuthItemRow, toggleAuthItemPage],
   );
@@ -684,7 +694,12 @@ export function AuthenticationPage() {
   }, [token, createForm, loadMetrics, itemCategories.length, brands.length]);
 
   const rows = useMemo(
-    () => allRows.filter((r) => AUTHENTICATE_ITEMS_QUEUE_STATUSES.has(r.status)),
+    () =>
+      allRows.filter(
+        (r) =>
+          AUTHENTICATE_ITEMS_QUEUE_STATUSES.has(r.status) &&
+          r.authenticationStatus.trim() !== APPROVED_ITEM_AUTHENTICATION_STATUS,
+      ),
     [allRows],
   );
 
@@ -747,7 +762,7 @@ export function AuthenticationPage() {
             data={rows}
             columns={authQueueColumns}
             isLoading={loading}
-            emptyMessage="No items in For Authentication, For Photoshoot, Authenticated: Requested for Reauthentication, Authenticated: For 3rd party authentication, or Authenticated: For renegotiation."
+            emptyMessage="No items in For Authentication, For Photoshoot, Authenticated: Requested for Reauthentication, Authenticated: For 3rd party authentication, or Authenticated: For renegotiation (Approved authentication status is omitted)."
             hideEmptyState={!!error}
             searchPlaceholder="Search items…"
             statusFilterOptions={INVENTORY_ITEM_STATUS_FILTER_OPTIONS}

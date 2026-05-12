@@ -29,6 +29,7 @@ type InventoryDetailForStaff = {
   };
   assignedToEmployeeId?: string | null;
   assignedToName?: string | null;
+  authenticationStatus: string;
 };
 
 function formatDatePurchased(raw: unknown): string {
@@ -51,6 +52,9 @@ function yesNo(v: unknown): string {
 
 const cardClass =
   "rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900";
+
+const recordActionBtn =
+  "inline-flex shrink-0 items-center justify-center rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5 text-sm font-medium text-violet-900 transition-colors hover:bg-violet-100 focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500 dark:border-violet-800 dark:bg-violet-950/60 dark:text-violet-100 dark:hover:bg-violet-900/80";
 
 export function InventoryItemDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -141,14 +145,24 @@ export function InventoryItemDetailPage() {
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
             Record
           </h2>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {detail.authenticationStatus.trim().toLowerCase() !== "pending" ? (
+            <Link
+              to={`/portal/inventory/${detail.id}/authentication`}
+              className={recordActionBtn}
+            >
+              View authentication results
+            </Link>
+          ) : null}
           {detail.inquiryId ? (
             <Link
               to={`/portal/inquiries/${detail.inquiryId}`}
-              className="inline-flex shrink-0 items-center justify-center rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5 text-sm font-medium text-violet-900 transition-colors hover:bg-violet-100 focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500 dark:border-violet-800 dark:bg-violet-950/60 dark:text-violet-100 dark:hover:bg-violet-900/80"
+              className={recordActionBtn}
             >
               View inquiry
             </Link>
           ) : null}
+        </div>
         </div>
         <dl className="mt-4 grid grid-cols-1 gap-x-8 gap-y-4 text-sm text-slate-800 dark:text-slate-200 sm:grid-cols-2">
           <div>
