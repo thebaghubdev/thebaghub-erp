@@ -6,6 +6,7 @@ const pathLabels: Record<string, string> = {
   "/portal/inventory": "Inventory",
   "/portal/authentication": "Authentication",
   "/portal/photoshoot": "Photoshoot",
+  "/portal/pricing": "Pricing",
   "/portal/settings": "Settings",
   "/portal/accounts": "Manage Accounts",
   "/portal/accounts/register": "Register",

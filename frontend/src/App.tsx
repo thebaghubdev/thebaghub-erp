@@ -30,6 +30,7 @@ import { InquiryPage } from './pages/InquiryPage'
 import { ManageAccountsPage } from './pages/ManageAccountsPage'
 import { PhotoshootItemPage } from './pages/PhotoshootItemPage'
 import { PhotoshootPage } from './pages/PhotoshootPage'
+import { PricingPage } from './pages/PricingPage'
 import { PortalLoginPage } from './pages/PortalLoginPage'
 import { PurchaseItemsPage } from './pages/PurchaseItemsPage'
 import { RegisterPage } from './pages/RegisterPage'
@@ -90,6 +91,7 @@ const router = createBrowserRouter([
           { path: 'authentication', element: <AuthenticationPage /> },
           { path: 'photoshoot', element: <PhotoshootPage /> },
           { path: 'photoshoot/item/:photoshootId', element: <PhotoshootItemPage /> },
+          { path: 'pricing', element: <PricingPage /> },
           { path: 'settings', element: <SettingsPage /> },
           { path: 'accounts/register', element: <RegisterPage /> },
           { path: 'accounts', element: <ManageAccountsPage /> },

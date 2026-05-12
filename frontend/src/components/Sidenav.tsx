@@ -59,6 +59,14 @@ export function Sidenav() {
           Photoshoot
         </NavLink>
         <NavLink
+          to="/portal/pricing"
+          className={({ isActive }) =>
+            [linkClass, isActive ? activeClass : ""].join(" ")
+          }
+        >
+          Pricing
+        </NavLink>
+        <NavLink
           to="/portal/accounts"
           className={({ isActive }) =>
             [linkClass, isActive ? activeClass : ""].join(" ")
