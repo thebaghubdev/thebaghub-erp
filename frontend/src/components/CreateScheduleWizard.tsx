@@ -326,6 +326,11 @@ export function CreateScheduleWizard({ onScheduleSaved }: Props) {
           </span>
         ),
       }),
+      inquiryColHelper.accessor("status", {
+        id: "status",
+        header: "Status",
+        cell: ({ row }) => <InquiryStatusBadge status={row.original.status} />,
+      }),
       inquiryColHelper.accessor("consignorName", {
         header: "Consignor",
         cell: ({ getValue }) => (
@@ -339,11 +344,6 @@ export function CreateScheduleWizard({ onScheduleSaved }: Props) {
             {getValue()}
           </span>
         ),
-      }),
-      inquiryColHelper.accessor("status", {
-        id: "status",
-        header: "Status",
-        cell: ({ row }) => <InquiryStatusBadge status={row.original.status} />,
       }),
       inquiryColHelper.accessor("offerPrice", {
         header: () => <span title="Staff offer price (PHP)">Offer price</span>,

@@ -8,6 +8,7 @@ import {
 } from "../components/PhotoshootCalendar";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
+import { InventoryStatusBadge } from "../components/InventoryStatusBadge";
 
 type PhotoshootTab = "calendar" | "scheduling";
 
@@ -41,6 +42,12 @@ const photoshootColumns = [
       <span className="break-all font-mono text-[0.65rem] leading-snug text-slate-900 sm:text-xs dark:text-slate-100">
         {getValue()}
       </span>
+    ),
+  }),
+  columnHelper.accessor("status", {
+    header: "Status",
+    cell: ({ row }) => (
+      <InventoryStatusBadge status={row.original.status} />
     ),
   }),
   columnHelper.accessor("itemLabel", {

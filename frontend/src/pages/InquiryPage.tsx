@@ -84,6 +84,11 @@ const inquiryColumns = [
       </span>
     ),
   }),
+  columnHelper.accessor("status", {
+    id: "status",
+    header: "Status",
+    cell: ({ row }) => <InquiryStatusBadge status={row.original.status} />,
+  }),
   columnHelper.accessor("consignorName", {
     header: "Consignor",
     cell: ({ getValue }) => (
@@ -160,11 +165,6 @@ const inquiryColumns = [
         {row.original.inclusions}
       </span>
     ),
-  }),
-  columnHelper.accessor("status", {
-    id: "status",
-    header: "Status",
-    cell: ({ row }) => <InquiryStatusBadge status={row.original.status} />,
   }),
   columnHelper.accessor("contractStartDate", {
     id: "contractStartDate",

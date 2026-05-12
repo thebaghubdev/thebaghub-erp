@@ -124,6 +124,14 @@ const authQueueColumns = [
       </span>
     ),
   }),
+  columnHelper.accessor("status", {
+    header: "Item status",
+    cell: ({ getValue }) => (
+      <span className="min-w-0 break-words">
+        <InventoryStatusBadge status={getValue()} />
+      </span>
+    ),
+  }),
   columnHelper.accessor("itemLabel", {
     header: "Item",
     cell: ({ getValue }) => (
@@ -137,14 +145,6 @@ const authQueueColumns = [
     cell: ({ getValue }) => (
       <span className="break-words font-medium text-slate-900 dark:text-slate-100">
         {getValue() ?? "—"}
-      </span>
-    ),
-  }),
-  columnHelper.accessor("status", {
-    header: "Item status",
-    cell: ({ getValue }) => (
-      <span className="min-w-0 break-words">
-        <InventoryStatusBadge status={getValue()} />
       </span>
     ),
   }),

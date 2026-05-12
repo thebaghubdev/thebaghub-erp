@@ -37,6 +37,10 @@ const columns = [
       </span>
     ),
   }),
+  columnHelper.accessor("status", {
+    header: "Status",
+    cell: ({ row }) => <InventoryStatusBadge status={row.original.status} />,
+  }),
   columnHelper.accessor("itemLabel", {
     header: "Item",
     cell: ({ getValue }) => (
@@ -69,10 +73,6 @@ const columns = [
         {getValue() ?? "—"}
       </span>
     ),
-  }),
-  columnHelper.accessor("status", {
-    header: "Status",
-    cell: ({ row }) => <InventoryStatusBadge status={row.original.status} />,
   }),
   columnHelper.accessor("transactionType", {
     header: "Transaction",
