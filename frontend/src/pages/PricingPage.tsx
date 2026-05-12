@@ -8,6 +8,11 @@ import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
 import { branchLabel } from "../lib/consignment-schedule-labels";
 import { formatOfferTransactionLabel } from "../lib/format-offer-transaction-type";
+import {
+  formatPhpAmount,
+  formatPhpDisplay,
+  parsePhpStringToNumber,
+} from "../lib/format-php";
 
 const PRICING_QUEUE_STATUS = "For Pricing" as const;
 
@@ -22,9 +27,39 @@ type InventoryRow = {
   currentBranch: string;
   itemLabel: string;
   inclusions: string;
+  marketPrice: string | null;
+  retailPrice: string | null;
+  consignorPrice: string | null;
+  tbhSellingPrice: string | null;
   assignedToName: string | null;
   authenticationStatus: string;
 };
+
+function markupFromTbhAndConsignor(
+  tbhSelling: string | null,
+  consignorPrice: string | null,
+): { markup: string; markupPercent: string } {
+  const sell =
+    tbhSelling != null && tbhSelling.trim() !== ""
+      ? parsePhpStringToNumber(tbhSelling)
+      : null;
+  const cost =
+    consignorPrice != null && consignorPrice.trim() !== ""
+      ? parsePhpStringToNumber(consignorPrice)
+      : null;
+  if (sell == null || cost == null) {
+    return { markup: "—", markupPercent: "—" };
+  }
+  const amount = sell - cost;
+  if (cost === 0) {
+    return { markup: formatPhpAmount(amount), markupPercent: "—" };
+  }
+  const pct = (amount / cost) * 100;
+  return {
+    markup: formatPhpAmount(amount),
+    markupPercent: `${pct.toFixed(2)}%`,
+  };
+}
 
 const columnHelper = createColumnHelper<InventoryRow>();
 
@@ -36,6 +71,78 @@ const columns = [
         {getValue()}
       </span>
     ),
+  }),
+  columnHelper.accessor("marketPrice", {
+    header: () => <span title="From authentication snapshot">Market price</span>,
+    cell: ({ getValue }) => (
+      <span className="tabular-nums text-slate-800 dark:text-slate-200">
+        {formatPhpDisplay(getValue())}
+      </span>
+    ),
+  }),
+  columnHelper.accessor("retailPrice", {
+    header: () => <span title="From authentication snapshot">Retail price</span>,
+    cell: ({ getValue }) => (
+      <span className="tabular-nums text-slate-800 dark:text-slate-200">
+        {formatPhpDisplay(getValue())}
+      </span>
+    ),
+  }),
+  columnHelper.accessor("consignorPrice", {
+    header: () => (
+      <span title="Staff offer on linked inquiry (PHP)">Consignor price</span>
+    ),
+    cell: ({ getValue }) => (
+      <span className="tabular-nums text-slate-800 dark:text-slate-200">
+        {formatPhpDisplay(getValue())}
+      </span>
+    ),
+  }),
+  columnHelper.accessor("tbhSellingPrice", {
+    header: () => (
+      <span title="TBH listed selling price (PHP)">TBH selling price</span>
+    ),
+    cell: ({ getValue }) => (
+      <span className="tabular-nums text-slate-800 dark:text-slate-200">
+        {formatPhpDisplay(getValue())}
+      </span>
+    ),
+  }),
+  columnHelper.display({
+    id: "markup",
+    header: () => (
+      <span title="TBH selling price minus consignor price">Mark-up</span>
+    ),
+    cell: ({ row }) => {
+      const { markup } = markupFromTbhAndConsignor(
+        row.original.tbhSellingPrice,
+        row.original.consignorPrice,
+      );
+      return (
+        <span className="tabular-nums text-slate-800 dark:text-slate-200">
+          {markup}
+        </span>
+      );
+    },
+  }),
+  columnHelper.display({
+    id: "markupPercent",
+    header: () => (
+      <span title="Mark-up as a percent of consignor price">
+        Mark-up %
+      </span>
+    ),
+    cell: ({ row }) => {
+      const { markupPercent } = markupFromTbhAndConsignor(
+        row.original.tbhSellingPrice,
+        row.original.consignorPrice,
+      );
+      return (
+        <span className="tabular-nums text-slate-800 dark:text-slate-200">
+          {markupPercent}
+        </span>
+      );
+    },
   }),
   columnHelper.accessor("status", {
     header: "Status",

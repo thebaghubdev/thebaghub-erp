@@ -100,6 +100,14 @@ export type InventoryListRow = {
   currentBranch: string;
   itemLabel: string;
   inclusions: string;
+  /** From item snapshot form (`marketPrice`), if set. */
+  marketPrice: string | null;
+  /** From item snapshot form (`retailPrice`), if set. */
+  retailPrice: string | null;
+  /** Linked inquiry staff offer (`inquiries.offer_price`), if any. */
+  consignorPrice: string | null;
+  /** TBH listed selling price (`inventory_items.tbh_selling_price`). */
+  tbhSellingPrice: string | null;
   /** Display name of assigned authenticator, if any. */
   assignedToName: string | null;
   /** From item_authentication row; defaults to Pending when missing. */
@@ -179,6 +187,25 @@ function inclusionsFromSnapshot(
   if (v == null) return '—';
   const s = String(v).trim();
   return s.length > 0 ? s : '—';
+}
+
+function priceFieldFromSnapshot(
+  snapshot: InquiryItemSnapshot | null | undefined,
+  key: 'marketPrice' | 'retailPrice',
+): string | null {
+  if (!snapshot?.form) return null;
+  const v = snapshot.form[key];
+  if (v == null) return null;
+  const s = String(v).trim();
+  return s.length > 0 ? s : null;
+}
+
+function normalizedOfferPriceString(
+  offer: string | number | null | undefined,
+): string | null {
+  if (offer == null) return null;
+  const s = String(offer).trim();
+  return s.length > 0 ? s : null;
 }
 
 function photoshootDayKey(value: Date | string): string {
@@ -917,6 +944,14 @@ export class InventoryService {
         currentBranch: r.currentBranch,
         itemLabel: itemLabelFromSnapshot(r.itemSnapshot),
         inclusions: inclusionsFromSnapshot(r.itemSnapshot),
+        marketPrice: priceFieldFromSnapshot(r.itemSnapshot, 'marketPrice'),
+        retailPrice: priceFieldFromSnapshot(r.itemSnapshot, 'retailPrice'),
+        consignorPrice: normalizedOfferPriceString(r.inquiry?.offerPrice),
+        tbhSellingPrice:
+          r.tbhSellingPrice != null &&
+          String(r.tbhSellingPrice).trim() !== ''
+            ? String(r.tbhSellingPrice)
+            : null,
         assignedToName: formatEmployeeName(auth?.assignedTo ?? null),
         authenticationStatus: auth?.authenticationStatus ?? 'Pending',
       };
