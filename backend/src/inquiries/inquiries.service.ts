@@ -32,6 +32,7 @@ import {
 } from './inquiry-audit.service';
 import { SubmitAuthenticatedReturnNewOfferDto } from './dto/submit-authenticated-return-new-offer.dto';
 import { UpdateInquiryNotesDto } from './dto/update-inquiry-notes.dto';
+import { UpdateReauthenticationNotesDto } from './dto/update-reauthentication-notes.dto';
 import { SubmitOfferDto } from './dto/submit-offer.dto';
 import { ConfirmOfferDto } from './dto/confirm-offer.dto';
 import { SubmitConsignmentInquiryDto } from './dto/submit-consignment-inquiry.dto';
@@ -123,9 +124,7 @@ function formatInquirySku(ref: Date, sequence: number): string {
   const dd = String(ref.getUTCDate()).padStart(2, '0');
   const mmdd = `${mm}${dd}`;
   const seq =
-    sequence < 100
-      ? String(sequence).padStart(2, '0')
-      : String(sequence);
+    sequence < 100 ? String(sequence).padStart(2, '0') : String(sequence);
   return `INQ-${y}-${mmdd}-${seq}`;
 }
 
@@ -156,7 +155,10 @@ function brandAndModelForEmail(
   return `${brand} ${model}`;
 }
 
-function snapshotFormString(form: Record<string, unknown>, key: string): string {
+function snapshotFormString(
+  form: Record<string, unknown>,
+  key: string,
+): string {
   const v = form[key];
   if (v == null) return '';
   return String(v).trim();
@@ -238,6 +240,10 @@ export type StaffInquiryDetail = StaffInquiryRow & {
    */
   thirdPartyReauthenticationReasons: string | null;
   thirdPartyPaymentProofUrls: string[];
+  /** Issue photos from authenticator when 3rd party re-auth was requested. */
+  thirdPartyIssuePhotoUrls: string[];
+  /** Staff notes visible to consignor during third-party reauthentication (`item_authentication`). */
+  thirdPartyReauthenticationNotes: string | null;
 };
 
 /** When status is for_delivery_scheduled, schedule row from staff calendar. */
@@ -268,6 +274,8 @@ export type ClientInquiryDetail = Omit<StaffInquiryRow, 'notes'> & {
     paymentMethods: string[];
   } | null;
   thirdPartyPaymentProofUrls: string[];
+  thirdPartyIssuePhotoUrls: string[];
+  thirdPartyReauthenticationNotes: string | null;
 };
 
 @Injectable()
@@ -279,6 +287,8 @@ export class InquiriesService {
     private readonly inquiriesRepo: Repository<Inquiry>,
     @InjectRepository(InventoryItem)
     private readonly inventoryItemRepo: Repository<InventoryItem>,
+    @InjectRepository(ItemAuthentication)
+    private readonly itemAuthRepo: Repository<ItemAuthentication>,
     @InjectRepository(Client)
     private readonly clientsRepo: Repository<Client>,
     @InjectRepository(ConsignmentScheduleItem)
@@ -424,8 +434,7 @@ export class InquiriesService {
     const methodsRow = await this.settingsRepo.findOne({
       where: { key: CLIENT_PAYMENT_METHODS_KEY },
     });
-    const feeAmount =
-      feeRow?.value != null ? String(feeRow.value).trim() : '';
+    const feeAmount = feeRow?.value != null ? String(feeRow.value).trim() : '';
     let paymentMethods: string[] = [];
     if (methodsRow?.value) {
       try {
@@ -600,9 +609,37 @@ export class InquiriesService {
       this.inquiryIsInThirdPartyPaymentFlow(r.status) &&
       Array.isArray(r.thirdPartyPaymentProofKeys)
         ? r.thirdPartyPaymentProofKeys
-            .filter((k): k is string => typeof k === 'string' && k.trim() !== '')
+            .filter(
+              (k): k is string => typeof k === 'string' && k.trim() !== '',
+            )
             .map((k) => this.s3.getPublicUrl(k))
         : [];
+
+    const thirdPartyIssuePhotoUrls =
+      this.inquiryIsInThirdPartyPaymentFlow(r.status) &&
+      Array.isArray(r.returnPhotos)
+        ? r.returnPhotos
+            .filter(
+              (k): k is string => typeof k === 'string' && k.trim() !== '',
+            )
+            .map((k) => this.s3.getPublicUrl(k))
+        : [];
+
+    let thirdPartyReauthenticationNotes: string | null = null;
+    if (
+      linkedInv?.id &&
+      this.inquiryIsInThirdPartyPaymentFlow(r.status)
+    ) {
+      const authRow = await this.itemAuthRepo.findOne({
+        where: { inventoryItemId: linkedInv.id },
+        select: { reauthenticationNotes: true },
+      });
+      const raw = authRow?.reauthenticationNotes;
+      thirdPartyReauthenticationNotes =
+        raw != null && String(raw).trim() !== ''
+          ? String(raw).trim()
+          : null;
+    }
 
     const detail: StaffInquiryDetail = {
       ...base,
@@ -615,6 +652,8 @@ export class InquiriesService {
       },
       thirdPartyReauthenticationReasons,
       thirdPartyPaymentProofUrls,
+      thirdPartyIssuePhotoUrls,
+      thirdPartyReauthenticationNotes,
     };
     if (
       r.status === InquiryStatus.AUTHENTICATED_RETURNED ||
@@ -728,9 +767,39 @@ export class InquiriesService {
       this.inquiryIsInThirdPartyPaymentFlow(r.status) &&
       Array.isArray(r.thirdPartyPaymentProofKeys)
         ? r.thirdPartyPaymentProofKeys
-            .filter((k): k is string => typeof k === 'string' && k.trim() !== '')
+            .filter(
+              (k): k is string => typeof k === 'string' && k.trim() !== '',
+            )
             .map((k) => this.s3.getPublicUrl(k))
         : [];
+    const thirdPartyIssuePhotoUrls =
+      this.inquiryIsInThirdPartyPaymentFlow(r.status) &&
+      Array.isArray(r.returnPhotos)
+        ? r.returnPhotos
+            .filter(
+              (k): k is string => typeof k === 'string' && k.trim() !== '',
+            )
+            .map((k) => this.s3.getPublicUrl(k))
+        : [];
+    const linkedInvClient = await this.inventoryItemRepo.findOne({
+      where: { inquiryId: r.id },
+      select: { id: true },
+    });
+    let thirdPartyReauthenticationNotes: string | null = null;
+    if (
+      linkedInvClient?.id &&
+      this.inquiryIsInThirdPartyPaymentFlow(r.status)
+    ) {
+      const authRow = await this.itemAuthRepo.findOne({
+        where: { inventoryItemId: linkedInvClient.id },
+        select: { reauthenticationNotes: true },
+      });
+      const raw = authRow?.reauthenticationNotes;
+      thirdPartyReauthenticationNotes =
+        raw != null && String(raw).trim() !== ''
+          ? String(raw).trim()
+          : null;
+    }
     return {
       ...rest,
       updatedAt: r.updatedAt,
@@ -743,6 +812,8 @@ export class InquiriesService {
       thirdPartyReauthenticationReasons,
       thirdPartyPaymentInfo,
       thirdPartyPaymentProofUrls,
+      thirdPartyIssuePhotoUrls,
+      thirdPartyReauthenticationNotes,
     };
   }
 
@@ -764,7 +835,9 @@ export class InquiriesService {
     if (!r) {
       throw new NotFoundException('Inquiry not found');
     }
-    if (r.status !== InquiryStatus.AUTHENTICATED_REQUESTED_FOR_REAUTHENTICATION) {
+    if (
+      r.status !== InquiryStatus.AUTHENTICATED_REQUESTED_FOR_REAUTHENTICATION
+    ) {
       throw new BadRequestException(
         'Proof of payment can only be uploaded while reauthentication payment is pending',
       );
@@ -804,7 +877,9 @@ export class InquiriesService {
     if (!r0) {
       throw new NotFoundException('Inquiry not found');
     }
-    if (r0.status !== InquiryStatus.AUTHENTICATED_REQUESTED_FOR_REAUTHENTICATION) {
+    if (
+      r0.status !== InquiryStatus.AUTHENTICATED_REQUESTED_FOR_REAUTHENTICATION
+    ) {
       throw new BadRequestException(
         'Inquiry is not waiting for reauthentication payment',
       );
@@ -819,43 +894,43 @@ export class InquiriesService {
     }
     const notifyPayload = await this.inquiriesRepo.manager.transaction(
       async (em) => {
-      const r = await em.findOne(Inquiry, { where: { id: inquiryId } });
-      if (!r) {
-        throw new NotFoundException('Inquiry not found');
-      }
-      const inv = await em.findOne(InventoryItem, {
-        where: { inquiryId },
-      });
-      if (!inv) {
-        throw new BadRequestException(
-          'No linked inventory item was found for this inquiry.',
-        );
-      }
-      const auth = await em.findOneBy(ItemAuthentication, {
-        inventoryItemId: inv.id,
-      });
-      const before = cloneInquiryForAudit(r);
-      r.status = InquiryStatus.AUTHENTICATED_FOR_3RD_PARTY;
-      r.updatedById = user.userId;
-      await em.save(r);
-      inv.status = 'Authenticated: For 3rd party authentication';
-      inv.updatedById = user.userId;
-      await em.save(inv);
-      if (auth) {
-        auth.authenticationStatus = 'For 3rd party authentication';
-        auth.updatedById = user.userId;
-        await em.save(auth);
-      }
-      const label = await this.inquiryAudit.staffActorLabel(user.userId);
-      await this.inquiryAudit.recordDiff(inquiryId, before, r, {
-        userId: user.userId,
-        label,
-      });
-      return {
-        inventorySku: inv.sku,
-        assignedAuthenticatorEmployeeId: auth?.assignedToId ?? null,
-      };
-    },
+        const r = await em.findOne(Inquiry, { where: { id: inquiryId } });
+        if (!r) {
+          throw new NotFoundException('Inquiry not found');
+        }
+        const inv = await em.findOne(InventoryItem, {
+          where: { inquiryId },
+        });
+        if (!inv) {
+          throw new BadRequestException(
+            'No linked inventory item was found for this inquiry.',
+          );
+        }
+        const auth = await em.findOneBy(ItemAuthentication, {
+          inventoryItemId: inv.id,
+        });
+        const before = cloneInquiryForAudit(r);
+        r.status = InquiryStatus.AUTHENTICATED_FOR_3RD_PARTY;
+        r.updatedById = user.userId;
+        await em.save(r);
+        inv.status = 'Authenticated: For 3rd party authentication';
+        inv.updatedById = user.userId;
+        await em.save(inv);
+        if (auth) {
+          auth.authenticationStatus = 'For 3rd party authentication';
+          auth.updatedById = user.userId;
+          await em.save(auth);
+        }
+        const label = await this.inquiryAudit.staffActorLabel(user.userId);
+        await this.inquiryAudit.recordDiff(inquiryId, before, r, {
+          userId: user.userId,
+          label,
+        });
+        return {
+          inventorySku: inv.sku,
+          assignedAuthenticatorEmployeeId: auth?.assignedToId ?? null,
+        };
+      },
     );
     if (notifyPayload.assignedAuthenticatorEmployeeId) {
       void this.notifications
@@ -987,11 +1062,9 @@ export class InquiriesService {
 
     let dto: ConfirmOfferDto;
     try {
-      dto = plainToInstance(
-        ConfirmOfferDto,
-        JSON.parse(payloadRaw) as object,
-        { enableImplicitConversion: true },
-      );
+      dto = plainToInstance(ConfirmOfferDto, JSON.parse(payloadRaw) as object, {
+        enableImplicitConversion: true,
+      });
       await validateOrReject(dto);
     } catch {
       throw new BadRequestException('Invalid offer confirmation payload');
@@ -1209,63 +1282,65 @@ export class InquiriesService {
       });
     }
 
-    return await this.inquiriesRepo.manager.transaction(async (em) => {
-      await em.query(
-        `SELECT pg_advisory_xact_lock(hashtext($1::text)::bigint)`,
-        [utcDayLockKey(refNow)],
-      );
+    return await this.inquiriesRepo.manager
+      .transaction(async (em) => {
+        await em.query(
+          `SELECT pg_advisory_xact_lock(hashtext($1::text)::bigint)`,
+          [utcDayLockKey(refNow)],
+        );
 
-      const bounds = utcDayRange(refNow);
-      const countToday = await em.count(Inquiry, {
-        where: { createdAt: Between(bounds.start, bounds.end) },
+        const bounds = utcDayRange(refNow);
+        const countToday = await em.count(Inquiry, {
+          where: { createdAt: Between(bounds.start, bounds.end) },
+        });
+
+        const results: Array<{
+          id: string;
+          sku: string;
+          status: InquiryStatus;
+        }> = [];
+
+        for (let i = 0; i < planned.length; i++) {
+          const sku = formatInquirySku(refNow, countToday + i + 1);
+          const row = planned[i];
+          const inquiry = em.create(Inquiry, {
+            id: row.inquiryId,
+            consignorId: client.id,
+            sku,
+            status: InquiryStatus.PENDING,
+            itemSnapshot: row.itemSnapshot,
+            createdById: null,
+            updatedById: null,
+          });
+          await em.save(inquiry);
+          results.push({ id: inquiry.id, sku, status: inquiry.status });
+        }
+
+        await em.update(
+          Client,
+          { id: client.id },
+          { consignmentFormSnapshot: null },
+        );
+
+        return { inquiries: results };
+      })
+      .then((out) => {
+        const skus = out.inquiries.map((i) => i.sku).join(', ');
+        const text =
+          out.inquiries.length === 1
+            ? `A client submitted a new consignment inquiry (${skus}).`
+            : `A client submitted ${out.inquiries.length} new consignment inquiries: ${skus}.`;
+        void this.notifications
+          .notify({
+            message: text,
+            receiverRole: CONSIGNMENT_COORDINATOR_POSITION,
+            inquiryId: out.inquiries[0]?.id ?? null,
+          })
+          .catch((err) => {
+            this.logger.error('Failed to notify consignment coordinators', err);
+          });
+        return out;
       });
-
-      const results: Array<{
-        id: string;
-        sku: string;
-        status: InquiryStatus;
-      }> = [];
-
-      for (let i = 0; i < planned.length; i++) {
-        const sku = formatInquirySku(refNow, countToday + i + 1);
-        const row = planned[i];
-        const inquiry = em.create(Inquiry, {
-          id: row.inquiryId,
-          consignorId: client.id,
-          sku,
-          status: InquiryStatus.PENDING,
-          itemSnapshot: row.itemSnapshot,
-          createdById: null,
-          updatedById: null,
-        });
-        await em.save(inquiry);
-        results.push({ id: inquiry.id, sku, status: inquiry.status });
-      }
-
-      await em.update(
-        Client,
-        { id: client.id },
-        { consignmentFormSnapshot: null },
-      );
-
-      return { inquiries: results };
-    }).then((out) => {
-      const skus = out.inquiries.map((i) => i.sku).join(', ');
-      const text =
-        out.inquiries.length === 1
-          ? `A client submitted a new consignment inquiry (${skus}).`
-          : `A client submitted ${out.inquiries.length} new consignment inquiries: ${skus}.`;
-      void this.notifications
-        .notify({
-          message: text,
-          receiverRole: CONSIGNMENT_COORDINATOR_POSITION,
-          inquiryId: out.inquiries[0]?.id ?? null,
-        })
-        .catch((err) => {
-          this.logger.error('Failed to notify consignment coordinators', err);
-        });
-      return out;
-    });
   }
 
   /** Staff creates inquiries for a selected consignor (walk-in); sets walk-in flags. */
@@ -1526,6 +1601,41 @@ export class InquiriesService {
     return this.findOneForStaff(id);
   }
 
+  async updateReauthenticationNotes(
+    id: string,
+    dto: UpdateReauthenticationNotesDto,
+    user: JwtUser,
+  ): Promise<StaffInquiryDetail> {
+    const r = await this.inquiriesRepo.findOne({ where: { id } });
+    if (!r) {
+      throw new NotFoundException('Inquiry not found');
+    }
+    if (!this.inquiryIsInThirdPartyPaymentFlow(r.status)) {
+      throw new BadRequestException(
+        'Reauthentication notes can only be updated while the inquiry is in the third-party reauthentication flow.',
+      );
+    }
+    const inv = await this.inventoryItemRepo.findOne({
+      where: { inquiryId: id },
+    });
+    if (!inv) {
+      throw new BadRequestException(
+        'No inventory item is linked to this inquiry.',
+      );
+    }
+    const auth = await this.itemAuthRepo.findOne({
+      where: { inventoryItemId: inv.id },
+    });
+    if (!auth) {
+      throw new BadRequestException('Item authentication record not found.');
+    }
+    const trimmed = dto.notes.trim();
+    auth.reauthenticationNotes = trimmed === '' ? null : trimmed;
+    auth.updatedById = user.userId;
+    await this.itemAuthRepo.save(auth);
+    return this.findOneForStaff(id);
+  }
+
   /**
    * Sets `contractStartDate` to today (UTC calendar date) and `contractExpirationDate`
    * to that date plus the number of days from setting {@link CONTRACT_EXPIRATION_DAYS_KEY}.
@@ -1563,6 +1673,48 @@ export class InquiriesService {
     inquiry.contractStartDate = start;
     inquiry.contractExpirationDate = expiration;
     return this.inquiriesRepo.save(inquiry);
+  }
+
+  /**
+   * Uploads issue photos for a 3rd party authentication request. Mutates `inquiry`
+   * only; caller persists. Clears suggested price range columns so they are not
+   * confused with coordinator renegotiation. Does not change inquiry status.
+   */
+  async attachThirdPartyAuthRequestEvidence(
+    inquiry: Inquiry,
+    body: {
+      photosDataUrls: string[];
+    },
+  ): Promise<void> {
+    if (body.photosDataUrls.length > MAX_AUTH_RETURN_PHOTOS) {
+      throw new BadRequestException(
+        `At most ${MAX_AUTH_RETURN_PHOTOS} issue photos are allowed`,
+      );
+    }
+    const keys: string[] = [];
+    for (const raw of body.photosDataUrls) {
+      const s = String(raw).trim();
+      if (s === '') continue;
+      const parsed = parseImageDataUrl(s);
+      if (!parsed) {
+        throw new BadRequestException(
+          'Each issue photo must be a valid image data URL',
+        );
+      }
+      const ext = extFromMime(parsed.mime);
+      const key = `inquiries/${inquiry.id}/third-party-auth-request/${randomUUID()}.${ext}`;
+      await this.s3.putObject(key, parsed.buffer, parsed.mime);
+      keys.push(key);
+    }
+    if (keys.length === 0) {
+      throw new BadRequestException(
+        'At least one valid issue photo is required.',
+      );
+    }
+    inquiry.priceRangeMin = null;
+    inquiry.priceRangeMax = null;
+    inquiry.returnPhotos = keys;
+    inquiry.returnReasons = null;
   }
 
   /**
@@ -1604,7 +1756,9 @@ export class InquiriesService {
       keys.push(key);
     }
     if (keys.length === 0) {
-      throw new BadRequestException('At least one valid issue photo is required.');
+      throw new BadRequestException(
+        'At least one valid issue photo is required.',
+      );
     }
     inquiry.returnReasons = body.returnReasons;
     inquiry.returnPhotos = keys.length > 0 ? keys : null;

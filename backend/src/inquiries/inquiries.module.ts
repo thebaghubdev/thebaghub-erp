@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConsignmentScheduleItem } from '../consignment-schedules/entities/consignment-schedule.entities';
 import { Client } from '../clients/entities/client.entity';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
+import { ItemAuthentication } from '../inventory/entities/item-authentication.entity';
 import { InventoryModule } from '../inventory/inventory.module';
 import { Employee } from '../employees/entities/employee.entity';
 import { Setting } from '../settings/entities/setting.entity';
@@ -29,6 +30,7 @@ import { MailModule } from '../mail/mail.module';
       Employee,
       Setting,
       InventoryItem,
+      ItemAuthentication,
     ]),
   ],
   controllers: [InquiriesController, ClientConsignmentInquiryController],

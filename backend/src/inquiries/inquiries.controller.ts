@@ -17,6 +17,7 @@ import { JwtUser } from '../auth/jwt-user';
 import { StaffOnlyGuard } from '../auth/staff-only.guard';
 import type { MulterFile } from './multer-file.type';
 import { UpdateInquiryNotesDto } from './dto/update-inquiry-notes.dto';
+import { UpdateReauthenticationNotesDto } from './dto/update-reauthentication-notes.dto';
 import { SubmitAuthenticatedReturnNewOfferDto } from './dto/submit-authenticated-return-new-offer.dto';
 import { SubmitOfferDto } from './dto/submit-offer.dto';
 import { InquiriesService } from './inquiries.service';
@@ -101,6 +102,19 @@ export class InquiriesController {
     @Body() body: UpdateInquiryNotesDto,
   ) {
     return this.inquiriesService.updateNotes(id, body, req.user);
+  }
+
+  @Patch(':id/reauthentication-notes')
+  updateReauthenticationNotes(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: UpdateReauthenticationNotesDto,
+  ) {
+    return this.inquiriesService.updateReauthenticationNotes(
+      id,
+      body,
+      req.user,
+    );
   }
 
   @Post(':id/third-party-payment-proof')

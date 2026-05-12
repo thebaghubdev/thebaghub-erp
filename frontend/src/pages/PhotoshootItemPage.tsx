@@ -1,6 +1,6 @@
 import { format } from "date-fns";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import type { PhotoshootCalendarRow } from "../components/PhotoshootCalendar";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
@@ -48,6 +48,8 @@ function entriesFromMetaPhotos(
   }));
 }
 
+const MIN_PHOTOS_FOR_FINISH = 4;
+
 async function readApiErrorMessage(res: Response): Promise<string> {
   try {
     const body = (await res.json()) as { message?: unknown };
@@ -62,6 +64,7 @@ async function readApiErrorMessage(res: Response): Promise<string> {
 
 export function PhotoshootItemPage() {
   const { photoshootId } = useParams<{ photoshootId: string }>();
+  const navigate = useNavigate();
   const { token } = usePortalAuth();
   const inputId = useId();
   const [meta, setMeta] = useState<PhotoshootCalendarRow | null>(null);
@@ -71,6 +74,8 @@ export function PhotoshootItemPage() {
   const [photoEntries, setPhotoEntries] = useState<PhotoEntry[]>([]);
   const [saveSaving, setSaveSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [finishSaving, setFinishSaving] = useState(false);
+  const [finishError, setFinishError] = useState<string | null>(null);
   const photoEntriesRef = useRef<PhotoEntry[]>([]);
   photoEntriesRef.current = photoEntries;
 
@@ -143,31 +148,36 @@ export function PhotoshootItemPage() {
     });
   }, []);
 
+  const persistPhotos = useCallback(async (): Promise<PhotoshootCalendarRow> => {
+    if (!token || !photoshootId) {
+      throw new Error("Not signed in or missing photoshoot.");
+    }
+    const formData = new FormData();
+    const retain = photoEntries
+      .filter(
+        (e): e is Extract<PhotoEntry, { kind: "saved" }> => e.kind === "saved",
+      )
+      .map((e) => e.key);
+    formData.append("retainKeys", JSON.stringify(retain));
+    for (const e of photoEntries) {
+      if (e.kind === "local") {
+        formData.append("photos", e.file);
+      }
+    }
+    const res = await apiFetch(
+      `/api/inventory/item-photoshoots/${photoshootId}/photos`,
+      { method: "PATCH", body: formData },
+      token,
+    );
+    if (!res.ok) throw new Error(await readApiErrorMessage(res));
+    return (await res.json()) as PhotoshootCalendarRow;
+  }, [token, photoshootId, photoEntries]);
+
   const handleSaveChanges = useCallback(async () => {
-    if (!token || !photoshootId) return;
     setSaveError(null);
     setSaveSaving(true);
     try {
-      const formData = new FormData();
-      const retain = photoEntries
-        .filter(
-          (e): e is Extract<PhotoEntry, { kind: "saved" }> =>
-            e.kind === "saved",
-        )
-        .map((e) => e.key);
-      formData.append("retainKeys", JSON.stringify(retain));
-      for (const e of photoEntries) {
-        if (e.kind === "local") {
-          formData.append("photos", e.file);
-        }
-      }
-      const res = await apiFetch(
-        `/api/inventory/item-photoshoots/${photoshootId}/photos`,
-        { method: "PATCH", body: formData },
-        token,
-      );
-      if (!res.ok) throw new Error(await readApiErrorMessage(res));
-      const data = (await res.json()) as PhotoshootCalendarRow;
+      const data = await persistPhotos();
       setMeta(data);
       setPhotoEntries((prev) => {
         for (const e of prev) {
@@ -180,7 +190,58 @@ export function PhotoshootItemPage() {
     } finally {
       setSaveSaving(false);
     }
-  }, [token, photoshootId, photoEntries]);
+  }, [persistPhotos]);
+
+  const photoCount = photoEntries.length;
+  const canFinishPhotoshoot = photoCount >= MIN_PHOTOS_FOR_FINISH;
+
+  const handleFinishPhotoshoot = useCallback(async () => {
+    if (!token || !photoshootId || !canFinishPhotoshoot) return;
+    setFinishError(null);
+    setFinishSaving(true);
+    try {
+      const hasLocal = photoEntries.some((e) => e.kind === "local");
+      let savedCount: number;
+      if (hasLocal) {
+        const data = await persistPhotos();
+        setMeta(data);
+        setPhotoEntries((prev) => {
+          for (const e of prev) {
+            if (e.kind === "local") URL.revokeObjectURL(e.previewUrl);
+          }
+          return entriesFromMetaPhotos(data.photos);
+        });
+        savedCount = data.photos.length;
+      } else {
+        savedCount = photoEntries.length;
+      }
+      if (savedCount < MIN_PHOTOS_FOR_FINISH) {
+        throw new Error(
+          `At least ${MIN_PHOTOS_FOR_FINISH} photos must be saved before finishing (saved: ${savedCount}).`,
+        );
+      }
+      const res = await apiFetch(
+        `/api/inventory/item-photoshoots/${photoshootId}/finish`,
+        { method: "POST" },
+        token,
+      );
+      if (!res.ok) throw new Error(await readApiErrorMessage(res));
+      navigate("/portal/photoshoot");
+    } catch (e) {
+      setFinishError(
+        e instanceof Error ? e.message : "Could not finish photoshoot",
+      );
+    } finally {
+      setFinishSaving(false);
+    }
+  }, [
+    token,
+    photoshootId,
+    canFinishPhotoshoot,
+    photoEntries,
+    persistPhotos,
+    navigate,
+  ]);
 
   const onDrop = useCallback(
     (e: React.DragEvent) => {
@@ -236,21 +297,42 @@ export function PhotoshootItemPage() {
           Scheduled: {formatPhotoshootDateCell(meta.photoshootDate)}
           {meta.consignorName ? ` · ${meta.consignorName}` : null}
         </p>
-        <div className="flex flex-col-reverse gap-2 pt-3 sm:flex-row sm:justify-start sm:gap-3">
-          <button
-            type="button"
-            className={btnSecondary}
-            disabled={saveSaving}
-            onClick={() => void handleSaveChanges()}
-          >
-            {saveSaving ? "Saving…" : "Save changes"}
-          </button>
-          <button type="button" className={btnPrimary} onClick={() => {}}>
-            Finish photoshoot
-          </button>
+        <div className="flex flex-col gap-1 pt-3">
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-start sm:gap-3">
+            <button
+              type="button"
+              className={btnSecondary}
+              disabled={saveSaving || finishSaving}
+              onClick={() => void handleSaveChanges()}
+            >
+              {saveSaving ? "Saving…" : "Save changes"}
+            </button>
+            <button
+              type="button"
+              className={btnPrimary}
+              disabled={
+                !canFinishPhotoshoot || saveSaving || finishSaving
+              }
+              title={
+                !canFinishPhotoshoot
+              ? `Add at least ${MIN_PHOTOS_FOR_FINISH} photos to finish`
+                  : undefined
+              }
+              onClick={() => void handleFinishPhotoshoot()}
+            >
+              {finishSaving ? "Finishing…" : "Finish photoshoot"}
+            </button>
+          </div>
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            Finish is available with at least {MIN_PHOTOS_FOR_FINISH} photos.
+            Unsaved images are uploaded automatically when you finish.
+          </p>
         </div>
         {saveError ? (
           <p className="text-sm text-red-600 dark:text-red-400">{saveError}</p>
+        ) : null}
+        {finishError ? (
+          <p className="text-sm text-red-600 dark:text-red-400">{finishError}</p>
         ) : null}
       </header>
 

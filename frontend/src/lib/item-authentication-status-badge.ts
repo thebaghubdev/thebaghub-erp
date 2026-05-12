@@ -6,8 +6,8 @@ const BY_STATUS: Record<string, string> = {
   approved: "text-emerald-800 dark:text-emerald-300",
   returned: "text-amber-800 dark:text-amber-300",
   "for renegotiation": "text-amber-800 dark:text-amber-300",
-  "3rd party authentication": "text-sky-800 dark:text-sky-300",
-  "for 3rd party authentication": "text-sky-800 dark:text-sky-300",
+  "3rd party authentication": "text-teal-800 dark:text-teal-300",
+  "for 3rd party authentication": "text-teal-800 dark:text-teal-300",
   "requested for reauthentication": "text-sky-800 dark:text-sky-300",
   rejected: "text-red-800 dark:text-red-300",
 };

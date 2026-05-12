@@ -81,6 +81,18 @@ export class InventoryController {
     );
   }
 
+  @Post('item-photoshoots/:photoshootId/finish')
+  @HttpCode(HttpStatus.OK)
+  finishItemPhotoshoot(
+    @Param('photoshootId', ParseUUIDPipe) photoshootId: string,
+    @Req() req: { user: JwtUser },
+  ) {
+    return this.inventoryService.finishItemPhotoshoot(
+      photoshootId,
+      req.user.userId,
+    );
+  }
+
   @Post('batch-assign-authenticator')
   @HttpCode(HttpStatus.OK)
   batchAssignAuthenticator(

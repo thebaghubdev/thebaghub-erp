@@ -235,6 +235,16 @@ export function ItemAuthenticationPage() {
     thirdPartyReauthenticationReason,
     setThirdPartyReauthenticationReason,
   ] = useState("");
+  type ThirdPartyModalIssuePreview = {
+    id: string;
+    file: File;
+    url: string;
+  };
+  const [thirdPartyModalIssuePreviews, setThirdPartyModalIssuePreviews] =
+    useState<ThirdPartyModalIssuePreview[]>([]);
+  const thirdPartyModalFileInputRef = useRef<HTMLInputElement>(null);
+  const thirdPartyModalPreviewsRef = useRef<ThirdPartyModalIssuePreview[]>([]);
+  thirdPartyModalPreviewsRef.current = thirdPartyModalIssuePreviews;
   const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
   const actionsMenuRef = useRef<HTMLDivElement>(null);
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
@@ -610,17 +620,39 @@ export function ItemAuthenticationPage() {
     return () => window.removeEventListener("keydown", onKey);
   }, [approveModalOpen, approveBusy]);
 
+  const resetThirdPartyModalForm = useCallback(() => {
+    setThirdPartyReauthenticationReason("");
+    setThirdPartyModalIssuePreviews((prev) => {
+      for (const p of prev) URL.revokeObjectURL(p.url);
+      return [];
+    });
+    setForThirdPartyAuthError(null);
+  }, []);
+
+  const closeThirdPartyModal = useCallback(() => {
+    if (forThirdPartyAuthBusy) return;
+    resetThirdPartyModalForm();
+    setThirdPartyModalOpen(false);
+  }, [forThirdPartyAuthBusy, resetThirdPartyModalForm]);
+
   useEffect(() => {
     if (!thirdPartyModalOpen) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && !forThirdPartyAuthBusy) {
-        setThirdPartyModalOpen(false);
-        setForThirdPartyAuthError(null);
+        closeThirdPartyModal();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [thirdPartyModalOpen, forThirdPartyAuthBusy]);
+  }, [thirdPartyModalOpen, forThirdPartyAuthBusy, closeThirdPartyModal]);
+
+  useEffect(() => {
+    return () => {
+      for (const p of thirdPartyModalPreviewsRef.current) {
+        URL.revokeObjectURL(p.url);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     setApproveGateMessage(null);
@@ -733,15 +765,22 @@ export function ItemAuthenticationPage() {
       setForThirdPartyAuthError("Reasons for re-authentication are required.");
       return;
     }
+    if (thirdPartyModalIssuePreviews.length === 0) {
+      setForThirdPartyAuthError("Add at least one issue photo.");
+      return;
+    }
     setForThirdPartyAuthError(null);
     setForThirdPartyAuthBusy(true);
     try {
+      const files = thirdPartyModalIssuePreviews.map((p) => p.file);
+      const issuePhotos = await filesToDataUrls(files);
       const res = await apiFetch(
         `/api/inventory/${id}/for-3rd-party-authentication`,
         {
           method: "POST",
           body: JSON.stringify({
             reauthenticationReasons: trimmed,
+            issuePhotos,
           }),
         },
         token,
@@ -750,8 +789,8 @@ export function ItemAuthenticationPage() {
         throw new Error(await readApiErrorMessage(res));
       }
       setActionsMenuOpen(false);
+      resetThirdPartyModalForm();
       setThirdPartyModalOpen(false);
-      setThirdPartyReauthenticationReason("");
       await load();
     } catch (e) {
       setForThirdPartyAuthError(
@@ -762,7 +801,14 @@ export function ItemAuthenticationPage() {
     } finally {
       setForThirdPartyAuthBusy(false);
     }
-  }, [token, id, load, thirdPartyReauthenticationReason]);
+  }, [
+    token,
+    id,
+    load,
+    thirdPartyReauthenticationReason,
+    thirdPartyModalIssuePreviews,
+    resetThirdPartyModalForm,
+  ]);
 
   const submitRejectAuthentication = useCallback(async () => {
     if (!token || !id) return;
@@ -906,6 +952,30 @@ export function ItemAuthenticationPage() {
 
   const removeReturnCoordinatorPreview = useCallback((previewId: string) => {
     setReturnCoordinatorIssuePreviews((prev) => {
+      const target = prev.find((p) => p.id === previewId);
+      if (target) URL.revokeObjectURL(target.url);
+      return prev.filter((p) => p.id !== previewId);
+    });
+  }, []);
+
+  const addThirdPartyModalImageFiles = useCallback(
+    (list: FileList | File[]) => {
+      const images = Array.from(list).filter((f) => /^image\//u.test(f.type));
+      if (images.length === 0) return;
+      setThirdPartyModalIssuePreviews((prev) => {
+        const added = images.map((file) => ({
+          id: randomId(),
+          file,
+          url: URL.createObjectURL(file),
+        }));
+        return [...prev, ...added];
+      });
+    },
+    [],
+  );
+
+  const removeThirdPartyModalPreview = useCallback((previewId: string) => {
+    setThirdPartyModalIssuePreviews((prev) => {
       const target = prev.find((p) => p.id === previewId);
       if (target) URL.revokeObjectURL(target.url);
       return prev.filter((p) => p.id !== previewId);
@@ -1366,9 +1436,8 @@ export function ItemAuthenticationPage() {
                         role="menuitem"
                         className="flex w-full items-center px-3 py-2 text-left text-sm text-sky-950 hover:bg-sky-50 dark:text-sky-100 dark:hover:bg-sky-950/50"
                         onClick={() => {
-                          setForThirdPartyAuthError(null);
-                          setThirdPartyReauthenticationReason("");
                           setActionsMenuOpen(false);
+                          resetThirdPartyModalForm();
                           setThirdPartyModalOpen(true);
                         }}
                       >
@@ -1786,10 +1855,7 @@ export function ItemAuthenticationPage() {
                 aria-label="Close"
                 disabled={forThirdPartyAuthBusy}
                 onClick={() => {
-                  if (!forThirdPartyAuthBusy) {
-                    setThirdPartyModalOpen(false);
-                    setForThirdPartyAuthError(null);
-                  }
+                  if (!forThirdPartyAuthBusy) closeThirdPartyModal();
                 }}
               />
               <div className="relative z-10 flex max-h-[min(92vh,44rem)] w-full max-w-lg flex-col rounded-2xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900">
@@ -1802,8 +1868,8 @@ export function ItemAuthenticationPage() {
                   </h2>
                   <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
                     This requests 3rd party re-authentication. Review the
-                    metrics summary below, then provide reasons for
-                    re-authentication.
+                    metrics summary below, then enter reasons and at least one
+                    issue photo before you submit.
                   </p>
                 </div>
                 <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-4">
@@ -1873,6 +1939,95 @@ export function ItemAuthenticationPage() {
                       disabled={forThirdPartyAuthBusy}
                     />
                   </div>
+                  <div>
+                    <p className={authFieldLabel}>Offer price</p>
+                    <p className="text-sm font-medium tabular-nums text-slate-900 dark:text-slate-100">
+                      {detail != null &&
+                      detail.inquiryOfferPrice != null &&
+                      detail.inquiryOfferPrice !== ""
+                        ? formatPhpDisplay(detail.inquiryOfferPrice)
+                        : "—"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className={authFieldLabel}>Issue photos</p>
+                    <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">
+                      At least one image is required. Drag images here or click
+                      to choose files.
+                    </p>
+                    <input
+                      ref={thirdPartyModalFileInputRef}
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      className="sr-only"
+                      tabIndex={-1}
+                      disabled={forThirdPartyAuthBusy}
+                      onChange={(e) => {
+                        const fl = e.target.files;
+                        if (fl && fl.length > 0) addThirdPartyModalImageFiles(fl);
+                        e.target.value = "";
+                      }}
+                    />
+                    <button
+                      type="button"
+                      disabled={forThirdPartyAuthBusy}
+                      onClick={() =>
+                        thirdPartyModalFileInputRef.current?.click()
+                      }
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (forThirdPartyAuthBusy) return;
+                        const fl = e.dataTransfer.files;
+                        if (fl && fl.length > 0) addThirdPartyModalImageFiles(fl);
+                      }}
+                      className="flex w-full flex-col items-center justify-center rounded-xl border-2 border-dashed border-amber-300/80 bg-amber-50/50 px-4 py-8 text-center text-sm text-amber-950 transition-colors hover:border-amber-400 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-amber-700/60 dark:bg-amber-950/20 dark:text-amber-100 dark:hover:border-amber-600 dark:hover:bg-amber-950/35"
+                    >
+                      <span className="font-medium">
+                        Drop images here or click to browse
+                      </span>
+                      <span className="mt-1 text-xs text-amber-800/80 dark:text-amber-200/80">
+                        PNG, JPEG, WebP, etc.
+                      </span>
+                    </button>
+                    {thirdPartyModalIssuePreviews.length > 0 ? (
+                      <ul className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                        {thirdPartyModalIssuePreviews.map((p) => (
+                          <li
+                            key={p.id}
+                            className="relative overflow-hidden rounded-lg border border-slate-200 bg-slate-50 dark:border-slate-600 dark:bg-slate-800"
+                          >
+                            <img
+                              src={p.url}
+                              alt={
+                                p.file.name
+                                  ? `Preview: ${p.file.name}`
+                                  : "Issue preview"
+                              }
+                              className="h-28 w-full object-cover"
+                            />
+                            <button
+                              type="button"
+                              disabled={forThirdPartyAuthBusy}
+                              onClick={() => removeThirdPartyModalPreview(p.id)}
+                              className="absolute right-1 top-1 rounded-md bg-slate-900/75 px-1.5 py-0.5 text-xs font-medium text-white hover:bg-slate-900 disabled:opacity-50"
+                              aria-label={`Remove ${p.file.name || "image"}`}
+                            >
+                              Remove
+                            </button>
+                            <p className="truncate px-1.5 py-1 text-[0.65rem] text-slate-600 dark:text-slate-400">
+                              {p.file.name || "Image"}
+                            </p>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </div>
                 </div>
                 <div className="shrink-0 border-t border-slate-100 px-5 py-4 dark:border-slate-800">
                   {forThirdPartyAuthError ? (
@@ -1887,10 +2042,7 @@ export function ItemAuthenticationPage() {
                     <button
                       type="button"
                       disabled={forThirdPartyAuthBusy}
-                      onClick={() => {
-                        setThirdPartyModalOpen(false);
-                        setForThirdPartyAuthError(null);
-                      }}
+                      onClick={() => closeThirdPartyModal()}
                       className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
                     >
                       Cancel

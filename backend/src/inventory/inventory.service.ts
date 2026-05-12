@@ -279,6 +279,8 @@ function mergeItemAuthenticationFormIntoSnapshot(
 
 const FOR_AUTHENTICATION_INVENTORY_STATUS = 'For Authentication';
 const FOR_PHOTOSHOOT_INVENTORY_STATUS = 'For Photoshoot';
+const FOR_PRICING_INVENTORY_STATUS = 'For Pricing';
+const MIN_PHOTOS_TO_FINISH_PHOTOSHOOT = 4;
 const AUTHENTICATED_FOR_RENEGOTIATION_INVENTORY_STATUS =
   'Authenticated: For renegotiation';
 const APPROVED_ITEM_AUTHENTICATION_STATUS = 'Approved';
@@ -365,10 +367,9 @@ export class InventoryService {
     currentBranch: string,
   ): Promise<void> {
     const refDate = new Date();
-    await em.query(
-      `SELECT pg_advisory_xact_lock(hashtext($1::text)::bigint)`,
-      [utcInventoryDayLockKey(refDate)],
-    );
+    await em.query(`SELECT pg_advisory_xact_lock(hashtext($1::text)::bigint)`, [
+      utcInventoryDayLockKey(refDate),
+    ]);
     const bounds = utcDayRange(refDate);
     const countToday = await em.count(InventoryItem, {
       where: { dateReceived: Between(bounds.start, bounds.end) },
@@ -629,19 +630,32 @@ export class InventoryService {
             where: { inventoryItemId },
           });
           if (!auth) {
-            throw new BadRequestException('Item authentication record not found.');
+            throw new BadRequestException(
+              'Item authentication record not found.',
+            );
           }
 
-          inquiry.thirdPartyReauthenticationReasons = dto.reauthenticationReasons;
+          inquiry.thirdPartyReauthenticationReasons =
+            dto.reauthenticationReasons;
           inquiry.status =
             InquiryStatus.AUTHENTICATED_REQUESTED_FOR_REAUTHENTICATION;
+
+          await this.inquiriesService.attachThirdPartyAuthRequestEvidence(
+            inquiry,
+            {
+              photosDataUrls: dto.issuePhotos,
+            },
+          );
+
           await em.save(inquiry);
 
-          auth.authenticationStatus = REQUESTED_FOR_REAUTHENTICATION_ITEM_AUTH_STATUS;
+          auth.authenticationStatus =
+            REQUESTED_FOR_REAUTHENTICATION_ITEM_AUTH_STATUS;
           auth.updatedById = actor.userId;
           await em.save(auth);
 
-          item.status = AUTHENTICATED_REQUESTED_FOR_REAUTHENTICATION_INVENTORY_STATUS;
+          item.status =
+            AUTHENTICATED_REQUESTED_FOR_REAUTHENTICATION_INVENTORY_STATUS;
           item.updatedById = actor.userId;
           await em.save(item);
 
@@ -801,9 +815,7 @@ export class InventoryService {
     };
   }
 
-  async listAuthenticators(): Promise<
-    { id: string; displayName: string }[]
-  > {
+  async listAuthenticators(): Promise<{ id: string; displayName: string }[]> {
     const rows = await this.employeesRepo
       .createQueryBuilder('e')
       .where('LOWER(TRIM(e.position)) = :p', { p: 'authenticator' })
@@ -945,7 +957,8 @@ export class InventoryService {
         auth?.thirdPartyAuthenticationData,
       ),
       inquiryOfferPrice:
-        r.inquiry?.offerPrice != null && String(r.inquiry.offerPrice).trim() !== ''
+        r.inquiry?.offerPrice != null &&
+        String(r.inquiry.offerPrice).trim() !== ''
           ? String(r.inquiry.offerPrice)
           : null,
       itemSnapshot: {
@@ -1001,10 +1014,16 @@ export class InventoryService {
   }
 
   async listItemPhotoshootsForStaff(): Promise<ItemPhotoshootCalendarRow[]> {
-    const rows = await this.itemPhotoshootRepo.find({
-      relations: { inventoryItem: { consignor: true } },
-      order: { photoshootDate: 'ASC', id: 'ASC' },
-    });
+    const rows = await this.itemPhotoshootRepo
+      .createQueryBuilder('p')
+      .innerJoinAndSelect('p.inventoryItem', 'inv')
+      .leftJoinAndSelect('inv.consignor', 'consignor')
+      .where('inv.status = :forPs', {
+        forPs: FOR_PHOTOSHOOT_INVENTORY_STATUS,
+      })
+      .orderBy('p.photoshootDate', 'ASC')
+      .addOrderBy('p.id', 'ASC')
+      .getMany();
     return rows.map((p) => this.mapItemPhotoshootToCalendarRow(p));
   }
 
@@ -1021,7 +1040,9 @@ export class InventoryService {
     return this.mapItemPhotoshootToCalendarRow(p);
   }
 
-  private mapItemPhotoshootToCalendarRow(p: ItemPhotoshoot): ItemPhotoshootCalendarRow {
+  private mapItemPhotoshootToCalendarRow(
+    p: ItemPhotoshoot,
+  ): ItemPhotoshootCalendarRow {
     const inv = p.inventoryItem;
     const c = inv.consignor;
     const name = c
@@ -1110,6 +1131,42 @@ export class InventoryService {
     return this.findOneItemPhotoshootForStaff(photoshootId);
   }
 
+  /**
+   * Requires at least {@link MIN_PHOTOS_TO_FINISH_PHOTOSHOOT} saved photos; sets
+   * inventory to {@link FOR_PRICING_INVENTORY_STATUS}.
+   */
+  async finishItemPhotoshoot(
+    photoshootId: string,
+    actorUserId: string,
+  ): Promise<{ status: string; sku: string }> {
+    const row = await this.itemPhotoshootRepo.findOne({
+      where: { id: photoshootId },
+      relations: { inventoryItem: true },
+    });
+    if (!row) {
+      throw new NotFoundException('Photoshoot schedule not found');
+    }
+    const item = row.inventoryItem;
+    if (!item) {
+      throw new BadRequestException('Inventory item not found');
+    }
+    if (item.status !== FOR_PHOTOSHOOT_INVENTORY_STATUS) {
+      throw new BadRequestException(
+        `Inventory must be in "${FOR_PHOTOSHOOT_INVENTORY_STATUS}" to finish the photoshoot (current: "${item.status}").`,
+      );
+    }
+    const images = parsePhotoshootSnapshotImages(row.photosSnapshot);
+    if (images.length < MIN_PHOTOS_TO_FINISH_PHOTOSHOOT) {
+      throw new BadRequestException(
+        `At least ${MIN_PHOTOS_TO_FINISH_PHOTOSHOOT} photos are required before you can finish the photoshoot (saved: ${images.length}).`,
+      );
+    }
+    item.status = FOR_PRICING_INVENTORY_STATUS;
+    item.updatedById = actorUserId;
+    await this.inventoryRepo.save(item);
+    return { status: item.status, sku: item.sku };
+  }
+
   async createItemPhotoshoots(
     dto: CreateItemPhotoshootsDto,
     actorUserId: string,
@@ -1125,7 +1182,9 @@ export class InventoryService {
       const psRepo = em.getRepository(ItemPhotoshoot);
       const items = await invRepo.find({ where: { id: In(uniqueIds) } });
       if (items.length !== uniqueIds.length) {
-        throw new NotFoundException('One or more inventory items were not found');
+        throw new NotFoundException(
+          'One or more inventory items were not found',
+        );
       }
       for (const item of items) {
         if (item.status !== FOR_PHOTOSHOOT_INVENTORY_STATUS) {

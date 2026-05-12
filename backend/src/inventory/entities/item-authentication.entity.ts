@@ -49,4 +49,11 @@ export class ItemAuthentication extends AuditedEntity {
     nullable: true,
   })
   thirdPartyAuthenticationData: ThirdPartyAuthenticationData | null;
+
+  /**
+   * Staff-facing notes for the consignor during third-party reauthentication
+   * (fee / external auth handoff). Distinct from third-party certificate notes in JSON.
+   */
+  @Column({ name: 'reauthentication_notes', type: 'text', nullable: true })
+  reauthenticationNotes: string | null;
 }

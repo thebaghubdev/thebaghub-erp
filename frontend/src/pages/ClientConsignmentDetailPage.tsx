@@ -76,6 +76,9 @@ type ClientInquiryDetail = {
     paymentMethods: string[];
   } | null;
   thirdPartyPaymentProofUrls: string[];
+  thirdPartyIssuePhotoUrls: string[];
+  /** Staff notes visible during third-party reauthentication. */
+  thirdPartyReauthenticationNotes: string | null;
 };
 
 function canClientCancelInquiry(status: string): boolean {
@@ -489,6 +492,45 @@ export function ClientConsignmentDetailPage() {
                   ) : (
                     <p className="mt-2 text-slate-500 dark:text-slate-400">—</p>
                   )}
+                  <p className="mt-3 text-xs font-medium text-slate-600 dark:text-slate-400">
+                    Notes
+                  </p>
+                  {detail.thirdPartyReauthenticationNotes != null &&
+                  detail.thirdPartyReauthenticationNotes.trim() !== "" ? (
+                    <p className="mt-2 whitespace-pre-wrap text-slate-800 dark:text-slate-200">
+                      {detail.thirdPartyReauthenticationNotes}
+                    </p>
+                  ) : (
+                    <p className="mt-2 text-slate-500 dark:text-slate-400">—</p>
+                  )}
+                  {detail.thirdPartyIssuePhotoUrls.length > 0 ? (
+                    <div className="mt-4">
+                      <p className="text-xs font-medium text-slate-600 dark:text-slate-400">
+                        Issue photos
+                      </p>
+                      <ul className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                        {detail.thirdPartyIssuePhotoUrls.map((url, i) => (
+                          <li
+                            key={`${url}-${i}`}
+                            className="overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900"
+                          >
+                            <a
+                              href={url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              <img
+                                src={url}
+                                alt={`Issue ${i + 1}`}
+                                className="aspect-square w-full object-cover"
+                                loading="lazy"
+                              />
+                            </a>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
                 </div>
                 <div>
                   <p className="text-xs font-medium text-slate-600 dark:text-slate-400">

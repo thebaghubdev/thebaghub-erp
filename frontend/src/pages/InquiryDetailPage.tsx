@@ -96,6 +96,9 @@ type InquiryDetail = {
   /** When status is 3rd party authentication; from inquiry row. */
   thirdPartyReauthenticationReasons: string | null;
   thirdPartyPaymentProofUrls: string[];
+  thirdPartyIssuePhotoUrls: string[];
+  /** Visible to consignor; from `item_authentication.reauthentication_notes`. */
+  thirdPartyReauthenticationNotes: string | null;
 };
 
 /** Staff can change offer price / transaction type for these statuses only. */
@@ -276,6 +279,7 @@ export function InquiryDetailPage() {
     | "decline"
     | "offer"
     | "notes"
+    | "reauthenticationNotes"
     | "createNewOffer"
     | "uploadThirdPartyProof"
     | "markThirdPartyPaid"
@@ -285,8 +289,11 @@ export function InquiryDetailPage() {
   const [declineConfirmOpen, setDeclineConfirmOpen] = useState(false);
   const [notesModalOpen, setNotesModalOpen] = useState(false);
   const [notesDraft, setNotesDraft] = useState("");
+  const [reauthNotesModalOpen, setReauthNotesModalOpen] = useState(false);
+  const [reauthNotesDraft, setReauthNotesDraft] = useState("");
   const offerModalTitleId = useId();
   const notesModalTitleId = useId();
+  const reauthNotesModalTitleId = useId();
   const createNewOfferModalTitleId = useId();
   const [createNewOfferModalOpen, setCreateNewOfferModalOpen] = useState(false);
   const [createNewOfferPriceInput, setCreateNewOfferPriceInput] = useState("");
@@ -382,6 +389,16 @@ export function InquiryDetailPage() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [notesModalOpen, actionBusy]);
+
+  useEffect(() => {
+    if (!reauthNotesModalOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && actionBusy === null)
+        setReauthNotesModalOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [reauthNotesModalOpen, actionBusy]);
 
   useEffect(() => {
     if (!createNewOfferModalOpen) return;
@@ -626,6 +643,46 @@ export function InquiryDetailPage() {
     [id, token, notesDraft],
   );
 
+  const openReauthNotesModal = useCallback(() => {
+    if (!detail) return;
+    setActionError(null);
+    setReauthNotesDraft(detail.thirdPartyReauthenticationNotes ?? "");
+    setReauthNotesModalOpen(true);
+  }, [detail]);
+
+  const saveReauthenticationNotes = useCallback(
+    async (e: FormEvent) => {
+      e.preventDefault();
+      if (!id || !token) return;
+      setActionError(null);
+      setActionBusy("reauthenticationNotes");
+      try {
+        const res = await apiFetch(
+          `/api/inquiries/${id}/reauthentication-notes`,
+          {
+            method: "PATCH",
+            body: JSON.stringify({ notes: reauthNotesDraft }),
+          },
+          token,
+        );
+        if (!res.ok) throw new Error(await readApiErrorMessage(res));
+        const data = (await res.json()) as InquiryDetail;
+        setDetail(data);
+        setAuditRows(null);
+        setReauthNotesModalOpen(false);
+      } catch (err) {
+        setActionError(
+          err instanceof Error
+            ? err.message
+            : "Could not save reauthentication notes",
+        );
+      } finally {
+        setActionBusy(null);
+      }
+    },
+    [id, token, reauthNotesDraft],
+  );
+
   const saveThirdPartyPaymentProof = useCallback(async () => {
     if (!id || !token || proofPaymentImages.length === 0) return;
     setActionError(null);
@@ -703,6 +760,7 @@ export function InquiryDetailPage() {
       !offerModalOpen &&
       !declineConfirmOpen &&
       !notesModalOpen &&
+      !reauthNotesModalOpen &&
       !createNewOfferModalOpen ? (
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
           {actionError}
@@ -789,8 +847,8 @@ export function InquiryDetailPage() {
                   Update the offer
                 </button>
               ) : null}
-              {detail.status.trim().toLowerCase() ===
-              "authenticated_requested_for_reauthentication" ? (
+              {isThirdPartyAuthPaymentFlowStatus(detail.status) &&
+              detail.linkedInventoryItemId ? (
                 <div className="relative" ref={moreActionsMenuRef}>
                   <button
                     type="button"
@@ -825,6 +883,44 @@ export function InquiryDetailPage() {
                       role="menu"
                       className="absolute right-0 top-full z-50 mt-1 min-w-[16rem] rounded-lg border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-600 dark:bg-slate-900"
                     >
+                      {detail.status.trim().toLowerCase() ===
+                      "authenticated_requested_for_reauthentication" ? (
+                        <>
+                          <li role="none">
+                            <button
+                              type="button"
+                              role="menuitem"
+                              disabled={actionBusy !== null}
+                              onClick={() => {
+                                setActionError(null);
+                                setMoreActionsOpen(false);
+                                setProofPaymentModalOpen(true);
+                              }}
+                              className="flex w-full items-center px-3 py-2 text-left text-sm text-slate-800 hover:bg-slate-50 disabled:opacity-50 dark:text-slate-100 dark:hover:bg-slate-800"
+                            >
+                              Upload proof of payment
+                            </button>
+                          </li>
+                          <li role="none">
+                            <button
+                              type="button"
+                              role="menuitem"
+                              disabled={
+                                actionBusy !== null ||
+                                detail.thirdPartyPaymentProofUrls.length === 0
+                              }
+                              onClick={() => {
+                                setActionError(null);
+                                setMoreActionsOpen(false);
+                                setMarkPaidConfirmOpen(true);
+                              }}
+                              className="flex w-full items-center px-3 py-2 text-left text-sm text-slate-800 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-slate-100 dark:hover:bg-slate-800"
+                            >
+                              Mark authentication fee as paid
+                            </button>
+                          </li>
+                        </>
+                      ) : null}
                       <li role="none">
                         <button
                           type="button"
@@ -833,29 +929,11 @@ export function InquiryDetailPage() {
                           onClick={() => {
                             setActionError(null);
                             setMoreActionsOpen(false);
-                            setProofPaymentModalOpen(true);
+                            openReauthNotesModal();
                           }}
                           className="flex w-full items-center px-3 py-2 text-left text-sm text-slate-800 hover:bg-slate-50 disabled:opacity-50 dark:text-slate-100 dark:hover:bg-slate-800"
                         >
-                          Upload proof of payment
-                        </button>
-                      </li>
-                      <li role="none">
-                        <button
-                          type="button"
-                          role="menuitem"
-                          disabled={
-                            actionBusy !== null ||
-                            detail.thirdPartyPaymentProofUrls.length === 0
-                          }
-                          onClick={() => {
-                            setActionError(null);
-                            setMoreActionsOpen(false);
-                            setMarkPaidConfirmOpen(true);
-                          }}
-                          className="flex w-full items-center px-3 py-2 text-left text-sm text-slate-800 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-slate-100 dark:hover:bg-slate-800"
-                        >
-                          Mark authentication fee as paid
+                          Update reauthentication notes
                         </button>
                       </li>
                     </ul>
@@ -999,6 +1077,41 @@ export function InquiryDetailPage() {
                 ) : (
                   <p className="mt-2 text-slate-500 dark:text-slate-400">—</p>
                 )}
+                <p className="mt-4 text-xs font-medium text-slate-600 dark:text-slate-400">
+                  Notes
+                </p>
+                {detail.thirdPartyReauthenticationNotes != null &&
+                detail.thirdPartyReauthenticationNotes.trim() !== "" ? (
+                  <p className="mt-2 whitespace-pre-wrap text-slate-800 dark:text-slate-200">
+                    {detail.thirdPartyReauthenticationNotes}
+                  </p>
+                ) : (
+                  <p className="mt-2 text-slate-500 dark:text-slate-400">—</p>
+                )}
+                {detail.thirdPartyIssuePhotoUrls.length > 0 ? (
+                  <div className="mt-4">
+                    <p className="text-xs font-medium text-slate-600 dark:text-slate-400">
+                      Issue photos
+                    </p>
+                    <ul className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                      {detail.thirdPartyIssuePhotoUrls.map((url, i) => (
+                        <li
+                          key={`${url}-${i}`}
+                          className="overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900"
+                        >
+                          <a href={url} target="_blank" rel="noopener noreferrer">
+                            <img
+                              src={url}
+                              alt={`Issue ${i + 1}`}
+                              className="aspect-square w-full object-cover"
+                              loading="lazy"
+                            />
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
                 <p className="mt-4 text-xs font-medium text-slate-600 dark:text-slate-400">
                   Proof of payment
                 </p>
@@ -1781,6 +1894,93 @@ export function InquiryDetailPage() {
                           className="rounded-lg bg-violet-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-violet-700 disabled:opacity-50 dark:bg-violet-600 dark:hover:bg-violet-500"
                         >
                           {actionBusy === "notes" ? "Saving…" : "Save notes"}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>,
+                document.body,
+              )
+            : null}
+
+          {reauthNotesModalOpen && detail && typeof document !== "undefined"
+            ? createPortal(
+                <div
+                  className="fixed inset-0 z-[100] flex items-end justify-center p-4 sm:items-center"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby={reauthNotesModalTitleId}
+                >
+                  <button
+                    type="button"
+                    className="absolute inset-0 bg-slate-900/50"
+                    aria-label="Close reauthentication notes"
+                    onClick={() =>
+                      actionBusy === null && setReauthNotesModalOpen(false)
+                    }
+                  />
+                  <div className="relative z-10 w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+                    <h2
+                      id={reauthNotesModalTitleId}
+                      className="text-base font-semibold text-slate-900 dark:text-slate-100"
+                    >
+                      Update reauthentication notes
+                    </h2>
+                    <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+                      These notes appear under{" "}
+                      <span className="font-medium">Requested for reauthentication</span>{" "}
+                      on this inquiry for your team and the consignor.
+                    </p>
+                    <form
+                      onSubmit={(e) => void saveReauthenticationNotes(e)}
+                      className="mt-4 space-y-3"
+                    >
+                      {actionError && reauthNotesModalOpen ? (
+                        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+                          {actionError}
+                        </p>
+                      ) : null}
+                      <div>
+                        <label
+                          htmlFor="reauth-notes"
+                          className="block text-sm font-medium text-slate-700 dark:text-slate-300"
+                        >
+                          Reauthentication notes
+                        </label>
+                        <textarea
+                          id="reauth-notes"
+                          rows={8}
+                          value={reauthNotesDraft}
+                          onChange={(e) => setReauthNotesDraft(e.target.value)}
+                          disabled={actionBusy !== null}
+                          maxLength={20_000}
+                          className="mt-1 w-full resize-y rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 disabled:opacity-60 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
+                          placeholder="e.g. next steps, coordinator contact, what to prepare…"
+                        />
+                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                          {reauthNotesDraft.length.toLocaleString()} / 20,000
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap justify-end gap-2 pt-1">
+                        <button
+                          type="button"
+                          disabled={actionBusy !== null}
+                          onClick={() => {
+                            setActionError(null);
+                            setReauthNotesModalOpen(false);
+                          }}
+                          className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={actionBusy !== null}
+                          className="rounded-lg bg-sky-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-sky-700 disabled:opacity-50 dark:bg-sky-600 dark:hover:bg-sky-500"
+                        >
+                          {actionBusy === "reauthenticationNotes"
+                            ? "Saving…"
+                            : "Save"}
                         </button>
                       </div>
                     </form>
