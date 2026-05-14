@@ -1,0 +1,440 @@
+import { useCallback, useEffect, useId, useState } from "react";
+import { Link, useParams } from "react-router-dom";
+import type { PhotoshootCalendarRow } from "../components/PhotoshootCalendar";
+import { InventoryStatusBadge } from "../components/InventoryStatusBadge";
+import { SubmittedAtCell } from "../components/SubmittedAtCell";
+import { usePortalAuth } from "../context/portal-auth";
+import { apiFetch } from "../lib/api";
+import { branchLabel } from "../lib/consignment-schedule-labels";
+import { formatOfferTransactionLabel } from "../lib/format-offer-transaction-type";
+import { formatPhpDisplay } from "../lib/format-php";
+
+const BRANDS_WE_CONSIGN_KEY = "brands_we_consign";
+
+type SettingApiRow = {
+  key: string;
+  type: string;
+  value: string;
+};
+
+function parseStringArraySetting(raw: string | undefined): string[] {
+  if (!raw) return [];
+  try {
+    const v = JSON.parse(raw) as unknown;
+    if (!Array.isArray(v)) return [];
+    return v.filter((x): x is string => typeof x === "string");
+  } catch {
+    return [];
+  }
+}
+
+function brandsWeConsignFromSettings(rows: SettingApiRow[]): string[] {
+  const brandRow = rows.find((r) => r.key === BRANDS_WE_CONSIGN_KEY);
+  if (brandRow?.type !== "string[]") return [];
+  return [...parseStringArraySetting(brandRow.value)].sort((a, b) =>
+    a.localeCompare(b),
+  );
+}
+
+type InventoryDetailForStaff = {
+  id: string;
+  sku: string;
+  dateReceived: string;
+  createdAt: string;
+  updatedAt: string;
+  status: string;
+  transactionType: string | null;
+  currentBranch: string;
+  inquiryId: string | null;
+  inquirySku: string | null;
+  consignorId: string | null;
+  consignorName: string | null;
+  consignorEmail: string | null;
+  consignorPhone: string | null;
+  inquiryOfferPrice: string | null;
+  tbhSellingPrice: string | null;
+  itemSnapshot: {
+    clientItemId: string;
+    form: Record<string, unknown>;
+  };
+  authenticationStatus: string;
+};
+
+function str(v: unknown): string {
+  if (v == null) return "";
+  return String(v).trim();
+}
+
+const cardClass =
+  "rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900";
+
+const fieldLabel =
+  "block text-sm font-medium text-slate-700 dark:text-slate-300";
+
+const inputClass =
+  "mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100";
+
+export function EditingItemPage() {
+  const { itemId } = useParams<{ itemId: string }>();
+  const { token } = usePortalAuth();
+  const collectionId = useId();
+  const tagsId = useId();
+  const priceComparisonId = useId();
+  const postDescId = useId();
+
+  const [detail, setDetail] = useState<InventoryDetailForStaff | null>(null);
+  const [photoshootRow, setPhotoshootRow] =
+    useState<PhotoshootCalendarRow | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const [collectionValue, setCollectionValue] = useState("");
+  const [priceComparison, setPriceComparison] = useState("");
+  const [postDescription, setPostDescription] = useState("");
+  const [tagBrandOptions, setTagBrandOptions] = useState<string[]>([]);
+  const [tagsSelected, setTagsSelected] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await apiFetch("/api/settings", {}, token);
+        if (!res.ok || cancelled) return;
+        const rows = (await res.json()) as SettingApiRow[];
+        if (cancelled) return;
+        setTagBrandOptions(brandsWeConsignFromSettings(rows));
+      } catch {
+        if (!cancelled) setTagBrandOptions([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  useEffect(() => {
+    setTagsSelected((prev) =>
+      prev.filter((t) => tagBrandOptions.includes(t)),
+    );
+  }, [tagBrandOptions]);
+
+  const load = useCallback(async () => {
+    if (!itemId || !token) return;
+    setError(null);
+    setLoading(true);
+    try {
+      const [detailRes, shootRes] = await Promise.all([
+        apiFetch(`/api/inventory/${itemId}`, {}, token),
+        apiFetch(`/api/inventory/${itemId}/item-photoshoot`, {}, token),
+      ]);
+      if (!detailRes.ok) {
+        const msg =
+          detailRes.status === 404
+            ? "Inventory item not found."
+            : `Request failed (${detailRes.status})`;
+        throw new Error(msg);
+      }
+      const detailJson = (await detailRes.json()) as InventoryDetailForStaff;
+      setDetail(detailJson);
+
+      if (!shootRes.ok) {
+        setPhotoshootRow(null);
+      } else {
+        const shootJson =
+          (await shootRes.json()) as PhotoshootCalendarRow | null;
+        setPhotoshootRow(shootJson);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load item");
+      setDetail(null);
+      setPhotoshootRow(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [itemId, token]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  if (loading) {
+    return (
+      <div className="text-sm text-slate-600 dark:text-slate-400">Loading…</div>
+    );
+  }
+
+  if (error || !detail) {
+    return (
+      <div className="space-y-4">
+        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+          {error ?? "Unable to load this item."}
+        </p>
+        <Link
+          to="/portal/editing"
+          className="text-sm font-medium text-violet-700 hover:underline dark:text-violet-300"
+        >
+          ← Back to Editing
+        </Link>
+      </div>
+    );
+  }
+
+  const form = detail.itemSnapshot.form;
+  const brand = str(form.brand);
+  const itemModel = str(form.itemModel);
+  const brandModelSubtitle =
+    brand && itemModel ? `${brand} — ${itemModel}` : brand || itemModel || "—";
+
+  const shootPhotos = photoshootRow?.photos ?? [];
+
+  return (
+    <div className="w-full min-w-0 space-y-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            Item editing
+          </p>
+          <h1 className="mt-1 break-all font-mono text-xl font-semibold text-slate-900 dark:text-slate-100">
+            {detail.sku}
+          </h1>
+          <p className="mt-2 break-words text-base text-slate-700 dark:text-slate-300">
+            {brandModelSubtitle}
+          </p>
+        </div>
+        <Link
+          to="/portal/editing"
+          className="shrink-0 text-sm font-medium text-violet-700 hover:underline dark:text-violet-300"
+        >
+          ← Back to Editing
+        </Link>
+      </div>
+
+      <div className="grid grid-cols-1 gap-8 xl:grid-cols-2">
+        <div className="flex min-w-0 flex-col gap-6">
+          <section className={cardClass}>
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
+              Item details
+            </h2>
+            <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-3 text-sm text-slate-800 dark:text-slate-200 sm:grid-cols-2">
+              <div>
+                <dt className="text-slate-500 dark:text-slate-400">Status</dt>
+                <dd>
+                  <InventoryStatusBadge status={detail.status} />
+                </dd>
+              </div>
+              <div>
+                <dt className="text-slate-500 dark:text-slate-400">Branch</dt>
+                <dd>{branchLabel(detail.currentBranch)}</dd>
+              </div>
+              <div>
+                <dt className="text-slate-500 dark:text-slate-400">
+                  Transaction
+                </dt>
+                <dd>
+                  {formatOfferTransactionLabel(
+                    detail.transactionType as
+                      | "consignment"
+                      | "direct_purchase"
+                      | null,
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-slate-500 dark:text-slate-400">
+                  Date received
+                </dt>
+                <dd>
+                  <SubmittedAtCell iso={detail.dateReceived} />
+                </dd>
+              </div>
+              <div>
+                <dt className="text-slate-500 dark:text-slate-400">
+                  Category
+                </dt>
+                <dd>{str(form.category) || "—"}</dd>
+              </div>
+              <div>
+                <dt className="text-slate-500 dark:text-slate-400">
+                  Condition
+                </dt>
+                <dd>{str(form.condition) || "—"}</dd>
+              </div>
+              <div className="sm:col-span-2">
+                <dt className="text-slate-500 dark:text-slate-400">
+                  Inclusions
+                </dt>
+                <dd className="whitespace-pre-wrap">
+                  {str(form.inclusions) || "—"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-slate-500 dark:text-slate-400">
+                  Market price
+                </dt>
+                <dd className="tabular-nums">
+                  {formatPhpDisplay(str(form.marketPrice))}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-slate-500 dark:text-slate-400">
+                  Retail price
+                </dt>
+                <dd className="tabular-nums">
+                  {formatPhpDisplay(str(form.retailPrice))}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-slate-500 dark:text-slate-400">
+                  Consignor price (offer)
+                </dt>
+                <dd className="tabular-nums">
+                  {formatPhpDisplay(detail.inquiryOfferPrice)}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-slate-500 dark:text-slate-400">
+                  TBH selling price
+                </dt>
+                <dd className="tabular-nums">
+                  {formatPhpDisplay(detail.tbhSellingPrice)}
+                </dd>
+              </div>
+              {detail.consignorName ? (
+                <div className="sm:col-span-2">
+                  <dt className="text-slate-500 dark:text-slate-400">
+                    Consignor
+                  </dt>
+                  <dd className="font-medium">{detail.consignorName}</dd>
+                </div>
+              ) : null}
+              {str(form.serialNumber) ? (
+                <div className="sm:col-span-2">
+                  <dt className="text-slate-500 dark:text-slate-400">
+                    Serial number
+                  </dt>
+                  <dd className="break-all font-mono text-xs">
+                    {str(form.serialNumber)}
+                  </dd>
+                </div>
+              ) : null}
+            </dl>
+          </section>
+
+          <section className={cardClass}>
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
+              Photoshoot photos
+            </h2>
+            {shootPhotos.length === 0 ? (
+              <p className="mt-3 text-sm text-slate-600 dark:text-slate-400">
+                No photoshoot photos saved for this item.
+              </p>
+            ) : (
+              <ul className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
+                {shootPhotos.map((img) => (
+                  <li
+                    key={img.key}
+                    className="relative aspect-square overflow-hidden rounded-xl border border-slate-200 bg-slate-100 shadow-sm dark:border-slate-600 dark:bg-slate-800"
+                  >
+                    <img
+                      src={img.url}
+                      alt=""
+                      className="h-full w-full object-cover"
+                    />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </div>
+
+        <div className="min-w-0">
+          <form className={cardClass} noValidate aria-label="Listing draft">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
+              Listing fields
+            </h2>
+            <div className="mt-6 space-y-5">
+              <div>
+                <label htmlFor={collectionId} className={fieldLabel}>
+                  Collection
+                </label>
+                <select
+                  id={collectionId}
+                  className={inputClass}
+                  value={collectionValue}
+                  onChange={(e) => setCollectionValue(e.target.value)}
+                >
+                  <option value="">Select collection…</option>
+                </select>
+              </div>
+
+              <div>
+                <label htmlFor={tagsId} className={fieldLabel}>
+                  Tags
+                </label>
+                <select
+                  id={tagsId}
+                  multiple
+                  className={`${inputClass} block h-[5rem] max-h-[5rem] overflow-y-auto py-1`}
+                  aria-describedby={`${tagsId}-hint`}
+                  value={tagsSelected}
+                  onChange={(e) => {
+                    const next = [...e.target.selectedOptions].map(
+                      (o) => o.value,
+                    );
+                    setTagsSelected(next);
+                  }}
+                  disabled={tagBrandOptions.length === 0}
+                >
+                  {tagBrandOptions.map((b) => (
+                    <option key={b} value={b}>
+                      {b}
+                    </option>
+                  ))}
+                </select>
+                <p
+                  id={`${tagsId}-hint`}
+                  className="mt-1 text-xs text-slate-500 dark:text-slate-400"
+                >
+                  {tagBrandOptions.length === 0
+                    ? "No brands are configured in settings (Brands we consign)."
+                    : "Hold Ctrl or ⌘ to select multiple brands."}
+                </p>
+              </div>
+
+              <div>
+                <label htmlFor={priceComparisonId} className={fieldLabel}>
+                  Price comparison
+                </label>
+                <input
+                  id={priceComparisonId}
+                  type="text"
+                  inputMode="decimal"
+                  autoComplete="off"
+                  placeholder="0.00"
+                  className={`${inputClass} tabular-nums`}
+                  value={priceComparison}
+                  onChange={(e) => setPriceComparison(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label htmlFor={postDescId} className={fieldLabel}>
+                  Post description
+                </label>
+                <textarea
+                  id={postDescId}
+                  rows={8}
+                  className={`${inputClass} min-h-[10rem] resize-y`}
+                  placeholder="Write post copy…"
+                  value={postDescription}
+                  onChange={(e) => setPostDescription(e.target.value)}
+                />
+              </div>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+}

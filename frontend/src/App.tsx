@@ -31,6 +31,8 @@ import { InquiryPage } from './pages/InquiryPage'
 import { ManageAccountsPage } from './pages/ManageAccountsPage'
 import { PhotoshootItemPage } from './pages/PhotoshootItemPage'
 import { PhotoshootPage } from './pages/PhotoshootPage'
+import { EditingItemPage } from './pages/EditingItemPage'
+import { EditingPage } from './pages/EditingPage'
 import { PricingPage } from './pages/PricingPage'
 import { PortalLoginPage } from './pages/PortalLoginPage'
 import { PurchaseItemsPage } from './pages/PurchaseItemsPage'
@@ -97,6 +99,8 @@ const router = createBrowserRouter([
           { path: 'photoshoot', element: <PhotoshootPage /> },
           { path: 'photoshoot/item/:photoshootId', element: <PhotoshootItemPage /> },
           { path: 'pricing', element: <PricingPage /> },
+          { path: 'editing/:itemId', element: <EditingItemPage /> },
+          { path: 'editing', element: <EditingPage /> },
           { path: 'settings', element: <SettingsPage /> },
           { path: 'accounts/register', element: <RegisterPage /> },
           { path: 'accounts', element: <ManageAccountsPage /> },

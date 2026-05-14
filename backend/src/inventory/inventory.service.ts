@@ -1163,6 +1163,20 @@ export class InventoryService {
     return this.mapItemPhotoshootToCalendarRow(p);
   }
 
+  /** Photos persisted on `item_photoshoot` for this inventory row (any inventory status). */
+  async findItemPhotoshootByInventoryItemIdForStaff(
+    inventoryItemId: string,
+  ): Promise<ItemPhotoshootCalendarRow | null> {
+    const p = await this.itemPhotoshootRepo.findOne({
+      where: { inventoryItem: { id: inventoryItemId } },
+      relations: { inventoryItem: { consignor: true } },
+    });
+    if (!p) {
+      return null;
+    }
+    return this.mapItemPhotoshootToCalendarRow(p);
+  }
+
   private mapItemPhotoshootToCalendarRow(
     p: ItemPhotoshoot,
   ): ItemPhotoshootCalendarRow {

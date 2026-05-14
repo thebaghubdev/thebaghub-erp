@@ -182,6 +182,11 @@ export class InventoryController {
     });
   }
 
+  @Get(':id/item-photoshoot')
+  findItemPhotoshootForInventory(@Param('id', ParseUUIDPipe) id: string) {
+    return this.inventoryService.findItemPhotoshootByInventoryItemIdForStaff(id);
+  }
+
   @Get(':id')
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.inventoryService.findOneForStaff(id);
