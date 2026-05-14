@@ -17,6 +17,12 @@ type SettingApiRow = {
   value: string;
 };
 
+type ShopifyCollectionOption = {
+  id: string;
+  title: string;
+  handle: string;
+};
+
 function parseStringArraySetting(raw: string | undefined): string[] {
   if (!raw) return [];
   try {
@@ -89,6 +95,11 @@ export function EditingItemPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [collectionValue, setCollectionValue] = useState("");
+  const [shopifyCollections, setShopifyCollections] = useState<
+    ShopifyCollectionOption[]
+  >([]);
+  const [collectionsLoading, setCollectionsLoading] = useState(false);
+  const [collectionsError, setCollectionsError] = useState<string | null>(null);
   const [priceComparison, setPriceComparison] = useState("");
   const [postDescription, setPostDescription] = useState("");
   const [tagBrandOptions, setTagBrandOptions] = useState<string[]>([]);
@@ -120,8 +131,63 @@ export function EditingItemPage() {
   }, [token]);
 
   useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    setCollectionsLoading(true);
+    setCollectionsError(null);
+    void (async () => {
+      try {
+        const res = await apiFetch("/api/shopify/collections", {}, token);
+        if (cancelled) return;
+        if (!res.ok) {
+          let msg = `Could not load collections (${res.status}).`;
+          try {
+            const body = (await res.json()) as {
+              message?: string | string[];
+            };
+            const m = body.message;
+            if (Array.isArray(m)) msg = m.join("; ");
+            else if (typeof m === "string" && m.trim()) msg = m.trim();
+          } catch {
+            /* ignore */
+          }
+          setShopifyCollections([]);
+          setCollectionsError(msg);
+          return;
+        }
+        const json = (await res.json()) as {
+          collections?: ShopifyCollectionOption[];
+        };
+        if (cancelled) return;
+        setShopifyCollections(
+          Array.isArray(json.collections) ? json.collections : [],
+        );
+        setCollectionsError(null);
+      } catch {
+        if (!cancelled) {
+          setShopifyCollections([]);
+          setCollectionsError("Could not load collections.");
+        }
+      } finally {
+        if (!cancelled) setCollectionsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  useEffect(() => {
     setTagsSelected((prev) => prev.filter((t) => tagBrandOptions.includes(t)));
   }, [tagBrandOptions]);
+
+  useEffect(() => {
+    setCollectionValue((prev) =>
+      prev === "" ? prev : shopifyCollections.some((c) => c.id === prev)
+        ? prev
+        : "",
+    );
+  }, [shopifyCollections]);
 
   const load = useCallback(async () => {
     if (!itemId || !token) return;
@@ -409,11 +475,33 @@ export function EditingItemPage() {
                 <select
                   id={collectionId}
                   className={inputClass}
+                  aria-busy={collectionsLoading}
                   value={collectionValue}
                   onChange={(e) => setCollectionValue(e.target.value)}
+                  disabled={collectionsLoading}
                 >
-                  <option value="">Select collection…</option>
+                  <option value="">
+                    {collectionsLoading
+                      ? "Loading collections…"
+                      : "Select collection…"}
+                  </option>
+                  {shopifyCollections.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.title}
+                    </option>
+                  ))}
                 </select>
+                <p
+                  className="mt-1 text-xs text-slate-500 dark:text-slate-400"
+                  aria-live="polite"
+                >
+                  {collectionsError
+                    ? collectionsError
+                    : !collectionsLoading &&
+                        shopifyCollections.length === 0
+                      ? "No Shopify collections returned."
+                      : ""}
+                </p>
               </div>
 
               <div>

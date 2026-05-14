@@ -31,6 +31,8 @@ import { ItemPhotoshoot } from './inventory/entities/item-photoshoot.entity';
 import { AuthenticationMetricsModule } from './authentication-metrics/authentication-metrics.module';
 import { Notification } from './notifications/entities/notification.entity';
 import { NotificationsModule } from './notifications/notifications.module';
+import { ShopifyModule } from './shopify/shopify.module';
+import { ShopifyShopSession } from './shopify/entities/shopify-shop-session.entity';
 
 @Module({
   imports: [
@@ -60,6 +62,7 @@ import { NotificationsModule } from './notifications/notifications.module';
           ItemAuthenticationMetric,
           ItemPhotoshoot,
           Notification,
+          ShopifyShopSession,
         ],
         synchronize:
           config.get<string>('NODE_ENV', 'development') !== 'production',
@@ -75,6 +78,7 @@ import { NotificationsModule } from './notifications/notifications.module';
     InventoryModule,
     AuthenticationMetricsModule,
     NotificationsModule,
+    ShopifyModule,
   ],
   controllers: [AppController],
   providers: [

@@ -1,225 +1,223 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useApp } from '../context/useApp'
-import { usePortalAuth } from '../context/portal-auth'
-import { apiFetch } from '../lib/api'
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useApp } from "../context/useApp";
+import { usePortalAuth } from "../context/portal-auth";
+import { apiFetch } from "../lib/api";
 
-const GENERAL_CATEGORY = 'General'
+const GENERAL_CATEGORY = "General";
 
 type SettingRow = {
-  id: string
-  key: string
-  title: string
-  description: string | null
-  category: string
-  type: string
-  value: string
-}
+  id: string;
+  key: string;
+  title: string;
+  description: string | null;
+  category: string;
+  type: string;
+  value: string;
+};
 
 function parseStringArray(raw: string): string[] | null {
   try {
-    const v = JSON.parse(raw) as unknown
-    if (!Array.isArray(v)) return null
-    if (!v.every((x) => typeof x === 'string')) return null
-    return v
+    const v = JSON.parse(raw) as unknown;
+    if (!Array.isArray(v)) return null;
+    if (!v.every((x) => typeof x === "string")) return null;
+    return v;
   } catch {
-    return null
+    return null;
   }
 }
 
 function summarizeValue(s: SettingRow): string {
-  if (s.type === 'string[]') {
-    const arr = parseStringArray(s.value)
-    if (!arr || arr.length === 0) return '—'
-    if (arr.length <= 3) return arr.join(', ')
-    return `${arr.slice(0, 3).join(', ')}… (+${arr.length - 3} more)`
+  if (s.type === "string[]") {
+    const arr = parseStringArray(s.value);
+    if (!arr || arr.length === 0) return "—";
+    if (arr.length <= 3) return arr.join(", ");
+    return `${arr.slice(0, 3).join(", ")}… (+${arr.length - 3} more)`;
   }
-  if (s.type === 'number') {
-    return s.value
+  if (s.type === "number") {
+    return s.value;
   }
-  const t = s.value
-  if (t.length <= 120) return t
-  return `${t.slice(0, 120)}…`
+  const t = s.value;
+  if (t.length <= 120) return t;
+  return `${t.slice(0, 120)}…`;
 }
 
 type StringArrayEditState = {
-  options: string[]
-  selected: Set<string>
-}
+  options: string[];
+  selected: Set<string>;
+};
 
 function buildStringArrayValue(state: StringArrayEditState): string {
-  const out = state.options.filter((o) => state.selected.has(o))
-  return JSON.stringify(out)
+  const out = state.options.filter((o) => state.selected.has(o));
+  return JSON.stringify(out);
 }
 
 export function SettingsPage() {
-  const { token } = usePortalAuth()
-  const { theme, toggleTheme } = useApp()
-  const [rows, setRows] = useState<SettingRow[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [search, setSearch] = useState('')
-  const [editingKey, setEditingKey] = useState<string | null>(null)
-  const [draftValue, setDraftValue] = useState('')
+  const { token } = usePortalAuth();
+  const { theme, toggleTheme } = useApp();
+  const [rows, setRows] = useState<SettingRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [draftValue, setDraftValue] = useState("");
   const [stringArrayEdit, setStringArrayEdit] =
-    useState<StringArrayEditState | null>(null)
-  const [stringArrayAdd, setStringArrayAdd] = useState('')
-  const [saveError, setSaveError] = useState<string | null>(null)
-  const [saving, setSaving] = useState(false)
+    useState<StringArrayEditState | null>(null);
+  const [stringArrayAdd, setStringArrayAdd] = useState("");
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const loadSettings = useCallback(async () => {
-    setError(null)
-    setLoading(true)
+    setError(null);
+    setLoading(true);
     try {
-      const res = await apiFetch('/api/settings', {}, token)
-      if (!res.ok) throw new Error(`Request failed (${res.status})`)
-      const data = (await res.json()) as SettingRow[]
-      setRows(data)
+      const res = await apiFetch("/api/settings", {}, token);
+      if (!res.ok) throw new Error(`Request failed (${res.status})`);
+      const data = (await res.json()) as SettingRow[];
+      setRows(data);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load settings')
+      setError(e instanceof Error ? e.message : "Failed to load settings");
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [token])
+  }, [token]);
 
   useEffect(() => {
-    void loadSettings()
-  }, [loadSettings])
+    void loadSettings();
+  }, [loadSettings]);
 
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    if (!q) return rows
+    const q = search.trim().toLowerCase();
+    if (!q) return rows;
     return rows.filter(
       (s) =>
         s.title.toLowerCase().includes(q) ||
         (s.description?.toLowerCase().includes(q) ?? false) ||
         s.category.toLowerCase().includes(q) ||
         s.value.toLowerCase().includes(q),
-    )
-  }, [rows, search])
+    );
+  }, [rows, search]);
 
   const grouped = useMemo(() => {
-    const m = new Map<string, SettingRow[]>()
+    const m = new Map<string, SettingRow[]>();
     for (const s of filtered) {
-      const list = m.get(s.category) ?? []
-      list.push(s)
-      m.set(s.category, list)
+      const list = m.get(s.category) ?? [];
+      list.push(s);
+      m.set(s.category, list);
     }
-    const hasGeneralInApp = rows.some((r) => r.category === GENERAL_CATEGORY)
+    const hasGeneralInApp = rows.some((r) => r.category === GENERAL_CATEGORY);
     if (hasGeneralInApp && !m.has(GENERAL_CATEGORY)) {
-      m.set(GENERAL_CATEGORY, [])
+      m.set(GENERAL_CATEGORY, []);
     }
     return [...m.entries()].sort((a, b) => {
-      if (a[0] === GENERAL_CATEGORY && b[0] !== GENERAL_CATEGORY) return -1
-      if (b[0] === GENERAL_CATEGORY && a[0] !== GENERAL_CATEGORY) return 1
-      return a[0].localeCompare(b[0])
-    })
-  }, [filtered, rows])
+      if (a[0] === GENERAL_CATEGORY && b[0] !== GENERAL_CATEGORY) return -1;
+      if (b[0] === GENERAL_CATEGORY && a[0] !== GENERAL_CATEGORY) return 1;
+      return a[0].localeCompare(b[0]);
+    });
+  }, [filtered, rows]);
 
   const beginEdit = (s: SettingRow) => {
-    setSaveError(null)
-    setStringArrayAdd('')
-    setEditingKey(s.key)
-    if (s.type === 'string[]') {
-      const parsed = parseStringArray(s.value)
-      const options = parsed ?? []
+    setSaveError(null);
+    setStringArrayAdd("");
+    setEditingKey(s.key);
+    if (s.type === "string[]") {
+      const parsed = parseStringArray(s.value);
+      const options = parsed ?? [];
       setStringArrayEdit({
         options: [...options],
         selected: new Set(options),
-      })
-      setDraftValue('')
+      });
+      setDraftValue("");
     } else {
-      setStringArrayEdit(null)
-      setDraftValue(s.value)
+      setStringArrayEdit(null);
+      setDraftValue(s.value);
     }
-  }
+  };
 
   const cancelEdit = () => {
-    setEditingKey(null)
-    setDraftValue('')
-    setStringArrayEdit(null)
-    setStringArrayAdd('')
-    setSaveError(null)
-  }
+    setEditingKey(null);
+    setDraftValue("");
+    setStringArrayEdit(null);
+    setStringArrayAdd("");
+    setSaveError(null);
+  };
 
   const toggleStringArray = (opt: string) => {
     setStringArrayEdit((prev) => {
-      if (!prev) return prev
-      const next = new Set(prev.selected)
-      if (next.has(opt)) next.delete(opt)
-      else next.add(opt)
-      return { ...prev, selected: next }
-    })
-  }
+      if (!prev) return prev;
+      const next = new Set(prev.selected);
+      if (next.has(opt)) next.delete(opt);
+      else next.add(opt);
+      return { ...prev, selected: next };
+    });
+  };
 
   const addStringArrayOption = () => {
-    const t = stringArrayAdd.trim()
-    if (!t || !stringArrayEdit) return
+    const t = stringArrayAdd.trim();
+    if (!t || !stringArrayEdit) return;
     if (stringArrayEdit.options.includes(t)) {
-      setStringArrayAdd('')
-      return
+      setStringArrayAdd("");
+      return;
     }
     setStringArrayEdit({
       options: [...stringArrayEdit.options, t],
       selected: new Set([...stringArrayEdit.selected, t]),
-    })
-    setStringArrayAdd('')
-  }
+    });
+    setStringArrayAdd("");
+  };
 
   const saveEdit = async () => {
-    if (!editingKey || !token) return
-    const row = rows.find((r) => r.key === editingKey)
-    if (!row) return
+    if (!editingKey || !token) return;
+    const row = rows.find((r) => r.key === editingKey);
+    if (!row) return;
 
-    let valueToSave: string
-    if (row.type === 'string[]') {
+    let valueToSave: string;
+    if (row.type === "string[]") {
       if (!stringArrayEdit) {
-        setSaveError('Nothing to save.')
-        return
+        setSaveError("Nothing to save.");
+        return;
       }
-      valueToSave = buildStringArrayValue(stringArrayEdit)
-    } else if (row.type === 'number') {
-      const n = Number(draftValue)
-      if (draftValue.trim() === '' || Number.isNaN(n)) {
-        setSaveError('Enter a valid number.')
-        return
+      valueToSave = buildStringArrayValue(stringArrayEdit);
+    } else if (row.type === "number") {
+      const n = Number(draftValue);
+      if (draftValue.trim() === "" || Number.isNaN(n)) {
+        setSaveError("Enter a valid number.");
+        return;
       }
-      valueToSave = String(n)
+      valueToSave = String(n);
     } else {
-      valueToSave = draftValue
+      valueToSave = draftValue;
     }
 
-    setSaveError(null)
-    setSaving(true)
+    setSaveError(null);
+    setSaving(true);
     try {
       const res = await apiFetch(
         `/api/settings/${encodeURIComponent(editingKey)}`,
         {
-          method: 'PATCH',
+          method: "PATCH",
           body: JSON.stringify({ value: valueToSave }),
         },
         token,
-      )
+      );
       if (!res.ok) {
-        const text = await res.text()
-        throw new Error(text || `Save failed (${res.status})`)
+        const text = await res.text();
+        throw new Error(text || `Save failed (${res.status})`);
       }
-      const updated = (await res.json()) as SettingRow
-      setRows((prev) =>
-        prev.map((r) => (r.key === updated.key ? updated : r)),
-      )
-      cancelEdit()
+      const updated = (await res.json()) as SettingRow;
+      setRows((prev) => prev.map((r) => (r.key === updated.key ? updated : r)));
+      cancelEdit();
     } catch (e) {
-      setSaveError(e instanceof Error ? e.message : 'Failed to save')
+      setSaveError(e instanceof Error ? e.message : "Failed to save");
     } finally {
-      setSaving(false)
+      setSaving(false);
     }
-  }
+  };
 
   const inputClass =
-    'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-500/30 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500'
+    "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-500/30 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500";
 
   const renderValueEditor = (s: SettingRow) => {
-    if (s.type === 'string[]' && stringArrayEdit) {
+    if (s.type === "string[]" && stringArrayEdit) {
       return (
         <div className="space-y-3">
           <div
@@ -254,9 +252,9 @@ export function SettingsPage() {
               value={stringArrayAdd}
               onChange={(e) => setStringArrayAdd(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault()
-                  addStringArrayOption()
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  addStringArrayOption();
                 }
               }}
               placeholder="Add new item…"
@@ -271,10 +269,10 @@ export function SettingsPage() {
             </button>
           </div>
         </div>
-      )
+      );
     }
 
-    if (s.type === 'number') {
+    if (s.type === "number") {
       return (
         <input
           type="number"
@@ -284,7 +282,7 @@ export function SettingsPage() {
           className={inputClass}
           aria-label={`Value for ${s.title}`}
         />
-      )
+      );
     }
 
     return (
@@ -295,14 +293,14 @@ export function SettingsPage() {
         className={inputClass}
         aria-label={`Value for ${s.title}`}
       />
-    )
-  }
+    );
+  };
 
   const renderValueReadOnly = (s: SettingRow) => (
     <span className="block text-sm text-slate-800 dark:text-slate-200">
       {summarizeValue(s)}
     </span>
-  )
+  );
 
   return (
     <div className="w-full min-w-0">
@@ -384,13 +382,13 @@ export function SettingsPage() {
                           onClick={toggleTheme}
                           className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
                         >
-                          {theme === 'light' ? 'Dark mode' : 'Light mode'}
+                          {theme === "light" ? "Dark mode" : "Light mode"}
                         </button>
                         <span className="mt-2 block text-xs text-slate-500 dark:text-slate-400">
-                          Currently using{' '}
+                          Currently using{" "}
                           <span className="font-medium text-slate-700 dark:text-slate-300">
-                            {theme === 'light' ? 'light' : 'dark'}
-                          </span>{' '}
+                            {theme === "light" ? "light" : "dark"}
+                          </span>{" "}
                           theme.
                         </span>
                       </td>
@@ -400,7 +398,7 @@ export function SettingsPage() {
                     </tr>
                   )}
                   {list.map((s) => {
-                    const isEditing = editingKey === s.key
+                    const isEditing = editingKey === s.key;
                     return (
                       <tr
                         key={s.id}
@@ -410,7 +408,7 @@ export function SettingsPage() {
                           {s.title}
                         </td>
                         <td className="max-w-[10rem] min-w-0 align-top px-4 py-3 text-slate-600 dark:text-slate-400">
-                          {s.description ?? '—'}
+                          {s.description ?? "—"}
                         </td>
                         <td className="max-w-[10rem] min-w-0 align-top px-4 py-3">
                           {isEditing
@@ -440,7 +438,7 @@ export function SettingsPage() {
                                   disabled={saving}
                                   className="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-violet-700 disabled:opacity-50"
                                 >
-                                  {saving ? 'Saving…' : 'Save'}
+                                  {saving ? "Saving…" : "Save"}
                                 </button>
                               </div>
                             </div>
@@ -455,7 +453,7 @@ export function SettingsPage() {
                           )}
                         </td>
                       </tr>
-                    )
+                    );
                   })}
                 </tbody>
               </table>
@@ -464,5 +462,5 @@ export function SettingsPage() {
         ))}
       </div>
     </div>
-  )
+  );
 }
