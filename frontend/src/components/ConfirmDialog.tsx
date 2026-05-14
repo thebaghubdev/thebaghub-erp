@@ -1,11 +1,11 @@
-import { useEffect, useId } from "react";
+import { type ReactNode, useEffect, useId } from "react";
 import { createPortal } from "react-dom";
 
 export type ConfirmDialogProps = {
   open: boolean;
   title: string;
-  /** Primary message shown under the title. */
-  description: string;
+  /** Primary message shown under the title (plain text or structured content). */
+  description: ReactNode;
   cancelLabel?: string;
   confirmLabel?: string;
   /** When true, confirm uses a destructive (red) style. */
@@ -69,12 +69,12 @@ export function ConfirmDialog({
         >
           {title}
         </h2>
-        <p
+        <div
           id={descId}
           className="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-400"
         >
           {description}
-        </p>
+        </div>
         {errorMessage ? (
           <p
             role="alert"

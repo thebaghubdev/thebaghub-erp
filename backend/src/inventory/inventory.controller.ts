@@ -22,6 +22,7 @@ import { BatchAssignAuthenticatorDto } from './dto/batch-assign-authenticator.dt
 import { SaveItemAuthenticationMetricsDto } from './dto/save-item-authentication-metrics.dto';
 import { ForThirdPartyAuthenticationDto } from './dto/for-third-party-authentication.dto';
 import { ReturnToCoordinatorDto } from './dto/return-to-coordinator.dto';
+import { UpdateInventoryPricingDto } from './dto/update-inventory-pricing.dto';
 import { InventoryService } from './inventory.service';
 
 @Controller('inventory')
@@ -184,5 +185,15 @@ export class InventoryController {
   @Get(':id')
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.inventoryService.findOneForStaff(id);
+  }
+
+  @Patch(':id/pricing')
+  @HttpCode(HttpStatus.OK)
+  updatePricing(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateInventoryPricingDto,
+    @Req() req: { user: JwtUser },
+  ) {
+    return this.inventoryService.updateInventoryPricing(id, dto, req.user.userId);
   }
 }

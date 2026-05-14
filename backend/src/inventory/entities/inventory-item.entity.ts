@@ -3,11 +3,13 @@ import {
   Entity,
   JoinColumn,
   ManyToOne,
+  OneToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
 import { Client } from '../../clients/entities/client.entity';
 import { AuditedEntity } from '../../common/entities/audited.entity';
 import { Inquiry, type InquiryItemSnapshot } from '../../inquiries/entities/inquiry.entity';
+import { ItemPhotoshoot } from './item-photoshoot.entity';
 
 /**
  * Physical inventory line received from consignment flow (distinct from inquiry SKU).
@@ -64,4 +66,7 @@ export class InventoryItem extends AuditedEntity {
 
   @Column({ name: 'enable_discount', type: 'boolean', default: false })
   enableDiscount: boolean;
+
+  @OneToOne(() => ItemPhotoshoot, (p) => p.inventoryItem)
+  itemPhotoshoot: ItemPhotoshoot | null;
 }

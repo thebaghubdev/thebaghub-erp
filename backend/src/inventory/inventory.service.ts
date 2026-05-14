@@ -33,6 +33,7 @@ import { ItemAuthenticationSnapshotFormDto } from './dto/item-authentication-sna
 import { SaveItemAuthenticationMetricsDto } from './dto/save-item-authentication-metrics.dto';
 import { ForThirdPartyAuthenticationDto } from './dto/for-third-party-authentication.dto';
 import { ReturnToCoordinatorDto } from './dto/return-to-coordinator.dto';
+import { UpdateInventoryPricingDto } from './dto/update-inventory-pricing.dto';
 import { InquiryStatus } from '../enums/inquiry-status.enum';
 import { InquiriesService } from '../inquiries/inquiries.service';
 import { CONSIGNMENT_COORDINATOR_POSITION } from '../notifications/notification.constants';
@@ -210,6 +211,24 @@ function normalizedOfferPriceString(
   return s.length > 0 ? s : null;
 }
 
+/**
+ * Consignor mark-up % vs inquiry offer (`sell - cost`) / cost;
+ * null if TBH selling price doesn't apply as a quotient (missing/zero cost).
+ */
+function markupPercentFromOfferOrNull(
+  tbhSelling: string | null,
+  inquiryOfferRaw: string | number | null | undefined,
+): number | null {
+  if (tbhSelling == null) return null;
+  const sell = Number(String(tbhSelling).trim());
+  if (!Number.isFinite(sell)) return null;
+  const costStr = normalizedOfferPriceString(inquiryOfferRaw);
+  if (costStr == null) return null;
+  const cost = Number(String(costStr).trim());
+  if (!Number.isFinite(cost) || cost === 0) return null;
+  return ((sell - cost) / cost) * 100;
+}
+
 function photoshootDayKey(value: Date | string): string {
   if (typeof value === 'string') {
     const m = /^(\d{4}-\d{2}-\d{2})/.exec(value);
@@ -313,6 +332,12 @@ function mergeItemAuthenticationFormIntoSnapshot(
 const FOR_AUTHENTICATION_INVENTORY_STATUS = 'For Authentication';
 const FOR_PHOTOSHOOT_INVENTORY_STATUS = 'For Photoshoot';
 const FOR_PRICING_INVENTORY_STATUS = 'For Pricing';
+const FOR_EDITING_INVENTORY_STATUS = 'For Editing';
+
+const UPDATE_TBH_PRICE_ALLOWED_INVENTORY_STATUSES = new Set<string>([
+  FOR_PRICING_INVENTORY_STATUS,
+  FOR_EDITING_INVENTORY_STATUS,
+]);
 const MIN_PHOTOS_TO_FINISH_PHOTOSHOOT = 4;
 const AUTHENTICATED_FOR_RENEGOTIATION_INVENTORY_STATUS =
   'Authenticated: For renegotiation';
@@ -960,6 +985,53 @@ export class InventoryService {
     });
   }
 
+  async updateInventoryPricing(
+    id: string,
+    dto: UpdateInventoryPricingDto,
+    actorUserId: string,
+  ): Promise<{
+    id: string;
+    tbhSellingPrice: string | null;
+    status: string;
+  }> {
+    const item = await this.inventoryRepo.findOne({
+      where: { id },
+      relations: { inquiry: true },
+    });
+    if (!item) {
+      throw new NotFoundException('Inventory item not found');
+    }
+    if (!UPDATE_TBH_PRICE_ALLOWED_INVENTORY_STATUSES.has(item.status)) {
+      throw new BadRequestException(
+        'TBH selling price can only be updated for items in For Pricing or For Editing status.',
+      );
+    }
+    const raw = dto.tbhSellingPrice;
+    let next: string | null;
+    if (raw == null || String(raw).trim() === '') {
+      next = null;
+    } else {
+      const n = Number(String(raw).trim());
+      if (!Number.isFinite(n) || n < 0) {
+        throw new BadRequestException('Invalid TBH selling price.');
+      }
+      next = n.toFixed(2);
+    }
+    item.tbhSellingPrice = next;
+    if (next != null) {
+      const pct = markupPercentFromOfferOrNull(
+        next,
+        item.inquiry?.offerPrice,
+      );
+      if (pct == null || pct > 0) {
+        item.status = FOR_EDITING_INVENTORY_STATUS;
+      }
+    }
+    item.updatedById = actorUserId;
+    await this.inventoryRepo.save(item);
+    return { id: item.id, tbhSellingPrice: next, status: item.status };
+  }
+
   async findOneForStaff(id: string): Promise<InventoryDetailForStaff> {
     const r = await this.inventoryRepo.findOne({
       where: { id },
@@ -1101,7 +1173,7 @@ export class InventoryService {
       : '';
     return {
       id: p.id,
-      inventoryItemId: p.inventoryItemId,
+      inventoryItemId: inv.id,
       photoshootDate: photoshootDayKey(p.photoshootDate),
       sku: inv.sku,
       itemLabel: itemLabelFromSnapshot(inv.itemSnapshot),
@@ -1244,34 +1316,36 @@ export class InventoryService {
           );
         }
       }
-      const existing = await psRepo.find({
-        where: {
-          inventoryItemId: In(uniqueIds),
-          photoshootDate,
-        },
+      const existingRows = await psRepo.find({
+        where: { inventoryItem: { id: In(uniqueIds) } },
+        relations: { inventoryItem: true },
       });
-      if (existing.length > 0) {
-        const blocked = new Set(existing.map((e) => e.inventoryItemId));
-        const skus = items
-          .filter((i) => blocked.has(i.id))
-          .map((i) => i.sku)
-          .sort();
-        throw new BadRequestException(
-          `Already scheduled for this date: ${skus.join(', ')}`,
-        );
-      }
-      const created = uniqueIds.map((inventoryItemId) =>
-        psRepo.create({
-          inventoryItemId,
-          photoshootDate,
-          employeeId: null,
-          photosSnapshot: null,
-          createdById: actorUserId,
-          updatedById: actorUserId,
-        }),
+      const existingByInvId = new Map(
+        existingRows.map((p) => [p.inventoryItem.id, p]),
       );
-      const saved = await psRepo.save(created);
-      return { createdIds: saved.map((r) => r.id) };
+      const resultIds: string[] = [];
+      for (const inventoryItemId of uniqueIds) {
+        const row = existingByInvId.get(inventoryItemId);
+        if (row) {
+          row.photoshootDate = photoshootDate;
+          row.updatedById = actorUserId;
+          await psRepo.save(row);
+          resultIds.push(row.id);
+        } else {
+          const inserted = await psRepo.save(
+            psRepo.create({
+              inventoryItem: { id: inventoryItemId } as InventoryItem,
+              photoshootDate,
+              employeeId: null,
+              photosSnapshot: null,
+              createdById: actorUserId,
+              updatedById: actorUserId,
+            }),
+          );
+          resultIds.push(inserted.id);
+        }
+      }
+      return { createdIds: resultIds };
     });
   }
 }

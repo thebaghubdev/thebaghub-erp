@@ -1,4 +1,5 @@
 import { createColumnHelper } from "@tanstack/react-table";
+import { format } from "date-fns";
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { DataTable } from "../components/data-table/DataTable";
 import { DatePickerField } from "../components/DatePickerField";
@@ -24,6 +25,21 @@ type InventoryRow = {
   inclusions: string;
 };
 
+/** `YYYY-MM-DD` → readable string without UTC shift. */
+function formatPhotoshootDateCell(raw: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw);
+  if (!m) return raw;
+  return format(
+    new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])),
+    "MMM d, yyyy",
+  );
+}
+
+type PhotoshootSchedulingRow = InventoryRow & {
+  /** Formatted photoshoot date from `item_photoshoot` for display/search; empty when none. */
+  photoshootDateLabel: string;
+};
+
 const fieldLabel =
   "block text-sm font-medium text-slate-700 dark:text-slate-300";
 
@@ -33,7 +49,7 @@ const dateTriggerClass =
 const btnPrimary =
   "inline-flex items-center justify-center rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-violet-700 focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:focus-visible:ring-offset-slate-950";
 
-const columnHelper = createColumnHelper<InventoryRow>();
+const columnHelper = createColumnHelper<PhotoshootSchedulingRow>();
 
 const photoshootColumns = [
   columnHelper.accessor("sku", {
@@ -43,6 +59,23 @@ const photoshootColumns = [
         {getValue()}
       </span>
     ),
+  }),
+  columnHelper.accessor("photoshootDateLabel", {
+    id: "photoshootDate",
+    header: "Photoshoot date",
+    cell: ({ getValue }) => {
+      const v = getValue();
+      if (!v) {
+        return (
+          <span className="text-slate-400 dark:text-slate-500">—</span>
+        );
+      }
+      return (
+        <span className="whitespace-normal text-slate-800 dark:text-slate-200">
+          {v}
+        </span>
+      );
+    },
   }),
   columnHelper.accessor("status", {
     header: "Status",
@@ -151,7 +184,7 @@ export function PhotoshootPage() {
   }, [token]);
 
   useEffect(() => {
-    if (tab !== "calendar") return;
+    if (tab !== "calendar" && tab !== "scheduling") return;
     void loadPhotoshoots();
   }, [tab, loadPhotoshoots]);
 
@@ -160,10 +193,27 @@ export function PhotoshootPage() {
     void loadInventory();
   }, [tab, loadInventory]);
 
-  const photoshootRows = useMemo(
-    () => rows.filter((r) => r.status === FOR_PHOTOSHOOT_STATUS),
-    [rows],
-  );
+  const photoshootDateByInventoryId = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const r of calendarRows) {
+      m.set(r.inventoryItemId, r.photoshootDate);
+    }
+    return m;
+  }, [calendarRows]);
+
+  const photoshootRows = useMemo((): PhotoshootSchedulingRow[] => {
+    return rows
+      .filter((r) => r.status === FOR_PHOTOSHOOT_STATUS)
+      .map((r) => {
+        const iso = photoshootDateByInventoryId.get(r.id);
+        const photoshootDateLabel =
+          iso === undefined ? "" : formatPhotoshootDateCell(iso);
+        return {
+          ...r,
+          photoshootDateLabel,
+        };
+      });
+  }, [rows, photoshootDateByInventoryId]);
 
   const onToggleRow = useCallback((id: string, selected: boolean) => {
     setSelectedIds((prev) => {
@@ -312,7 +362,7 @@ export function PhotoshootPage() {
             isLoading={inventoryLoading}
             emptyMessage="No inventory items with status For Photoshoot."
             hideEmptyState={!!inventoryError}
-            searchPlaceholder="Search SKU, item, inclusions, consignor…"
+            searchPlaceholder="Search SKU, photoshoot date, item, inclusions, consignor…"
             getRowId={(r) => r.id}
             getRowAriaLabel={(r) => `Inventory item ${r.sku}, ${r.itemLabel}`}
             rowSelection={{
