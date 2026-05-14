@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import type { PhotoshootCalendarRow } from "../components/PhotoshootCalendar";
 import { InventoryStatusBadge } from "../components/InventoryStatusBadge";
@@ -93,6 +93,12 @@ export function EditingItemPage() {
   const [postDescription, setPostDescription] = useState("");
   const [tagBrandOptions, setTagBrandOptions] = useState<string[]>([]);
   const [tagsSelected, setTagsSelected] = useState<string[]>([]);
+  /** Photoshoot image keys in click order (badges show 1…n). */
+  const [photoSelectionOrder, setPhotoSelectionOrder] = useState<string[]>([]);
+
+  useEffect(() => {
+    setPhotoSelectionOrder([]);
+  }, [itemId]);
 
   useEffect(() => {
     if (!token) return;
@@ -114,9 +120,7 @@ export function EditingItemPage() {
   }, [token]);
 
   useEffect(() => {
-    setTagsSelected((prev) =>
-      prev.filter((t) => tagBrandOptions.includes(t)),
-    );
+    setTagsSelected((prev) => prev.filter((t) => tagBrandOptions.includes(t)));
   }, [tagBrandOptions]);
 
   const load = useCallback(async () => {
@@ -158,6 +162,23 @@ export function EditingItemPage() {
     void load();
   }, [load]);
 
+  const togglePhotoshootPhoto = useCallback((key: string) => {
+    setPhotoSelectionOrder((prev) => {
+      const idx = prev.indexOf(key);
+      if (idx >= 0) return prev.filter((k) => k !== key);
+      return [...prev, key];
+    });
+  }, []);
+
+  const shootPhotosChronological = useMemo(() => {
+    return [...(photoshootRow?.photos ?? [])];
+  }, [photoshootRow]);
+
+  useEffect(() => {
+    const keys = new Set((photoshootRow?.photos ?? []).map((p) => p.key));
+    setPhotoSelectionOrder((prev) => prev.filter((k) => keys.has(k)));
+  }, [photoshootRow]);
+
   if (loading) {
     return (
       <div className="text-sm text-slate-600 dark:text-slate-400">Loading…</div>
@@ -185,8 +206,6 @@ export function EditingItemPage() {
   const itemModel = str(form.itemModel);
   const brandModelSubtitle =
     brand && itemModel ? `${brand} — ${itemModel}` : brand || itemModel || "—";
-
-  const shootPhotos = photoshootRow?.photos ?? [];
 
   return (
     <div className="w-full min-w-0 space-y-6">
@@ -249,9 +268,7 @@ export function EditingItemPage() {
                 </dd>
               </div>
               <div>
-                <dt className="text-slate-500 dark:text-slate-400">
-                  Category
-                </dt>
+                <dt className="text-slate-500 dark:text-slate-400">Category</dt>
                 <dd>{str(form.category) || "—"}</dd>
               </div>
               <div>
@@ -325,25 +342,56 @@ export function EditingItemPage() {
             <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
               Photoshoot photos
             </h2>
-            {shootPhotos.length === 0 ? (
+            {shootPhotosChronological.length === 0 ? (
               <p className="mt-3 text-sm text-slate-600 dark:text-slate-400">
                 No photoshoot photos saved for this item.
               </p>
             ) : (
-              <ul className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
-                {shootPhotos.map((img) => (
-                  <li
-                    key={img.key}
-                    className="relative aspect-square overflow-hidden rounded-xl border border-slate-200 bg-slate-100 shadow-sm dark:border-slate-600 dark:bg-slate-800"
-                  >
-                    <img
-                      src={img.url}
-                      alt=""
-                      className="h-full w-full object-cover"
-                    />
-                  </li>
-                ))}
-              </ul>
+              <>
+                <p className="mt-3 text-sm text-slate-600 dark:text-slate-400">
+                  Please select the photos below that will be used for posting.
+                </p>
+                <ul className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
+                  {shootPhotosChronological.map((img) => {
+                    const selIdx = photoSelectionOrder.indexOf(img.key);
+                    const rank = selIdx >= 0 ? selIdx + 1 : null;
+                    const selected = rank != null;
+                    return (
+                      <li key={img.key} className="aspect-square">
+                        <button
+                          type="button"
+                          className={`relative h-full w-full overflow-hidden rounded-xl bg-slate-100 shadow-sm ring-offset-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 dark:bg-slate-800 dark:ring-offset-slate-950 ${
+                            selected
+                              ? "ring-2 ring-violet-600 ring-offset-2 dark:ring-violet-400"
+                              : "ring-1 ring-slate-200 dark:ring-slate-600"
+                          }`}
+                          onClick={() => togglePhotoshootPhoto(img.key)}
+                          aria-pressed={selected}
+                          aria-label={
+                            selected
+                              ? `Photo selected, position ${rank}. Click to remove from selection.`
+                              : "Select photo for ordering"
+                          }
+                        >
+                          <img
+                            src={img.url}
+                            alt=""
+                            className="h-full w-full object-cover"
+                          />
+                          {rank != null ? (
+                            <span
+                              className="absolute right-1.5 top-1.5 flex h-7 min-w-[1.75rem] items-center justify-center rounded-full bg-violet-600 px-2 text-xs font-bold tabular-nums text-white shadow-md ring-2 ring-white dark:ring-slate-900"
+                              aria-hidden
+                            >
+                              {rank}
+                            </span>
+                          ) : null}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </>
             )}
           </section>
         </div>
