@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import type { PhotoshootCalendarRow } from "../components/PhotoshootCalendar";
 import { InventoryStatusBadge } from "../components/InventoryStatusBadge";
+import { RichTextEditor } from "../components/RichTextEditor";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
@@ -558,13 +559,10 @@ export function EditingItemPage() {
                 <label htmlFor={postDescId} className={fieldLabel}>
                   Post description
                 </label>
-                <textarea
+                <RichTextEditor
                   id={postDescId}
-                  rows={8}
-                  className={`${inputClass} min-h-[10rem] resize-y`}
-                  placeholder="Write post copy…"
                   value={postDescription}
-                  onChange={(e) => setPostDescription(e.target.value)}
+                  onChange={setPostDescription}
                 />
               </div>
             </div>
