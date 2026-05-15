@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import type { FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 import type { PhotoshootCalendarRow } from "../components/PhotoshootCalendar";
+import { InventoryStatusBadge } from "../components/InventoryStatusBadge";
 import { RichTextEditor } from "../components/RichTextEditor";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
@@ -61,6 +63,16 @@ type InventoryDetailForStaff = {
     clientItemId: string;
     form: Record<string, unknown>;
   };
+  itemPosting: {
+    id: string;
+    postingDate: string | null;
+    productName: string;
+    collections: string[];
+    tags: string[];
+    priceComparison: string | null;
+    productDescription: string | null;
+    selectedPhotosSnapshot: Array<Record<string, unknown>>;
+  } | null;
   authenticationStatus: string;
 };
 
@@ -99,6 +111,15 @@ function buildPostDescriptionHtml(form: Record<string, unknown>): string {
   ].join("");
 }
 
+function selectedPhotoKeysFromSnapshot(
+  snapshot: Array<Record<string, unknown>>,
+): string[] {
+  return [...snapshot]
+    .sort((a, b) => Number(a.position ?? 0) - Number(b.position ?? 0))
+    .map((photo) => str(photo.key))
+    .filter(Boolean);
+}
+
 const cardClass =
   "rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900";
 
@@ -132,6 +153,10 @@ export function EditingItemPage() {
   const [collectionsError, setCollectionsError] = useState<string | null>(null);
   const [priceComparison, setPriceComparison] = useState("");
   const [postDescription, setPostDescription] = useState("");
+  const [postingSaving, setPostingSaving] = useState(false);
+  const [postingSubmitting, setPostingSubmitting] = useState(false);
+  const [postingError, setPostingError] = useState<string | null>(null);
+  const [postingMessage, setPostingMessage] = useState<string | null>(null);
   const [tagBrandOptions, setTagBrandOptions] = useState<string[]>([]);
   const [tagsSelected, setTagsSelected] = useState<string[]>([]);
   const [tagQuery, setTagQuery] = useState("");
@@ -236,10 +261,25 @@ export function EditingItemPage() {
       }
       const detailJson = (await detailRes.json()) as InventoryDetailForStaff;
       setDetail(detailJson);
-      setProductName(buildProductName(detailJson.itemSnapshot.form));
-      setPostDescription(
-        buildPostDescriptionHtml(detailJson.itemSnapshot.form),
-      );
+      const posting = detailJson.itemPosting;
+      if (posting) {
+        setProductName(posting.productName);
+        setCollectionValue(posting.collections[0] ?? "");
+        setTagsSelected(posting.tags);
+        setPriceComparison(posting.priceComparison ?? "");
+        setPostDescription(posting.productDescription ?? "");
+        setPhotoSelectionOrder(
+          selectedPhotoKeysFromSnapshot(posting.selectedPhotosSnapshot),
+        );
+      } else {
+        setProductName(buildProductName(detailJson.itemSnapshot.form));
+        setCollectionValue("");
+        setTagsSelected([]);
+        setPriceComparison("");
+        setPostDescription(
+          buildPostDescriptionHtml(detailJson.itemSnapshot.form),
+        );
+      }
 
       if (!shootRes.ok) {
         setPhotoshootRow(null);
@@ -305,6 +345,100 @@ export function EditingItemPage() {
     setPhotoSelectionOrder((prev) => prev.filter((k) => keys.has(k)));
   }, [photoshootRow]);
 
+  const savePosting = useCallback(
+    async (options: { submitForPosting: boolean }) => {
+      if (!itemId || !token) return;
+      if (options.submitForPosting) setPostingSubmitting(true);
+      else setPostingSaving(true);
+      setPostingError(null);
+      setPostingMessage(null);
+      try {
+        const photosByKey = new Map(
+          (photoshootRow?.photos ?? []).map((photo) => [photo.key, photo]),
+        );
+        const selectedPhotosSnapshot = photoSelectionOrder.flatMap(
+          (key, idx) => {
+            const photo = photosByKey.get(key);
+            if (!photo) return [];
+            return [
+              {
+                key: photo.key,
+                url: photo.url,
+                position: idx + 1,
+              },
+            ];
+          },
+        );
+        const res = await apiFetch(
+          `/api/inventory/${itemId}/item-posting`,
+          {
+            method: options.submitForPosting ? "POST" : "PATCH",
+            body: JSON.stringify({
+              postingDate: null,
+              productName,
+              collections: collectionValue ? [collectionValue] : [],
+              tags: tagsSelected,
+              priceComparison: priceComparison.trim() || null,
+              productDescription: postDescription.trim() || null,
+              selectedPhotosSnapshot,
+            }),
+          },
+          token,
+        );
+        if (!res.ok) {
+          let msg = `Could not save posting data (${res.status}).`;
+          try {
+            const body = (await res.json()) as {
+              message?: string | string[];
+            };
+            if (Array.isArray(body.message)) msg = body.message.join("; ");
+            else if (typeof body.message === "string" && body.message.trim()) {
+              msg = body.message.trim();
+            }
+          } catch {
+            /* ignore */
+          }
+          throw new Error(msg);
+        }
+        const body = (await res.json()) as { status?: string };
+        setDetail((prev) =>
+          prev && body.status ? { ...prev, status: body.status } : prev,
+        );
+        setPostingMessage(
+          options.submitForPosting
+            ? "Posting data saved and item moved to For Posting."
+            : "Changes saved.",
+        );
+      } catch (err) {
+        setPostingError(
+          err instanceof Error ? err.message : "Could not save posting data.",
+        );
+      } finally {
+        if (options.submitForPosting) setPostingSubmitting(false);
+        else setPostingSaving(false);
+      }
+    },
+    [
+      collectionValue,
+      itemId,
+      photoSelectionOrder,
+      photoshootRow,
+      postDescription,
+      priceComparison,
+      productName,
+      tagsSelected,
+      token,
+    ],
+  );
+
+  const submitPosting = useCallback(
+    async (e: FormEvent<HTMLFormElement>) => {
+      e.preventDefault();
+      await savePosting({ submitForPosting: true });
+    },
+    [savePosting],
+  );
+
   if (loading) {
     return (
       <div className="text-sm text-slate-600 dark:text-slate-400">Loading…</div>
@@ -332,6 +466,7 @@ export function EditingItemPage() {
   const itemModel = str(form.itemModel);
   const brandModelSubtitle =
     brand && itemModel ? `${brand} — ${itemModel}` : brand || itemModel || "—";
+  const isForPosting = detail.status === "For Posting";
 
   return (
     <div className="w-full min-w-0 space-y-6">
@@ -362,6 +497,12 @@ export function EditingItemPage() {
               Item details
             </h2>
             <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-3 text-sm text-slate-800 dark:text-slate-200 sm:grid-cols-2">
+              <div>
+                <dt className="text-slate-500 dark:text-slate-400">Status</dt>
+                <dd>
+                  <InventoryStatusBadge status={detail.status} />
+                </dd>
+              </div>
               <div>
                 <dt className="text-slate-500 dark:text-slate-400">
                   Transaction
@@ -509,7 +650,12 @@ export function EditingItemPage() {
         </div>
 
         <div className="min-w-0">
-          <form className={cardClass} noValidate aria-label="Listing draft">
+          <form
+            className={cardClass}
+            noValidate
+            aria-label="Listing draft"
+            onSubmit={(e) => void submitPosting(e)}
+          >
             <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
               Listing fields
             </h2>
@@ -661,6 +807,35 @@ export function EditingItemPage() {
                   value={postDescription}
                   onChange={setPostDescription}
                 />
+              </div>
+              {postingError ? (
+                <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+                  {postingError}
+                </p>
+              ) : null}
+              {postingMessage ? (
+                <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">
+                  {postingMessage}
+                </p>
+              ) : null}
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                  disabled={postingSaving || postingSubmitting}
+                  onClick={() => void savePosting({ submitForPosting: false })}
+                >
+                  {postingSaving ? "Saving…" : "Save changes"}
+                </button>
+                {!isForPosting ? (
+                  <button
+                    type="submit"
+                    className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={postingSaving || postingSubmitting}
+                  >
+                    {postingSubmitting ? "Submitting…" : "Submit for posting"}
+                  </button>
+                ) : null}
               </div>
             </div>
           </form>

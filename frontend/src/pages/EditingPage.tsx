@@ -9,7 +9,7 @@ import { apiFetch } from "../lib/api";
 import { branchLabel } from "../lib/consignment-schedule-labels";
 import { formatOfferTransactionLabel } from "../lib/format-offer-transaction-type";
 
-const FOR_EDITING_STATUS = "For Editing";
+const EDITING_PAGE_STATUSES = new Set(["For Editing", "For Posting"]);
 
 type InventoryRow = {
   id: string;
@@ -114,7 +114,7 @@ export function EditingPage() {
       const res = await apiFetch("/api/inventory", {}, token);
       if (!res.ok) throw new Error(`Request failed (${res.status})`);
       const data = (await res.json()) as InventoryRow[];
-      setRows(data.filter((r) => r.status === FOR_EDITING_STATUS));
+      setRows(data.filter((r) => EDITING_PAGE_STATUSES.has(r.status)));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load inventory");
       setRows([]);
@@ -139,7 +139,7 @@ export function EditingPage() {
         data={rows}
         columns={columns}
         isLoading={loading}
-        emptyMessage="No inventory items are currently For Editing."
+        emptyMessage="No inventory items are currently For Editing or For Posting."
         hideEmptyState={!!error}
         searchPlaceholder="Search SKU, item, inclusions, consignor…"
         getRowId={(r) => r.id}

@@ -9,6 +9,7 @@ import {
 import { Client } from '../../clients/entities/client.entity';
 import { AuditedEntity } from '../../common/entities/audited.entity';
 import { Inquiry, type InquiryItemSnapshot } from '../../inquiries/entities/inquiry.entity';
+import { ItemPosting } from './item-posting.entity';
 import { ItemPhotoshoot } from './item-photoshoot.entity';
 
 /**
@@ -69,4 +70,7 @@ export class InventoryItem extends AuditedEntity {
 
   @OneToOne(() => ItemPhotoshoot, (p) => p.inventoryItem)
   itemPhotoshoot: ItemPhotoshoot | null;
+
+  @OneToOne(() => ItemPosting, (p) => p.inventoryItem)
+  itemPosting: ItemPosting | null;
 }

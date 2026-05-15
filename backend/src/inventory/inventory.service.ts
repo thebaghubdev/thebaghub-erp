@@ -23,6 +23,7 @@ import { Employee } from '../employees/entities/employee.entity';
 import { InventoryItem } from './entities/inventory-item.entity';
 import { ItemAuthentication } from './entities/item-authentication.entity';
 import { ItemPhotoshoot } from './entities/item-photoshoot.entity';
+import { ItemPosting } from './entities/item-posting.entity';
 import { ItemAuthenticationMetric } from './entities/item-authentication-metric.entity';
 import { AuthenticationMetric } from '../authentication-metrics/entities/authentication-metric.entity';
 import { CreateItemPhotoshootsDto } from './dto/create-item-photoshoots.dto';
@@ -34,6 +35,7 @@ import { SaveItemAuthenticationMetricsDto } from './dto/save-item-authentication
 import { ForThirdPartyAuthenticationDto } from './dto/for-third-party-authentication.dto';
 import { ReturnToCoordinatorDto } from './dto/return-to-coordinator.dto';
 import { UpdateInventoryPricingDto } from './dto/update-inventory-pricing.dto';
+import { CreateItemPostingDto } from './dto/create-item-posting.dto';
 import { InquiryStatus } from '../enums/inquiry-status.enum';
 import { InquiriesService } from '../inquiries/inquiries.service';
 import { CONSIGNMENT_COORDINATOR_POSITION } from '../notifications/notification.constants';
@@ -153,6 +155,16 @@ export type InventoryDetailForStaff = {
     clientItemId: string;
     form: Record<string, unknown>;
   };
+  itemPosting: {
+    id: string;
+    postingDate: string | null;
+    productName: string;
+    collections: string[];
+    tags: string[];
+    priceComparison: string | null;
+    productDescription: string | null;
+    selectedPhotosSnapshot: Array<Record<string, unknown>>;
+  } | null;
 };
 
 export type ItemAuthenticationMetricApiRow = {
@@ -209,6 +221,53 @@ function normalizedOfferPriceString(
   if (offer == null) return null;
   const s = String(offer).trim();
   return s.length > 0 ? s : null;
+}
+
+function normalizeOptionalText(value: unknown): string | null {
+  if (value == null) return null;
+  const s = String(value).trim();
+  return s.length > 0 ? s : null;
+}
+
+function normalizeStringArray(values: unknown): string[] {
+  if (!Array.isArray(values)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    const s = String(value ?? '').trim();
+    if (!s) continue;
+    const key = s.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(s);
+  }
+  return out;
+}
+
+function normalizeSelectedPhotosSnapshot(value: unknown): Array<Record<string, unknown>> {
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (entry): entry is Record<string, unknown> =>
+      entry != null && typeof entry === 'object' && !Array.isArray(entry),
+  );
+}
+
+function normalizePostingDate(value: string | null | undefined): Date | null {
+  if (value == null || String(value).trim() === '') return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) {
+    throw new BadRequestException('Invalid posting date.');
+  }
+  return d;
+}
+
+function normalizePriceComparison(value: string | null | undefined): string | null {
+  if (value == null || String(value).trim() === '') return null;
+  const n = Number(String(value).trim());
+  if (!Number.isFinite(n) || n < 0) {
+    throw new BadRequestException('Invalid price comparison.');
+  }
+  return n.toFixed(2);
 }
 
 /**
@@ -333,6 +392,7 @@ const FOR_AUTHENTICATION_INVENTORY_STATUS = 'For Authentication';
 const FOR_PHOTOSHOOT_INVENTORY_STATUS = 'For Photoshoot';
 const FOR_PRICING_INVENTORY_STATUS = 'For Pricing';
 const FOR_EDITING_INVENTORY_STATUS = 'For Editing';
+const FOR_POSTING_INVENTORY_STATUS = 'For Posting';
 
 const UPDATE_TBH_PRICE_ALLOWED_INVENTORY_STATUSES = new Set<string>([
   FOR_PRICING_INVENTORY_STATUS,
@@ -357,6 +417,8 @@ export class InventoryService {
   constructor(
     @InjectRepository(ItemPhotoshoot)
     private readonly itemPhotoshootRepo: Repository<ItemPhotoshoot>,
+    @InjectRepository(ItemPosting)
+    private readonly itemPostingRepo: Repository<ItemPosting>,
     @InjectRepository(InventoryItem)
     private readonly inventoryRepo: Repository<InventoryItem>,
     @InjectRepository(ItemAuthentication)
@@ -1032,6 +1094,67 @@ export class InventoryService {
     return { id: item.id, tbhSellingPrice: next, status: item.status };
   }
 
+  async createItemPosting(
+    inventoryItemId: string,
+    dto: CreateItemPostingDto,
+    actorUserId: string,
+    options: { updateStatus: boolean } = { updateStatus: true },
+  ): Promise<{ id: string; status: string; itemPostingId: string }> {
+    const productName = String(dto.productName ?? '').trim();
+    if (!productName) {
+      throw new BadRequestException('Product name is required.');
+    }
+    const postingDate = normalizePostingDate(dto.postingDate);
+    const priceComparison = normalizePriceComparison(dto.priceComparison);
+    const collections = normalizeStringArray(dto.collections);
+    const tags = normalizeStringArray(dto.tags);
+    const productDescription = normalizeOptionalText(dto.productDescription);
+    const selectedPhotosSnapshot = normalizeSelectedPhotosSnapshot(
+      dto.selectedPhotosSnapshot,
+    );
+
+    return this.itemPostingRepo.manager.transaction(async (em) => {
+      const item = await em.findOne(InventoryItem, {
+        where: { id: inventoryItemId },
+      });
+      if (!item) {
+        throw new NotFoundException('Inventory item not found');
+      }
+
+      if (options.updateStatus) {
+        item.status = FOR_POSTING_INVENTORY_STATUS;
+        item.updatedById = actorUserId;
+        await em.save(item);
+      }
+
+      let posting = await em.findOne(ItemPosting, {
+        where: { inventoryItemId },
+      });
+      if (!posting) {
+        posting = em.create(ItemPosting, {
+          inventoryItemId,
+          createdById: actorUserId,
+        });
+      }
+
+      posting.postingDate = postingDate;
+      posting.productName = productName;
+      posting.collections = collections;
+      posting.tags = tags;
+      posting.priceComparison = priceComparison;
+      posting.productDescription = productDescription;
+      posting.selectedPhotosSnapshot = selectedPhotosSnapshot;
+      posting.updatedById = actorUserId;
+      await em.save(posting);
+
+      return {
+        id: item.id,
+        status: item.status,
+        itemPostingId: posting.id,
+      };
+    });
+  }
+
   async findOneForStaff(id: string): Promise<InventoryDetailForStaff> {
     const r = await this.inventoryRepo.findOne({
       where: { id },
@@ -1047,6 +1170,9 @@ export class InventoryService {
     const auth = await this.itemAuthRepo.findOne({
       where: { inventoryItemId: id },
       relations: { assignedTo: true },
+    });
+    const posting = await this.itemPostingRepo.findOne({
+      where: { inventoryItemId: id },
     });
     return {
       id: r.id,
@@ -1088,6 +1214,24 @@ export class InventoryService {
         clientItemId: r.itemSnapshot.clientItemId,
         form: (r.itemSnapshot.form ?? {}) as Record<string, unknown>,
       },
+      itemPosting: posting
+        ? {
+            id: posting.id,
+            postingDate: posting.postingDate
+              ? posting.postingDate.toISOString()
+              : null,
+            productName: posting.productName,
+            collections: posting.collections,
+            tags: posting.tags,
+            priceComparison:
+              posting.priceComparison != null &&
+              String(posting.priceComparison).trim() !== ''
+                ? String(posting.priceComparison)
+                : null,
+            productDescription: posting.productDescription,
+            selectedPhotosSnapshot: posting.selectedPhotosSnapshot,
+          }
+        : null,
     };
   }
 

@@ -23,6 +23,7 @@ import { SaveItemAuthenticationMetricsDto } from './dto/save-item-authentication
 import { ForThirdPartyAuthenticationDto } from './dto/for-third-party-authentication.dto';
 import { ReturnToCoordinatorDto } from './dto/return-to-coordinator.dto';
 import { UpdateInventoryPricingDto } from './dto/update-inventory-pricing.dto';
+import { CreateItemPostingDto } from './dto/create-item-posting.dto';
 import { InventoryService } from './inventory.service';
 
 @Controller('inventory')
@@ -185,6 +186,28 @@ export class InventoryController {
   @Get(':id/item-photoshoot')
   findItemPhotoshootForInventory(@Param('id', ParseUUIDPipe) id: string) {
     return this.inventoryService.findItemPhotoshootByInventoryItemIdForStaff(id);
+  }
+
+  @Post(':id/item-posting')
+  @HttpCode(HttpStatus.CREATED)
+  createItemPosting(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateItemPostingDto,
+    @Req() req: { user: JwtUser },
+  ) {
+    return this.inventoryService.createItemPosting(id, dto, req.user.userId);
+  }
+
+  @Patch(':id/item-posting')
+  @HttpCode(HttpStatus.OK)
+  saveItemPosting(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateItemPostingDto,
+    @Req() req: { user: JwtUser },
+  ) {
+    return this.inventoryService.createItemPosting(id, dto, req.user.userId, {
+      updateStatus: false,
+    });
   }
 
   @Get(':id')

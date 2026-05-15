@@ -7,6 +7,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { InventoryItem } from './entities/inventory-item.entity';
 import { ItemAuthentication } from './entities/item-authentication.entity';
 import { ItemAuthenticationMetric } from './entities/item-authentication-metric.entity';
+import { ItemPosting } from './entities/item-posting.entity';
 import { ItemPhotoshoot } from './entities/item-photoshoot.entity';
 import { InventoryController } from './inventory.controller';
 import { InventoryService } from './inventory.service';
@@ -19,6 +20,7 @@ import { InventoryService } from './inventory.service';
       InventoryItem,
       ItemAuthentication,
       ItemAuthenticationMetric,
+      ItemPosting,
       ItemPhotoshoot,
       AuthenticationMetric,
       Employee,

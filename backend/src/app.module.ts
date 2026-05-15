@@ -27,6 +27,7 @@ import { InventoryModule } from './inventory/inventory.module';
 import { InventoryItem } from './inventory/entities/inventory-item.entity';
 import { ItemAuthentication } from './inventory/entities/item-authentication.entity';
 import { ItemAuthenticationMetric } from './inventory/entities/item-authentication-metric.entity';
+import { ItemPosting } from './inventory/entities/item-posting.entity';
 import { ItemPhotoshoot } from './inventory/entities/item-photoshoot.entity';
 import { AuthenticationMetricsModule } from './authentication-metrics/authentication-metrics.module';
 import { Notification } from './notifications/entities/notification.entity';
@@ -60,6 +61,7 @@ import { ShopifyShopSession } from './shopify/entities/shopify-shop-session.enti
           InventoryItem,
           ItemAuthentication,
           ItemAuthenticationMetric,
+          ItemPosting,
           ItemPhotoshoot,
           Notification,
           ShopifyShopSession,
