@@ -33,6 +33,8 @@ import { PhotoshootItemPage } from './pages/PhotoshootItemPage'
 import { PhotoshootPage } from './pages/PhotoshootPage'
 import { EditingItemPage } from './pages/EditingItemPage'
 import { EditingPage } from './pages/EditingPage'
+import { PostingItemPage } from './pages/PostingItemPage'
+import { PostingPage } from './pages/PostingPage'
 import { PricingPage } from './pages/PricingPage'
 import { PortalLoginPage } from './pages/PortalLoginPage'
 import { PurchaseItemsPage } from './pages/PurchaseItemsPage'
@@ -101,6 +103,8 @@ const router = createBrowserRouter([
           { path: 'pricing', element: <PricingPage /> },
           { path: 'editing/:itemId', element: <EditingItemPage /> },
           { path: 'editing', element: <EditingPage /> },
+          { path: 'posting/:itemId', element: <PostingItemPage /> },
+          { path: 'posting', element: <PostingPage /> },
           { path: 'settings', element: <SettingsPage /> },
           { path: 'accounts/register', element: <RegisterPage /> },
           { path: 'accounts', element: <ManageAccountsPage /> },

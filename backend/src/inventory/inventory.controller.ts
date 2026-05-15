@@ -24,6 +24,7 @@ import { ForThirdPartyAuthenticationDto } from './dto/for-third-party-authentica
 import { ReturnToCoordinatorDto } from './dto/return-to-coordinator.dto';
 import { UpdateInventoryPricingDto } from './dto/update-inventory-pricing.dto';
 import { CreateItemPostingDto } from './dto/create-item-posting.dto';
+import { ScheduleItemPostingsDto } from './dto/schedule-item-postings.dto';
 import { InventoryService } from './inventory.service';
 
 @Controller('inventory')
@@ -93,6 +94,20 @@ export class InventoryController {
       photoshootId,
       req.user.userId,
     );
+  }
+
+  @Get('item-postings')
+  listItemPostings() {
+    return this.inventoryService.listItemPostingsForStaff();
+  }
+
+  @Patch('item-postings/schedule')
+  @HttpCode(HttpStatus.OK)
+  scheduleItemPostings(
+    @Body() dto: ScheduleItemPostingsDto,
+    @Req() req: { user: JwtUser },
+  ) {
+    return this.inventoryService.scheduleItemPostings(dto, req.user.userId);
   }
 
   @Post('batch-assign-authenticator')

@@ -36,6 +36,7 @@ import { ForThirdPartyAuthenticationDto } from './dto/for-third-party-authentica
 import { ReturnToCoordinatorDto } from './dto/return-to-coordinator.dto';
 import { UpdateInventoryPricingDto } from './dto/update-inventory-pricing.dto';
 import { CreateItemPostingDto } from './dto/create-item-posting.dto';
+import { ScheduleItemPostingsDto } from './dto/schedule-item-postings.dto';
 import { InquiryStatus } from '../enums/inquiry-status.enum';
 import { InquiriesService } from '../inquiries/inquiries.service';
 import { CONSIGNMENT_COORDINATOR_POSITION } from '../notifications/notification.constants';
@@ -90,6 +91,19 @@ export type ItemPhotoshootCalendarRow = {
   consignorName: string | null;
   /** Saved S3-backed images from `photos_snapshot`. */
   photos: Array<{ key: string; url: string }>;
+};
+
+export type ItemPostingCalendarRow = {
+  id: string;
+  inventoryItemId: string;
+  postingDate: string | null;
+  sku: string;
+  itemLabel: string;
+  inclusions: string;
+  consignorName: string | null;
+  productName: string;
+  collections: string[];
+  tags: string[];
 };
 
 export type InventoryListRow = {
@@ -1292,6 +1306,79 @@ export class InventoryService {
       .addOrderBy('p.id', 'ASC')
       .getMany();
     return rows.map((p) => this.mapItemPhotoshootToCalendarRow(p));
+  }
+
+  async listItemPostingsForStaff(): Promise<ItemPostingCalendarRow[]> {
+    const rows = await this.itemPostingRepo.find({
+      relations: { inventoryItem: { consignor: true } },
+      order: { postingDate: 'ASC', id: 'ASC' },
+    });
+    return rows.map((p) => {
+      const inv = p.inventoryItem;
+      const c = inv?.consignor ?? null;
+      const consignorName = c
+        ? [c.firstName, c.lastName].filter(Boolean).join(' ').trim()
+        : '';
+      return {
+        id: p.id,
+        inventoryItemId: p.inventoryItemId,
+        postingDate: p.postingDate ? p.postingDate.toISOString() : null,
+        sku: inv?.sku ?? '',
+        itemLabel: itemLabelFromSnapshot(inv?.itemSnapshot),
+        inclusions: inclusionsFromSnapshot(inv?.itemSnapshot),
+        consignorName: consignorName || null,
+        productName: p.productName,
+        collections: p.collections,
+        tags: p.tags,
+      };
+    });
+  }
+
+  async scheduleItemPostings(
+    dto: ScheduleItemPostingsDto,
+    actorUserId: string,
+  ): Promise<{ updated: number }> {
+    const postingDate = normalizePostingDate(dto.postingDate);
+    if (!postingDate) {
+      throw new BadRequestException('Posting date is required.');
+    }
+    const uniqueIds = [...new Set(dto.inventoryItemIds)];
+    await this.itemPostingRepo.manager.transaction(async (em) => {
+      for (const inventoryItemId of uniqueIds) {
+        const item = await em.findOne(InventoryItem, {
+          where: { id: inventoryItemId },
+        });
+        if (!item) {
+          throw new NotFoundException(
+            `Inventory item ${inventoryItemId} not found`,
+          );
+        }
+        if (item.status !== FOR_POSTING_INVENTORY_STATUS) {
+          throw new BadRequestException(
+            `Inventory ${item.sku} is not in status "${FOR_POSTING_INVENTORY_STATUS}"`,
+          );
+        }
+        let posting = await em.findOne(ItemPosting, {
+          where: { inventoryItemId },
+        });
+        if (!posting) {
+          posting = em.create(ItemPosting, {
+            inventoryItemId,
+            productName: itemLabelFromSnapshot(item.itemSnapshot),
+            collections: [],
+            tags: [],
+            priceComparison: null,
+            productDescription: null,
+            selectedPhotosSnapshot: [],
+            createdById: actorUserId,
+          });
+        }
+        posting.postingDate = postingDate;
+        posting.updatedById = actorUserId;
+        await em.save(posting);
+      }
+    });
+    return { updated: uniqueIds.length };
   }
 
   async findOneItemPhotoshootForStaff(
