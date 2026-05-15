@@ -374,7 +374,6 @@ export function EditingItemPage() {
           {
             method: options.submitForPosting ? "POST" : "PATCH",
             body: JSON.stringify({
-              postingDate: null,
               productName,
               collections: collectionValue ? [collectionValue] : [],
               tags: tagsSelected,

@@ -1118,7 +1118,10 @@ export class InventoryService {
     if (!productName) {
       throw new BadRequestException('Product name is required.');
     }
-    const postingDate = normalizePostingDate(dto.postingDate);
+    const shouldUpdatePostingDate = dto.postingDate !== undefined;
+    const postingDate = shouldUpdatePostingDate
+      ? normalizePostingDate(dto.postingDate)
+      : null;
     const priceComparison = normalizePriceComparison(dto.priceComparison);
     const collections = normalizeStringArray(dto.collections);
     const tags = normalizeStringArray(dto.tags);
@@ -1147,11 +1150,14 @@ export class InventoryService {
       if (!posting) {
         posting = em.create(ItemPosting, {
           inventoryItemId,
+          postingDate: null,
           createdById: actorUserId,
         });
       }
 
-      posting.postingDate = postingDate;
+      if (shouldUpdatePostingDate) {
+        posting.postingDate = postingDate;
+      }
       posting.productName = productName;
       posting.collections = collections;
       posting.tags = tags;
