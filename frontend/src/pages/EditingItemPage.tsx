@@ -1,12 +1,9 @@
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import type { PhotoshootCalendarRow } from "../components/PhotoshootCalendar";
-import { InventoryStatusBadge } from "../components/InventoryStatusBadge";
 import { RichTextEditor } from "../components/RichTextEditor";
-import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
-import { branchLabel } from "../lib/consignment-schedule-labels";
 import { formatOfferTransactionLabel } from "../lib/format-offer-transaction-type";
 import { formatPhpDisplay } from "../lib/format-php";
 
@@ -72,6 +69,36 @@ function str(v: unknown): string {
   return String(v).trim();
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function displayValue(v: unknown): string {
+  return escapeHtml(str(v) || "—");
+}
+
+function buildProductName(form: Record<string, unknown>): string {
+  return [str(form.brand), str(form.itemModel)].filter(Boolean).join(" ");
+}
+
+function buildPostDescriptionHtml(form: Record<string, unknown>): string {
+  const title = buildProductName(form) || "—";
+
+  return [
+    `<p>${escapeHtml(title)}</p>`,
+    `<p>Condition: ${displayValue(form.rating)}<br>Inclusions: ${displayValue(
+      form.inclusions,
+    )}<br>Dimensions: ${displayValue(form.dimensions)}</p>`,
+    "<p>We offer layaway installments or use your BDO credit card for up to 12 months installment — Just ask us how!</p>",
+    "<p>Disclaimer: The Bag Hub is neither affiliated nor related with any of the brands posted in our page/account. All trademarks and brand names are sole properties of their respective owners.</p>",
+  ].join("");
+}
+
 const cardClass =
   "rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900";
 
@@ -84,6 +111,7 @@ const inputClass =
 export function EditingItemPage() {
   const { itemId } = useParams<{ itemId: string }>();
   const { token } = usePortalAuth();
+  const productNameId = useId();
   const collectionId = useId();
   const tagsId = useId();
   const priceComparisonId = useId();
@@ -95,6 +123,7 @@ export function EditingItemPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const [productName, setProductName] = useState("");
   const [collectionValue, setCollectionValue] = useState("");
   const [shopifyCollections, setShopifyCollections] = useState<
     ShopifyCollectionOption[]
@@ -105,6 +134,7 @@ export function EditingItemPage() {
   const [postDescription, setPostDescription] = useState("");
   const [tagBrandOptions, setTagBrandOptions] = useState<string[]>([]);
   const [tagsSelected, setTagsSelected] = useState<string[]>([]);
+  const [tagQuery, setTagQuery] = useState("");
   /** Photoshoot image keys in click order (badges show 1…n). */
   const [photoSelectionOrder, setPhotoSelectionOrder] = useState<string[]>([]);
 
@@ -179,14 +209,12 @@ export function EditingItemPage() {
   }, [token]);
 
   useEffect(() => {
-    setTagsSelected((prev) => prev.filter((t) => tagBrandOptions.includes(t)));
-  }, [tagBrandOptions]);
-
-  useEffect(() => {
     setCollectionValue((prev) =>
-      prev === "" ? prev : shopifyCollections.some((c) => c.id === prev)
+      prev === ""
         ? prev
-        : "",
+        : shopifyCollections.some((c) => c.id === prev)
+          ? prev
+          : "",
     );
   }, [shopifyCollections]);
 
@@ -208,6 +236,10 @@ export function EditingItemPage() {
       }
       const detailJson = (await detailRes.json()) as InventoryDetailForStaff;
       setDetail(detailJson);
+      setProductName(buildProductName(detailJson.itemSnapshot.form));
+      setPostDescription(
+        buildPostDescriptionHtml(detailJson.itemSnapshot.form),
+      );
 
       if (!shootRes.ok) {
         setPhotoshootRow(null);
@@ -240,6 +272,33 @@ export function EditingItemPage() {
   const shootPhotosChronological = useMemo(() => {
     return [...(photoshootRow?.photos ?? [])];
   }, [photoshootRow]);
+
+  const filteredTagOptions = useMemo(() => {
+    const query = tagQuery.trim().toLowerCase();
+    return tagBrandOptions.filter((tag) => {
+      const alreadySelected = tagsSelected.some(
+        (selected) => selected.toLowerCase() === tag.toLowerCase(),
+      );
+      if (alreadySelected) return false;
+      if (!query) return true;
+      return tag.toLowerCase().includes(query);
+    });
+  }, [tagBrandOptions, tagQuery, tagsSelected]);
+
+  const addTag = useCallback((tag: string) => {
+    const next = tag.trim();
+    if (!next) return;
+    setTagsSelected((prev) =>
+      prev.some((selected) => selected.toLowerCase() === next.toLowerCase())
+        ? prev
+        : [...prev, next],
+    );
+    setTagQuery("");
+  }, []);
+
+  const removeTag = useCallback((tag: string) => {
+    setTagsSelected((prev) => prev.filter((selected) => selected !== tag));
+  }, []);
 
   useEffect(() => {
     const keys = new Set((photoshootRow?.photos ?? []).map((p) => p.key));
@@ -304,16 +363,6 @@ export function EditingItemPage() {
             </h2>
             <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-3 text-sm text-slate-800 dark:text-slate-200 sm:grid-cols-2">
               <div>
-                <dt className="text-slate-500 dark:text-slate-400">Status</dt>
-                <dd>
-                  <InventoryStatusBadge status={detail.status} />
-                </dd>
-              </div>
-              <div>
-                <dt className="text-slate-500 dark:text-slate-400">Branch</dt>
-                <dd>{branchLabel(detail.currentBranch)}</dd>
-              </div>
-              <div>
                 <dt className="text-slate-500 dark:text-slate-400">
                   Transaction
                 </dt>
@@ -327,22 +376,18 @@ export function EditingItemPage() {
                 </dd>
               </div>
               <div>
-                <dt className="text-slate-500 dark:text-slate-400">
-                  Date received
-                </dt>
-                <dd>
-                  <SubmittedAtCell iso={detail.dateReceived} />
-                </dd>
-              </div>
-              <div>
                 <dt className="text-slate-500 dark:text-slate-400">Category</dt>
                 <dd>{str(form.category) || "—"}</dd>
               </div>
               <div>
+                <dt className="text-slate-500 dark:text-slate-400">Rating</dt>
+                <dd>{str(form.rating) || "—"}</dd>
+              </div>
+              <div>
                 <dt className="text-slate-500 dark:text-slate-400">
-                  Condition
+                  Dimensions
                 </dt>
-                <dd>{str(form.condition) || "—"}</dd>
+                <dd>{str(form.dimensions) || "—"}</dd>
               </div>
               <div className="sm:col-span-2">
                 <dt className="text-slate-500 dark:text-slate-400">
@@ -470,6 +515,20 @@ export function EditingItemPage() {
             </h2>
             <div className="mt-6 space-y-5">
               <div>
+                <label htmlFor={productNameId} className={fieldLabel}>
+                  Product name
+                </label>
+                <input
+                  id={productNameId}
+                  type="text"
+                  autoComplete="off"
+                  className={inputClass}
+                  value={productName}
+                  onChange={(e) => setProductName(e.target.value)}
+                />
+              </div>
+
+              <div>
                 <label htmlFor={collectionId} className={fieldLabel}>
                   Collection
                 </label>
@@ -498,8 +557,7 @@ export function EditingItemPage() {
                 >
                   {collectionsError
                     ? collectionsError
-                    : !collectionsLoading &&
-                        shopifyCollections.length === 0
+                    : !collectionsLoading && shopifyCollections.length === 0
                       ? "No Shopify collections returned."
                       : ""}
                 </p>
@@ -509,33 +567,72 @@ export function EditingItemPage() {
                 <label htmlFor={tagsId} className={fieldLabel}>
                   Tags
                 </label>
-                <select
-                  id={tagsId}
-                  multiple
-                  className={`${inputClass} block h-[5rem] max-h-[5rem] overflow-y-auto py-1`}
-                  aria-describedby={`${tagsId}-hint`}
-                  value={tagsSelected}
-                  onChange={(e) => {
-                    const next = [...e.target.selectedOptions].map(
-                      (o) => o.value,
-                    );
-                    setTagsSelected(next);
-                  }}
-                  disabled={tagBrandOptions.length === 0}
-                >
-                  {tagBrandOptions.map((b) => (
-                    <option key={b} value={b}>
-                      {b}
-                    </option>
-                  ))}
-                </select>
+                <div className="mt-1 h-[6rem] overflow-y-auto rounded-lg border border-slate-300 bg-white p-2 shadow-sm focus-within:border-violet-500 focus-within:ring-1 focus-within:ring-violet-500 dark:border-slate-600 dark:bg-slate-950">
+                  {tagsSelected.length > 0 ? (
+                    <div className="mb-2 flex flex-wrap gap-2">
+                      {tagsSelected.map((tag) => (
+                        <span
+                          key={tag}
+                          className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700 dark:bg-violet-950/50 dark:text-violet-200"
+                        >
+                          {tag}
+                          <button
+                            type="button"
+                            className="rounded-full px-1 text-violet-500 hover:bg-violet-100 hover:text-violet-800 dark:text-violet-300 dark:hover:bg-violet-900"
+                            onClick={() => removeTag(tag)}
+                            aria-label={`Remove ${tag}`}
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  <div className="flex gap-2">
+                    <input
+                      id={tagsId}
+                      type="text"
+                      autoComplete="off"
+                      className="min-w-0 flex-1 bg-transparent px-1 py-1.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 dark:text-slate-100 dark:placeholder:text-slate-500"
+                      placeholder="Search or add tag…"
+                      value={tagQuery}
+                      onChange={(e) => setTagQuery(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key !== "Enter") return;
+                        e.preventDefault();
+                        addTag(tagQuery);
+                      }}
+                      aria-describedby={`${tagsId}-hint`}
+                    />
+                    <button
+                      type="button"
+                      className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                      onClick={() => addTag(tagQuery)}
+                      disabled={!tagQuery.trim()}
+                    >
+                      Add
+                    </button>
+                  </div>
+                  {filteredTagOptions.length > 0 ? (
+                    <div className="mt-2 flex flex-wrap gap-2 border-t border-slate-100 pt-2 dark:border-slate-800">
+                      {filteredTagOptions.map((tag) => (
+                        <button
+                          key={tag}
+                          type="button"
+                          className="rounded-full border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-700 hover:border-violet-300 hover:bg-violet-50 hover:text-violet-700 dark:border-slate-700 dark:text-slate-200 dark:hover:border-violet-700 dark:hover:bg-violet-950/50 dark:hover:text-violet-200"
+                          onClick={() => addTag(tag)}
+                        >
+                          {tag}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
                 <p
                   id={`${tagsId}-hint`}
                   className="mt-1 text-xs text-slate-500 dark:text-slate-400"
                 >
-                  {tagBrandOptions.length === 0
-                    ? "No brands are configured in settings (Brands we consign)."
-                    : "Hold Ctrl or ⌘ to select multiple brands."}
+                  You can search for existing tags or add a new tag.
                 </p>
               </div>
 
@@ -557,7 +654,7 @@ export function EditingItemPage() {
 
               <div>
                 <label htmlFor={postDescId} className={fieldLabel}>
-                  Post description
+                  Product description
                 </label>
                 <RichTextEditor
                   id={postDescId}
