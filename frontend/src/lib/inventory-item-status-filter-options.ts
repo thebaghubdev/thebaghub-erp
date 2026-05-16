@@ -10,6 +10,8 @@ export const INVENTORY_ITEM_STATUS_FILTER_OPTIONS: {
   { value: "For Photoshoot", label: "For Photoshoot" },
   { value: "For Pricing", label: "For Pricing" },
   { value: "For Editing", label: "For Editing" },
+  { value: "For Posting", label: "For Posting" },
+  { value: "Available For Purchase", label: "Available For Purchase" },
   {
     value: "Authenticated: Requested for Reauthentication",
     label: "Authenticated: Requested for Reauthentication",
