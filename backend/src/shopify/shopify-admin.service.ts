@@ -7,6 +7,7 @@ import { SHOPIFY_ADMIN_API_VERSION } from './shopify-admin-api.constants';
 import { normalizeShopDomain } from './normalize-shop-domain';
 
 const GRAPHQL_TIMEOUT_MS = 30_000;
+const REST_TIMEOUT_MS = 30_000;
 const CLIENT_CREDENTIALS_TIMEOUT_MS = 25_000;
 
 const COLLECTIONS_QUERY = `#graphql
@@ -31,6 +32,22 @@ export type ShopifyCollectionRow = {
   id: string;
   title: string;
   handle: string;
+};
+
+export type ShopifyCreateProductInput = {
+  title: string;
+  body_html: string | null;
+  vendor: string;
+  status: 'active' | 'draft';
+  tags: string;
+  variants: Array<{
+    price: string;
+    sku: string;
+    compare_at_price?: string;
+    inventory_management: 'shopify';
+    inventory_quantity: number;
+  }>;
+  images: Array<{ src: string }>;
 };
 
 function readShopifyGraphqlErrors(raw: unknown): string[] {
@@ -98,6 +115,12 @@ function readCollectionsConnection(raw: unknown): {
     edges,
     pageInfo: { hasNextPage, endCursor },
   };
+}
+
+function numericShopifyId(id: string): string {
+  const trimmed = id.trim();
+  const m = /\/(\d+)$/.exec(trimmed);
+  return m?.[1] ?? trimmed;
 }
 
 @Injectable()
@@ -355,6 +378,104 @@ export class ShopifyAdminService {
     }
 
     return { collections };
+  }
+
+  async createProduct(product: ShopifyCreateProductInput): Promise<{
+    id: string;
+    raw: unknown;
+  }> {
+    const payload = await this.restRequest('products.json', {
+      method: 'POST',
+      body: { product },
+    });
+    const productRaw =
+      payload && typeof payload === 'object'
+        ? (payload as Record<string, unknown>).product
+        : null;
+    const id =
+      productRaw && typeof productRaw === 'object'
+        ? (productRaw as Record<string, unknown>).id
+        : null;
+    if (id == null) {
+      throw new HttpException(
+        'Shopify product creation returned no product id.',
+        HttpStatus.BAD_GATEWAY,
+      );
+    }
+    return { id: String(id), raw: productRaw };
+  }
+
+  async addProductToCollection(
+    productId: string,
+    collectionId: string,
+  ): Promise<void> {
+    await this.restRequest('collects.json', {
+      method: 'POST',
+      body: {
+        collect: {
+          product_id: numericShopifyId(productId),
+          collection_id: numericShopifyId(collectionId),
+        },
+      },
+    });
+  }
+
+  private async restRequest(
+    path: string,
+    init: { method: 'POST'; body: unknown },
+  ): Promise<unknown> {
+    const { shopDomain, token } = await this.resolveAdminAccessToken();
+    const url = `https://${shopDomain}/admin/api/${SHOPIFY_ADMIN_API_VERSION}/${path}`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REST_TIMEOUT_MS);
+    try {
+      const res = await fetch(url, {
+        method: init.method,
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Shopify-Access-Token': token,
+        },
+        body: JSON.stringify(init.body),
+        signal: controller.signal,
+      });
+      let body: unknown;
+      try {
+        body = await res.json();
+      } catch {
+        body = null;
+      }
+      if (!res.ok) {
+        const snippet = JSON.stringify(body).slice(0, 400);
+        this.logger.error(
+          `Shopify REST HTTP ${res.status} ${path}: ${snippet}`,
+        );
+        throw new HttpException(
+          'Shopify Admin API request failed.',
+          HttpStatus.BAD_GATEWAY,
+        );
+      }
+      return body;
+    } catch (e) {
+      if (e instanceof HttpException) throw e;
+      const msg = e instanceof Error ? e.message : String(e);
+      if (
+        e instanceof Error &&
+        (e.name === 'AbortError' || msg.includes('abort'))
+      ) {
+        this.logger.error(`Shopify REST timed out after ${REST_TIMEOUT_MS}ms`);
+        throw new HttpException(
+          'Shopify Admin API request timed out.',
+          HttpStatus.GATEWAY_TIMEOUT,
+        );
+      }
+      this.logger.error(`Shopify REST error: ${msg}`);
+      throw new HttpException(
+        'Shopify Admin API request failed.',
+        HttpStatus.BAD_GATEWAY,
+      );
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   private async graphqlRequest(

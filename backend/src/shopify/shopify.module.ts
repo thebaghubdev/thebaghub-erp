@@ -14,5 +14,6 @@ import { ShopifyOAuthService } from './shopify-oauth.service';
     ShopifyOAuthService,
     ShopifyAdminService,
   ],
+  exports: [ShopifyAdminService],
 })
 export class ShopifyModule {}

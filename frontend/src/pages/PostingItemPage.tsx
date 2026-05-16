@@ -50,6 +50,9 @@ export function PostingItemPage() {
   const [detail, setDetail] = useState<InventoryDetailForStaff | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [shopifyPosting, setShopifyPosting] = useState(false);
+  const [shopifyError, setShopifyError] = useState<string | null>(null);
+  const [shopifyMessage, setShopifyMessage] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!itemId || !token) return;
@@ -78,6 +81,51 @@ export function PostingItemPage() {
     void load();
   }, [load]);
 
+  const postToShopify = useCallback(async () => {
+    if (!itemId || !token) return;
+    setShopifyPosting(true);
+    setShopifyError(null);
+    setShopifyMessage(null);
+    try {
+      const res = await apiFetch(
+        `/api/inventory/${itemId}/post-to-shopify`,
+        { method: "POST" },
+        token,
+      );
+      if (!res.ok) {
+        let msg = `Could not post to Shopify (${res.status}).`;
+        try {
+          const body = (await res.json()) as { message?: string | string[] };
+          if (Array.isArray(body.message)) msg = body.message.join("; ");
+          else if (typeof body.message === "string" && body.message.trim()) {
+            msg = body.message.trim();
+          }
+        } catch {
+          /* ignore */
+        }
+        throw new Error(msg);
+      }
+      const body = (await res.json()) as {
+        productId?: string;
+        status?: string;
+      };
+      if (body.status) {
+        setDetail((prev) => (prev ? { ...prev, status: body.status! } : prev));
+      }
+      setShopifyMessage(
+        body.productId
+          ? `Posted to Shopify. Product ID: ${body.productId}`
+          : "Posted to Shopify.",
+      );
+    } catch (e) {
+      setShopifyError(
+        e instanceof Error ? e.message : "Could not post to Shopify.",
+      );
+    } finally {
+      setShopifyPosting(false);
+    }
+  }, [itemId, token]);
+
   if (loading) {
     return (
       <div className="text-sm text-slate-600 dark:text-slate-400">Loading…</div>
@@ -104,6 +152,7 @@ export function PostingItemPage() {
   const form = detail.itemSnapshot.form;
   const itemLabel =
     [str(form.brand), str(form.itemModel)].filter(Boolean).join(" ") || "—";
+  const canManagePosting = detail.status === "For Posting";
 
   return (
     <div className="w-full min-w-0 space-y-6">
@@ -120,17 +169,29 @@ export function PostingItemPage() {
           </p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <Link
-              to={`/portal/editing/${detail.id}`}
-              className="rounded-lg bg-violet-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-violet-700"
-            >
-              Edit post
-            </Link>
-            <Link
               to={`/portal/inventory/${detail.id}`}
               className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
             >
               View in inventory
             </Link>
+            {canManagePosting ? (
+              <Link
+                to={`/portal/editing/${detail.id}`}
+                className="rounded-lg bg-violet-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-violet-700"
+              >
+                Edit post
+              </Link>
+            ) : null}
+            {canManagePosting ? (
+              <button
+                type="button"
+                className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={shopifyPosting || !posting}
+                onClick={() => void postToShopify()}
+              >
+                {shopifyPosting ? "Posting…" : "Post to Shopify"}
+              </button>
+            ) : null}
           </div>
         </div>
         <Link
@@ -140,6 +201,17 @@ export function PostingItemPage() {
           ← Back to Posting
         </Link>
       </div>
+
+      {shopifyError ? (
+        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+          {shopifyError}
+        </p>
+      ) : null}
+      {shopifyMessage ? (
+        <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">
+          {shopifyMessage}
+        </p>
+      ) : null}
 
       <section className={cardClass}>
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">

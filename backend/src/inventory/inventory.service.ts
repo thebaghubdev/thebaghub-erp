@@ -41,6 +41,10 @@ import { InquiryStatus } from '../enums/inquiry-status.enum';
 import { InquiriesService } from '../inquiries/inquiries.service';
 import { CONSIGNMENT_COORDINATOR_POSITION } from '../notifications/notification.constants';
 import { NotificationsService } from '../notifications/notifications.service';
+import {
+  ShopifyAdminService,
+  type ShopifyCreateProductInput,
+} from '../shopify/shopify-admin.service';
 
 const PHOTOSHOOT_ALLOWED_IMAGE_MIMES = new Set([
   'image/jpeg',
@@ -284,6 +288,17 @@ function normalizePriceComparison(value: string | null | undefined): string | nu
   return n.toFixed(2);
 }
 
+function selectedPhotoUrls(value: Array<Record<string, unknown>>): string[] {
+  const urls: string[] = [];
+  for (const photo of value) {
+    const raw = photo.url;
+    if (typeof raw !== 'string') continue;
+    const url = raw.trim();
+    if (url) urls.push(url);
+  }
+  return urls;
+}
+
 /**
  * Consignor mark-up % vs inquiry offer (`sell - cost`) / cost;
  * null if TBH selling price doesn't apply as a quotient (missing/zero cost).
@@ -407,6 +422,7 @@ const FOR_PHOTOSHOOT_INVENTORY_STATUS = 'For Photoshoot';
 const FOR_PRICING_INVENTORY_STATUS = 'For Pricing';
 const FOR_EDITING_INVENTORY_STATUS = 'For Editing';
 const FOR_POSTING_INVENTORY_STATUS = 'For Posting';
+const AVAILABLE_FOR_PURCHASE_INVENTORY_STATUS = 'Available For Purchase';
 
 const UPDATE_TBH_PRICE_ALLOWED_INVENTORY_STATUSES = new Set<string>([
   FOR_PRICING_INVENTORY_STATUS,
@@ -446,6 +462,7 @@ export class InventoryService {
     @Inject(forwardRef(() => InquiriesService))
     private readonly inquiriesService: InquiriesService,
     private readonly notifications: NotificationsService,
+    private readonly shopifyAdmin: ShopifyAdminService,
     private readonly s3: S3StorageService,
   ) {}
 
@@ -1124,6 +1141,9 @@ export class InventoryService {
       : null;
     const priceComparison = normalizePriceComparison(dto.priceComparison);
     const collections = normalizeStringArray(dto.collections);
+    if (collections.length === 0) {
+      throw new BadRequestException('Collection is required.');
+    }
     const tags = normalizeStringArray(dto.tags);
     const productDescription = normalizeOptionalText(dto.productDescription);
     const selectedPhotosSnapshot = normalizeSelectedPhotosSnapshot(
@@ -1385,6 +1405,77 @@ export class InventoryService {
       }
     });
     return { updated: uniqueIds.length };
+  }
+
+  async postItemToShopify(inventoryItemId: string): Promise<{
+    productId: string;
+    collectionCount: number;
+    status: string;
+  }> {
+    const posting = await this.itemPostingRepo.findOne({
+      where: { inventoryItemId },
+      relations: { inventoryItem: true },
+    });
+    if (!posting) {
+      throw new NotFoundException('Posting data not found for this item.');
+    }
+    const item = posting.inventoryItem;
+    if (!item) {
+      throw new NotFoundException('Inventory item not found');
+    }
+    const price =
+      item.tbhSellingPrice != null && String(item.tbhSellingPrice).trim() !== ''
+        ? String(item.tbhSellingPrice).trim()
+        : null;
+    if (!price) {
+      throw new BadRequestException('TBH selling price is required.');
+    }
+    const productName = posting.productName.trim();
+    if (!productName) {
+      throw new BadRequestException('Product name is required.');
+    }
+
+    const variant: ShopifyCreateProductInput['variants'][number] = {
+      price,
+      sku: item.sku,
+      inventory_management: 'shopify',
+      inventory_quantity: 1,
+    };
+    if (
+      posting.priceComparison != null &&
+      String(posting.priceComparison).trim() !== ''
+    ) {
+      variant.compare_at_price = String(posting.priceComparison).trim();
+    }
+
+    const product: ShopifyCreateProductInput = {
+      title: productName,
+      body_html: posting.productDescription,
+      vendor: 'The Bag Hub',
+      status: 'active',
+      tags: posting.tags.join(', '),
+      variants: [variant],
+      images: selectedPhotoUrls(posting.selectedPhotosSnapshot).map((src) => ({
+        src,
+      })),
+    };
+
+    const created = await this.shopifyAdmin.createProduct(product);
+    for (const collectionId of posting.collections) {
+      await this.shopifyAdmin.addProductToCollection(
+        created.id,
+        collectionId,
+      );
+    }
+
+    item.status = AVAILABLE_FOR_PURCHASE_INVENTORY_STATUS;
+    await this.inventoryRepo.save(item);
+
+    return {
+      productId: created.id,
+      collectionCount: posting.collections.length,
+      status: item.status,
+    };
   }
 
   async findOneItemPhotoshootForStaff(

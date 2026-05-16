@@ -353,6 +353,12 @@ export function EditingItemPage() {
       setPostingError(null);
       setPostingMessage(null);
       try {
+        if (!productName.trim()) {
+          throw new Error("Product name is required.");
+        }
+        if (!collectionValue.trim()) {
+          throw new Error("Collection is required.");
+        }
         const photosByKey = new Map(
           (photoshootRow?.photos ?? []).map((photo) => [photo.key, photo]),
         );
@@ -374,7 +380,7 @@ export function EditingItemPage() {
           {
             method: options.submitForPosting ? "POST" : "PATCH",
             body: JSON.stringify({
-              productName,
+              productName: productName.trim(),
               collections: collectionValue ? [collectionValue] : [],
               tags: tagsSelected,
               priceComparison: priceComparison.trim() || null,
@@ -667,6 +673,7 @@ export function EditingItemPage() {
                   id={productNameId}
                   type="text"
                   autoComplete="off"
+                  required
                   className={inputClass}
                   value={productName}
                   onChange={(e) => setProductName(e.target.value)}
@@ -684,6 +691,7 @@ export function EditingItemPage() {
                   value={collectionValue}
                   onChange={(e) => setCollectionValue(e.target.value)}
                   disabled={collectionsLoading}
+                  required
                 >
                   <option value="">
                     {collectionsLoading

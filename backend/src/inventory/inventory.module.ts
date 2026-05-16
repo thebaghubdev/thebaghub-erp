@@ -4,6 +4,7 @@ import { AuthenticationMetric } from '../authentication-metrics/entities/authent
 import { Employee } from '../employees/entities/employee.entity';
 import { InquiriesModule } from '../inquiries/inquiries.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { ShopifyModule } from '../shopify/shopify.module';
 import { InventoryItem } from './entities/inventory-item.entity';
 import { ItemAuthentication } from './entities/item-authentication.entity';
 import { ItemAuthenticationMetric } from './entities/item-authentication-metric.entity';
@@ -16,6 +17,7 @@ import { InventoryService } from './inventory.service';
   imports: [
     forwardRef(() => InquiriesModule),
     NotificationsModule,
+    ShopifyModule,
     TypeOrmModule.forFeature([
       InventoryItem,
       ItemAuthentication,

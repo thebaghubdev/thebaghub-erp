@@ -225,6 +225,12 @@ export class InventoryController {
     });
   }
 
+  @Post(':id/post-to-shopify')
+  @HttpCode(HttpStatus.OK)
+  postItemToShopify(@Param('id', ParseUUIDPipe) id: string) {
+    return this.inventoryService.postItemToShopify(id);
+  }
+
   @Get(':id')
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.inventoryService.findOneForStaff(id);
