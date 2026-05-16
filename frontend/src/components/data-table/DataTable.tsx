@@ -1,7 +1,15 @@
-import { type ReactNode, useId, useMemo, useState } from "react";
+import {
+  type DragEvent,
+  type ReactNode,
+  useEffect,
+  useId,
+  useMemo,
+  useState,
+} from "react";
 import { HorizontalScrollMirror } from "../HorizontalScrollMirror";
 import {
   type Column,
+  type ColumnOrderState,
   type ColumnDef,
   type ColumnFiltersState,
   type FilterFn,
@@ -34,12 +42,16 @@ const thCheckbox =
 const tdCheckbox =
   "w-9 max-w-9 min-w-0 px-1 py-2 text-center align-middle text-xs sm:w-10 sm:max-w-10 sm:px-1.5 sm:py-2.5 sm:text-sm";
 
+// TanStack column helpers produce value-specific column defs; DataTable accepts any cell value.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type DataTableColumnDef<TData extends object> = ColumnDef<TData, any>;
+
 /** Case-insensitive substring match on stringified cell value. */
-const includesStringFilter: FilterFn<unknown> = (
-  row,
-  columnId,
-  filterValue,
-) => {
+function includesStringFilter(
+  row: { getValue: (columnId: string) => unknown },
+  columnId: string,
+  filterValue: unknown,
+): boolean {
   const q = String(filterValue ?? "")
     .trim()
     .toLowerCase();
@@ -47,7 +59,7 @@ const includesStringFilter: FilterFn<unknown> = (
   const v = row.getValue(columnId);
   if (v == null) return false;
   return String(v).toLowerCase().includes(q);
-};
+}
 
 /** Exact match on columns that use a select filter (e.g. status, category). */
 function buildTableFilterFn<TData extends object>(
@@ -110,6 +122,23 @@ function mergeBrandSuggestions(
     if (t) merged.add(t);
   }
   return [...merged].sort((a, b) => a.localeCompare(b));
+}
+
+function getColumnDefId<TData extends object>(
+  column: DataTableColumnDef<TData>,
+  index: number,
+): string {
+  if (typeof column.id === "string" && column.id) return column.id;
+  const accessorKey = (column as { accessorKey?: unknown }).accessorKey;
+  if (typeof accessorKey === "string" && accessorKey) return accessorKey;
+  return `column_${index}`;
+}
+
+function moveItem<T>(items: T[], fromIndex: number, toIndex: number): T[] {
+  const next = [...items];
+  const [item] = next.splice(fromIndex, 1);
+  next.splice(toIndex, 0, item);
+  return next;
 }
 
 function BrandColumnFilter<TData extends object>({
@@ -189,7 +218,7 @@ function TableSelectColumnFilter<TData extends object>({
 export type DataTableProps<TData extends object> = {
   data: TData[];
   /** Use `any` for cell value type so string/boolean columns type-check with `createColumnHelper`. */
-  columns: ColumnDef<TData, any>[];
+  columns: DataTableColumnDef<TData>[];
   /** Shown while loading and data is empty */
   isLoading?: boolean;
   emptyMessage?: string;
@@ -255,10 +284,13 @@ export function DataTable<TData extends object>({
   const [sorting, setSorting] = useState<SortingState>([]);
   const [globalFilter, setGlobalFilter] = useState("");
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
+  const [columnOrder, setColumnOrder] = useState<ColumnOrderState>([]);
+  const [draggedColumnId, setDraggedColumnId] = useState<string | null>(null);
   const [pagination, setPagination] = useState<PaginationState>({
     pageIndex: 0,
     pageSize: 10,
   });
+  const globalSearchId = useId();
   const brandFilterListId = useId();
 
   const brandSuggestions = useMemo(
@@ -269,10 +301,6 @@ export function DataTable<TData extends object>({
       ),
     [data, brandFilterSuggestions],
   );
-
-  const selectionKey = rowSelection
-    ? [...rowSelection.selectedIds].sort().join(",")
-    : "";
 
   const tableColumns = useMemo(() => {
     if (!rowSelection || !getRowId) {
@@ -330,7 +358,60 @@ export function DataTable<TData extends object>({
       enableColumnFilter: false,
     };
     return [selectColumn, ...columns];
-  }, [columns, getRowId, rowSelection, selectionKey]);
+  }, [columns, getRowId, rowSelection]);
+
+  const tableColumnIds = useMemo(
+    () => tableColumns.map((column, index) => getColumnDefId(column, index)),
+    [tableColumns],
+  );
+
+  useEffect(() => {
+    setColumnOrder((current) => {
+      const knownIds = new Set(tableColumnIds);
+      const next = [
+        ...current.filter((id) => knownIds.has(id)),
+        ...tableColumnIds.filter((id) => !current.includes(id)),
+      ];
+      if (
+        next.length === current.length &&
+        next.every((id, index) => id === current[index])
+      ) {
+        return current;
+      }
+      return next;
+    });
+  }, [tableColumnIds]);
+
+  const moveDraggedColumn = (
+    targetColumnId: string,
+    insertAfterTarget: boolean,
+  ) => {
+    if (
+      !draggedColumnId ||
+      draggedColumnId === targetColumnId ||
+      isCheckboxColumnId(draggedColumnId) ||
+      isCheckboxColumnId(targetColumnId)
+    ) {
+      return;
+    }
+
+    setColumnOrder((current) => {
+      const fromIndex = current.indexOf(draggedColumnId);
+      const targetIndex = current.indexOf(targetColumnId);
+      if (fromIndex === -1 || targetIndex === -1) return current;
+
+      const adjustedTargetIndex =
+        insertAfterTarget && fromIndex > targetIndex
+          ? targetIndex + 1
+          : insertAfterTarget
+            ? targetIndex
+            : fromIndex < targetIndex
+              ? targetIndex - 1
+              : targetIndex;
+
+      return moveItem(current, fromIndex, adjustedTargetIndex);
+    });
+  };
 
   const colCount = tableColumns.length;
 
@@ -357,10 +438,11 @@ export function DataTable<TData extends object>({
     data,
     columns: tableColumns,
     defaultColumn,
-    state: { sorting, globalFilter, columnFilters, pagination },
+    state: { sorting, globalFilter, columnFilters, columnOrder, pagination },
     onSortingChange: setSorting,
     onGlobalFilterChange: setGlobalFilter,
     onColumnFiltersChange: setColumnFilters,
+    onColumnOrderChange: setColumnOrder,
     onPaginationChange: setPagination,
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
@@ -380,14 +462,53 @@ export function DataTable<TData extends object>({
 
   const filterHeaderGroup = table.getHeaderGroups()[0];
 
+  const getDropAfterTarget = (e: DragEvent<HTMLTableCellElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    return e.clientX > rect.left + rect.width / 2;
+  };
+
+  const handleColumnDragStart = (
+    e: DragEvent<HTMLTableCellElement>,
+    columnId: string,
+  ) => {
+    if (isCheckboxColumnId(columnId)) return;
+    setDraggedColumnId(columnId);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", columnId);
+  };
+
+  const handleColumnDragOver = (
+    e: DragEvent<HTMLTableCellElement>,
+    columnId: string,
+  ) => {
+    if (
+      !draggedColumnId ||
+      draggedColumnId === columnId ||
+      isCheckboxColumnId(columnId)
+    ) {
+      return;
+    }
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  };
+
+  const handleColumnDrop = (
+    e: DragEvent<HTMLTableCellElement>,
+    columnId: string,
+  ) => {
+    e.preventDefault();
+    moveDraggedColumn(columnId, getDropAfterTarget(e));
+    setDraggedColumnId(null);
+  };
+
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <label className="sr-only" htmlFor="data-table-global-search">
+        <label className="sr-only" htmlFor={globalSearchId}>
           Search table
         </label>
         <input
-          id="data-table-global-search"
+          id={globalSearchId}
           type="search"
           value={globalFilter ?? ""}
           onChange={(e) => setGlobalFilter(e.target.value)}
@@ -424,9 +545,31 @@ export function DataTable<TData extends object>({
                   <th
                     key={header.id}
                     scope="col"
-                    className={
-                      isCheckboxColumnId(header.column.id) ? thCheckbox : thBase
+                    draggable={!isCheckboxColumnId(header.column.id)}
+                    onDragStart={(e) =>
+                      handleColumnDragStart(e, header.column.id)
                     }
+                    onDragOver={(e) =>
+                      handleColumnDragOver(e, header.column.id)
+                    }
+                    onDrop={(e) => handleColumnDrop(e, header.column.id)}
+                    onDragEnd={() => setDraggedColumnId(null)}
+                    title={
+                      isCheckboxColumnId(header.column.id)
+                        ? undefined
+                        : "Drag column header to reorder"
+                    }
+                    className={`${
+                      isCheckboxColumnId(header.column.id) ? thCheckbox : thBase
+                    } ${
+                      isCheckboxColumnId(header.column.id)
+                        ? ""
+                        : "cursor-grab transition-colors active:cursor-grabbing"
+                    } ${
+                      draggedColumnId === header.column.id
+                        ? "bg-violet-50 opacity-70 dark:bg-violet-950/30"
+                        : ""
+                    }`}
                   >
                     {header.isPlaceholder ? null : isCheckboxColumnId(
                         header.column.id,
@@ -486,7 +629,7 @@ export function DataTable<TData extends object>({
                       (statusFilterOptions?.length ?? 0) > 0 ? (
                       <TableSelectColumnFilter
                         column={header.column as Column<TData, unknown>}
-                        options={statusFilterOptions}
+                        options={statusFilterOptions ?? []}
                         inputClassName={inputClass}
                         emptyOptionLabel="All statuses"
                         ariaLabel="Filter status"
@@ -495,7 +638,7 @@ export function DataTable<TData extends object>({
                       (categoryFilterOptions?.length ?? 0) > 0 ? (
                       <TableSelectColumnFilter
                         column={header.column as Column<TData, unknown>}
-                        options={categoryFilterOptions}
+                        options={categoryFilterOptions ?? []}
                         inputClassName={inputClass}
                         emptyOptionLabel="All categories"
                         ariaLabel="Filter category"
