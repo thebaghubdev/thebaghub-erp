@@ -758,6 +758,17 @@ export function DataTable<TData extends object>({
     !isLoading && data.length > 0 && filteredCount === 0;
 
   const filterHeaderGroup = table.getHeaderGroups()[0];
+  const hasActiveFiltersOrSorting =
+    sorting.length > 0 ||
+    columnFilters.length > 0 ||
+    String(globalFilter ?? "").trim() !== "";
+
+  const resetFiltersAndSorting = () => {
+    setSorting([]);
+    setColumnFilters([]);
+    setGlobalFilter("");
+    setPagination((current) => ({ ...current, pageIndex: 0 }));
+  };
 
   const getDropAfterTarget = (e: DragEvent<HTMLTableCellElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -813,9 +824,17 @@ export function DataTable<TData extends object>({
           className={`${inputClass} max-w-md`}
           autoComplete="off"
         />
-        {toolbarRight ? (
-          <div className="flex shrink-0 justify-end sm:ml-auto">{toolbarRight}</div>
-        ) : null}
+        <div className="flex shrink-0 flex-wrap justify-end gap-2 sm:ml-auto">
+          <button
+            type="button"
+            onClick={resetFiltersAndSorting}
+            disabled={!hasActiveFiltersOrSorting}
+            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+          >
+            Reset filters
+          </button>
+          {toolbarRight}
+        </div>
       </div>
 
       <div className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm [-webkit-overflow-scrolling:touch] dark:border-slate-800 dark:bg-slate-900">
