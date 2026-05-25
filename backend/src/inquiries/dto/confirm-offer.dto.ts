@@ -32,6 +32,10 @@ export class ConfirmOfferDto {
   @IsIn(['check_pickup', 'cash_pickup', 'direct_deposit'])
   paymentMethod: 'check_pickup' | 'cash_pickup' | 'direct_deposit';
 
+  @ValidateIf((o: ConfirmOfferDto) => o.paymentMethod !== 'direct_deposit')
+  @IsIn(['pasig', 'makati'])
+  paymentBranch?: 'pasig' | 'makati';
+
   @ValidateIf((o: ConfirmOfferDto) => o.paymentMethod === 'direct_deposit')
   @IsNotEmpty()
   @ValidateNested()

@@ -21,6 +21,7 @@ export type InquiryItemSnapshot = {
 /** Shape of offer confirmation payload / API view (payment + optional bank + signature). */
 export type ClientOfferConfirmationData = {
   paymentMethod: 'check_pickup' | 'cash_pickup' | 'direct_deposit';
+  paymentBranch: 'pasig' | 'makati' | null;
   bankDetails: {
     accountNumber: string;
     accountName: string;
@@ -73,6 +74,15 @@ export class Inquiry extends AuditedEntity {
     | 'cash_pickup'
     | 'direct_deposit'
     | null;
+
+  /** Preferred pickup branch when payment is check pickup or cash pickup. */
+  @Column({
+    name: 'preferred_payment_branch',
+    type: 'varchar',
+    length: 32,
+    nullable: true,
+  })
+  preferredPaymentBranch: 'pasig' | 'makati' | null;
 
   /** S3 key for signature image submitted with offer confirmation. */
   @Column({

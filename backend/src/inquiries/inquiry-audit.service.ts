@@ -27,6 +27,7 @@ type AuditState = {
   offerTransactionType: string | null;
   offerPrice: string | null;
   preferredPaymentMethod: string | null;
+  preferredPaymentBranch: string | null;
   offerSignaturePresent: boolean;
   notes: string | null;
   itemForm: Record<string, string>;
@@ -52,6 +53,7 @@ export function cloneInquiryForAudit(r: Inquiry): Inquiry {
       offerTransactionType: r.offerTransactionType,
       offerPrice: r.offerPrice,
       preferredPaymentMethod: r.preferredPaymentMethod,
+      preferredPaymentBranch: r.preferredPaymentBranch,
       offerSignatureKey: r.offerSignatureKey,
       notes: r.notes,
       itemSnapshot: r.itemSnapshot,
@@ -73,6 +75,7 @@ function toAuditState(r: Inquiry): AuditState {
         ? String(r.offerPrice)
         : null,
     preferredPaymentMethod: r.preferredPaymentMethod ?? null,
+    preferredPaymentBranch: r.preferredPaymentBranch ?? null,
     offerSignaturePresent: Boolean(r.offerSignatureKey?.trim()),
     notes: (() => {
       if (r.notes == null) return null;
@@ -139,6 +142,11 @@ function diffStates(
     'Preferred payment method',
     before.preferredPaymentMethod,
     after.preferredPaymentMethod,
+  );
+  push(
+    'Preferred payment branch',
+    before.preferredPaymentBranch,
+    after.preferredPaymentBranch,
   );
   const bSig = before.offerSignaturePresent ? 'Provided' : '';
   const aSig = after.offerSignaturePresent ? 'Provided' : '';
@@ -213,6 +221,7 @@ export class InquiryAuditService {
       offerTransactionType: null,
       offerPrice: null,
       preferredPaymentMethod: null,
+      preferredPaymentBranch: null,
       offerSignaturePresent: false,
       notes: null,
       itemForm: {},

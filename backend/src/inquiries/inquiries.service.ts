@@ -206,6 +206,7 @@ export type StaffInquiryRow = {
 /** Client/staff API shape (public URL for signature image). */
 export type ClientOfferConfirmationView = {
   paymentMethod: ClientOfferConfirmationData['paymentMethod'];
+  paymentBranch: ClientOfferConfirmationData['paymentBranch'];
   bankDetails: ClientOfferConfirmationData['bankDetails'];
   signatureUrl: string;
 };
@@ -459,6 +460,7 @@ export class InquiriesService {
     }
     return {
       paymentMethod: r.preferredPaymentMethod,
+      paymentBranch: r.preferredPaymentBranch ?? null,
       bankDetails,
       signatureUrl: this.s3.getPublicUrl(r.offerSignatureKey),
     };
@@ -1049,6 +1051,7 @@ export class InquiriesService {
     }
 
     let bankDetails: ClientOfferConfirmationData['bankDetails'] = null;
+    let paymentBranch: ClientOfferConfirmationData['paymentBranch'] = null;
     if (dto.paymentMethod === 'direct_deposit') {
       if (!dto.bankDetails) {
         throw new BadRequestException(
@@ -1061,6 +1064,11 @@ export class InquiriesService {
         bank: dto.bankDetails.bank,
         branch: dto.bankDetails.branch.trim(),
       };
+    } else {
+      if (!dto.paymentBranch) {
+        throw new BadRequestException('Payment pickup branch is required');
+      }
+      paymentBranch = dto.paymentBranch;
     }
 
     const ext = extFromMime(mime);
@@ -1082,6 +1090,7 @@ export class InquiriesService {
 
     const before = cloneInquiryForAudit(r);
     r.preferredPaymentMethod = dto.paymentMethod;
+    r.preferredPaymentBranch = paymentBranch;
     r.offerSignatureKey = signatureKey;
 
     const isAuthenticatedNewOfferConfirm =
@@ -1477,6 +1486,7 @@ export class InquiriesService {
       r.status = InquiryStatus.FOR_OFFER_CONFIRMATION;
     }
     r.preferredPaymentMethod = null;
+    r.preferredPaymentBranch = null;
     r.offerSignatureKey = null;
     await this.inquiriesRepo.save(r);
     const label = await this.inquiryAudit.staffActorLabel(user.userId);
@@ -1513,6 +1523,7 @@ export class InquiriesService {
     r.offerPrice = dto.offerPrice.toFixed(2);
     r.status = InquiryStatus.AUTHENTICATED_NEW_OFFER;
     r.preferredPaymentMethod = null;
+    r.preferredPaymentBranch = null;
     r.offerSignatureKey = null;
     await this.inquiriesRepo.save(r);
     const label = await this.inquiryAudit.staffActorLabel(user.userId);

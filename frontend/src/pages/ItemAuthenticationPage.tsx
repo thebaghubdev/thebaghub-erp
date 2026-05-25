@@ -494,7 +494,7 @@ export function ItemAuthenticationPage() {
     if (!detail) return false;
     if (user?.isAdmin) return true;
     const assigneeId = detail.assignedToEmployeeId;
-    if (assigneeId == null) return true;
+    if (assigneeId == null) return false;
     const myEmployeeId = user?.employee?.id;
     if (!myEmployeeId) return false;
     return myEmployeeId === assigneeId;
@@ -2087,7 +2087,7 @@ export function ItemAuthenticationPage() {
         aria-labelledby="auth-detail-form-heading"
         className="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900"
       >
-        {!canEditMetrics && detail.assignedToEmployeeId ? (
+        {!canEditMetrics ? (
           <p
             className="rounded-t-xl border-b border-slate-100 bg-amber-50/90 px-4 py-3 text-sm leading-relaxed text-amber-950 dark:border-slate-800 dark:bg-amber-950/25 dark:text-amber-100 sm:px-5"
             role="status"
@@ -2096,13 +2096,19 @@ export function ItemAuthenticationPage() {
               View only
             </span>
             <span className="mt-2 block sm:mt-0 sm:ml-2 sm:inline">
-              This item is assigned to{" "}
-              <span className="font-medium">
-                {detail.assignedToName ?? "an authenticator"}
-              </span>{" "}
-              for authentication. You can review the authentication details and
-              metrics below, but your account cannot edit fields or save
-              changes.
+              {detail.assignedToEmployeeId ? (
+                <>
+                  This item is assigned to{" "}
+                  <span className="font-medium">
+                    {detail.assignedToName ?? "an authenticator"}
+                  </span>{" "}
+                  for authentication.
+                </>
+              ) : (
+                "This item is not assigned to an authenticator yet."
+              )}{" "}
+              You can review the authentication details and metrics below, but
+              your account cannot edit fields or save changes.
             </span>
           </p>
         ) : null}

@@ -435,6 +435,8 @@ const APPROVED_ITEM_AUTHENTICATION_STATUS = 'Approved';
 const FOR_RENEGOTIATION_ITEM_AUTHENTICATION_STATUS = 'For renegotiation';
 const AUTHENTICATED_REQUESTED_FOR_REAUTHENTICATION_INVENTORY_STATUS =
   'Authenticated: Requested for Reauthentication';
+const AUTHENTICATED_FOR_THIRD_PARTY_INVENTORY_STATUS =
+  'Authenticated: For 3rd party authentication';
 const REQUESTED_FOR_REAUTHENTICATION_ITEM_AUTH_STATUS =
   'Requested for Reauthentication';
 const AUTHENTICATION_REJECTED_INVENTORY_STATUS = 'Authentication Rejected';
@@ -482,6 +484,11 @@ export class InventoryService {
       if (!options.createIfMissing) {
         throw new BadRequestException('Item authentication record not found.');
       }
+      if (!actor.isAdmin) {
+        throw new ForbiddenException(
+          'This item must be assigned to an authenticator before authentication.',
+        );
+      }
       auth = this.itemAuthRepo.create({
         inventoryItemId,
         assignedToId: null,
@@ -496,12 +503,15 @@ export class InventoryService {
         where: { userId: actor.userId },
       });
       const assigneeId = auth.assignedToId;
-      if (assigneeId != null) {
-        if (!employee?.id || employee.id !== assigneeId) {
-          throw new ForbiddenException(
-            'Only the assigned authenticator can perform this action.',
-          );
-        }
+      if (!assigneeId) {
+        throw new ForbiddenException(
+          'This item must be assigned to an authenticator before authentication.',
+        );
+      }
+      if (!employee?.id || employee.id !== assigneeId) {
+        throw new ForbiddenException(
+          'Only the assigned authenticator can perform this action.',
+        );
       }
     }
     return auth;
@@ -696,9 +706,12 @@ export class InventoryService {
     if (!item) {
       throw new NotFoundException('Inventory item not found');
     }
-    if (item.status !== FOR_AUTHENTICATION_INVENTORY_STATUS) {
+    if (
+      item.status !== FOR_AUTHENTICATION_INVENTORY_STATUS &&
+      item.status !== AUTHENTICATED_FOR_THIRD_PARTY_INVENTORY_STATUS
+    ) {
       throw new BadRequestException(
-        `Only items in "${FOR_AUTHENTICATION_INVENTORY_STATUS}" status can be approved from authentication.`,
+        `Only items in "${FOR_AUTHENTICATION_INVENTORY_STATUS}" or "${AUTHENTICATED_FOR_THIRD_PARTY_INVENTORY_STATUS}" status can be approved from authentication.`,
       );
     }
     const auth = await this.enforceAuthenticatorAccess(inventoryItemId, actor, {

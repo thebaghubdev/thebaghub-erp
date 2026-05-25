@@ -17,6 +17,7 @@ import { useClientPagination } from "../hooks/useClientPagination";
 import { PhpPriceInput } from "../components/PhpPriceInput";
 import { apiFetch } from "../lib/api";
 import { InquiryStatusBadge } from "../components/InquiryStatusBadge";
+import { branchLabel } from "../lib/consignment-schedule-labels";
 import { formatOfferTransactionLabel } from "../lib/format-offer-transaction-type";
 import { formatPhpDisplay, parsePhpStringToNumber } from "../lib/format-php";
 import { randomId } from "../lib/random-id";
@@ -25,6 +26,7 @@ type TransactionType = "consignment" | "direct_purchase";
 
 type ClientOfferConfirmation = {
   paymentMethod: "check_pickup" | "cash_pickup" | "direct_deposit";
+  paymentBranch: "pasig" | "makati" | null;
   bankDetails: {
     accountNumber: string;
     accountName: string;
@@ -1041,6 +1043,20 @@ export function InquiryDetailPage() {
                         </dd>
                       </div>
                     </>
+                  ) : null}
+                  {detail.clientOfferConfirmation.paymentMethod !==
+                    "direct_deposit" &&
+                  detail.clientOfferConfirmation.paymentBranch ? (
+                    <div>
+                      <dt className="text-slate-500 dark:text-slate-400">
+                        Pickup branch
+                      </dt>
+                      <dd>
+                        {branchLabel(
+                          detail.clientOfferConfirmation.paymentBranch,
+                        )}
+                      </dd>
+                    </div>
                   ) : null}
                   {detail.clientOfferConfirmation.signatureUrl ? (
                     <div>

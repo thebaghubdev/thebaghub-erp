@@ -15,7 +15,10 @@ import { TermsScrollAgreeModal } from "../components/TermsScrollAgreeModal";
 import { useClientAuth } from "../context/client-auth";
 import { apiFetch } from "../lib/api";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
-import { modeOfTransferLabel } from "../lib/consignment-schedule-labels";
+import {
+  branchLabel,
+  modeOfTransferLabel,
+} from "../lib/consignment-schedule-labels";
 import { InquiryStatusBadge } from "../components/InquiryStatusBadge";
 import { formatPhpDisplay } from "../lib/format-php";
 
@@ -23,6 +26,7 @@ type TransactionType = "consignment" | "direct_purchase";
 
 type ClientOfferConfirmation = {
   paymentMethod: "check_pickup" | "cash_pickup" | "direct_deposit";
+  paymentBranch: "pasig" | "makati" | null;
   bankDetails: {
     accountNumber: string;
     accountName: string;
@@ -192,6 +196,9 @@ export function ClientConsignmentDetailPage() {
   const [paymentMethod, setPaymentMethod] = useState<
     "check_pickup" | "cash_pickup" | "direct_deposit"
   >("check_pickup");
+  const [paymentBranch, setPaymentBranch] = useState<"pasig" | "makati">(
+    "pasig",
+  );
   const [consignmentTermsAccepted, setConsignmentTermsAccepted] =
     useState(false);
   const [termsAgreementModalOpen, setTermsAgreementModalOpen] = useState(false);
@@ -286,6 +293,7 @@ export function ClientConsignmentDetailPage() {
   const openConfirmOfferModal = useCallback(() => {
     setConfirmFormError(null);
     setPaymentMethod("check_pickup");
+    setPaymentBranch("pasig");
     setConsignmentTermsAccepted(false);
     setOfferSignatureFile(null);
     setSignatureFieldKey((k) => k + 1);
@@ -326,6 +334,8 @@ export function ClientConsignmentDetailPage() {
         const payload: Record<string, unknown> = { paymentMethod };
         if (paymentMethod === "direct_deposit" && savedBankDetails) {
           payload.bankDetails = savedBankDetails;
+        } else {
+          payload.paymentBranch = paymentBranch;
         }
         const fd = new FormData();
         fd.append("payload", JSON.stringify(payload));
@@ -351,6 +361,7 @@ export function ClientConsignmentDetailPage() {
       id,
       token,
       paymentMethod,
+      paymentBranch,
       user,
       consignmentTermsAccepted,
       offerSignatureFile,
@@ -630,6 +641,18 @@ export function ClientConsignmentDetailPage() {
                         </dd>
                       </div>
                     </>
+                  ) : null}
+                  {detail.clientOfferConfirmation.paymentMethod !==
+                    "direct_deposit" &&
+                  detail.clientOfferConfirmation.paymentBranch ? (
+                    <div>
+                      <dt className="text-slate-500">Pickup branch</dt>
+                      <dd>
+                        {branchLabel(
+                          detail.clientOfferConfirmation.paymentBranch,
+                        )}
+                      </dd>
+                    </div>
                   ) : null}
                   {detail.clientOfferConfirmation.signatureUrl ? (
                     <div>
@@ -933,7 +956,30 @@ export function ClientConsignmentDetailPage() {
                         </p>
                       ) : null}
                     </div>
-                  ) : null}
+                  ) : (
+                    <div>
+                      <label
+                        htmlFor="client-payment-branch"
+                        className="block text-sm font-medium text-slate-700"
+                      >
+                        Pickup branch
+                      </label>
+                      <select
+                        id="client-payment-branch"
+                        value={paymentBranch}
+                        onChange={(e) =>
+                          setPaymentBranch(
+                            e.target.value as typeof paymentBranch,
+                          )
+                        }
+                        disabled={confirmBusy}
+                        className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 disabled:bg-slate-100"
+                      >
+                        <option value="pasig">Pasig</option>
+                        <option value="makati">Makati</option>
+                      </select>
+                    </div>
+                  )}
 
                   <div className="flex items-start gap-2 pt-1">
                     <input
