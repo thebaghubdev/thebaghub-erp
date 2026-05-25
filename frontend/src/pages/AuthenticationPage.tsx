@@ -761,6 +761,7 @@ export function AuthenticationPage() {
           <DataTable<InventoryRow>
             data={rows}
             columns={authQueueColumns}
+            tableId="portal.authentication.queue"
             isLoading={loading}
             emptyMessage="No items in For Authentication, For Photoshoot, Authenticated: Requested for Reauthentication, Authenticated: For 3rd party authentication, or Authenticated: For renegotiation (Approved authentication status is omitted)."
             hideEmptyState={!!error}
@@ -893,6 +894,7 @@ export function AuthenticationPage() {
           <DataTable<AuthenticationMetricRow>
             data={metricRows}
             columns={authenticationMetricsColumns}
+            tableId="portal.authentication.metrics"
             isLoading={metricsLoading}
             emptyMessage="No authentication metrics found."
             hideEmptyState={!!metricsError}

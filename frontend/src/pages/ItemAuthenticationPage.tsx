@@ -1088,7 +1088,7 @@ export function ItemAuthenticationPage() {
   }, []);
 
   const saveChanges = useCallback(async () => {
-    if (!token || !id || !canEditMetrics) return;
+    if (!token || !id || !detail || !canEditMetrics) return;
     setSaveBusy(true);
     setSaveError(null);
     try {

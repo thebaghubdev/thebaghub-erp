@@ -138,6 +138,7 @@ export function EditingPage() {
       <DataTable
         data={rows}
         columns={columns}
+        tableId="portal.editing"
         isLoading={loading}
         emptyMessage="No inventory items are currently For Editing or For Posting."
         hideEmptyState={!!error}

@@ -34,6 +34,8 @@ import { Notification } from './notifications/entities/notification.entity';
 import { NotificationsModule } from './notifications/notifications.module';
 import { ShopifyModule } from './shopify/shopify.module';
 import { ShopifyShopSession } from './shopify/entities/shopify-shop-session.entity';
+import { TablePreferencesModule } from './table-preferences/table-preferences.module';
+import { TablePreference } from './table-preferences/entities/table-preference.entity';
 
 @Module({
   imports: [
@@ -65,6 +67,7 @@ import { ShopifyShopSession } from './shopify/entities/shopify-shop-session.enti
           ItemPhotoshoot,
           Notification,
           ShopifyShopSession,
+          TablePreference,
         ],
         synchronize:
           config.get<string>('NODE_ENV', 'development') !== 'production',
@@ -81,6 +84,7 @@ import { ShopifyShopSession } from './shopify/entities/shopify-shop-session.enti
     AuthenticationMetricsModule,
     NotificationsModule,
     ShopifyModule,
+    TablePreferencesModule,
   ],
   controllers: [AppController],
   providers: [

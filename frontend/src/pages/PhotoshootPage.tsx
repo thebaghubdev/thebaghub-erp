@@ -359,6 +359,7 @@ export function PhotoshootPage() {
           <DataTable
             data={photoshootRows}
             columns={photoshootColumns}
+            tableId="portal.photoshoot"
             isLoading={inventoryLoading}
             emptyMessage="No inventory items with status For Photoshoot."
             hideEmptyState={!!inventoryError}

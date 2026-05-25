@@ -5,9 +5,15 @@ import {
   useEffect,
   useId,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { HorizontalScrollMirror } from "../HorizontalScrollMirror";
+import {
+  loadTablePreference,
+  saveTablePreference,
+  type TablePreferenceConfig,
+} from "../../lib/table-preferences";
 import {
   type Column,
   type ColumnPinningState,
@@ -143,6 +149,121 @@ function moveItem<T>(items: T[], fromIndex: number, toIndex: number): T[] {
   return next;
 }
 
+function stableStringify(value: TablePreferenceConfig): string {
+  return JSON.stringify(value);
+}
+
+function parseColumnIdsKey(key: string): string[] {
+  return key ? key.split("\u001f") : [];
+}
+
+function uniqueValidIds(
+  ids: string[] | undefined,
+  validColumnIds: ReadonlySet<string>,
+): string[] {
+  if (!ids?.length) return [];
+  const seen = new Set<string>();
+  for (const id of ids) {
+    if (!validColumnIds.has(id) || isCheckboxColumnId(id) || seen.has(id)) {
+      continue;
+    }
+    seen.add(id);
+  }
+  return [...seen];
+}
+
+function buildColumnOrderFromPreference(
+  preferenceOrder: string[] | undefined,
+  tableColumnIds: string[],
+): string[] {
+  const validColumnIds = new Set(tableColumnIds);
+  const ordered = uniqueValidIds(preferenceOrder, validColumnIds);
+  const orderedSet = new Set(ordered);
+  return [
+    ...tableColumnIds.filter(isCheckboxColumnId),
+    ...ordered,
+    ...tableColumnIds.filter(
+      (id) => !isCheckboxColumnId(id) && !orderedSet.has(id),
+    ),
+  ];
+}
+
+function buildTablePreferenceConfig({
+  sorting,
+  globalFilter,
+  columnFilters,
+  columnOrder,
+  columnPinning,
+  pageSize,
+  tableColumnIds,
+}: {
+  sorting: SortingState;
+  globalFilter: string;
+  columnFilters: ColumnFiltersState;
+  columnOrder: ColumnOrderState;
+  columnPinning: ColumnPinningState;
+  pageSize: number;
+  tableColumnIds: string[];
+}): TablePreferenceConfig {
+  const validColumnIds = new Set(tableColumnIds);
+  const order = uniqueValidIds(columnOrder, validColumnIds);
+  const pinnedLeft = uniqueValidIds(columnPinning.left, validColumnIds);
+  const pinnedRight = uniqueValidIds(columnPinning.right, validColumnIds);
+  const validSorting = sorting.filter(
+    (sort) => validColumnIds.has(sort.id) && !isCheckboxColumnId(sort.id),
+  );
+  const validFilters = columnFilters.filter(
+    (filter) =>
+      validColumnIds.has(filter.id) && !isCheckboxColumnId(filter.id),
+  );
+
+  return {
+    version: 1,
+    ...(order.length ? { columnOrder: order } : {}),
+    ...(pinnedLeft.length || pinnedRight.length
+      ? { columnPinning: { left: pinnedLeft, right: pinnedRight } }
+      : {}),
+    ...(validSorting.length ? { sorting: validSorting } : {}),
+    ...(validFilters.length ? { columnFilters: validFilters } : {}),
+    ...(globalFilter ? { globalFilter } : {}),
+    pagination: { pageSize },
+  };
+}
+
+function sanitizeLoadedPreference(
+  preference: TablePreferenceConfig | null,
+  tableColumnIds: string[],
+): TablePreferenceConfig {
+  const validColumnIds = new Set(tableColumnIds);
+  const pinnedLeft = uniqueValidIds(
+    preference?.columnPinning?.left,
+    validColumnIds,
+  );
+  const pinnedRight = uniqueValidIds(
+    preference?.columnPinning?.right,
+    validColumnIds,
+  );
+  return buildTablePreferenceConfig({
+    sorting:
+      preference?.sorting?.filter(
+        (sort) => validColumnIds.has(sort.id) && !isCheckboxColumnId(sort.id),
+      ) ?? [],
+    globalFilter: preference?.globalFilter ?? "",
+    columnFilters:
+      preference?.columnFilters?.filter(
+        (filter) =>
+          validColumnIds.has(filter.id) && !isCheckboxColumnId(filter.id),
+      ) ?? [],
+    columnOrder: buildColumnOrderFromPreference(
+      preference?.columnOrder,
+      tableColumnIds,
+    ),
+    columnPinning: { left: pinnedLeft, right: pinnedRight },
+    pageSize: preference?.pagination?.pageSize ?? 10,
+    tableColumnIds,
+  });
+}
+
 function pinnedColumnStyle<TData extends object>(
   column: Column<TData, unknown>,
 ): CSSProperties | undefined {
@@ -237,6 +358,8 @@ export type DataTableProps<TData extends object> = {
   data: TData[];
   /** Use `any` for cell value type so string/boolean columns type-check with `createColumnHelper`. */
   columns: DataTableColumnDef<TData>[];
+  /** Stable identifier used to persist per-user table preferences. */
+  tableId?: string;
   /** Shown while loading and data is empty */
   isLoading?: boolean;
   emptyMessage?: string;
@@ -283,6 +406,7 @@ export type DataTableProps<TData extends object> = {
 export function DataTable<TData extends object>({
   data,
   columns,
+  tableId,
   isLoading = false,
   emptyMessage = "No data.",
   hideEmptyState = false,
@@ -312,6 +436,9 @@ export function DataTable<TData extends object>({
     pageIndex: 0,
     pageSize: 10,
   });
+  const [preferencesHydrated, setPreferencesHydrated] = useState(!tableId);
+  const lastSavedPreferenceJsonRef = useRef<string | null>(null);
+  const saveSequenceRef = useRef(0);
   const globalSearchId = useId();
   const brandFilterListId = useId();
 
@@ -386,6 +513,10 @@ export function DataTable<TData extends object>({
     () => tableColumns.map((column, index) => getColumnDefId(column, index)),
     [tableColumns],
   );
+  const tableColumnIdsKey = useMemo(
+    () => tableColumnIds.join("\u001f"),
+    [tableColumnIds],
+  );
 
   useEffect(() => {
     setColumnOrder((current) => {
@@ -419,6 +550,69 @@ export function DataTable<TData extends object>({
       return { ...current, left };
     });
   }, [tableColumnIds]);
+
+  useEffect(() => {
+    if (!tableId) {
+      setPreferencesHydrated(true);
+      lastSavedPreferenceJsonRef.current = null;
+      return;
+    }
+
+    let cancelled = false;
+    setPreferencesHydrated(false);
+
+    void (async () => {
+      let loadedPreference: TablePreferenceConfig | null = null;
+      try {
+        loadedPreference = await loadTablePreference(tableId);
+      } catch {
+        loadedPreference = null;
+      }
+
+      if (cancelled) return;
+
+      const columnIds = parseColumnIdsKey(tableColumnIdsKey);
+      const sanitizedPreference = sanitizeLoadedPreference(
+        loadedPreference,
+        columnIds,
+      );
+      const nextColumnOrder = buildColumnOrderFromPreference(
+        sanitizedPreference.columnOrder,
+        columnIds,
+      );
+      const nextColumnPinning = sanitizedPreference.columnPinning ?? {
+        left: [],
+        right: [],
+      };
+      const nextSorting = sanitizedPreference.sorting ?? [];
+      const nextColumnFilters = sanitizedPreference.columnFilters ?? [];
+      const nextGlobalFilter = sanitizedPreference.globalFilter ?? "";
+      const nextPageSize = sanitizedPreference.pagination?.pageSize ?? 10;
+
+      setSorting(nextSorting);
+      setGlobalFilter(nextGlobalFilter);
+      setColumnFilters(nextColumnFilters);
+      setColumnOrder(nextColumnOrder);
+      setColumnPinning(nextColumnPinning);
+      setPagination({ pageIndex: 0, pageSize: nextPageSize });
+      lastSavedPreferenceJsonRef.current = stableStringify(
+        buildTablePreferenceConfig({
+          sorting: nextSorting,
+          globalFilter: nextGlobalFilter,
+          columnFilters: nextColumnFilters,
+          columnOrder: nextColumnOrder,
+          columnPinning: nextColumnPinning,
+          pageSize: nextPageSize,
+          tableColumnIds: columnIds,
+        }),
+      );
+      setPreferencesHydrated(true);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [tableId, tableColumnIdsKey]);
 
   const setColumnFrozen = (columnId: string, frozen: boolean) => {
     if (isCheckboxColumnId(columnId)) return;
@@ -510,6 +704,52 @@ export function DataTable<TData extends object>({
       ? (original, index) => getRowId(original as TData, index)
       : undefined,
   });
+
+  const currentPreferenceConfig = useMemo(
+    () =>
+      buildTablePreferenceConfig({
+        sorting,
+        globalFilter,
+        columnFilters,
+        columnOrder,
+        columnPinning,
+        pageSize: pagination.pageSize,
+        tableColumnIds: parseColumnIdsKey(tableColumnIdsKey),
+      }),
+    [
+      sorting,
+      globalFilter,
+      columnFilters,
+      columnOrder,
+      columnPinning,
+      pagination.pageSize,
+      tableColumnIdsKey,
+    ],
+  );
+
+  useEffect(() => {
+    if (!tableId || !preferencesHydrated) return;
+
+    const currentPreferenceJson = stableStringify(currentPreferenceConfig);
+    if (currentPreferenceJson === lastSavedPreferenceJsonRef.current) return;
+
+    const saveSequence = saveSequenceRef.current + 1;
+    saveSequenceRef.current = saveSequence;
+
+    void saveTablePreference(tableId, currentPreferenceConfig)
+      .then(() => {
+        if (saveSequenceRef.current === saveSequence) {
+          lastSavedPreferenceJsonRef.current = currentPreferenceJson;
+        }
+      })
+      .catch(() => {
+        // Preference failures should not interrupt table usage.
+      });
+  }, [
+    tableId,
+    preferencesHydrated,
+    currentPreferenceConfig,
+  ]);
 
   const showEmpty = !hideEmptyState && !isLoading && data.length === 0;
   const filteredCount = table.getFilteredRowModel().rows.length;

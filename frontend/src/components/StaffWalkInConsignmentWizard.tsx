@@ -461,8 +461,8 @@ export function StaffWalkInConsignmentWizard({
         description="You have unsaved changes to this consignment inquiry. Leave this page?"
         cancelLabel="Stay"
         confirmLabel="Leave"
-        onCancel={() => blocker.reset()}
-        onConfirm={() => blocker.proceed()}
+        onCancel={() => blocker.reset?.()}
+        onConfirm={() => blocker.proceed?.()}
       />
       <ConfirmDialog
         open={pendingDeleteItem !== null}

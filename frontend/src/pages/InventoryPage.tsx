@@ -186,6 +186,7 @@ export function InventoryPage() {
           <DataTable
             data={rows}
             columns={columns}
+            tableId="portal.inventory"
             isLoading={loading}
             emptyMessage="No inventory items yet."
             hideEmptyState={!!error}

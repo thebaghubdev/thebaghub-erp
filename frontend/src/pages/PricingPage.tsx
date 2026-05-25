@@ -571,6 +571,7 @@ export function PricingPage() {
       <DataTable
         data={rows}
         columns={columns}
+        tableId="portal.pricing"
         isLoading={loading}
         emptyMessage="No items are currently For Pricing or For Editing."
         hideEmptyState={!!error}

@@ -614,11 +614,11 @@ export const ConsignmentInquiryWizard = forwardRef<
       <UnsavedConsignmentDraftDialog
         open={blocker.state === 'blocked'}
         saveBusy={saveBusy}
-        onStay={() => blocker.reset()}
-        onLeaveWithoutSaving={() => blocker.proceed()}
+        onStay={() => blocker.reset?.()}
+        onLeaveWithoutSaving={() => blocker.proceed?.()}
         onSave={async () => {
           const ok = await persistDraft()
-          if (ok) blocker.proceed()
+          if (ok) blocker.proceed?.()
         }}
       />
       <ConfirmDialog

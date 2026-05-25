@@ -406,6 +406,7 @@ export function PostingPage() {
           <DataTable
             data={postingRows}
             columns={postingColumns}
+            tableId="portal.posting"
             isLoading={inventoryLoading}
             emptyMessage="No inventory items with status For Posting."
             hideEmptyState={!!inventoryError}

@@ -559,6 +559,7 @@ export function CreateScheduleWizard({ onScheduleSaved }: Props) {
           <DataTable<WizardInquiryRow>
             data={inquiries}
             columns={inquiryColumns}
+            tableId="portal.consignment-scheduling.create.inquiries"
             isLoading={inquiryLoading}
             emptyMessage="No inquiries match this status yet."
             hideEmptyState={!!inquiryError}

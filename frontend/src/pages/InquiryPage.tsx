@@ -446,6 +446,7 @@ export function InquiryPage() {
           <DataTable<InquiryRow>
             data={rows}
             columns={inquiryColumns}
+            tableId="portal.inquiries"
             isLoading={loading}
             emptyMessage="No inquiries yet."
             hideEmptyState={!!error}
