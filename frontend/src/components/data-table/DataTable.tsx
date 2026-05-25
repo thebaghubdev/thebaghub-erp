@@ -1,4 +1,5 @@
 import {
+  type CSSProperties,
   type DragEvent,
   type ReactNode,
   useEffect,
@@ -9,6 +10,7 @@ import {
 import { HorizontalScrollMirror } from "../HorizontalScrollMirror";
 import {
   type Column,
+  type ColumnPinningState,
   type ColumnOrderState,
   type ColumnDef,
   type ColumnFiltersState,
@@ -139,6 +141,22 @@ function moveItem<T>(items: T[], fromIndex: number, toIndex: number): T[] {
   const [item] = next.splice(fromIndex, 1);
   next.splice(toIndex, 0, item);
   return next;
+}
+
+function pinnedColumnStyle<TData extends object>(
+  column: Column<TData, unknown>,
+): CSSProperties | undefined {
+  if (column.getIsPinned() !== "left") return undefined;
+  return { left: `${column.getStart("left")}px` };
+}
+
+function pinnedColumnClass<TData extends object>(
+  column: Column<TData, unknown>,
+  backgroundClass: string,
+  zIndexClass: string,
+): string {
+  if (column.getIsPinned() !== "left") return "";
+  return `sticky ${zIndexClass} ${backgroundClass} shadow-[2px_0_0_rgba(148,163,184,0.25)]`;
 }
 
 function BrandColumnFilter<TData extends object>({
@@ -285,6 +303,10 @@ export function DataTable<TData extends object>({
   const [globalFilter, setGlobalFilter] = useState("");
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [columnOrder, setColumnOrder] = useState<ColumnOrderState>([]);
+  const [columnPinning, setColumnPinning] = useState<ColumnPinningState>({
+    left: [],
+    right: [],
+  });
   const [draggedColumnId, setDraggedColumnId] = useState<string | null>(null);
   const [pagination, setPagination] = useState<PaginationState>({
     pageIndex: 0,
@@ -382,6 +404,33 @@ export function DataTable<TData extends object>({
     });
   }, [tableColumnIds]);
 
+  useEffect(() => {
+    setColumnPinning((current) => {
+      const pinnedLeft = new Set(current.left ?? []);
+      const left = tableColumnIds.filter(
+        (id) => pinnedLeft.has(id) && !isCheckboxColumnId(id),
+      );
+      if (
+        left.length === (current.left?.length ?? 0) &&
+        left.every((id, index) => id === current.left?.[index])
+      ) {
+        return current;
+      }
+      return { ...current, left };
+    });
+  }, [tableColumnIds]);
+
+  const setColumnFrozen = (columnId: string, frozen: boolean) => {
+    if (isCheckboxColumnId(columnId)) return;
+    setColumnPinning((current) => {
+      const currentLeft = new Set(current.left ?? []);
+      if (frozen) currentLeft.add(columnId);
+      else currentLeft.delete(columnId);
+      const left = tableColumnIds.filter((id) => currentLeft.has(id));
+      return { ...current, left };
+    });
+  };
+
   const moveDraggedColumn = (
     targetColumnId: string,
     insertAfterTarget: boolean,
@@ -438,11 +487,19 @@ export function DataTable<TData extends object>({
     data,
     columns: tableColumns,
     defaultColumn,
-    state: { sorting, globalFilter, columnFilters, columnOrder, pagination },
+    state: {
+      sorting,
+      globalFilter,
+      columnFilters,
+      columnOrder,
+      columnPinning,
+      pagination,
+    },
     onSortingChange: setSorting,
     onGlobalFilterChange: setGlobalFilter,
     onColumnFiltersChange: setColumnFilters,
     onColumnOrderChange: setColumnOrder,
+    onColumnPinningChange: setColumnPinning,
     onPaginationChange: setPagination,
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
@@ -545,6 +602,9 @@ export function DataTable<TData extends object>({
                   <th
                     key={header.id}
                     scope="col"
+                    style={pinnedColumnStyle(
+                      header.column as Column<TData, unknown>,
+                    )}
                     draggable={!isCheckboxColumnId(header.column.id)}
                     onDragStart={(e) =>
                       handleColumnDragStart(e, header.column.id)
@@ -561,7 +621,11 @@ export function DataTable<TData extends object>({
                     }
                     className={`${
                       isCheckboxColumnId(header.column.id) ? thCheckbox : thBase
-                    } ${
+                    } ${pinnedColumnClass(
+                      header.column as Column<TData, unknown>,
+                      "bg-slate-50 dark:bg-slate-950",
+                      "z-30",
+                    )} ${
                       isCheckboxColumnId(header.column.id)
                         ? ""
                         : "cursor-grab transition-colors active:cursor-grabbing"
@@ -579,29 +643,46 @@ export function DataTable<TData extends object>({
                         header.getContext(),
                       )
                     ) : (
-                      <button
-                        type="button"
-                        className={
-                          header.column.getCanSort()
-                            ? "flex w-full cursor-pointer select-none items-center gap-1 text-left font-semibold hover:text-violet-700 dark:hover:text-violet-300"
-                            : "block w-full text-left"
-                        }
-                        onClick={header.column.getToggleSortingHandler()}
-                        disabled={!header.column.getCanSort()}
-                      >
-                        {flexRender(
-                          header.column.columnDef.header,
-                          header.getContext(),
-                        )}
-                        {header.column.getCanSort() ? (
-                          <span className="inline-block w-4 text-violet-600 dark:text-violet-400">
-                            {{
-                              asc: "↑",
-                              desc: "↓",
-                            }[header.column.getIsSorted() as string] ?? "↕"}
-                          </span>
-                        ) : null}
-                      </button>
+                      <div className="flex items-start gap-2">
+                        <button
+                          type="button"
+                          className={
+                            header.column.getCanSort()
+                              ? "flex min-w-0 flex-1 cursor-pointer select-none items-center gap-1 text-left font-semibold hover:text-violet-700 dark:hover:text-violet-300"
+                              : "block min-w-0 flex-1 text-left"
+                          }
+                          onClick={header.column.getToggleSortingHandler()}
+                          disabled={!header.column.getCanSort()}
+                        >
+                          {flexRender(
+                            header.column.columnDef.header,
+                            header.getContext(),
+                          )}
+                          {header.column.getCanSort() ? (
+                            <span className="inline-block w-4 shrink-0 text-violet-600 dark:text-violet-400">
+                              {{
+                                asc: "↑",
+                                desc: "↓",
+                              }[header.column.getIsSorted() as string] ?? "↕"}
+                            </span>
+                          ) : null}
+                        </button>
+                        <input
+                          type="checkbox"
+                          checked={header.column.getIsPinned() === "left"}
+                          onChange={(e) =>
+                            setColumnFrozen(
+                              header.column.id,
+                              e.target.checked,
+                            )
+                          }
+                          onClick={(e) => e.stopPropagation()}
+                          onDragStart={(e) => e.stopPropagation()}
+                          aria-label={`Freeze ${header.column.id} column`}
+                          title="Freeze column"
+                          className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border-slate-300 text-violet-600 focus:ring-violet-500 dark:border-slate-600 dark:bg-slate-900"
+                        />
+                      </div>
                     )}
                   </th>
                 ))}
@@ -611,9 +692,16 @@ export function DataTable<TData extends object>({
               {filterHeaderGroup?.headers.map((header) => (
                 <th
                   key={`f-${header.id}`}
+                  style={pinnedColumnStyle(
+                    header.column as Column<TData, unknown>,
+                  )}
                   className={`${
                     isCheckboxColumnId(header.column.id) ? thCheckbox : thBase
-                  } pb-2 pt-0 font-normal normal-case`}
+                  } ${pinnedColumnClass(
+                    header.column as Column<TData, unknown>,
+                    "bg-slate-50 dark:bg-slate-950",
+                    "z-20",
+                  )} pb-2 pt-0 font-normal normal-case`}
                 >
                   {header.column.getCanFilter() ? (
                     header.column.id === "brand" ? (
@@ -727,10 +815,19 @@ export function DataTable<TData extends object>({
                   {row.getVisibleCells().map((cell) => (
                     <td
                       key={cell.id}
+                      style={pinnedColumnStyle(
+                        cell.column as Column<TData, unknown>,
+                      )}
                       className={
-                        isCheckboxColumnId(cell.column.id)
-                          ? tdCheckbox
-                          : tdBase
+                        `${
+                          isCheckboxColumnId(cell.column.id)
+                            ? tdCheckbox
+                            : tdBase
+                        } ${pinnedColumnClass(
+                          cell.column as Column<TData, unknown>,
+                          "bg-white dark:bg-slate-900",
+                          "z-10",
+                        )}`
                       }
                     >
                       {flexRender(
