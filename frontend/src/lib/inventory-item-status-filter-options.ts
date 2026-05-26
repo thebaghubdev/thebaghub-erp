@@ -25,7 +25,7 @@ export const INVENTORY_ITEM_STATUS_FILTER_OPTIONS: {
     label: "Authenticated: For renegotiation",
   },
   {
-    value: "Authentication Rejected",
-    label: "Authentication Rejected",
+    value: "Authenticated: Rejected",
+    label: "Authenticated: Rejected",
   },
 ];

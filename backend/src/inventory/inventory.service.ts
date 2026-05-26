@@ -439,7 +439,7 @@ const AUTHENTICATED_FOR_THIRD_PARTY_INVENTORY_STATUS =
   'Authenticated: For 3rd party authentication';
 const REQUESTED_FOR_REAUTHENTICATION_ITEM_AUTH_STATUS =
   'Requested for Reauthentication';
-const AUTHENTICATION_REJECTED_INVENTORY_STATUS = 'Authentication Rejected';
+const AUTHENTICATION_REJECTED_INVENTORY_STATUS = 'Authenticated: Rejected';
 const REJECTED_ITEM_AUTHENTICATION_STATUS = 'Rejected';
 
 @Injectable()

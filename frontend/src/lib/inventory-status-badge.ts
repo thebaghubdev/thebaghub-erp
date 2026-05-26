@@ -13,7 +13,7 @@ const BY_STATUS: Record<string, string> = {
     "text-indigo-800 dark:text-indigo-300",
   "authenticated: returned": "text-amber-800 dark:text-amber-300",
   "authenticated: for renegotiation": "text-amber-800 dark:text-amber-300",
-  "authentication rejected": "text-red-800 dark:text-red-300",
+  "authenticated: rejected": "text-red-800 dark:text-red-300",
 };
 
 export function inventoryStatusBadgeClassName(status: string): string {

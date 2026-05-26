@@ -2068,7 +2068,7 @@ export function ItemAuthenticationPage() {
       <ConfirmDialog
         open={rejectDialogOpen}
         title="Reject this item?"
-        description="The inventory item will be marked Authentication Rejected and removed from the in-house authentication queue."
+        description="The inventory item will be marked Authenticated: Rejected and removed from the in-house authentication queue."
         cancelLabel="Cancel"
         confirmLabel="Reject"
         danger
