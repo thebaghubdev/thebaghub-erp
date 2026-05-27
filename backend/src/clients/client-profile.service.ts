@@ -26,6 +26,7 @@ export class ClientProfileService {
     lastName: string;
     email: string;
     contactNumber: string;
+    completeAddress: string | null;
     bankAccountNumber: string | null;
     bankAccountName: string | null;
     bankCode: string | null;
@@ -49,6 +50,9 @@ export class ClientProfileService {
     if (dto.bankBranch !== undefined) {
       client.bankBranch = trimOrNull(dto.bankBranch);
     }
+    if (dto.completeAddress !== undefined) {
+      client.completeAddress = trimOrNull(dto.completeAddress);
+    }
 
     await this.clientsRepo.save(client);
 
@@ -57,6 +61,7 @@ export class ClientProfileService {
       lastName: client.lastName,
       email: client.email,
       contactNumber: client.contactNumber,
+      completeAddress: client.completeAddress,
       bankAccountNumber: client.bankAccountNumber,
       bankAccountName: client.bankAccountName,
       bankCode: client.bankCode,

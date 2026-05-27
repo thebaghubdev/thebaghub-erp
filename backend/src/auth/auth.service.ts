@@ -59,6 +59,10 @@ export class AuthService {
     }
 
     const username = dto.email.trim().toLowerCase();
+    const completeAddress = dto.completeAddress.trim();
+    if (!completeAddress) {
+      throw new BadRequestException('Complete address is required');
+    }
     const existing = await this.usersRepo.findOne({ where: { username } });
     if (existing) {
       throw new ConflictException('An account with this email already exists');
@@ -100,6 +104,7 @@ export class AuthService {
         lastName: dto.lastName.trim(),
         email: dto.email.trim().toLowerCase(),
         contactNumber: dto.contactNumber.trim(),
+        completeAddress,
         createdById: null,
         updatedById: null,
       });
@@ -323,6 +328,7 @@ export class AuthService {
         lastName: string;
         email: string;
         contactNumber: string;
+        completeAddress: string | null;
         bankAccountNumber: string | null;
         bankAccountName: string | null;
         bankCode: string | null;
@@ -354,6 +360,7 @@ export class AuthService {
           lastName: cli.lastName,
           email: cli.email,
           contactNumber: cli.contactNumber,
+          completeAddress: cli.completeAddress,
           bankAccountNumber: cli.bankAccountNumber,
           bankAccountName: cli.bankAccountName,
           bankCode: cli.bankCode,

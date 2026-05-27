@@ -20,4 +20,9 @@ export class UpdateClientBankDto {
   @IsString()
   @MaxLength(200)
   bankBranch?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  completeAddress?: string;
 }

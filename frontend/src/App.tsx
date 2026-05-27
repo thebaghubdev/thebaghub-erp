@@ -18,6 +18,7 @@ import { ClientResendVerificationPage } from './pages/ClientResendVerificationPa
 import { ClientVerifyEmailPage } from './pages/ClientVerifyEmailPage'
 import { ClientMyAccountPage } from './pages/ClientMyAccountPage'
 import { ClientConsignmentDetailPage } from './pages/ClientConsignmentDetailPage'
+import { ClientOrderItemPage } from './pages/ClientOrderItemPage'
 import { ConsignItemsPage } from './pages/ConsignItemsPage'
 import { InquiryDetailPage } from './pages/InquiryDetailPage'
 import { InventoryItemDetailPage } from './pages/InventoryItemDetailPage'
@@ -138,6 +139,7 @@ const router = createBrowserRouter([
         children: [
           { path: 'consignments/:id', element: <ClientConsignmentDetailPage /> },
           { path: 'consignments', element: <ConsignItemsPage /> },
+          { path: 'purchases/:itemId/order', element: <ClientOrderItemPage /> },
           { path: 'purchases', element: <PurchaseItemsPage /> },
           { path: 'my-account', element: <ClientMyAccountPage /> },
         ],

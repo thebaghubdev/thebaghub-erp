@@ -15,6 +15,7 @@ export function ClientCreateAccountPage() {
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [contactNumber, setContactNumber] = useState("");
+  const [completeAddress, setCompleteAddress] = useState("");
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [captchaMountKey, setCaptchaMountKey] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -48,6 +49,7 @@ export function ClientCreateAccountPage() {
           lastName: lastName.trim(),
           email: email.trim(),
           contactNumber: contactNumber.trim(),
+          completeAddress: completeAddress.trim(),
           ...(turnstileToken ? { turnstileToken } : {}),
         }),
       });
@@ -79,6 +81,7 @@ export function ClientCreateAccountPage() {
       setLastName("");
       setEmail("");
       setContactNumber("");
+      setCompleteAddress("");
       setTurnstileToken(null);
       setCaptchaMountKey((k) => k + 1);
     } catch (err) {
@@ -190,6 +193,23 @@ export function ClientCreateAccountPage() {
               value={contactNumber}
               onChange={(e) => setContactNumber(e.target.value)}
               required
+            />
+          </div>
+          <div>
+            <label
+              htmlFor="ca-address"
+              className="mb-1 block text-xs font-medium text-slate-700"
+            >
+              Complete address
+            </label>
+            <textarea
+              id="ca-address"
+              className={`${field} min-h-[6rem] resize-y`}
+              value={completeAddress}
+              onChange={(e) => setCompleteAddress(e.target.value)}
+              autoComplete="street-address"
+              required
+              rows={3}
             />
           </div>
 

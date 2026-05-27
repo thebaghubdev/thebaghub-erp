@@ -14,14 +14,19 @@ export function ClientMyAccountPage() {
   const c = user?.client;
 
   const bankModalTitleId = useId();
+  const addressModalTitleId = useId();
 
   const [bankModalOpen, setBankModalOpen] = useState(false);
+  const [addressModalOpen, setAddressModalOpen] = useState(false);
   const [accountNumber, setAccountNumber] = useState("");
   const [accountName, setAccountName] = useState("");
   const [bankCode, setBankCode] = useState("");
   const [branch, setBranch] = useState("");
+  const [completeAddress, setCompleteAddress] = useState("");
   const [saveBusy, setSaveBusy] = useState(false);
+  const [addressSaveBusy, setAddressSaveBusy] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [addressSaveError, setAddressSaveError] = useState<string | null>(null);
 
   const openBankModal = useCallback(() => {
     if (!c) return;
@@ -42,6 +47,18 @@ export function ClientMyAccountPage() {
     setSaveError(null);
   }, []);
 
+  const openAddressModal = useCallback(() => {
+    if (!c) return;
+    setCompleteAddress(c.completeAddress ?? "");
+    setAddressSaveError(null);
+    setAddressModalOpen(true);
+  }, [c]);
+
+  const closeAddressModal = useCallback(() => {
+    setAddressModalOpen(false);
+    setAddressSaveError(null);
+  }, []);
+
   useEffect(() => {
     if (!bankModalOpen) return;
     const onKey = (e: KeyboardEvent) => {
@@ -50,6 +67,15 @@ export function ClientMyAccountPage() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [bankModalOpen, saveBusy, closeBankModal]);
+
+  useEffect(() => {
+    if (!addressModalOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !addressSaveBusy) closeAddressModal();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [addressModalOpen, addressSaveBusy, closeAddressModal]);
 
   const onSubmitBank = async (e: FormEvent) => {
     e.preventDefault();
@@ -86,6 +112,41 @@ export function ClientMyAccountPage() {
       setSaveError("Could not save. Try again.");
     } finally {
       setSaveBusy(false);
+    }
+  };
+
+  const onSubmitAddress = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!token) return;
+    setAddressSaveError(null);
+    setAddressSaveBusy(true);
+    try {
+      const res = await apiFetch(
+        "/api/client/profile",
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            completeAddress: completeAddress.trim(),
+          }),
+        },
+        token,
+      );
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as {
+          message?: string | string[];
+        } | null;
+        const msg = Array.isArray(body?.message)
+          ? body.message.join(", ")
+          : body?.message;
+        setAddressSaveError(msg ?? `Could not save (${res.status})`);
+        return;
+      }
+      await refreshUser();
+      closeAddressModal();
+    } catch {
+      setAddressSaveError("Could not save. Try again.");
+    } finally {
+      setAddressSaveBusy(false);
     }
   };
 
@@ -128,6 +189,31 @@ export function ClientMyAccountPage() {
             </p>
           </div>
         </dl>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-900">
+              Complete address
+            </h2>
+            <p className="mt-1 text-xs text-slate-500">
+              Used for order requests and deliveries.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={openAddressModal}
+            disabled={!c || !token}
+            className="shrink-0 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-900 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+          >
+            Edit
+          </button>
+        </div>
+
+        <p className="mt-4 whitespace-pre-wrap text-sm text-slate-900">
+          {displayOrDash(c?.completeAddress)}
+        </p>
       </div>
 
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -301,6 +387,75 @@ export function ClientMyAccountPage() {
                   className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
                 >
                   {saveBusy ? "Saving…" : "Save"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+
+      {addressModalOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          role="dialog"
+          aria-modal
+          aria-labelledby={addressModalTitleId}
+          onClick={() => {
+            if (!addressSaveBusy) closeAddressModal();
+          }}
+        >
+          <div
+            className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3
+              id={addressModalTitleId}
+              className="text-base font-semibold text-slate-900"
+            >
+              Edit complete address
+            </h3>
+
+            <form onSubmit={onSubmitAddress} className="mt-4 space-y-3">
+              <div>
+                <label
+                  htmlFor="complete-address-modal"
+                  className="block text-xs font-medium uppercase tracking-wide text-slate-500"
+                >
+                  Complete address
+                </label>
+                <textarea
+                  id="complete-address-modal"
+                  value={completeAddress}
+                  onChange={(e) => setCompleteAddress(e.target.value)}
+                  disabled={addressSaveBusy}
+                  required
+                  rows={4}
+                  autoComplete="street-address"
+                  className="mt-1 w-full resize-y rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 outline-none ring-slate-400 focus:ring-2 disabled:opacity-50"
+                />
+              </div>
+
+              {addressSaveError ? (
+                <p className="text-sm text-red-600" role="alert">
+                  {addressSaveError}
+                </p>
+              ) : null}
+
+              <div className="flex flex-wrap justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={closeAddressModal}
+                  disabled={addressSaveBusy}
+                  className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-900 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={addressSaveBusy || !token}
+                  className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                >
+                  {addressSaveBusy ? "Saving…" : "Save"}
                 </button>
               </div>
             </form>

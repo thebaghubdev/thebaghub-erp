@@ -3,6 +3,7 @@ export type ClientProfile = {
   lastName: string
   email: string
   contactNumber: string
+  completeAddress: string | null
   bankAccountNumber: string | null
   bankAccountName: string | null
   bankCode: string | null
@@ -33,6 +34,7 @@ export function normalizeClientProfile(
     lastName: raw.lastName ?? '',
     email: raw.email ?? '',
     contactNumber: raw.contactNumber ?? '',
+    completeAddress: raw.completeAddress ?? null,
     bankAccountNumber: raw.bankAccountNumber ?? null,
     bankAccountName: raw.bankAccountName ?? null,
     bankCode: raw.bankCode ?? null,

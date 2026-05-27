@@ -33,4 +33,9 @@ export class RegisterClientDto {
   @IsString()
   @MaxLength(64)
   contactNumber: string;
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(1000)
+  completeAddress: string;
 }
