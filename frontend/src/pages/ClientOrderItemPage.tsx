@@ -1,9 +1,23 @@
-import { type ReactNode, useEffect, useId, useMemo, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useId, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link, useParams } from "react-router-dom";
 import { useClientAuth } from "../context/client-auth";
+import { TermsScrollAgreeModal } from "../components/TermsScrollAgreeModal";
+import { OfferSignatureField } from "../components/OfferSignatureField";
 import { apiFetch } from "../lib/api";
-import { formatPhpDisplay } from "../lib/format-php";
+import {
+  calculateLayawayPricing,
+  clampLayawayMonths,
+  DEFAULT_LAYAWAY_MONTHS,
+  layawayMonthlyRateLabel,
+  MAX_LAYAWAY_MONTHS,
+  MIN_LAYAWAY_MONTHS,
+} from "../lib/layaway-pricing";
+import {
+  formatPhpAmount,
+  formatPhpDisplay,
+  parsePhpStringToNumber,
+} from "../lib/format-php";
 
 type CatalogItemDetail = {
   id: string;
@@ -31,14 +45,24 @@ const labelCellClassName =
 const valueCellClassName =
   "border border-slate-200 bg-white px-3 py-2.5 text-left text-sm text-slate-900 align-top break-words whitespace-normal";
 
+type PaymentType = "full_payment" | "layaway";
+
+const paymentTypeOptions: Array<{ value: PaymentType; label: string }> = [
+  { value: "full_payment", label: "Full payment" },
+  { value: "layaway", label: "Layaway" },
+];
+
+const LAYAWAY_TERMS_URL = "/terms/layaway.txt";
+
+const formFieldClassName =
+  "mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500";
+
+const selectFieldClassName = formFieldClassName;
+
+const readonlyFormFieldClassName = `${formFieldClassName} bg-slate-50`;
+
 const backLinkClassName =
   "mb-3 inline-flex items-center gap-1.5 text-sm font-medium text-violet-700 hover:underline";
-
-const readonlyInputClassName =
-  "mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900";
-
-const readonlyTextareaClassName =
-  "mt-1 w-full resize-none rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900";
 
 function ArrowLeftIcon({ className = "h-4 w-4" }: { className?: string }) {
   return (
@@ -111,7 +135,10 @@ function DescriptionTable({
                 }
 
                 return [
-                  <th key={`${cell.label}-label`} className={labelCellClassName}>
+                  <th
+                    key={`${cell.label}-label`}
+                    className={labelCellClassName}
+                  >
                     {cell.label}
                   </th>,
                   <td
@@ -138,6 +165,14 @@ export function ClientOrderItemPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [photosModalOpen, setPhotosModalOpen] = useState(false);
+  const [paymentType, setPaymentType] = useState<PaymentType>("full_payment");
+  const [layawayMonths, setLayawayMonths] = useState(
+    String(DEFAULT_LAYAWAY_MONTHS),
+  );
+  const [layawayTermsAccepted, setLayawayTermsAccepted] = useState(false);
+  const [layawayTermsModalOpen, setLayawayTermsModalOpen] = useState(false);
+  const [orderSignatureFile, setOrderSignatureFile] = useState<File | null>(null);
+  const [signatureFieldKey, setSignatureFieldKey] = useState(0);
   const photosModalTitleId = useId();
 
   useEffect(() => {
@@ -230,17 +265,67 @@ export function ClientOrderItemPage() {
     ];
   }, [item]);
 
-  const customerName = useMemo(() => {
+  const customerDetailsRows = useMemo(() => {
     const client = user?.client;
-    if (!client) return "—";
-    const name = `${client.firstName} ${client.lastName}`.trim();
-    return name || "—";
+    const name = client
+      ? `${client.firstName} ${client.lastName}`.trim() || "—"
+      : "—";
+
+    return [
+      [{ label: "Customer name", value: name, valueColSpan: 3 }],
+      [
+        {
+          label: "Contact number",
+          value: client?.contactNumber?.trim() || "—",
+          valueColSpan: 3,
+        },
+      ],
+      [
+        {
+          label: "Email",
+          value: client?.email?.trim() || user?.username || "—",
+          valueColSpan: 3,
+        },
+      ],
+      [
+        {
+          label: "Complete address",
+          value: client?.completeAddress?.trim() || "—",
+          valueColSpan: 3,
+        },
+      ],
+    ];
   }, [user]);
 
-  const customerContactNumber = user?.client?.contactNumber?.trim() || "—";
-  const customerEmail = user?.client?.email?.trim() || user?.username || "—";
-  const customerCompleteAddress =
-    user?.client?.completeAddress?.trim() || "—";
+  const itemPrice = useMemo(
+    () => (item ? parsePhpStringToNumber(String(item.price ?? "")) : null),
+    [item],
+  );
+
+  const layawayMonthsNumber = useMemo(() => {
+    const n = Number.parseInt(layawayMonths, 10);
+    return Number.isFinite(n) ? n : null;
+  }, [layawayMonths]);
+
+  const layawayPricing = useMemo(() => {
+    if (itemPrice == null || layawayMonthsNumber == null) return null;
+    return calculateLayawayPricing(itemPrice, layawayMonthsNumber);
+  }, [itemPrice, layawayMonthsNumber]);
+
+  const layawayPriceDisplay =
+    layawayPricing != null ? formatPhpAmount(layawayPricing.layawayPrice) : "—";
+  const monthlyPaymentDisplay =
+    layawayPricing != null
+      ? formatPhpAmount(layawayPricing.monthlyPayment)
+      : "—";
+  const layawayRateNote =
+    itemPrice != null
+      ? `Layaway rate for this item: ${layawayMonthlyRateLabel(itemPrice)} per month.`
+      : null;
+
+  const canSubmitOrder =
+    orderSignatureFile != null &&
+    (paymentType !== "layaway" || layawayTermsAccepted);
 
   if (loading) {
     return <p className="text-sm text-slate-600">Loading item…</p>;
@@ -261,7 +346,12 @@ export function ClientOrderItemPage() {
     <div className="space-y-4">
       <BackToCatalogLink />
 
-      <form className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <form
+        className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+        onSubmit={(e: FormEvent) => {
+          e.preventDefault();
+        }}
+      >
         <div>
           <h1 className="text-lg font-semibold text-slate-900">
             Order Request Form
@@ -270,54 +360,146 @@ export function ClientOrderItemPage() {
 
         <DescriptionTable rows={descriptionRows} />
 
-        <div className="space-y-3">
-          <label className="block">
-            <span className="text-xs font-medium text-slate-500">
-              Customer name
-            </span>
-            <input
-              type="text"
-              value={customerName}
-              readOnly
-              className={readonlyInputClassName}
-            />
-          </label>
+        <DescriptionTable rows={customerDetailsRows} />
 
-          <label className="block">
-            <span className="text-xs font-medium text-slate-500">
-              Contact number
-            </span>
-            <input
-              type="text"
-              value={customerContactNumber}
-              readOnly
-              className={readonlyInputClassName}
-            />
-          </label>
+        <label className="block">
+          <span className="text-xs font-medium text-slate-500">
+            Payment type
+          </span>
+          <select
+            value={paymentType}
+            onChange={(e) => {
+              const next = e.target.value as PaymentType;
+              setPaymentType(next);
+              setOrderSignatureFile(null);
+              setSignatureFieldKey((k) => k + 1);
+              if (next !== "layaway") {
+                setLayawayTermsAccepted(false);
+                setLayawayTermsModalOpen(false);
+              }
+            }}
+            className={selectFieldClassName}
+          >
+            {paymentTypeOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
 
-          <label className="block">
-            <span className="text-xs font-medium text-slate-500">Email</span>
-            <input
-              type="email"
-              value={customerEmail}
-              readOnly
-              className={readonlyInputClassName}
-            />
-          </label>
+        {paymentType === "layaway" ? (
+          <div className="space-y-3">
+            <label className="block">
+              <span className="text-xs font-medium text-slate-500">
+                No. of months
+              </span>
+              <input
+                type="number"
+                min={MIN_LAYAWAY_MONTHS}
+                max={MAX_LAYAWAY_MONTHS}
+                step={1}
+                value={layawayMonths}
+                onChange={(e) =>
+                  setLayawayMonths(clampLayawayMonths(e.target.value))
+                }
+                className={formFieldClassName}
+              />
+              <p className="mt-1 text-xs text-slate-500">
+                Layaway is available for {MIN_LAYAWAY_MONTHS} to{" "}
+                {MAX_LAYAWAY_MONTHS} months only.
+              </p>
+              {layawayRateNote ? (
+                <p className="mt-1 text-xs text-slate-500">{layawayRateNote}</p>
+              ) : null}
+            </label>
 
-          <label className="block">
-            <span className="text-xs font-medium text-slate-500">
-              Complete address
-            </span>
-            <textarea
-              value={customerCompleteAddress}
-              readOnly
-              rows={3}
-              className={readonlyTextareaClassName}
+            <label className="block">
+              <span className="text-xs font-medium text-slate-500">
+                Layaway price
+              </span>
+              <input
+                type="text"
+                value={layawayPriceDisplay}
+                readOnly
+                className={readonlyFormFieldClassName}
+              />
+            </label>
+
+            <label className="block">
+              <span className="text-xs font-medium text-slate-500">
+                Monthly payment
+              </span>
+              <input
+                type="text"
+                value={monthlyPaymentDisplay}
+                readOnly
+                className={readonlyFormFieldClassName}
+              />
+            </label>
+
+            <div className="flex items-start gap-2 pt-1">
+              <input
+                id="layaway-terms"
+                type="checkbox"
+                checked={layawayTermsAccepted}
+                onChange={(e) => {
+                  if (!e.target.checked) {
+                    setLayawayTermsAccepted(false);
+                  }
+                }}
+                onClick={(e) => {
+                  if (!layawayTermsAccepted) {
+                    e.preventDefault();
+                    setLayawayTermsModalOpen(true);
+                  }
+                }}
+                className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+              />
+              <label
+                htmlFor="layaway-terms"
+                className="text-sm leading-snug text-slate-700"
+              >
+                I have read and agree to the Layaway Terms and Conditions.
+              </label>
+            </div>
+          </div>
+        ) : null}
+
+        <div>
+          <p className="text-sm font-medium text-slate-700">Signature</p>
+          <p className="mt-0.5 text-xs text-slate-500">
+            Draw your signature or upload a clear image of it.
+          </p>
+          <div className="mt-2">
+            <OfferSignatureField
+              key={signatureFieldKey}
+              onSignatureChange={setOrderSignatureFile}
             />
-          </label>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap justify-end gap-2 pt-2">
+          <button
+            type="submit"
+            disabled={!canSubmitOrder}
+            className="rounded-lg bg-violet-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Submit
+          </button>
         </div>
       </form>
+
+      <TermsScrollAgreeModal
+        open={layawayTermsModalOpen}
+        onClose={() => setLayawayTermsModalOpen(false)}
+        onAgree={() => {
+          setLayawayTermsAccepted(true);
+          setLayawayTermsModalOpen(false);
+        }}
+        url={LAYAWAY_TERMS_URL}
+        title="Layaway — terms and conditions"
+      />
 
       {photosModalOpen &&
       item.photos.length > 0 &&

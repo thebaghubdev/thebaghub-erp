@@ -143,13 +143,11 @@ export function TermsScrollAgreeModal({
           ref={scrollRef}
           className="min-h-0 flex-1 overflow-y-auto px-4 py-3"
         >
-          {loading && (
-            <p className="text-sm text-slate-600">Loading…</p>
-          )}
+          {loading && <p className="text-sm text-slate-600">Loading…</p>}
           {error && <p className="text-sm text-red-700">{error}</p>}
           {!loading && !error && body !== null && (
             <div
-              className="text-sm leading-relaxed text-slate-700 [&_li]:mb-2 [&_ul]:list-disc [&_ul]:pl-5"
+              className="text-sm leading-relaxed text-slate-700 [&_li]:mb-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:mb-3 [&_ul]:list-disc [&_ul]:pl-5"
               dangerouslySetInnerHTML={{ __html: body }}
             />
           )}
@@ -158,7 +156,7 @@ export function TermsScrollAgreeModal({
           <p className="mb-2 text-xs text-slate-500">
             {reachedEnd
               ? "You may accept the terms below."
-              : "Scroll to the end of the terms to enable I agree."}
+              : "Please carefully read the terms and conditions."}
           </p>
           <div className="flex flex-wrap justify-end gap-2">
             <button
