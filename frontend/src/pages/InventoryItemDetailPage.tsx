@@ -30,6 +30,11 @@ type InventoryDetailForStaff = {
   assignedToEmployeeId?: string | null;
   assignedToName?: string | null;
   authenticationStatus: string;
+  itemPosting: {
+    id: string;
+    shopifyProductId: string | null;
+    shopifyPostedAt: string | null;
+  } | null;
 };
 
 function formatDatePurchased(raw: unknown): string {
@@ -146,6 +151,14 @@ export function InventoryItemDetailPage() {
             Record
           </h2>
         <div className="flex flex-wrap items-center justify-end gap-2">
+          {detail.status === "Available For Purchase" && detail.itemPosting ? (
+            <Link
+              to={`/portal/posting/${detail.id}`}
+              className={recordActionBtn}
+            >
+              Manage Shopify listing
+            </Link>
+          ) : null}
           {detail.authenticationStatus.trim().toLowerCase() !== "pending" ? (
             <Link
               to={`/portal/inventory/${detail.id}/authentication`}
@@ -179,6 +192,16 @@ export function InventoryItemDetailPage() {
               <InventoryStatusBadge status={detail.status} />
             </dd>
           </div>
+          {detail.itemPosting?.shopifyProductId ? (
+            <div className="sm:col-span-2">
+              <dt className="text-slate-500 dark:text-slate-400">
+                Shopify product ID
+              </dt>
+              <dd className="break-all font-mono text-sm">
+                {detail.itemPosting.shopifyProductId}
+              </dd>
+            </div>
+          ) : null}
           <div>
             <dt className="text-slate-500 dark:text-slate-400">Transaction</dt>
             <dd>

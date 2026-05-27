@@ -13,6 +13,9 @@ type ItemPosting = {
   priceComparison: string | null;
   productDescription: string | null;
   selectedPhotosSnapshot: Array<Record<string, unknown>>;
+  shopifyProductId: string | null;
+  shopifyVariantId: string | null;
+  shopifyPostedAt: string | null;
 };
 
 type InventoryDetailForStaff = {
@@ -50,9 +53,11 @@ export function PostingItemPage() {
   const [detail, setDetail] = useState<InventoryDetailForStaff | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [shopifyPosting, setShopifyPosting] = useState(false);
+  const [shopifyBusy, setShopifyBusy] = useState(false);
   const [shopifyError, setShopifyError] = useState<string | null>(null);
   const [shopifyMessage, setShopifyMessage] = useState<string | null>(null);
+  const [linkProductId, setLinkProductId] = useState("");
+  const [linkingProduct, setLinkingProduct] = useState(false);
 
   const load = useCallback(async () => {
     if (!itemId || !token) return;
@@ -81,9 +86,23 @@ export function PostingItemPage() {
     void load();
   }, [load]);
 
+  const parseApiError = async (res: Response, fallback: string) => {
+    let msg = fallback;
+    try {
+      const body = (await res.json()) as { message?: string | string[] };
+      if (Array.isArray(body.message)) msg = body.message.join("; ");
+      else if (typeof body.message === "string" && body.message.trim()) {
+        msg = body.message.trim();
+      }
+    } catch {
+      /* ignore */
+    }
+    return msg;
+  };
+
   const postToShopify = useCallback(async () => {
     if (!itemId || !token) return;
-    setShopifyPosting(true);
+    setShopifyBusy(true);
     setShopifyError(null);
     setShopifyMessage(null);
     try {
@@ -93,25 +112,15 @@ export function PostingItemPage() {
         token,
       );
       if (!res.ok) {
-        let msg = `Could not post to Shopify (${res.status}).`;
-        try {
-          const body = (await res.json()) as { message?: string | string[] };
-          if (Array.isArray(body.message)) msg = body.message.join("; ");
-          else if (typeof body.message === "string" && body.message.trim()) {
-            msg = body.message.trim();
-          }
-        } catch {
-          /* ignore */
-        }
-        throw new Error(msg);
+        throw new Error(
+          await parseApiError(res, `Could not post to Shopify (${res.status}).`),
+        );
       }
       const body = (await res.json()) as {
         productId?: string;
         status?: string;
       };
-      if (body.status) {
-        setDetail((prev) => (prev ? { ...prev, status: body.status! } : prev));
-      }
+      await load();
       setShopifyMessage(
         body.productId
           ? `Posted to Shopify. Product ID: ${body.productId}`
@@ -122,9 +131,50 @@ export function PostingItemPage() {
         e instanceof Error ? e.message : "Could not post to Shopify.",
       );
     } finally {
-      setShopifyPosting(false);
+      setShopifyBusy(false);
     }
-  }, [itemId, token]);
+  }, [itemId, token, load]);
+
+  const linkShopifyProduct = useCallback(async () => {
+    if (!itemId || !token) return;
+    const productId = linkProductId.trim();
+    if (!productId) return;
+    setLinkingProduct(true);
+    setShopifyError(null);
+    setShopifyMessage(null);
+    try {
+      const res = await apiFetch(
+        `/api/inventory/${itemId}/link-shopify-product`,
+        {
+          method: "POST",
+          body: JSON.stringify({ shopifyProductId: productId }),
+        },
+        token,
+      );
+      if (!res.ok) {
+        throw new Error(
+          await parseApiError(
+            res,
+            `Could not link Shopify product (${res.status}).`,
+          ),
+        );
+      }
+      const body = (await res.json()) as { productId?: string };
+      setLinkProductId("");
+      await load();
+      setShopifyMessage(
+        body.productId
+          ? `Linked to Shopify product ${body.productId}. Edits to the post will sync automatically.`
+          : "Linked to Shopify product.",
+      );
+    } catch (e) {
+      setShopifyError(
+        e instanceof Error ? e.message : "Could not link Shopify product.",
+      );
+    } finally {
+      setLinkingProduct(false);
+    }
+  }, [itemId, token, linkProductId, load]);
 
   if (loading) {
     return (
@@ -152,7 +202,12 @@ export function PostingItemPage() {
   const form = detail.itemSnapshot.form;
   const itemLabel =
     [str(form.brand), str(form.itemModel)].filter(Boolean).join(" ") || "—";
-  const canManagePosting = detail.status === "For Posting";
+  const isForPosting = detail.status === "For Posting";
+  const isPosted = detail.status === "Available For Purchase";
+  const shopifyProductId = posting?.shopifyProductId ?? null;
+  const canPostToShopify = isForPosting;
+  const canEditPost = !!posting && (isForPosting || isPosted);
+  const needsShopifyLink = isPosted && !shopifyProductId;
 
   return (
     <div className="w-full min-w-0 space-y-6">
@@ -174,7 +229,7 @@ export function PostingItemPage() {
             >
               View in inventory
             </Link>
-            {canManagePosting ? (
+            {canEditPost ? (
               <Link
                 to={`/portal/editing/${detail.id}`}
                 className="rounded-lg bg-violet-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-violet-700"
@@ -182,14 +237,14 @@ export function PostingItemPage() {
                 Edit post
               </Link>
             ) : null}
-            {canManagePosting ? (
+            {canPostToShopify ? (
               <button
                 type="button"
                 className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={shopifyPosting || !posting}
+                disabled={shopifyBusy || !posting}
                 onClick={() => void postToShopify()}
               >
-                {shopifyPosting ? "Posting…" : "Post to Shopify"}
+                {shopifyBusy ? "Posting…" : "Post to Shopify"}
               </button>
             ) : null}
           </div>
@@ -211,6 +266,40 @@ export function PostingItemPage() {
         <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">
           {shopifyMessage}
         </p>
+      ) : null}
+
+      {needsShopifyLink ? (
+        <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/40">
+          <h2 className="text-sm font-semibold text-amber-900 dark:text-amber-100">
+            Shopify product ID missing
+          </h2>
+          <p className="mt-2 text-sm text-amber-800 dark:text-amber-200">
+            This item was posted before product IDs were tracked. Paste the
+            Shopify product ID below so future edits sync automatically.
+          </p>
+          <div className="mt-4 flex flex-wrap items-end gap-2">
+            <label className="min-w-[12rem] flex-1 text-sm">
+              <span className="mb-1 block font-medium text-amber-900 dark:text-amber-100">
+                Shopify product ID
+              </span>
+              <input
+                type="text"
+                value={linkProductId}
+                onChange={(e) => setLinkProductId(e.target.value)}
+                placeholder="e.g. 8234567890123"
+                className="w-full rounded-lg border border-amber-300 bg-white px-3 py-2 text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-500/30 dark:border-amber-800 dark:bg-slate-900 dark:text-slate-100"
+              />
+            </label>
+            <button
+              type="button"
+              className="rounded-lg bg-amber-700 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-amber-800 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={linkingProduct || !linkProductId.trim()}
+              onClick={() => void linkShopifyProduct()}
+            >
+              {linkingProduct ? "Linking…" : "Link product"}
+            </button>
+          </div>
+        </section>
       ) : null}
 
       <section className={cardClass}>
@@ -235,6 +324,22 @@ export function PostingItemPage() {
               </dt>
               <dd>{formatPostingDate(posting.postingDate)}</dd>
             </div>
+            {shopifyProductId ? (
+              <>
+                <div>
+                  <dt className="text-slate-500 dark:text-slate-400">
+                    Shopify product ID
+                  </dt>
+                  <dd className="break-all font-mono">{shopifyProductId}</dd>
+                </div>
+                <div>
+                  <dt className="text-slate-500 dark:text-slate-400">
+                    Posted to Shopify
+                  </dt>
+                  <dd>{formatPostingDate(posting.shopifyPostedAt)}</dd>
+                </div>
+              </>
+            ) : null}
             <div className="sm:col-span-2">
               <dt className="text-slate-500 dark:text-slate-400">
                 Product name
@@ -245,7 +350,11 @@ export function PostingItemPage() {
               <dt className="text-slate-500 dark:text-slate-400">
                 Collections
               </dt>
-              <dd>{posting.collections.length ? posting.collections.join(", ") : "—"}</dd>
+              <dd>
+                {posting.collections.length
+                  ? posting.collections.join(", ")
+                  : "—"}
+              </dd>
             </div>
             <div>
               <dt className="text-slate-500 dark:text-slate-400">Tags</dt>

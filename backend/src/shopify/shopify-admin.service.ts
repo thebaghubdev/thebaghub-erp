@@ -50,6 +50,33 @@ export type ShopifyCreateProductInput = {
   images: Array<{ src: string }>;
 };
 
+export type ShopifyUpdateProductInput = {
+  title: string;
+  body_html: string | null;
+  vendor: string;
+  status: 'active' | 'draft';
+  tags: string;
+  variants: Array<{
+    id?: string;
+    price: string;
+    sku: string;
+    compare_at_price?: string;
+  }>;
+  images?: Array<{ src: string }>;
+};
+
+export type ShopifyProductRow = {
+  id: string;
+  images: Array<{ id: string }>;
+  variants: Array<{ id: string }>;
+};
+
+export type ShopifyCollectRow = {
+  id: string;
+  collection_id: string;
+  product_id: string;
+};
+
 function readShopifyGraphqlErrors(raw: unknown): string[] {
   if (!raw || typeof raw !== 'object') return [];
   const errs = (raw as Record<string, unknown>).errors;
@@ -121,6 +148,56 @@ function numericShopifyId(id: string): string {
   const trimmed = id.trim();
   const m = /\/(\d+)$/.exec(trimmed);
   return m?.[1] ?? trimmed;
+}
+
+function readProductFromPayload(payload: unknown): ShopifyProductRow | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const productRaw = (payload as Record<string, unknown>).product;
+  if (!productRaw || typeof productRaw !== 'object') return null;
+  const p = productRaw as Record<string, unknown>;
+  const id = p.id;
+  if (id == null) return null;
+
+  const images: Array<{ id: string }> = [];
+  if (Array.isArray(p.images)) {
+    for (const img of p.images) {
+      if (!img || typeof img !== 'object') continue;
+      const imgId = (img as Record<string, unknown>).id;
+      if (imgId != null) images.push({ id: String(imgId) });
+    }
+  }
+
+  const variants: Array<{ id: string }> = [];
+  if (Array.isArray(p.variants)) {
+    for (const v of p.variants) {
+      if (!v || typeof v !== 'object') continue;
+      const variantId = (v as Record<string, unknown>).id;
+      if (variantId != null) variants.push({ id: String(variantId) });
+    }
+  }
+
+  return { id: String(id), images, variants };
+}
+
+function readCollectsFromPayload(payload: unknown): ShopifyCollectRow[] {
+  if (!payload || typeof payload !== 'object') return [];
+  const collectsRaw = (payload as Record<string, unknown>).collects;
+  if (!Array.isArray(collectsRaw)) return [];
+  const out: ShopifyCollectRow[] = [];
+  for (const row of collectsRaw) {
+    if (!row || typeof row !== 'object') continue;
+    const r = row as Record<string, unknown>;
+    const id = r.id;
+    const collectionId = r.collection_id;
+    const productId = r.product_id;
+    if (id == null || collectionId == null || productId == null) continue;
+    out.push({
+      id: String(id),
+      collection_id: String(collectionId),
+      product_id: String(productId),
+    });
+  }
+  return out;
 }
 
 @Injectable()
@@ -420,9 +497,73 @@ export class ShopifyAdminService {
     });
   }
 
+  async getProduct(productId: string): Promise<ShopifyProductRow> {
+    const payload = await this.restRequest(
+      `products/${numericShopifyId(productId)}.json`,
+      { method: 'GET' },
+    );
+    const product = readProductFromPayload(payload);
+    if (!product) {
+      throw new HttpException(
+        'Shopify product fetch returned no product.',
+        HttpStatus.BAD_GATEWAY,
+      );
+    }
+    return product;
+  }
+
+  async updateProduct(
+    productId: string,
+    product: ShopifyUpdateProductInput,
+  ): Promise<{ id: string; raw: unknown }> {
+    const payload = await this.restRequest(
+      `products/${numericShopifyId(productId)}.json`,
+      {
+        method: 'PUT',
+        body: { product },
+      },
+    );
+    const productRaw =
+      payload && typeof payload === 'object'
+        ? (payload as Record<string, unknown>).product
+        : null;
+    const id =
+      productRaw && typeof productRaw === 'object'
+        ? (productRaw as Record<string, unknown>).id
+        : null;
+    if (id == null) {
+      throw new HttpException(
+        'Shopify product update returned no product id.',
+        HttpStatus.BAD_GATEWAY,
+      );
+    }
+    return { id: String(id), raw: productRaw };
+  }
+
+  async deleteProductImage(productId: string, imageId: string): Promise<void> {
+    await this.restRequest(
+      `products/${numericShopifyId(productId)}/images/${numericShopifyId(imageId)}.json`,
+      { method: 'DELETE' },
+    );
+  }
+
+  async listProductCollects(productId: string): Promise<ShopifyCollectRow[]> {
+    const payload = await this.restRequest(
+      `collects.json?product_id=${numericShopifyId(productId)}`,
+      { method: 'GET' },
+    );
+    return readCollectsFromPayload(payload);
+  }
+
+  async deleteCollect(collectId: string): Promise<void> {
+    await this.restRequest(`collects/${numericShopifyId(collectId)}.json`, {
+      method: 'DELETE',
+    });
+  }
+
   private async restRequest(
     path: string,
-    init: { method: 'POST'; body: unknown },
+    init: { method: 'GET' | 'POST' | 'PUT' | 'DELETE'; body?: unknown },
   ): Promise<unknown> {
     const { shopDomain, token } = await this.resolveAdminAccessToken();
     const url = `https://${shopDomain}/admin/api/${SHOPIFY_ADMIN_API_VERSION}/${path}`;
@@ -435,7 +576,8 @@ export class ShopifyAdminService {
           'Content-Type': 'application/json',
           'X-Shopify-Access-Token': token,
         },
-        body: JSON.stringify(init.body),
+        body:
+          init.body !== undefined ? JSON.stringify(init.body) : undefined,
         signal: controller.signal,
       });
       let body: unknown;

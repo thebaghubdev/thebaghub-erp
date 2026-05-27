@@ -48,4 +48,13 @@ export class ItemPosting extends AuditedEntity {
 
   @Column({ name: 'selected_photos_snapshot', type: 'jsonb' })
   selectedPhotosSnapshot: Array<Record<string, unknown>>;
+
+  @Column({ name: 'shopify_product_id', type: 'varchar', length: 64, nullable: true })
+  shopifyProductId: string | null;
+
+  @Column({ name: 'shopify_variant_id', type: 'varchar', length: 64, nullable: true })
+  shopifyVariantId: string | null;
+
+  @Column({ name: 'shopify_posted_at', type: 'timestamptz', nullable: true })
+  shopifyPostedAt: Date | null;
 }

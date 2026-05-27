@@ -86,7 +86,7 @@ function ArrowLeftIcon({ className = "h-4 w-4" }: { className?: string }) {
 
 function BackToCatalogLink() {
   return (
-    <Link to="/purchases" className={backLinkClassName}>
+    <Link to="/catalog" className={backLinkClassName}>
       <ArrowLeftIcon />
       Back to item catalog
     </Link>

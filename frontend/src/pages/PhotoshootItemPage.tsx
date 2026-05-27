@@ -48,7 +48,7 @@ function entriesFromMetaPhotos(
   }));
 }
 
-const MIN_PHOTOS_FOR_FINISH = 4;
+const MIN_PHOTOS_FOR_FINISH = 1;
 
 async function readApiErrorMessage(res: Response): Promise<string> {
   try {
@@ -217,7 +217,7 @@ export function PhotoshootItemPage() {
       }
       if (savedCount < MIN_PHOTOS_FOR_FINISH) {
         throw new Error(
-          `At least ${MIN_PHOTOS_FOR_FINISH} photos must be saved before finishing (saved: ${savedCount}).`,
+          `At least ${MIN_PHOTOS_FOR_FINISH} photo must be saved before finishing (saved: ${savedCount}).`,
         );
       }
       const res = await apiFetch(
@@ -315,7 +315,7 @@ export function PhotoshootItemPage() {
               }
               title={
                 !canFinishPhotoshoot
-              ? `Add at least ${MIN_PHOTOS_FOR_FINISH} photos to finish`
+                  ? `Add at least ${MIN_PHOTOS_FOR_FINISH} photo to finish`
                   : undefined
               }
               onClick={() => void handleFinishPhotoshoot()}
@@ -324,7 +324,7 @@ export function PhotoshootItemPage() {
             </button>
           </div>
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            Finish is available with at least {MIN_PHOTOS_FOR_FINISH} photos.
+            Finish is available with at least {MIN_PHOTOS_FOR_FINISH} photo.
             Unsaved images are uploaded automatically when you finish.
           </p>
         </div>

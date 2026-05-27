@@ -38,6 +38,7 @@ import { PostingItemPage } from './pages/PostingItemPage'
 import { PostingPage } from './pages/PostingPage'
 import { PricingPage } from './pages/PricingPage'
 import { PortalLoginPage } from './pages/PortalLoginPage'
+import { ItemCatalogPage } from './pages/ItemCatalogPage'
 import { PurchaseItemsPage } from './pages/PurchaseItemsPage'
 import { RegisterPage } from './pages/RegisterPage'
 import { SettingsPage } from './pages/SettingsPage'
@@ -139,9 +140,10 @@ const router = createBrowserRouter([
         children: [
           { path: 'consignments/:id', element: <ClientConsignmentDetailPage /> },
           { path: 'consignments', element: <ConsignItemsPage /> },
-          { path: 'purchases/:itemId/order', element: <ClientOrderItemPage /> },
+          { path: 'catalog/:itemId/order', element: <ClientOrderItemPage /> },
+          { path: 'catalog', element: <ItemCatalogPage /> },
           { path: 'purchases', element: <PurchaseItemsPage /> },
-          { path: 'my-account', element: <ClientMyAccountPage /> },
+          { path: 'profile', element: <ClientMyAccountPage /> },
         ],
       },
     ],

@@ -72,6 +72,7 @@ type InventoryDetailForStaff = {
     priceComparison: string | null;
     productDescription: string | null;
     selectedPhotosSnapshot: Array<Record<string, unknown>>;
+    shopifyProductId: string | null;
   } | null;
   authenticationStatus: string;
 };
@@ -119,6 +120,8 @@ function selectedPhotoKeysFromSnapshot(
     .map((photo) => str(photo.key))
     .filter(Boolean);
 }
+
+const MIN_PHOTOSHOOT_PHOTOS_FOR_POSTING = 1;
 
 const cardClass =
   "rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900";
@@ -359,6 +362,11 @@ export function EditingItemPage() {
         if (!collectionValue.trim()) {
           throw new Error("Collection is required.");
         }
+        if (photoSelectionOrder.length < MIN_PHOTOSHOOT_PHOTOS_FOR_POSTING) {
+          throw new Error(
+            `Select at least ${MIN_PHOTOSHOOT_PHOTOS_FOR_POSTING} photoshoot photo for posting (selected: ${photoSelectionOrder.length}).`,
+          );
+        }
         const photosByKey = new Map(
           (photoshootRow?.photos ?? []).map((photo) => [photo.key, photo]),
         );
@@ -405,14 +413,26 @@ export function EditingItemPage() {
           }
           throw new Error(msg);
         }
-        const body = (await res.json()) as { status?: string };
+        const body = (await res.json()) as {
+          status?: string;
+          shopifyUpdated?: boolean;
+        };
         setDetail((prev) =>
           prev && body.status ? { ...prev, status: body.status } : prev,
         );
         setPostingMessage(
           options.submitForPosting
-            ? "Posting data saved and item moved to For Posting."
-            : "Changes saved.",
+            ? body.shopifyUpdated
+              ? "Posting data saved and Shopify listing updated."
+              : detail?.status === "Available For Purchase"
+                ? "Posting data saved."
+                : "Posting data saved and item moved to For Posting."
+            : body.shopifyUpdated
+              ? "Changes saved and Shopify listing updated."
+              : detail?.status === "Available For Purchase" &&
+                  !detail.itemPosting?.shopifyProductId
+                ? "Changes saved. Link a Shopify product to enable automatic updates."
+                : "Changes saved.",
         );
       } catch (err) {
         setPostingError(
@@ -432,6 +452,7 @@ export function EditingItemPage() {
       priceComparison,
       productName,
       tagsSelected,
+      detail,
       token,
     ],
   );
@@ -472,6 +493,11 @@ export function EditingItemPage() {
   const brandModelSubtitle =
     brand && itemModel ? `${brand} — ${itemModel}` : brand || itemModel || "—";
   const isForPosting = detail.status === "For Posting";
+  const isPosted = detail.status === "Available For Purchase";
+  const selectedPhotoCount = photoSelectionOrder.length;
+  const hasEnoughPhotos =
+    selectedPhotoCount >= MIN_PHOTOSHOOT_PHOTOS_FOR_POSTING;
+  const canSavePosting = hasEnoughPhotos && !postingSaving && !postingSubmitting;
 
   return (
     <div className="w-full min-w-0 space-y-6">
@@ -488,12 +514,22 @@ export function EditingItemPage() {
           </p>
         </div>
         <Link
-          to="/portal/editing"
+          to={isPosted ? `/portal/posting/${detail.id}` : "/portal/editing"}
           className="shrink-0 text-sm font-medium text-violet-700 hover:underline dark:text-violet-300"
         >
-          ← Back to Editing
+          {isPosted ? "← Back to listing" : "← Back to Editing"}
         </Link>
       </div>
+
+      {isPosted ? (
+        <p className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-100">
+          This item is live on Shopify. Saving changes here will update the
+          Shopify listing automatically
+          {detail.itemPosting?.shopifyProductId
+            ? "."
+            : " once a Shopify product is linked from the listing page."}
+        </p>
+      ) : null}
 
       <div className="grid grid-cols-1 gap-8 xl:grid-cols-2">
         <div className="flex min-w-0 flex-col gap-6">
@@ -607,7 +643,22 @@ export function EditingItemPage() {
             ) : (
               <>
                 <p className="mt-3 text-sm text-slate-600 dark:text-slate-400">
-                  Please select the photos below that will be used for posting.
+                  Select at least {MIN_PHOTOSHOOT_PHOTOS_FOR_POSTING} photo
+                  below for posting. Numbers show the order they will appear.
+                </p>
+                <p
+                  className={`mt-2 text-sm tabular-nums ${
+                    hasEnoughPhotos
+                      ? "text-emerald-700 dark:text-emerald-300"
+                      : "text-amber-800 dark:text-amber-200"
+                  }`}
+                  aria-live="polite"
+                >
+                  {selectedPhotoCount} photo
+                  {selectedPhotoCount === 1 ? "" : "s"} selected
+                  {!hasEnoughPhotos
+                    ? ` (${MIN_PHOTOSHOOT_PHOTOS_FOR_POSTING} required)`
+                    : ""}
                 </p>
                 <ul className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
                   {shootPhotosChronological.map((img) => {
@@ -829,16 +880,26 @@ export function EditingItemPage() {
                 <button
                   type="button"
                   className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-                  disabled={postingSaving || postingSubmitting}
+                  disabled={!canSavePosting}
+                  title={
+                    hasEnoughPhotos
+                      ? undefined
+                      : `Select at least ${MIN_PHOTOSHOOT_PHOTOS_FOR_POSTING} photoshoot photo`
+                  }
                   onClick={() => void savePosting({ submitForPosting: false })}
                 >
                   {postingSaving ? "Saving…" : "Save changes"}
                 </button>
-                {!isForPosting ? (
+                {!isForPosting && !isPosted ? (
                   <button
                     type="submit"
                     className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-60"
-                    disabled={postingSaving || postingSubmitting}
+                    disabled={!canSavePosting}
+                    title={
+                      hasEnoughPhotos
+                        ? undefined
+                        : `Select at least ${MIN_PHOTOSHOOT_PHOTOS_FOR_POSTING} photoshoot photo`
+                    }
                   >
                     {postingSubmitting ? "Submitting…" : "Submit for posting"}
                   </button>

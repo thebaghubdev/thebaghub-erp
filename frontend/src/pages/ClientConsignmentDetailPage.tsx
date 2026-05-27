@@ -120,7 +120,7 @@ function formatClientBank(
   return "Other";
 }
 
-/** Bank details from My account profile, ready for confirm-offer API. */
+/** Bank details from My profile, ready for confirm-offer API. */
 function bankDetailsFromProfile(
   c: ClientProfile | null | undefined,
 ): NonNullable<ClientOfferConfirmation["bankDetails"]> | null {
@@ -323,7 +323,7 @@ export function ClientConsignmentDetailPage() {
         savedBankDetails = bankDetailsFromProfile(user?.client);
         if (!savedBankDetails) {
           setConfirmFormError(
-            "Your saved bank details are incomplete. Add or update them on My account, then return here to confirm.",
+            "Your saved bank details are incomplete. Add or update them on My profile, then return here to confirm.",
           );
           return;
         }
@@ -899,10 +899,10 @@ export function ClientConsignmentDetailPage() {
                       <p className="text-sm text-slate-700">
                         Direct deposit uses the bank account saved on{" "}
                         <Link
-                          to="/my-account"
+                          to="/profile"
                           className="font-medium text-violet-700 hover:underline"
                         >
-                          My account
+                          My profile
                         </Link>
                         . Make sure these details are up to date before
                         confirming; you can only change them there.
@@ -947,10 +947,10 @@ export function ClientConsignmentDetailPage() {
                         >
                           Your bank details are incomplete.{" "}
                           <Link
-                            to="/my-account"
+                            to="/profile"
                             className="font-medium text-amber-950 underline"
                           >
-                            Open My account
+                            Open My profile
                           </Link>{" "}
                           to add or update them, then return here to confirm.
                         </p>

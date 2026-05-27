@@ -25,6 +25,7 @@ import { ReturnToCoordinatorDto } from './dto/return-to-coordinator.dto';
 import { UpdateInventoryPricingDto } from './dto/update-inventory-pricing.dto';
 import { CreateItemPostingDto } from './dto/create-item-posting.dto';
 import { ScheduleItemPostingsDto } from './dto/schedule-item-postings.dto';
+import { LinkShopifyProductDto } from './dto/link-shopify-product.dto';
 import { InventoryService } from './inventory.service';
 
 @Controller('inventory')
@@ -229,6 +230,21 @@ export class InventoryController {
   @HttpCode(HttpStatus.OK)
   postItemToShopify(@Param('id', ParseUUIDPipe) id: string) {
     return this.inventoryService.postItemToShopify(id);
+  }
+
+  @Post(':id/update-shopify')
+  @HttpCode(HttpStatus.OK)
+  updateItemOnShopify(@Param('id', ParseUUIDPipe) id: string) {
+    return this.inventoryService.updateItemOnShopify(id);
+  }
+
+  @Post(':id/link-shopify-product')
+  @HttpCode(HttpStatus.OK)
+  linkShopifyProduct(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: LinkShopifyProductDto,
+  ) {
+    return this.inventoryService.linkShopifyProduct(id, dto.shopifyProductId);
   }
 
   @Get(':id')

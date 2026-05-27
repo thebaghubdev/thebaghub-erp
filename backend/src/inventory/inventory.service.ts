@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Inject,
   Injectable,
@@ -44,6 +45,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import {
   ShopifyAdminService,
   type ShopifyCreateProductInput,
+  type ShopifyUpdateProductInput,
 } from '../shopify/shopify-admin.service';
 
 const PHOTOSHOOT_ALLOWED_IMAGE_MIMES = new Set([
@@ -173,16 +175,21 @@ export type InventoryDetailForStaff = {
     clientItemId: string;
     form: Record<string, unknown>;
   };
-  itemPosting: {
-    id: string;
-    postingDate: string | null;
-    productName: string;
-    collections: string[];
-    tags: string[];
-    priceComparison: string | null;
-    productDescription: string | null;
-    selectedPhotosSnapshot: Array<Record<string, unknown>>;
-  } | null;
+  itemPosting: ItemPostingForStaff | null;
+};
+
+export type ItemPostingForStaff = {
+  id: string;
+  postingDate: string | null;
+  productName: string;
+  collections: string[];
+  tags: string[];
+  priceComparison: string | null;
+  productDescription: string | null;
+  selectedPhotosSnapshot: Array<Record<string, unknown>>;
+  shopifyProductId: string | null;
+  shopifyVariantId: string | null;
+  shopifyPostedAt: string | null;
 };
 
 export type ItemAuthenticationMetricApiRow = {
@@ -297,6 +304,109 @@ function selectedPhotoUrls(value: Array<Record<string, unknown>>): string[] {
     if (url) urls.push(url);
   }
   return urls;
+}
+
+function mapItemPostingForStaff(posting: ItemPosting): ItemPostingForStaff {
+  return {
+    id: posting.id,
+    postingDate: posting.postingDate
+      ? posting.postingDate.toISOString()
+      : null,
+    productName: posting.productName,
+    collections: posting.collections,
+    tags: posting.tags,
+    priceComparison:
+      posting.priceComparison != null &&
+      String(posting.priceComparison).trim() !== ''
+        ? String(posting.priceComparison)
+        : null,
+    productDescription: posting.productDescription,
+    selectedPhotosSnapshot: posting.selectedPhotosSnapshot,
+    shopifyProductId:
+      posting.shopifyProductId != null &&
+      String(posting.shopifyProductId).trim() !== ''
+        ? String(posting.shopifyProductId).trim()
+        : null,
+    shopifyVariantId:
+      posting.shopifyVariantId != null &&
+      String(posting.shopifyVariantId).trim() !== ''
+        ? String(posting.shopifyVariantId).trim()
+        : null,
+    shopifyPostedAt: posting.shopifyPostedAt
+      ? posting.shopifyPostedAt.toISOString()
+      : null,
+  };
+}
+
+function readShopifyVariantId(raw: unknown): string | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const variants = (raw as Record<string, unknown>).variants;
+  if (!Array.isArray(variants) || variants.length === 0) return null;
+  const first = variants[0];
+  if (!first || typeof first !== 'object') return null;
+  const id = (first as Record<string, unknown>).id;
+  return id != null ? String(id) : null;
+}
+
+function numericShopifyIdForCompare(id: string): string {
+  const trimmed = id.trim();
+  const m = /\/(\d+)$/.exec(trimmed);
+  return m?.[1] ?? trimmed;
+}
+
+function buildShopifyProductPayload(
+  posting: ItemPosting,
+  item: InventoryItem,
+): {
+  productName: string;
+  price: string;
+  variant: ShopifyCreateProductInput['variants'][number];
+  images: Array<{ src: string }>;
+  productFields: Pick<
+    ShopifyCreateProductInput,
+    'title' | 'body_html' | 'vendor' | 'status' | 'tags'
+  >;
+} {
+  const price =
+    item.tbhSellingPrice != null && String(item.tbhSellingPrice).trim() !== ''
+      ? String(item.tbhSellingPrice).trim()
+      : null;
+  if (!price) {
+    throw new BadRequestException('TBH selling price is required.');
+  }
+  const productName = posting.productName.trim();
+  if (!productName) {
+    throw new BadRequestException('Product name is required.');
+  }
+
+  const variant: ShopifyCreateProductInput['variants'][number] = {
+    price,
+    sku: item.sku,
+    inventory_management: 'shopify',
+    inventory_quantity: 1,
+  };
+  if (
+    posting.priceComparison != null &&
+    String(posting.priceComparison).trim() !== ''
+  ) {
+    variant.compare_at_price = String(posting.priceComparison).trim();
+  }
+
+  return {
+    productName,
+    price,
+    variant,
+    images: selectedPhotoUrls(posting.selectedPhotosSnapshot).map((src) => ({
+      src,
+    })),
+    productFields: {
+      title: productName,
+      body_html: posting.productDescription,
+      vendor: 'The Bag Hub',
+      status: 'active',
+      tags: posting.tags.join(', '),
+    },
+  };
 }
 
 /**
@@ -428,7 +538,8 @@ const UPDATE_TBH_PRICE_ALLOWED_INVENTORY_STATUSES = new Set<string>([
   FOR_PRICING_INVENTORY_STATUS,
   FOR_EDITING_INVENTORY_STATUS,
 ]);
-const MIN_PHOTOS_TO_FINISH_PHOTOSHOOT = 4;
+const MIN_PHOTOS_TO_FINISH_PHOTOSHOOT = 1;
+const MIN_SELECTED_PHOTOS_FOR_ITEM_POSTING = 1;
 const AUTHENTICATED_FOR_RENEGOTIATION_INVENTORY_STATUS =
   'Authenticated: For renegotiation';
 const APPROVED_ITEM_AUTHENTICATION_STATUS = 'Approved';
@@ -1143,7 +1254,12 @@ export class InventoryService {
     dto: CreateItemPostingDto,
     actorUserId: string,
     options: { updateStatus: boolean } = { updateStatus: true },
-  ): Promise<{ id: string; status: string; itemPostingId: string }> {
+  ): Promise<{
+    id: string;
+    status: string;
+    itemPostingId: string;
+    shopifyUpdated: boolean;
+  }> {
     const productName = String(dto.productName ?? '').trim();
     if (!productName) {
       throw new BadRequestException('Product name is required.');
@@ -1162,8 +1278,13 @@ export class InventoryService {
     const selectedPhotosSnapshot = normalizeSelectedPhotosSnapshot(
       dto.selectedPhotosSnapshot,
     );
+    if (selectedPhotosSnapshot.length < MIN_SELECTED_PHOTOS_FOR_ITEM_POSTING) {
+      throw new BadRequestException(
+        `At least ${MIN_SELECTED_PHOTOS_FOR_ITEM_POSTING} photoshoot photo must be selected for posting (selected: ${selectedPhotosSnapshot.length}).`,
+      );
+    }
 
-    return this.itemPostingRepo.manager.transaction(async (em) => {
+    const result = await this.itemPostingRepo.manager.transaction(async (em) => {
       const item = await em.findOne(InventoryItem, {
         where: { id: inventoryItemId },
       });
@@ -1172,9 +1293,11 @@ export class InventoryService {
       }
 
       if (options.updateStatus) {
-        item.status = FOR_POSTING_INVENTORY_STATUS;
-        item.updatedById = actorUserId;
-        await em.save(item);
+        if (item.status !== AVAILABLE_FOR_PURCHASE_INVENTORY_STATUS) {
+          item.status = FOR_POSTING_INVENTORY_STATUS;
+          item.updatedById = actorUserId;
+          await em.save(item);
+        }
       }
 
       let posting = await em.findOne(ItemPosting, {
@@ -1200,12 +1323,34 @@ export class InventoryService {
       posting.updatedById = actorUserId;
       await em.save(posting);
 
+      const shopifyProductId =
+        posting.shopifyProductId != null
+          ? String(posting.shopifyProductId).trim()
+          : '';
+      const shouldSyncShopify =
+        item.status === AVAILABLE_FOR_PURCHASE_INVENTORY_STATUS &&
+        shopifyProductId !== '';
+
       return {
         id: item.id,
         status: item.status,
         itemPostingId: posting.id,
+        shouldSyncShopify,
       };
     });
+
+    let shopifyUpdated = false;
+    if (result.shouldSyncShopify) {
+      await this.updateItemOnShopify(inventoryItemId);
+      shopifyUpdated = true;
+    }
+
+    return {
+      id: result.id,
+      status: result.status,
+      itemPostingId: result.itemPostingId,
+      shopifyUpdated,
+    };
   }
 
   async findOneForStaff(id: string): Promise<InventoryDetailForStaff> {
@@ -1267,24 +1412,7 @@ export class InventoryService {
         clientItemId: r.itemSnapshot.clientItemId,
         form: (r.itemSnapshot.form ?? {}) as Record<string, unknown>,
       },
-      itemPosting: posting
-        ? {
-            id: posting.id,
-            postingDate: posting.postingDate
-              ? posting.postingDate.toISOString()
-              : null,
-            productName: posting.productName,
-            collections: posting.collections,
-            tags: posting.tags,
-            priceComparison:
-              posting.priceComparison != null &&
-              String(posting.priceComparison).trim() !== ''
-                ? String(posting.priceComparison)
-                : null,
-            productDescription: posting.productDescription,
-            selectedPhotosSnapshot: posting.selectedPhotosSnapshot,
-          }
-        : null,
+      itemPosting: posting ? mapItemPostingForStaff(posting) : null,
     };
   }
 
@@ -1422,6 +1550,7 @@ export class InventoryService {
 
   async postItemToShopify(inventoryItemId: string): Promise<{
     productId: string;
+    variantId: string | null;
     collectionCount: number;
     status: string;
   }> {
@@ -1436,44 +1565,27 @@ export class InventoryService {
     if (!item) {
       throw new NotFoundException('Inventory item not found');
     }
-    const price =
-      item.tbhSellingPrice != null && String(item.tbhSellingPrice).trim() !== ''
-        ? String(item.tbhSellingPrice).trim()
-        : null;
-    if (!price) {
-      throw new BadRequestException('TBH selling price is required.');
-    }
-    const productName = posting.productName.trim();
-    if (!productName) {
-      throw new BadRequestException('Product name is required.');
-    }
-
-    const variant: ShopifyCreateProductInput['variants'][number] = {
-      price,
-      sku: item.sku,
-      inventory_management: 'shopify',
-      inventory_quantity: 1,
-    };
     if (
-      posting.priceComparison != null &&
-      String(posting.priceComparison).trim() !== ''
+      posting.shopifyProductId != null &&
+      String(posting.shopifyProductId).trim() !== ''
     ) {
-      variant.compare_at_price = String(posting.priceComparison).trim();
+      throw new ConflictException(
+        'This item is already linked to a Shopify product. Edit the post to update the listing.',
+      );
     }
 
+    const { variant, images, productFields } = buildShopifyProductPayload(
+      posting,
+      item,
+    );
     const product: ShopifyCreateProductInput = {
-      title: productName,
-      body_html: posting.productDescription,
-      vendor: 'The Bag Hub',
-      status: 'active',
-      tags: posting.tags.join(', '),
+      ...productFields,
       variants: [variant],
-      images: selectedPhotoUrls(posting.selectedPhotosSnapshot).map((src) => ({
-        src,
-      })),
+      images,
     };
 
     const created = await this.shopifyAdmin.createProduct(product);
+    const variantId = readShopifyVariantId(created.raw);
     for (const collectionId of posting.collections) {
       await this.shopifyAdmin.addProductToCollection(
         created.id,
@@ -1481,14 +1593,155 @@ export class InventoryService {
       );
     }
 
+    posting.shopifyProductId = created.id;
+    posting.shopifyVariantId = variantId;
+    posting.shopifyPostedAt = new Date();
+    await this.itemPostingRepo.save(posting);
+
     item.status = AVAILABLE_FOR_PURCHASE_INVENTORY_STATUS;
     await this.inventoryRepo.save(item);
 
     return {
       productId: created.id,
+      variantId,
       collectionCount: posting.collections.length,
       status: item.status,
     };
+  }
+
+  async updateItemOnShopify(inventoryItemId: string): Promise<{
+    productId: string;
+    updatedAt: string;
+  }> {
+    const posting = await this.itemPostingRepo.findOne({
+      where: { inventoryItemId },
+      relations: { inventoryItem: true },
+    });
+    if (!posting) {
+      throw new NotFoundException('Posting data not found for this item.');
+    }
+    const item = posting.inventoryItem;
+    if (!item) {
+      throw new NotFoundException('Inventory item not found');
+    }
+    const shopifyProductId =
+      posting.shopifyProductId != null
+        ? String(posting.shopifyProductId).trim()
+        : '';
+    if (!shopifyProductId) {
+      throw new BadRequestException(
+        'Shopify product ID is missing. Link an existing Shopify product before updating.',
+      );
+    }
+    if (item.status !== AVAILABLE_FOR_PURCHASE_INVENTORY_STATUS) {
+      throw new BadRequestException(
+        'Only items available for purchase can be updated on Shopify.',
+      );
+    }
+
+    const { variant, images, productFields } = buildShopifyProductPayload(
+      posting,
+      item,
+    );
+    const updateVariant: ShopifyUpdateProductInput['variants'][number] = {
+      price: variant.price,
+      sku: variant.sku,
+    };
+    if (variant.compare_at_price) {
+      updateVariant.compare_at_price = variant.compare_at_price;
+    }
+    if (
+      posting.shopifyVariantId != null &&
+      String(posting.shopifyVariantId).trim() !== ''
+    ) {
+      updateVariant.id = String(posting.shopifyVariantId).trim();
+    }
+
+    const existingProduct =
+      await this.shopifyAdmin.getProduct(shopifyProductId);
+    for (const image of existingProduct.images) {
+      await this.shopifyAdmin.deleteProductImage(shopifyProductId, image.id);
+    }
+
+    const updatePayload: ShopifyUpdateProductInput = {
+      ...productFields,
+      variants: [updateVariant],
+      images,
+    };
+    await this.shopifyAdmin.updateProduct(shopifyProductId, updatePayload);
+
+    const desiredCollectionIds = new Set(
+      posting.collections.map((id) => numericShopifyIdForCompare(id)),
+    );
+    const existingCollects =
+      await this.shopifyAdmin.listProductCollects(shopifyProductId);
+    for (const collect of existingCollects) {
+      const collectionNumeric = numericShopifyIdForCompare(collect.collection_id);
+      if (!desiredCollectionIds.has(collectionNumeric)) {
+        await this.shopifyAdmin.deleteCollect(collect.id);
+      }
+    }
+    const existingCollectionIds = new Set(
+      existingCollects.map((c) => numericShopifyIdForCompare(c.collection_id)),
+    );
+    for (const collectionId of posting.collections) {
+      const collectionNumeric = numericShopifyIdForCompare(collectionId);
+      if (!existingCollectionIds.has(collectionNumeric)) {
+        await this.shopifyAdmin.addProductToCollection(
+          shopifyProductId,
+          collectionId,
+        );
+      }
+    }
+
+    if (!posting.shopifyVariantId && existingProduct.variants[0]?.id) {
+      posting.shopifyVariantId = existingProduct.variants[0].id;
+      await this.itemPostingRepo.save(posting);
+    }
+
+    return {
+      productId: shopifyProductId,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  async linkShopifyProduct(
+    inventoryItemId: string,
+    shopifyProductIdRaw: string,
+  ): Promise<{ productId: string; variantId: string | null }> {
+    const shopifyProductId = String(shopifyProductIdRaw ?? '').trim();
+    if (!shopifyProductId) {
+      throw new BadRequestException('Shopify product ID is required.');
+    }
+
+    const posting = await this.itemPostingRepo.findOne({
+      where: { inventoryItemId },
+      relations: { inventoryItem: true },
+    });
+    if (!posting) {
+      throw new NotFoundException('Posting data not found for this item.');
+    }
+    const item = posting.inventoryItem;
+    if (!item) {
+      throw new NotFoundException('Inventory item not found');
+    }
+    if (item.status !== AVAILABLE_FOR_PURCHASE_INVENTORY_STATUS) {
+      throw new BadRequestException(
+        'Only items available for purchase can be linked to Shopify.',
+      );
+    }
+
+    const product = await this.shopifyAdmin.getProduct(shopifyProductId);
+    const variantId = product.variants[0]?.id ?? null;
+
+    posting.shopifyProductId = product.id;
+    posting.shopifyVariantId = variantId;
+    if (!posting.shopifyPostedAt) {
+      posting.shopifyPostedAt = new Date();
+    }
+    await this.itemPostingRepo.save(posting);
+
+    return { productId: product.id, variantId };
   }
 
   async findOneItemPhotoshootForStaff(
@@ -1636,7 +1889,7 @@ export class InventoryService {
     const images = parsePhotoshootSnapshotImages(row.photosSnapshot);
     if (images.length < MIN_PHOTOS_TO_FINISH_PHOTOSHOOT) {
       throw new BadRequestException(
-        `At least ${MIN_PHOTOS_TO_FINISH_PHOTOSHOOT} photos are required before you can finish the photoshoot (saved: ${images.length}).`,
+        `At least ${MIN_PHOTOS_TO_FINISH_PHOTOSHOOT} photo is required before you can finish the photoshoot (saved: ${images.length}).`,
       );
     }
     item.status = FOR_PRICING_INVENTORY_STATUS;

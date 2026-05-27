@@ -157,6 +157,8 @@ export function ClientMyAccountPage() {
 
   return (
     <div className="space-y-4">
+      <h1 className="text-lg font-semibold text-slate-900">My profile</h1>
+
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <dl className="space-y-3 text-sm">
           {c && (

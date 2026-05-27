@@ -9,7 +9,11 @@ import { apiFetch } from "../lib/api";
 import { branchLabel } from "../lib/consignment-schedule-labels";
 import { formatOfferTransactionLabel } from "../lib/format-offer-transaction-type";
 
-const EDITING_PAGE_STATUSES = new Set(["For Editing", "For Posting"]);
+const EDITING_PAGE_STATUSES = new Set([
+  "For Editing",
+  "For Posting",
+  "Available For Purchase",
+]);
 
 type InventoryRow = {
   id: string;
@@ -140,7 +144,7 @@ export function EditingPage() {
         columns={columns}
         tableId="portal.editing"
         isLoading={loading}
-        emptyMessage="No inventory items are currently For Editing or For Posting."
+        emptyMessage="No inventory items are currently For Editing, For Posting, or Available For Purchase."
         hideEmptyState={!!error}
         searchPlaceholder="Search SKU, item, inclusions, consignor…"
         getRowId={(r) => r.id}
