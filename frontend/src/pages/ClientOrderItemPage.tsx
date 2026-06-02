@@ -53,6 +53,7 @@ const paymentTypeOptions: Array<{ value: PaymentType; label: string }> = [
 ];
 
 const LAYAWAY_TERMS_URL = "/terms/layaway.txt";
+const ORDER_SALES_CONTRACT_TERMS_URL = "/terms/order-sales-contract.txt";
 
 const formFieldClassName =
   "mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500";
@@ -171,6 +172,8 @@ export function ClientOrderItemPage() {
   );
   const [layawayTermsAccepted, setLayawayTermsAccepted] = useState(false);
   const [layawayTermsModalOpen, setLayawayTermsModalOpen] = useState(false);
+  const [orderTermsAccepted, setOrderTermsAccepted] = useState(false);
+  const [orderTermsModalOpen, setOrderTermsModalOpen] = useState(false);
   const [orderSignatureFile, setOrderSignatureFile] = useState<File | null>(null);
   const [signatureFieldKey, setSignatureFieldKey] = useState(0);
   const photosModalTitleId = useId();
@@ -325,6 +328,7 @@ export function ClientOrderItemPage() {
 
   const canSubmitOrder =
     orderSignatureFile != null &&
+    orderTermsAccepted &&
     (paymentType !== "layaway" || layawayTermsAccepted);
 
   if (loading) {
@@ -466,6 +470,33 @@ export function ClientOrderItemPage() {
           </div>
         ) : null}
 
+        <div className="flex items-start gap-2 pt-1">
+          <input
+            id="order-sales-contract-terms"
+            type="checkbox"
+            checked={orderTermsAccepted}
+            onChange={(e) => {
+              if (!e.target.checked) {
+                setOrderTermsAccepted(false);
+              }
+            }}
+            onClick={(e) => {
+              if (!orderTermsAccepted) {
+                e.preventDefault();
+                setOrderTermsModalOpen(true);
+              }
+            }}
+            className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+          />
+          <label
+            htmlFor="order-sales-contract-terms"
+            className="text-sm leading-snug text-slate-700"
+          >
+            I have read and agree to the Terms, Conditions, and Sales
+            Contract.
+          </label>
+        </div>
+
         <div>
           <p className="text-sm font-medium text-slate-700">Signature</p>
           <p className="mt-0.5 text-xs text-slate-500">
@@ -499,6 +530,17 @@ export function ClientOrderItemPage() {
         }}
         url={LAYAWAY_TERMS_URL}
         title="Layaway — terms and conditions"
+      />
+
+      <TermsScrollAgreeModal
+        open={orderTermsModalOpen}
+        onClose={() => setOrderTermsModalOpen(false)}
+        onAgree={() => {
+          setOrderTermsAccepted(true);
+          setOrderTermsModalOpen(false);
+        }}
+        url={ORDER_SALES_CONTRACT_TERMS_URL}
+        title="Terms, Conditions, and Sales Contract"
       />
 
       {photosModalOpen &&
