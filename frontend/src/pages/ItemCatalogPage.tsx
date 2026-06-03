@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useClientAuth } from "../context/client-auth";
 import { apiFetch } from "../lib/api";
@@ -7,11 +7,30 @@ import { formatPhpDisplay } from "../lib/format-php";
 type CatalogItem = {
   id: string;
   sku: string;
+  itemLabel: string;
+  brand: string | null;
+  category: string | null;
   productName: string;
   price: string | null;
   imageUrl: string | null;
   status: string;
 };
+
+const searchInputClassName =
+  "w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500";
+
+function catalogItemSearchText(item: CatalogItem): string {
+  return [
+    item.productName,
+    item.itemLabel,
+    item.sku,
+    item.brand,
+    item.category,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
 
 const catalogActionBtn =
   "group relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-700 transition-colors hover:bg-slate-100 focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500";
@@ -25,6 +44,13 @@ export function ItemCatalogPage() {
   const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+
+  const filteredItems = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return catalogItems;
+    return catalogItems.filter((item) => catalogItemSearchText(item).includes(q));
+  }, [catalogItems, search]);
 
   useEffect(() => {
     let cancelled = false;
@@ -60,6 +86,20 @@ export function ItemCatalogPage() {
 
   return (
     <div className="w-full min-w-0">
+      {!catalogLoading && catalogItems.length > 0 ? (
+        <label className="mb-4 block">
+          <span className="sr-only">Search catalog</span>
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by product, SKU, brand, or category…"
+            className={searchInputClassName}
+            autoComplete="off"
+          />
+        </label>
+      ) : null}
+
       {catalogError ? (
         <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
           {catalogError}
@@ -77,9 +117,15 @@ export function ItemCatalogPage() {
             No items are available for purchase yet.
           </p>
         </div>
+      ) : filteredItems.length === 0 ? (
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-sm leading-relaxed text-slate-600">
+            No items match your search.
+          </p>
+        </div>
       ) : (
         <div className="grid grid-cols-2 gap-3">
-          {catalogItems.map((item) => (
+          {filteredItems.map((item) => (
             <article
               key={item.id}
               className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
