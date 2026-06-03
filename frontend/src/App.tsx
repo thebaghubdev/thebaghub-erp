@@ -37,9 +37,12 @@ import { EditingPage } from './pages/EditingPage'
 import { PostingItemPage } from './pages/PostingItemPage'
 import { PostingPage } from './pages/PostingPage'
 import { PricingPage } from './pages/PricingPage'
+import { OrderDetailPage } from './pages/OrderDetailPage'
+import { OrdersPage } from './pages/OrdersPage'
 import { PortalLoginPage } from './pages/PortalLoginPage'
 import { ItemCatalogPage } from './pages/ItemCatalogPage'
-import { PurchaseItemsPage } from './pages/PurchaseItemsPage'
+import { ClientOrderDetailPage } from './pages/ClientOrderDetailPage'
+import { ClientOrdersPage } from './pages/ClientOrdersPage'
 import { RegisterPage } from './pages/RegisterPage'
 import { SettingsPage } from './pages/SettingsPage'
 
@@ -107,6 +110,8 @@ const router = createBrowserRouter([
           { path: 'editing', element: <EditingPage /> },
           { path: 'posting/:itemId', element: <PostingItemPage /> },
           { path: 'posting', element: <PostingPage /> },
+          { path: 'orders', element: <OrdersPage /> },
+          { path: 'orders/:id', element: <OrderDetailPage /> },
           { path: 'settings', element: <SettingsPage /> },
           { path: 'accounts/register', element: <RegisterPage /> },
           { path: 'accounts', element: <ManageAccountsPage /> },
@@ -142,7 +147,8 @@ const router = createBrowserRouter([
           { path: 'consignments', element: <ConsignItemsPage /> },
           { path: 'catalog/:itemId/order', element: <ClientOrderItemPage /> },
           { path: 'catalog', element: <ItemCatalogPage /> },
-          { path: 'purchases', element: <PurchaseItemsPage /> },
+          { path: 'orders/:id', element: <ClientOrderDetailPage /> },
+          { path: 'orders', element: <ClientOrdersPage /> },
           { path: 'profile', element: <ClientMyAccountPage /> },
         ],
       },

@@ -1,9 +1,15 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
 
 const AVAILABLE_FOR_PURCHASE_STATUS = 'Available For Purchase';
+const ON_HOLD_STATUS = 'On Hold';
+
+const CLIENT_CATALOG_STATUSES = [
+  AVAILABLE_FOR_PURCHASE_STATUS,
+  ON_HOLD_STATUS,
+];
 
 export type ClientCatalogItem = {
   id: string;
@@ -16,6 +22,7 @@ export type ClientCatalogItem = {
   priceComparison: string | null;
   productDescription: string | null;
   imageUrl: string | null;
+  status: string;
 };
 
 export type ClientCatalogItemDetail = ClientCatalogItem & {
@@ -90,7 +97,7 @@ export class ClientCatalogService {
 
   async findAvailableItems(): Promise<ClientCatalogItem[]> {
     const rows = await this.inventoryRepo.find({
-      where: { status: AVAILABLE_FOR_PURCHASE_STATUS },
+      where: { status: In(CLIENT_CATALOG_STATUSES) },
       relations: { itemPosting: true },
       order: { updatedAt: 'DESC' },
     });
@@ -124,6 +131,7 @@ export class ClientCatalogService {
             ? String(posting.productDescription).trim()
             : null,
         imageUrl: firstPhotoUrl(photos),
+        status: item.status,
       };
     });
   }

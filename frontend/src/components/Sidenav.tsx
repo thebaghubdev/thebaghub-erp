@@ -86,6 +86,15 @@ export function Sidenav() {
           Posting
         </NavLink>
         <NavLink
+          to="/portal/orders"
+          end
+          className={({ isActive }) =>
+            [linkClass, isActive ? activeClass : ""].join(" ")
+          }
+        >
+          Orders
+        </NavLink>
+        <NavLink
           to="/portal/accounts"
           className={({ isActive }) =>
             [linkClass, isActive ? activeClass : ""].join(" ")

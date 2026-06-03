@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -36,10 +37,13 @@ import { ShopifyModule } from './shopify/shopify.module';
 import { ShopifyShopSession } from './shopify/entities/shopify-shop-session.entity';
 import { TablePreferencesModule } from './table-preferences/table-preferences.module';
 import { TablePreference } from './table-preferences/entities/table-preference.entity';
+import { Order } from './orders/entities/order.entity';
+import { OrdersModule } from './orders/orders.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    ScheduleModule.forRoot(),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -68,6 +72,7 @@ import { TablePreference } from './table-preferences/entities/table-preference.e
           Notification,
           ShopifyShopSession,
           TablePreference,
+          Order,
         ],
         synchronize:
           config.get<string>('NODE_ENV', 'development') !== 'production',
@@ -85,6 +90,7 @@ import { TablePreference } from './table-preferences/entities/table-preference.e
     NotificationsModule,
     ShopifyModule,
     TablePreferencesModule,
+    OrdersModule,
   ],
   controllers: [AppController],
   providers: [

@@ -1,4 +1,11 @@
-import { type FormEvent, type ReactNode, useEffect, useId, useMemo, useState } from "react";
+import {
+  type FormEvent,
+  type ReactNode,
+  useEffect,
+  useId,
+  useMemo,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 import { Link, useParams } from "react-router-dom";
 import { useClientAuth } from "../context/client-auth";
@@ -159,6 +166,17 @@ function DescriptionTable({
   );
 }
 
+async function readApiErrorMessage(res: Response): Promise<string> {
+  try {
+    const j = (await res.json()) as { message?: string | string[] };
+    if (Array.isArray(j.message)) return j.message.join("; ");
+    if (typeof j.message === "string") return j.message;
+  } catch {
+    /* ignore */
+  }
+  return `Request failed (${res.status})`;
+}
+
 export function ClientOrderItemPage() {
   const { itemId } = useParams<{ itemId: string }>();
   const { token, user } = useClientAuth();
@@ -174,8 +192,16 @@ export function ClientOrderItemPage() {
   const [layawayTermsModalOpen, setLayawayTermsModalOpen] = useState(false);
   const [orderTermsAccepted, setOrderTermsAccepted] = useState(false);
   const [orderTermsModalOpen, setOrderTermsModalOpen] = useState(false);
-  const [orderSignatureFile, setOrderSignatureFile] = useState<File | null>(null);
+  const [orderSignatureFile, setOrderSignatureFile] = useState<File | null>(
+    null,
+  );
   const [signatureFieldKey, setSignatureFieldKey] = useState(0);
+  const [submitBusy, setSubmitBusy] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitSuccess, setSubmitSuccess] = useState<{
+    orderNumber: number;
+    status: string;
+  } | null>(null);
   const photosModalTitleId = useId();
 
   useEffect(() => {
@@ -327,9 +353,58 @@ export function ClientOrderItemPage() {
       : null;
 
   const canSubmitOrder =
+    !submitBusy &&
     orderSignatureFile != null &&
     orderTermsAccepted &&
     (paymentType !== "layaway" || layawayTermsAccepted);
+
+  const handleSubmitOrder = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!itemId || !token || !canSubmitOrder || !orderSignatureFile) return;
+
+    if (paymentType === "layaway" && layawayMonthsNumber == null) {
+      setSubmitError("Please enter a valid number of layaway months.");
+      return;
+    }
+
+    setSubmitError(null);
+    setSubmitBusy(true);
+    try {
+      const payload: Record<string, unknown> = {
+        inventoryItemId: itemId,
+        paymentType,
+      };
+      if (paymentType === "layaway") {
+        payload.layawayMonths = layawayMonthsNumber;
+      }
+
+      const fd = new FormData();
+      fd.append("payload", JSON.stringify(payload));
+      fd.append("signature", orderSignatureFile);
+
+      const res = await apiFetch(
+        "/api/client/orders",
+        { method: "POST", body: fd },
+        token,
+      );
+      if (!res.ok) throw new Error(await readApiErrorMessage(res));
+
+      const data = (await res.json()) as {
+        orderNumber: number;
+        status: string;
+      };
+      setSubmitSuccess({
+        orderNumber: data.orderNumber,
+        status: data.status,
+      });
+    } catch (err) {
+      setSubmitError(
+        err instanceof Error ? err.message : "Could not submit order",
+      );
+    } finally {
+      setSubmitBusy(false);
+    }
+  };
 
   if (loading) {
     return <p className="text-sm text-slate-600">Loading item…</p>;
@@ -346,20 +421,38 @@ export function ClientOrderItemPage() {
     );
   }
 
+  if (submitSuccess) {
+    return (
+      <div className="space-y-4">
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 shadow-sm">
+          <h1 className="text-lg font-semibold text-emerald-900">
+            Order submitted
+          </h1>
+          <p className="mt-2 text-sm text-emerald-800">
+            Your order #{submitSuccess.orderNumber} has been submitted. Status:{" "}
+            {submitSuccess.status}.
+          </p>
+        </div>
+        <BackToCatalogLink />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <BackToCatalogLink />
 
       <form
         className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
-        onSubmit={(e: FormEvent) => {
-          e.preventDefault();
-        }}
+        onSubmit={handleSubmitOrder}
       >
+        {submitError ? (
+          <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+            {submitError}
+          </p>
+        ) : null}
         <div>
-          <h1 className="text-lg font-semibold text-slate-900">
-            Order Request Form
-          </h1>
+          <h1 className="text-lg font-semibold text-slate-900">Order Form</h1>
         </div>
 
         <DescriptionTable rows={descriptionRows} />
@@ -492,8 +585,7 @@ export function ClientOrderItemPage() {
             htmlFor="order-sales-contract-terms"
             className="text-sm leading-snug text-slate-700"
           >
-            I have read and agree to the Terms, Conditions, and Sales
-            Contract.
+            I have read and agree to the Terms, Conditions, and Sales Contract.
           </label>
         </div>
 
@@ -516,7 +608,7 @@ export function ClientOrderItemPage() {
             disabled={!canSubmitOrder}
             className="rounded-lg bg-violet-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            Submit
+            {submitBusy ? "Submitting…" : "Submit"}
           </button>
         </div>
       </form>

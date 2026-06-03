@@ -1,0 +1,509 @@
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { randomUUID } from 'crypto';
+import { plainToInstance } from 'class-transformer';
+import { validateOrReject } from 'class-validator';
+import { DataSource, Repository } from 'typeorm';
+import { JwtUser } from '../auth/jwt-user';
+import { Client } from '../clients/entities/client.entity';
+import { InventoryItem } from '../inventory/entities/inventory-item.entity';
+import type { MulterFile } from '../inquiries/multer-file.type';
+import { S3StorageService } from '../inquiries/s3-storage.service';
+import { CreateOrderDto } from './dto/create-order.dto';
+import { Order } from './entities/order.entity';
+import { calculateLayawayPricing } from './layaway-pricing.util';
+import {
+  FULL_PAYMENT_HOLDING_HOURS,
+  INVENTORY_STATUS_AVAILABLE_FOR_PURCHASE,
+  INVENTORY_STATUS_ON_HOLD,
+  LAYAWAY_HOLDING_HOURS,
+  ORDER_STATUS_EXPIRED,
+  ORDER_STATUS_FOR_LAYAWAY_APPROVAL,
+  ORDER_STATUS_FOR_PAYMENT,
+  PAYMENT_TYPE_FULL,
+  PAYMENT_TYPE_LAYAWAY,
+} from './order-status.constants';
+
+const ALLOWED_IMAGE_MIMES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+  'image/heic',
+  'image/heif',
+]);
+
+function extFromMime(mime: string): string {
+  const m = mime.toLowerCase();
+  if (m === 'image/jpeg') return 'jpg';
+  if (m === 'image/png') return 'png';
+  if (m === 'image/webp') return 'webp';
+  if (m === 'image/gif') return 'gif';
+  if (m === 'image/heic' || m === 'image/heif') return 'heic';
+  return 'bin';
+}
+
+function parseItemPrice(raw: string | null | undefined): number | null {
+  if (raw == null || String(raw).trim() === '') return null;
+  const n = Number.parseFloat(String(raw));
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function formatDecimal(value: number): string {
+  return value.toFixed(2);
+}
+
+function addHours(ref: Date, hours: number): Date {
+  return new Date(ref.getTime() + hours * 60 * 60 * 1000);
+}
+
+export type ClientOrderSummary = {
+  id: string;
+  orderNumber: number;
+  status: string;
+  inventoryItemId: string;
+  paymentType: string;
+  layawayMonths: number | null;
+  layawayPrice: string | null;
+  layawayMonthlyPayment: string | null;
+  fullPaymentPrice: string | null;
+  holdingPeriod: string | null;
+  createdAt: string;
+};
+
+export type ClientOrderListRow = {
+  id: string;
+  orderNumber: number;
+  status: string;
+  itemSku: string;
+  itemLabel: string;
+  paymentType: string;
+  amount: string | null;
+  createdAt: string;
+};
+
+export type ClientOrderDetail = {
+  id: string;
+  orderNumber: number;
+  status: string;
+  paymentType: string;
+  layawayMonths: number | null;
+  layawayPrice: string | null;
+  layawayMonthlyPayment: string | null;
+  fullPaymentPrice: string | null;
+  holdingPeriod: string | null;
+  signatureUrl: string | null;
+  createdAt: string;
+  updatedAt: string;
+  inventoryItem: {
+    id: string;
+    sku: string;
+    itemLabel: string;
+  };
+};
+
+export type StaffOrderRow = {
+  id: string;
+  orderNumber: number;
+  status: string;
+  customerName: string;
+  itemSku: string;
+  itemLabel: string;
+  paymentType: string;
+  amount: string | null;
+  layawayMonths: number | null;
+  holdingPeriod: string | null;
+  createdAt: string;
+};
+
+export type StaffOrderDetail = {
+  id: string;
+  orderNumber: number;
+  status: string;
+  paymentType: string;
+  layawayMonths: number | null;
+  layawayPrice: string | null;
+  layawayMonthlyPayment: string | null;
+  fullPaymentPrice: string | null;
+  holdingPeriod: string | null;
+  signatureUrl: string | null;
+  createdAt: string;
+  updatedAt: string;
+  customer: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+    contactNumber: string;
+    completeAddress: string | null;
+  };
+  inventoryItem: {
+    id: string;
+    sku: string;
+    itemLabel: string;
+    status: string;
+  };
+};
+
+function snapshotFormString(
+  form: Record<string, unknown> | undefined,
+  key: string,
+): string | null {
+  const value = form?.[key];
+  if (value == null) return null;
+  const text = String(value).trim();
+  return text ? text : null;
+}
+
+function itemLabelFromSnapshot(item: InventoryItem): string {
+  const form = item.itemSnapshot?.form as Record<string, unknown> | undefined;
+  const brand = snapshotFormString(form, 'brand');
+  const model = snapshotFormString(form, 'itemModel');
+  if (brand && model) return `${brand} — ${model}`;
+  return brand ?? model ?? 'Item';
+}
+
+function customerName(client: Client): string {
+  return `${client.firstName} ${client.lastName}`.trim() || client.email;
+}
+
+@Injectable()
+export class OrdersService {
+  constructor(
+    @InjectRepository(Order)
+    private readonly ordersRepo: Repository<Order>,
+    @InjectRepository(Client)
+    private readonly clientsRepo: Repository<Client>,
+    @InjectRepository(InventoryItem)
+    private readonly inventoryRepo: Repository<InventoryItem>,
+    private readonly dataSource: DataSource,
+    private readonly s3: S3StorageService,
+  ) {}
+
+  async findMineForClient(user: JwtUser): Promise<ClientOrderListRow[]> {
+    const client = await this.clientsRepo.findOne({
+      where: { userId: user.userId },
+    });
+    if (!client) {
+      throw new NotFoundException('Client profile not found');
+    }
+
+    const rows = await this.ordersRepo.find({
+      where: { customerId: client.id },
+      relations: { inventoryItem: true },
+      order: { createdAt: 'DESC' },
+    });
+
+    return rows.map((order) => ({
+      id: order.id,
+      orderNumber: order.orderNumber,
+      status: order.status,
+      itemSku: order.inventoryItem.sku,
+      itemLabel: itemLabelFromSnapshot(order.inventoryItem),
+      paymentType: order.paymentType,
+      amount:
+        order.paymentType === PAYMENT_TYPE_LAYAWAY
+          ? order.layawayPrice
+          : order.fullPaymentPrice,
+      createdAt: order.createdAt.toISOString(),
+    }));
+  }
+
+  async findOneForClient(
+    user: JwtUser,
+    id: string,
+  ): Promise<ClientOrderDetail> {
+    const client = await this.clientsRepo.findOne({
+      where: { userId: user.userId },
+    });
+    if (!client) {
+      throw new NotFoundException('Client profile not found');
+    }
+
+    const order = await this.ordersRepo.findOne({
+      where: { id, customerId: client.id },
+      relations: { inventoryItem: true },
+    });
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    return {
+      id: order.id,
+      orderNumber: order.orderNumber,
+      status: order.status,
+      paymentType: order.paymentType,
+      layawayMonths: order.layawayMonths,
+      layawayPrice: order.layawayPrice,
+      layawayMonthlyPayment: order.layawayMonthlyPayment,
+      fullPaymentPrice: order.fullPaymentPrice,
+      holdingPeriod: order.holdingPeriod?.toISOString() ?? null,
+      signatureUrl: order.signatureKey
+        ? this.s3.getPublicUrl(order.signatureKey)
+        : null,
+      createdAt: order.createdAt.toISOString(),
+      updatedAt: order.updatedAt.toISOString(),
+      inventoryItem: {
+        id: order.inventoryItem.id,
+        sku: order.inventoryItem.sku,
+        itemLabel: itemLabelFromSnapshot(order.inventoryItem),
+      },
+    };
+  }
+
+  async findAllForStaff(): Promise<StaffOrderRow[]> {
+    const rows = await this.ordersRepo.find({
+      relations: { customer: true, inventoryItem: true },
+      order: { createdAt: 'DESC' },
+    });
+
+    return rows.map((order) => ({
+      id: order.id,
+      orderNumber: order.orderNumber,
+      status: order.status,
+      customerName: customerName(order.customer),
+      itemSku: order.inventoryItem.sku,
+      itemLabel: itemLabelFromSnapshot(order.inventoryItem),
+      paymentType: order.paymentType,
+      amount:
+        order.paymentType === PAYMENT_TYPE_LAYAWAY
+          ? order.layawayPrice
+          : order.fullPaymentPrice,
+      layawayMonths: order.layawayMonths,
+      holdingPeriod: order.holdingPeriod?.toISOString() ?? null,
+      createdAt: order.createdAt.toISOString(),
+    }));
+  }
+
+  async findOneForStaff(id: string): Promise<StaffOrderDetail> {
+    const order = await this.ordersRepo.findOne({
+      where: { id },
+      relations: { customer: true, inventoryItem: true },
+    });
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    return {
+      id: order.id,
+      orderNumber: order.orderNumber,
+      status: order.status,
+      paymentType: order.paymentType,
+      layawayMonths: order.layawayMonths,
+      layawayPrice: order.layawayPrice,
+      layawayMonthlyPayment: order.layawayMonthlyPayment,
+      fullPaymentPrice: order.fullPaymentPrice,
+      holdingPeriod: order.holdingPeriod?.toISOString() ?? null,
+      signatureUrl: order.signatureKey
+        ? this.s3.getPublicUrl(order.signatureKey)
+        : null,
+      createdAt: order.createdAt.toISOString(),
+      updatedAt: order.updatedAt.toISOString(),
+      customer: {
+        id: order.customer.id,
+        firstName: order.customer.firstName,
+        lastName: order.customer.lastName,
+        email: order.customer.email,
+        contactNumber: order.customer.contactNumber,
+        completeAddress: order.customer.completeAddress,
+      },
+      inventoryItem: {
+        id: order.inventoryItem.id,
+        sku: order.inventoryItem.sku,
+        itemLabel: itemLabelFromSnapshot(order.inventoryItem),
+        status: order.inventoryItem.status,
+      },
+    };
+  }
+
+  async createOrderForClient(
+    user: JwtUser,
+    payloadRaw: string | undefined,
+    signatureFile: MulterFile | undefined,
+  ): Promise<ClientOrderSummary> {
+    if (payloadRaw == null || payloadRaw.trim() === '') {
+      throw new BadRequestException('Missing payload');
+    }
+    if (!signatureFile?.buffer?.length) {
+      throw new BadRequestException('Signature image is required');
+    }
+
+    let dto: CreateOrderDto;
+    try {
+      dto = plainToInstance(CreateOrderDto, JSON.parse(payloadRaw) as object, {
+        enableImplicitConversion: true,
+      });
+      await validateOrReject(dto);
+    } catch {
+      throw new BadRequestException('Invalid order payload');
+    }
+
+    if (dto.paymentType === PAYMENT_TYPE_LAYAWAY && dto.layawayMonths == null) {
+      throw new BadRequestException('Layaway months are required for layaway orders');
+    }
+
+    const mime = signatureFile.mimetype?.toLowerCase() ?? '';
+    if (!ALLOWED_IMAGE_MIMES.has(mime)) {
+      throw new BadRequestException(
+        `Signature must be an image file (${signatureFile.mimetype || 'unknown'})`,
+      );
+    }
+
+    const client = await this.clientsRepo.findOne({
+      where: { userId: user.userId },
+    });
+    if (!client) {
+      throw new NotFoundException('Client profile not found');
+    }
+
+    const item = await this.inventoryRepo.findOne({
+      where: {
+        id: dto.inventoryItemId,
+        status: INVENTORY_STATUS_AVAILABLE_FOR_PURCHASE,
+      },
+    });
+    if (!item) {
+      throw new NotFoundException('Item is not available for purchase');
+    }
+
+    const itemPrice = parseItemPrice(item.tbhSellingPrice);
+    if (itemPrice == null) {
+      throw new BadRequestException('Item price is not set');
+    }
+
+    let layawayPrice: string | null = null;
+    let layawayMonthlyPayment: string | null = null;
+    let fullPaymentPrice: string | null = null;
+    let layawayMonths: number | null = null;
+    let status: string;
+    let holdingHours: number;
+
+    if (dto.paymentType === PAYMENT_TYPE_LAYAWAY) {
+      const pricing = calculateLayawayPricing(itemPrice, dto.layawayMonths!);
+      if (!pricing) {
+        throw new BadRequestException('Invalid layaway terms');
+      }
+      layawayMonths = dto.layawayMonths!;
+      layawayPrice = formatDecimal(pricing.layawayPrice);
+      layawayMonthlyPayment = formatDecimal(pricing.monthlyPayment);
+      status = ORDER_STATUS_FOR_LAYAWAY_APPROVAL;
+      holdingHours = LAYAWAY_HOLDING_HOURS;
+    } else {
+      fullPaymentPrice = formatDecimal(itemPrice);
+      status = ORDER_STATUS_FOR_PAYMENT;
+      holdingHours = FULL_PAYMENT_HOLDING_HOURS;
+    }
+
+    const ext = extFromMime(mime);
+    const orderId = randomUUID();
+    const signatureKey = `orders/${orderId}/signature-${randomUUID()}.${ext}`;
+    await this.s3.putObject(signatureKey, signatureFile.buffer, mime);
+
+    const saved = await this.dataSource.transaction(async (em) => {
+      await em.query('SELECT pg_advisory_xact_lock($1)', [834729105]);
+
+      const maxRow = await em
+        .createQueryBuilder(Order, 'o')
+        .select('MAX(o.orderNumber)', 'max')
+        .getRawOne<{ max: string | null }>();
+      const orderNumber = (maxRow?.max ? Number(maxRow.max) : 0) + 1;
+
+      const createdAt = new Date();
+      const order = em.create(Order, {
+        id: orderId,
+        orderNumber,
+        status,
+        inventoryItemId: item.id,
+        customerId: client.id,
+        paymentType: dto.paymentType,
+        layawayMonths,
+        layawayPrice,
+        layawayMonthlyPayment,
+        fullPaymentPrice,
+        signatureKey,
+        holdingPeriod: addHours(createdAt, holdingHours),
+        createdById: user.userId,
+        updatedById: user.userId,
+      });
+      await em.save(order);
+
+      item.status = INVENTORY_STATUS_ON_HOLD;
+      item.updatedById = user.userId;
+      await em.save(item);
+
+      return order;
+    });
+
+    return this.toClientSummary(saved);
+  }
+
+  async expireOrdersPastHoldingPeriod(): Promise<number> {
+    const now = new Date();
+    const candidates = await this.ordersRepo
+      .createQueryBuilder('o')
+      .innerJoinAndSelect('o.inventoryItem', 'item')
+      .where('o.status IN (:...statuses)', {
+        statuses: [ORDER_STATUS_FOR_PAYMENT, ORDER_STATUS_FOR_LAYAWAY_APPROVAL],
+      })
+      .andWhere('o.holding_period IS NOT NULL')
+      .andWhere('o.holding_period <= :now', { now })
+      .andWhere('item.status = :onHold', { onHold: INVENTORY_STATUS_ON_HOLD })
+      .getMany();
+
+    let expiredCount = 0;
+    for (const order of candidates) {
+      const didExpire = await this.dataSource.transaction(async (em) => {
+        const lockedOrder = await em.findOne(Order, {
+          where: { id: order.id },
+          lock: { mode: 'pessimistic_write' },
+        });
+        if (
+          !lockedOrder ||
+          (lockedOrder.status !== ORDER_STATUS_FOR_PAYMENT &&
+            lockedOrder.status !== ORDER_STATUS_FOR_LAYAWAY_APPROVAL)
+        ) {
+          return false;
+        }
+
+        const lockedItem = await em.findOne(InventoryItem, {
+          where: { id: order.inventoryItemId },
+          lock: { mode: 'pessimistic_write' },
+        });
+        if (!lockedItem || lockedItem.status !== INVENTORY_STATUS_ON_HOLD) {
+          return false;
+        }
+
+        lockedItem.status = INVENTORY_STATUS_AVAILABLE_FOR_PURCHASE;
+        await em.save(lockedItem);
+
+        lockedOrder.status = ORDER_STATUS_EXPIRED;
+        await em.save(lockedOrder);
+        return true;
+      });
+
+      if (didExpire) expiredCount += 1;
+    }
+
+    return expiredCount;
+  }
+
+  private toClientSummary(order: Order): ClientOrderSummary {
+    return {
+      id: order.id,
+      orderNumber: order.orderNumber,
+      status: order.status,
+      inventoryItemId: order.inventoryItemId,
+      paymentType: order.paymentType,
+      layawayMonths: order.layawayMonths,
+      layawayPrice: order.layawayPrice,
+      layawayMonthlyPayment: order.layawayMonthlyPayment,
+      fullPaymentPrice: order.fullPaymentPrice,
+      holdingPeriod: order.holdingPeriod?.toISOString() ?? null,
+      createdAt: order.createdAt.toISOString(),
+    };
+  }
+}

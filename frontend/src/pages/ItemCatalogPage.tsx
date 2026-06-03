@@ -10,6 +10,7 @@ type CatalogItem = {
   productName: string;
   price: string | null;
   imageUrl: string | null;
+  status: string;
 };
 
 const catalogActionBtn =
@@ -98,9 +99,16 @@ export function ItemCatalogPage() {
                 )}
               </div>
               <div className="space-y-1.5 p-3">
-                <p className="break-words text-sm font-semibold leading-snug text-slate-900">
-                  {item.productName}
-                </p>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <p className="break-words text-sm font-semibold leading-snug text-slate-900">
+                    {item.productName}
+                  </p>
+                  {item.status === "On Hold" ? (
+                    <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[0.65rem] font-medium text-amber-800">
+                      On Hold
+                    </span>
+                  ) : null}
+                </div>
                 <div className="flex items-center justify-between gap-2 pt-1">
                   <div className="min-w-0">
                     <p className="truncate text-xs text-slate-500">{item.sku}</p>

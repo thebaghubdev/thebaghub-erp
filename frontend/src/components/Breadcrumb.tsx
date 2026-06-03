@@ -9,6 +9,7 @@ const pathLabels: Record<string, string> = {
   "/portal/pricing": "Pricing",
   "/portal/editing": "Editing",
   "/portal/posting": "Posting",
+  "/portal/orders": "Orders",
   "/portal/settings": "Settings",
   "/portal/accounts": "Manage Accounts",
   "/portal/accounts/register": "Register",
@@ -156,6 +157,20 @@ function crumbsForPath(pathname: string): Crumb[] {
         to: normalized,
         current: true,
       },
+    ];
+  }
+
+  if (
+    /^\/portal\/orders\/[^/]+$/.test(normalized) &&
+    normalized !== "/portal/orders"
+  ) {
+    return [
+      {
+        label: pathLabels["/portal/orders"] ?? "Orders",
+        to: "/portal/orders",
+        current: false,
+      },
+      { label: "Order details", to: normalized, current: true },
     ];
   }
 

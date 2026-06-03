@@ -139,7 +139,7 @@ export function ClientLayout() {
             Consignments
           </NavLink>
           <NavLink
-            to="/purchases"
+            to="/orders"
             className={({ isActive }) =>
               [
                 navLinkClass,
@@ -147,7 +147,7 @@ export function ClientLayout() {
               ].join(" ")
             }
           >
-            Purchases
+            Orders
           </NavLink>
         </div>
       </nav>
