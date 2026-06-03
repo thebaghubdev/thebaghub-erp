@@ -24,6 +24,7 @@ import {
   ORDER_STATUS_EXPIRED,
   ORDER_STATUS_FOR_LAYAWAY_APPROVAL,
   ORDER_STATUS_FOR_PAYMENT,
+  ORDER_NUMBER_OFFSET,
   PAYMENT_TYPE_FULL,
   PAYMENT_TYPE_LAYAWAY,
 } from './order-status.constants';
@@ -169,6 +170,13 @@ function itemLabelFromSnapshot(item: InventoryItem): string {
 
 function customerName(client: Client): string {
   return `${client.firstName} ${client.lastName}`.trim() || client.email;
+}
+
+function nextOrderNumber(currentMax: number | null): number {
+  if (currentMax == null || currentMax < ORDER_NUMBER_OFFSET) {
+    return ORDER_NUMBER_OFFSET + 1;
+  }
+  return currentMax + 1;
 }
 
 @Injectable()
@@ -410,7 +418,9 @@ export class OrdersService {
         .createQueryBuilder(Order, 'o')
         .select('MAX(o.orderNumber)', 'max')
         .getRawOne<{ max: string | null }>();
-      const orderNumber = (maxRow?.max ? Number(maxRow.max) : 0) + 1;
+      const orderNumber = nextOrderNumber(
+        maxRow?.max ? Number(maxRow.max) : null,
+      );
 
       const createdAt = new Date();
       const order = em.create(Order, {

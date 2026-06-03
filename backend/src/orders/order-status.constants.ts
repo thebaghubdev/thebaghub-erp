@@ -2,6 +2,9 @@ export const ORDER_STATUS_FOR_LAYAWAY_APPROVAL = 'For Layaway Approval';
 export const ORDER_STATUS_FOR_PAYMENT = 'For Payment';
 export const ORDER_STATUS_EXPIRED = 'Expired';
 
+/** Added to sequential order numbers so they start at 10001 (5 digits). */
+export const ORDER_NUMBER_OFFSET = 10_000;
+
 export const INVENTORY_STATUS_ON_HOLD = 'On Hold';
 export const INVENTORY_STATUS_AVAILABLE_FOR_PURCHASE = 'Available For Purchase';
 

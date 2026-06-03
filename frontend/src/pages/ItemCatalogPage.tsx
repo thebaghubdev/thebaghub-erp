@@ -84,7 +84,7 @@ export function ItemCatalogPage() {
               key={item.id}
               className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
             >
-              <div className="aspect-square bg-slate-100">
+              <div className="relative aspect-square bg-slate-100">
                 {item.imageUrl ? (
                   <img
                     src={item.imageUrl}
@@ -97,18 +97,16 @@ export function ItemCatalogPage() {
                     No photo
                   </div>
                 )}
+                {item.status === "On Hold" ? (
+                  <span className="absolute bottom-2 left-2 rounded-full bg-amber-100 px-2 py-0.5 text-[0.65rem] font-medium text-amber-800 shadow-sm">
+                    On Hold
+                  </span>
+                ) : null}
               </div>
               <div className="space-y-1.5 p-3">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <p className="break-words text-sm font-semibold leading-snug text-slate-900">
-                    {item.productName}
-                  </p>
-                  {item.status === "On Hold" ? (
-                    <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[0.65rem] font-medium text-amber-800">
-                      On Hold
-                    </span>
-                  ) : null}
-                </div>
+                <p className="break-words text-sm font-semibold leading-snug text-slate-900">
+                  {item.productName}
+                </p>
                 <div className="flex items-center justify-between gap-2 pt-1">
                   <div className="min-w-0">
                     <p className="truncate text-xs text-slate-500">{item.sku}</p>
@@ -117,28 +115,30 @@ export function ItemCatalogPage() {
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
-                    <button
-                      type="button"
-                      className={catalogActionBtn}
-                      aria-label="Order now"
-                      onClick={() => navigate(`/catalog/${item.id}/order`)}
-                    >
-                      <svg
-                        viewBox="0 0 24 24"
-                        aria-hidden
-                        className="h-3.5 w-3.5 shrink-0"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
+                    {item.status !== "On Hold" ? (
+                      <button
+                        type="button"
+                        className={catalogActionBtn}
+                        aria-label="Order now"
+                        onClick={() => navigate(`/catalog/${item.id}/order`)}
                       >
-                        <circle cx="8" cy="21" r="1" />
-                        <circle cx="19" cy="21" r="1" />
-                        <path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h8.89a2 2 0 0 0 2-1.58l1.31-6.47H5.12" />
-                      </svg>
-                      <span className={catalogActionTooltip}>Order now</span>
-                    </button>
+                        <svg
+                          viewBox="0 0 24 24"
+                          aria-hidden
+                          className="h-3.5 w-3.5 shrink-0"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <circle cx="8" cy="21" r="1" />
+                          <circle cx="19" cy="21" r="1" />
+                          <path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h8.89a2 2 0 0 0 2-1.58l1.31-6.47H5.12" />
+                        </svg>
+                        <span className={catalogActionTooltip}>Order now</span>
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       className={catalogActionBtn}
