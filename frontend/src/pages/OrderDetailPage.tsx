@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { InventoryStatusBadge } from "../components/InventoryStatusBadge";
 import { OrderStatusBadge } from "../components/OrderStatusBadge";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
@@ -18,6 +19,7 @@ type OrderDetail = {
   layawayMonthlyPayment: string | null;
   fullPaymentPrice: string | null;
   holdingPeriod: string | null;
+  layawayPaymentStartDate: string | null;
   signatureUrl: string | null;
   createdAt: string;
   updatedAt: string;
@@ -62,6 +64,29 @@ function displayOrDash(value: string | null | undefined): string {
   return text ? text : "—";
 }
 
+function formatOrderDate(raw: string | null | undefined): string {
+  if (raw == null || raw.trim() === "") return "—";
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw);
+  if (!m) return raw;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  return new Date(y, mo - 1, d).toLocaleDateString(undefined, {
+    dateStyle: "medium",
+  });
+}
+
+async function readApiErrorMessage(res: Response): Promise<string> {
+  try {
+    const j = (await res.json()) as { message?: string | string[] };
+    if (Array.isArray(j.message)) return j.message.join("; ");
+    if (typeof j.message === "string") return j.message;
+  } catch {
+    /* ignore */
+  }
+  return `Request failed (${res.status})`;
+}
+
 function DetailField({
   label,
   children,
@@ -83,6 +108,9 @@ export function OrderDetailPage() {
   const [detail, setDetail] = useState<OrderDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [approveConfirmOpen, setApproveConfirmOpen] = useState(false);
+  const [approveBusy, setApproveBusy] = useState(false);
+  const [approveError, setApproveError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -110,6 +138,29 @@ export function OrderDetailPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const confirmApproveLayaway = useCallback(async () => {
+    if (!id || !token) return;
+    setApproveError(null);
+    setApproveBusy(true);
+    try {
+      const res = await apiFetch(
+        `/api/orders/${id}/approve-layaway`,
+        { method: "POST" },
+        token,
+      );
+      if (!res.ok) throw new Error(await readApiErrorMessage(res));
+      const data = (await res.json()) as OrderDetail;
+      setDetail(data);
+      setApproveConfirmOpen(false);
+    } catch (e) {
+      setApproveError(
+        e instanceof Error ? e.message : "Could not approve layaway order",
+      );
+    } finally {
+      setApproveBusy(false);
+    }
+  }, [id, token]);
 
   if (loading) {
     return (
@@ -165,7 +216,15 @@ export function OrderDetailPage() {
             Layaway approval
           </h2>
           <div className="mt-4 flex flex-wrap gap-2">
-            <button type="button" className={layawayApproveBtn}>
+            <button
+              type="button"
+              className={layawayApproveBtn}
+              disabled={approveBusy}
+              onClick={() => {
+                setApproveError(null);
+                setApproveConfirmOpen(true);
+              }}
+            >
               Approve
             </button>
             <button type="button" className={layawayDeclineBtn}>
@@ -225,6 +284,9 @@ export function OrderDetailPage() {
               <DetailField label="Monthly payment">
                 {formatPhpDisplay(detail.layawayMonthlyPayment)}
               </DetailField>
+              <DetailField label="Layaway payment start date">
+                {formatOrderDate(detail.layawayPaymentStartDate)}
+              </DetailField>
             </>
           )}
         </dl>
@@ -279,6 +341,22 @@ export function OrderDetailPage() {
           <p className="mt-4 text-sm text-slate-600 dark:text-slate-400">—</p>
         )}
       </div>
+
+      <ConfirmDialog
+        open={approveConfirmOpen}
+        title="Approve layaway order?"
+        description="The order status will change to For Payment and the layaway payment start date will be set to today."
+        confirmLabel="Approve"
+        cancelLabel="Cancel"
+        busy={approveBusy}
+        errorMessage={approveError}
+        onCancel={() => {
+          if (approveBusy) return;
+          setApproveError(null);
+          setApproveConfirmOpen(false);
+        }}
+        onConfirm={confirmApproveLayaway}
+      />
     </div>
   );
 }

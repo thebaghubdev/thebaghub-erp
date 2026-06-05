@@ -131,6 +131,7 @@ export type StaffOrderDetail = {
   layawayMonthlyPayment: string | null;
   fullPaymentPrice: string | null;
   holdingPeriod: string | null;
+  layawayPaymentStartDate: string | null;
   signatureUrl: string | null;
   createdAt: string;
   updatedAt: string;
@@ -170,6 +171,27 @@ function itemLabelFromSnapshot(item: InventoryItem): string {
 
 function customerName(client: Client): string {
   return `${client.firstName} ${client.lastName}`.trim() || client.email;
+}
+
+function formatOrderDate(value: Date | string | null | undefined): string | null {
+  if (value == null) return null;
+  if (value instanceof Date) {
+    const y = value.getFullYear();
+    const m = String(value.getMonth() + 1).padStart(2, '0');
+    const d = String(value.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  const text = String(value).trim();
+  if (!text) return null;
+  return text.slice(0, 10);
+}
+
+function todayDateString(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 }
 
 function nextOrderNumber(currentMax: number | null): number {
@@ -306,6 +328,7 @@ export class OrdersService {
       layawayMonthlyPayment: order.layawayMonthlyPayment,
       fullPaymentPrice: order.fullPaymentPrice,
       holdingPeriod: order.holdingPeriod?.toISOString() ?? null,
+      layawayPaymentStartDate: formatOrderDate(order.layawayPaymentStartDate),
       signatureUrl: order.signatureKey
         ? this.s3.getPublicUrl(order.signatureKey)
         : null,
@@ -326,6 +349,31 @@ export class OrdersService {
         status: order.inventoryItem.status,
       },
     };
+  }
+
+  async approveLayawayForStaff(
+    user: JwtUser,
+    id: string,
+  ): Promise<StaffOrderDetail> {
+    const order = await this.ordersRepo.findOne({ where: { id } });
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+    if (order.status !== ORDER_STATUS_FOR_LAYAWAY_APPROVAL) {
+      throw new BadRequestException(
+        'Only orders awaiting layaway approval can be approved',
+      );
+    }
+    if (order.paymentType !== PAYMENT_TYPE_LAYAWAY) {
+      throw new BadRequestException('Order is not a layaway order');
+    }
+
+    order.status = ORDER_STATUS_FOR_PAYMENT;
+    order.layawayPaymentStartDate = todayDateString();
+    order.updatedById = user.userId;
+    await this.ordersRepo.save(order);
+
+    return this.findOneForStaff(id);
   }
 
   async createOrderForClient(

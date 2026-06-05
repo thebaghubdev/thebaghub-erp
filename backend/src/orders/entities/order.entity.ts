@@ -72,4 +72,7 @@ export class Order extends AuditedEntity {
 
   @Column({ name: 'holding_period', type: 'timestamptz', nullable: true })
   holdingPeriod: Date | null;
+
+  @Column({ name: 'layaway_payment_start_date', type: 'date', nullable: true })
+  layawayPaymentStartDate: string | null;
 }
