@@ -43,6 +43,19 @@ const cardClass =
 const recordActionBtn =
   "inline-flex shrink-0 items-center justify-center rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5 text-sm font-medium text-violet-900 transition-colors hover:bg-violet-100 focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500 dark:border-violet-800 dark:bg-violet-950/60 dark:text-violet-100 dark:hover:bg-violet-900/80";
 
+const layawayApproveBtn =
+  "rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-emerald-700 focus-visible:outline focus-visible:ring-2 focus-visible:ring-emerald-500 dark:bg-emerald-600 dark:hover:bg-emerald-500";
+
+const layawayDeclineBtn =
+  "rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-800 shadow-sm hover:bg-red-50 focus-visible:outline focus-visible:ring-2 focus-visible:ring-red-500 dark:border-red-900 dark:bg-slate-950 dark:text-red-200 dark:hover:bg-red-950/40";
+
+const layawayUpdateTermsBtn =
+  "rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50 focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-800";
+
+function isForLayawayApproval(status: string): boolean {
+  return status.trim().toLowerCase() === "for layaway approval";
+}
+
 function displayOrDash(value: string | null | undefined): string {
   if (value == null) return "—";
   const text = value.trim();
@@ -145,6 +158,25 @@ export function OrderDetailPage() {
           ← Back to orders
         </Link>
       </div>
+
+      {isForLayawayApproval(detail.status) ? (
+        <div className={cardClass}>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
+            Layaway approval
+          </h2>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button type="button" className={layawayApproveBtn}>
+              Approve
+            </button>
+            <button type="button" className={layawayDeclineBtn}>
+              Decline
+            </button>
+            <button type="button" className={layawayUpdateTermsBtn}>
+              Update terms
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <div className={cardClass}>
         <div className="flex flex-wrap items-center justify-between gap-3">

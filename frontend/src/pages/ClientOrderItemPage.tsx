@@ -7,7 +7,7 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { useClientAuth } from "../context/client-auth";
 import { TermsScrollAgreeModal } from "../components/TermsScrollAgreeModal";
 import { OfferSignatureField } from "../components/OfferSignatureField";
@@ -179,6 +179,7 @@ async function readApiErrorMessage(res: Response): Promise<string> {
 
 export function ClientOrderItemPage() {
   const { itemId } = useParams<{ itemId: string }>();
+  const navigate = useNavigate();
   const { token, user } = useClientAuth();
   const [item, setItem] = useState<CatalogItemDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -198,10 +199,6 @@ export function ClientOrderItemPage() {
   const [signatureFieldKey, setSignatureFieldKey] = useState(0);
   const [submitBusy, setSubmitBusy] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [submitSuccess, setSubmitSuccess] = useState<{
-    orderNumber: number;
-    status: string;
-  } | null>(null);
   const photosModalTitleId = useId();
 
   useEffect(() => {
@@ -389,14 +386,8 @@ export function ClientOrderItemPage() {
       );
       if (!res.ok) throw new Error(await readApiErrorMessage(res));
 
-      const data = (await res.json()) as {
-        orderNumber: number;
-        status: string;
-      };
-      setSubmitSuccess({
-        orderNumber: data.orderNumber,
-        status: data.status,
-      });
+      const data = (await res.json()) as { id: string };
+      navigate(`/orders/${data.id}`, { replace: true });
     } catch (err) {
       setSubmitError(
         err instanceof Error ? err.message : "Could not submit order",
@@ -416,23 +407,6 @@ export function ClientOrderItemPage() {
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
           {error ?? "Unable to load this item."}
         </p>
-        <BackToCatalogLink />
-      </div>
-    );
-  }
-
-  if (submitSuccess) {
-    return (
-      <div className="space-y-4">
-        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 shadow-sm">
-          <h1 className="text-lg font-semibold text-emerald-900">
-            Order submitted
-          </h1>
-          <p className="mt-2 text-sm text-emerald-800">
-            Your order #{submitSuccess.orderNumber} has been submitted. Status:{" "}
-            {submitSuccess.status}.
-          </p>
-        </div>
         <BackToCatalogLink />
       </div>
     );
