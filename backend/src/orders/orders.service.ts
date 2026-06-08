@@ -14,8 +14,19 @@ import { InventoryItem } from '../inventory/entities/inventory-item.entity';
 import type { MulterFile } from '../inquiries/multer-file.type';
 import { S3StorageService } from '../inquiries/s3-storage.service';
 import { CreateOrderDto } from './dto/create-order.dto';
+import { UpdateInstallmentAmountPaidDto } from './dto/update-installment-amount-paid.dto';
+import { OrderInstallment } from './entities/order-installment.entity';
 import { Order } from './entities/order.entity';
 import { calculateLayawayPricing } from './layaway-pricing.util';
+import {
+  buildScheduledAmounts,
+  computeInstallmentViews,
+  computeRemainingBalance,
+  formatMoney,
+  parseMoney,
+  shouldIncludeInstallmentSchedule,
+  type OrderInstallmentView,
+} from './order-installment.util';
 import {
   FULL_PAYMENT_HOLDING_HOURS,
   INVENTORY_STATUS_AVAILABLE_FOR_PURCHASE,
@@ -24,6 +35,7 @@ import {
   ORDER_STATUS_EXPIRED,
   ORDER_STATUS_FOR_LAYAWAY_APPROVAL,
   ORDER_STATUS_FOR_PAYMENT,
+  ORDER_STATUS_PAID,
   ORDER_NUMBER_OFFSET,
   PAYMENT_TYPE_FULL,
   PAYMENT_TYPE_LAYAWAY,
@@ -38,6 +50,13 @@ const ALLOWED_IMAGE_MIMES = new Set([
   'image/heif',
 ]);
 
+const ALLOWED_PROOF_MIMES = new Set([
+  ...ALLOWED_IMAGE_MIMES,
+  'application/pdf',
+]);
+
+export type { OrderInstallmentView };
+
 function extFromMime(mime: string): string {
   const m = mime.toLowerCase();
   if (m === 'image/jpeg') return 'jpg';
@@ -46,6 +65,12 @@ function extFromMime(mime: string): string {
   if (m === 'image/gif') return 'gif';
   if (m === 'image/heic' || m === 'image/heif') return 'heic';
   return 'bin';
+}
+
+function extFromProofMime(mime: string): string {
+  const m = mime.toLowerCase();
+  if (m === 'application/pdf') return 'pdf';
+  return extFromMime(mime);
 }
 
 function parseItemPrice(raw: string | null | undefined): number | null {
@@ -105,6 +130,7 @@ export type ClientOrderDetail = {
     sku: string;
     itemLabel: string;
   };
+  installments: OrderInstallmentView[];
 };
 
 export type StaffOrderRow = {
@@ -149,6 +175,7 @@ export type StaffOrderDetail = {
     itemLabel: string;
     status: string;
   };
+  installments: OrderInstallmentView[];
 };
 
 function snapshotFormString(
@@ -206,6 +233,8 @@ export class OrdersService {
   constructor(
     @InjectRepository(Order)
     private readonly ordersRepo: Repository<Order>,
+    @InjectRepository(OrderInstallment)
+    private readonly installmentsRepo: Repository<OrderInstallment>,
     @InjectRepository(Client)
     private readonly clientsRepo: Repository<Client>,
     @InjectRepository(InventoryItem)
@@ -213,6 +242,121 @@ export class OrdersService {
     private readonly dataSource: DataSource,
     private readonly s3: S3StorageService,
   ) {}
+
+  private async getInstallmentViewsForOrder(
+    order: Order,
+  ): Promise<OrderInstallmentView[]> {
+    if (!shouldIncludeInstallmentSchedule(order)) {
+      return [];
+    }
+    await this.ensureInstallments(order);
+    const rows = await this.installmentsRepo.find({
+      where: { orderId: order.id },
+      order: { installmentNumber: 'ASC' },
+    });
+    return computeInstallmentViews(
+      rows,
+      formatOrderDate(order.layawayPaymentStartDate),
+      (key) => this.s3.getPublicUrl(key),
+    );
+  }
+
+  private async ensureInstallments(
+    order: Order,
+    userId?: string,
+  ): Promise<void> {
+    if (
+      !order.layawayMonths ||
+      !order.layawayPrice ||
+      !order.layawayMonthlyPayment
+    ) {
+      return;
+    }
+
+    const existingCount = await this.installmentsRepo.count({
+      where: { orderId: order.id },
+    });
+    if (existingCount >= order.layawayMonths) {
+      return;
+    }
+
+    const scheduledAmounts = buildScheduledAmounts(
+      order.layawayPrice,
+      order.layawayMonthlyPayment,
+      order.layawayMonths,
+    );
+
+    const rows = scheduledAmounts.map((scheduledAmount, index) =>
+      this.installmentsRepo.create({
+        orderId: order.id,
+        installmentNumber: index + 1,
+        scheduledAmount,
+        amountPaid: null,
+        proofKey: null,
+        proofUploadedAt: null,
+        proofUploadedByUserId: null,
+        createdById: userId ?? order.updatedById,
+        updatedById: userId ?? order.updatedById,
+      }),
+    );
+    await this.installmentsRepo.save(rows);
+  }
+
+  private async createInstallmentsForOrder(
+    order: Order,
+    em: typeof this.ordersRepo.manager,
+    userId: string,
+  ): Promise<void> {
+    if (
+      !order.layawayMonths ||
+      !order.layawayPrice ||
+      !order.layawayMonthlyPayment
+    ) {
+      return;
+    }
+
+    const scheduledAmounts = buildScheduledAmounts(
+      order.layawayPrice,
+      order.layawayMonthlyPayment,
+      order.layawayMonths,
+    );
+
+    for (let i = 0; i < scheduledAmounts.length; i++) {
+      const row = em.create(OrderInstallment, {
+        orderId: order.id,
+        installmentNumber: i + 1,
+        scheduledAmount: scheduledAmounts[i],
+        amountPaid: null,
+        proofKey: null,
+        proofUploadedAt: null,
+        proofUploadedByUserId: null,
+        createdById: userId,
+        updatedById: userId,
+      });
+      await em.save(row);
+    }
+  }
+
+  private assertInstallmentScheduleAccessible(order: Order): void {
+    if (!shouldIncludeInstallmentSchedule(order)) {
+      throw new BadRequestException(
+        'Installment schedule is not available for this order',
+      );
+    }
+  }
+
+  private async findInstallmentForOrder(
+    orderId: string,
+    installmentNumber: number,
+  ): Promise<OrderInstallment> {
+    const row = await this.installmentsRepo.findOne({
+      where: { orderId, installmentNumber },
+    });
+    if (!row) {
+      throw new NotFoundException('Installment not found');
+    }
+    return row;
+  }
 
   async findMineForClient(user: JwtUser): Promise<ClientOrderListRow[]> {
     const client = await this.clientsRepo.findOne({
@@ -262,6 +406,8 @@ export class OrdersService {
       throw new NotFoundException('Order not found');
     }
 
+    const installments = await this.getInstallmentViewsForOrder(order);
+
     return {
       id: order.id,
       orderNumber: order.orderNumber,
@@ -282,6 +428,7 @@ export class OrdersService {
         sku: order.inventoryItem.sku,
         itemLabel: itemLabelFromSnapshot(order.inventoryItem),
       },
+      installments,
     };
   }
 
@@ -318,6 +465,8 @@ export class OrdersService {
       throw new NotFoundException('Order not found');
     }
 
+    const installments = await this.getInstallmentViewsForOrder(order);
+
     return {
       id: order.id,
       orderNumber: order.orderNumber,
@@ -348,6 +497,7 @@ export class OrdersService {
         itemLabel: itemLabelFromSnapshot(order.inventoryItem),
         status: order.inventoryItem.status,
       },
+      installments,
     };
   }
 
@@ -368,12 +518,171 @@ export class OrdersService {
       throw new BadRequestException('Order is not a layaway order');
     }
 
-    order.status = ORDER_STATUS_FOR_PAYMENT;
-    order.layawayPaymentStartDate = todayDateString();
+    await this.dataSource.transaction(async (em) => {
+      order.status = ORDER_STATUS_FOR_PAYMENT;
+      order.layawayPaymentStartDate = todayDateString();
+      order.updatedById = user.userId;
+      await em.save(order);
+      await this.createInstallmentsForOrder(order, em, user.userId);
+    });
+
+    return this.findOneForStaff(id);
+  }
+
+  async markLayawayPaidForStaff(
+    user: JwtUser,
+    id: string,
+  ): Promise<StaffOrderDetail> {
+    const order = await this.ordersRepo.findOne({ where: { id } });
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+    if (order.paymentType !== PAYMENT_TYPE_LAYAWAY) {
+      throw new BadRequestException('Order is not a layaway order');
+    }
+    if (order.status !== ORDER_STATUS_FOR_PAYMENT) {
+      throw new BadRequestException(
+        'Only orders awaiting payment can be marked as paid',
+      );
+    }
+
+    await this.ensureInstallments(order, user.userId);
+    const rows = await this.installmentsRepo.find({
+      where: { orderId: id },
+    });
+    const remaining = computeRemainingBalance(order.layawayPrice, rows);
+    if (remaining > 0) {
+      throw new BadRequestException(
+        'Remaining balance must be zero before marking as paid',
+      );
+    }
+
+    order.status = ORDER_STATUS_PAID;
     order.updatedById = user.userId;
     await this.ordersRepo.save(order);
 
     return this.findOneForStaff(id);
+  }
+
+  async setInstallmentAmountPaidForStaff(
+    user: JwtUser,
+    orderId: string,
+    installmentNumber: number,
+    dto: UpdateInstallmentAmountPaidDto,
+  ): Promise<StaffOrderDetail> {
+    const order = await this.ordersRepo.findOne({ where: { id: orderId } });
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+    this.assertInstallmentScheduleAccessible(order);
+    await this.ensureInstallments(order, user.userId);
+
+    const amount = parseMoney(dto.amountPaid);
+    if (amount < 0) {
+      throw new BadRequestException('Amount paid cannot be negative');
+    }
+
+    const row = await this.findInstallmentForOrder(orderId, installmentNumber);
+    row.amountPaid = formatMoney(amount);
+    row.updatedById = user.userId;
+    await this.installmentsRepo.save(row);
+
+    return this.findOneForStaff(orderId);
+  }
+
+  async uploadInstallmentProofForStaff(
+    user: JwtUser,
+    orderId: string,
+    installmentNumber: number,
+    proofFile: MulterFile | undefined,
+  ): Promise<StaffOrderDetail> {
+    if (!proofFile?.buffer?.length) {
+      throw new BadRequestException('Proof file is required');
+    }
+
+    const order = await this.ordersRepo.findOne({ where: { id: orderId } });
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+    this.assertInstallmentScheduleAccessible(order);
+    await this.ensureInstallments(order, user.userId);
+
+    const mime = proofFile.mimetype?.toLowerCase() ?? '';
+    if (!ALLOWED_PROOF_MIMES.has(mime)) {
+      throw new BadRequestException(
+        `Proof must be an image or PDF (${proofFile.mimetype || 'unknown'})`,
+      );
+    }
+
+    await this.findInstallmentForOrder(orderId, installmentNumber);
+
+    const ext = extFromProofMime(mime);
+    const proofKey = `orders/${orderId}/installments/${installmentNumber}/proof-${randomUUID()}.${ext}`;
+    await this.s3.putObject(proofKey, proofFile.buffer, mime);
+
+    await this.installmentsRepo.update(
+      { orderId, installmentNumber },
+      {
+        proofKey,
+        proofUploadedAt: new Date(),
+        proofUploadedByUserId: user.userId,
+        updatedById: user.userId,
+      },
+    );
+
+    return this.findOneForStaff(orderId);
+  }
+
+  async uploadInstallmentProofForClient(
+    user: JwtUser,
+    orderId: string,
+    installmentNumber: number,
+    proofFile: MulterFile | undefined,
+  ): Promise<ClientOrderDetail> {
+    if (!proofFile?.buffer?.length) {
+      throw new BadRequestException('Proof file is required');
+    }
+
+    const client = await this.clientsRepo.findOne({
+      where: { userId: user.userId },
+    });
+    if (!client) {
+      throw new NotFoundException('Client profile not found');
+    }
+
+    const order = await this.ordersRepo.findOne({
+      where: { id: orderId, customerId: client.id },
+    });
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+    this.assertInstallmentScheduleAccessible(order);
+    await this.ensureInstallments(order, user.userId);
+
+    const mime = proofFile.mimetype?.toLowerCase() ?? '';
+    if (!ALLOWED_PROOF_MIMES.has(mime)) {
+      throw new BadRequestException(
+        `Proof must be an image or PDF (${proofFile.mimetype || 'unknown'})`,
+      );
+    }
+
+    await this.findInstallmentForOrder(orderId, installmentNumber);
+
+    const ext = extFromProofMime(mime);
+    const proofKey = `orders/${orderId}/installments/${installmentNumber}/proof-${randomUUID()}.${ext}`;
+    await this.s3.putObject(proofKey, proofFile.buffer, mime);
+
+    await this.installmentsRepo.update(
+      { orderId, installmentNumber },
+      {
+        proofKey,
+        proofUploadedAt: new Date(),
+        proofUploadedByUserId: user.userId,
+        updatedById: user.userId,
+      },
+    );
+
+    return this.findOneForClient(user, orderId);
   }
 
   async createOrderForClient(

@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Param,
+  ParseIntPipe,
   ParseUUIDPipe,
   Post,
   Req,
@@ -50,6 +51,26 @@ export class ClientOrdersController {
       req.user,
       payload,
       signature,
+    );
+  }
+
+  @Post(':id/installments/:installmentNumber/proof')
+  @UseInterceptors(
+    FileInterceptor('proof', {
+      limits: { fileSize: 10 * 1024 * 1024 },
+    }),
+  )
+  uploadInstallmentProof(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('installmentNumber', ParseIntPipe) installmentNumber: number,
+    @UploadedFile() proof: MulterFile | undefined,
+  ) {
+    return this.ordersService.uploadInstallmentProofForClient(
+      req.user,
+      id,
+      installmentNumber,
+      proof,
     );
   }
 }

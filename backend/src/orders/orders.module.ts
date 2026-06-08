@@ -5,6 +5,7 @@ import { InventoryItem } from '../inventory/entities/inventory-item.entity';
 import { InquiriesModule } from '../inquiries/inquiries.module';
 import { ClientOrdersController } from './client-orders.controller';
 import { OrdersController } from './orders.controller';
+import { OrderInstallment } from './entities/order-installment.entity';
 import { Order } from './entities/order.entity';
 import { OrdersExpiryCron } from './orders-expiry.cron';
 import { OrdersService } from './orders.service';
@@ -12,7 +13,7 @@ import { OrdersService } from './orders.service';
 @Module({
   imports: [
     InquiriesModule,
-    TypeOrmModule.forFeature([Order, Client, InventoryItem]),
+    TypeOrmModule.forFeature([Order, OrderInstallment, Client, InventoryItem]),
   ],
   controllers: [ClientOrdersController, OrdersController],
   providers: [OrdersService, OrdersExpiryCron],

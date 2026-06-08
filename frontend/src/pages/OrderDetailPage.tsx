@@ -2,12 +2,14 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { InventoryStatusBadge } from "../components/InventoryStatusBadge";
+import { OrderInstallmentSchedule } from "../components/OrderInstallmentSchedule";
 import { OrderStatusBadge } from "../components/OrderStatusBadge";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
 import { formatPhpDisplay } from "../lib/format-php";
 import { paymentTypeLabel } from "../lib/order-status-filter-options";
+import type { OrderInstallmentRow } from "../lib/order-installments";
 
 type OrderDetail = {
   id: string;
@@ -37,6 +39,7 @@ type OrderDetail = {
     itemLabel: string;
     status: string;
   };
+  installments: OrderInstallmentRow[];
 };
 
 const cardClass =
@@ -235,6 +238,28 @@ export function OrderDetailPage() {
             </button>
           </div>
         </div>
+      ) : null}
+
+      {detail.paymentType === "layaway" &&
+      detail.status === "For Payment" &&
+      detail.installments.length > 0 ? (
+        <OrderInstallmentSchedule
+          orderId={detail.id}
+          token={token}
+          layawayPrice={detail.layawayPrice}
+          installments={detail.installments}
+          mode="staff"
+          onUpdated={(installments) =>
+            setDetail((prev) => (prev ? { ...prev, installments } : prev))
+          }
+          onMarkPaid={(updated) =>
+            setDetail((prev) =>
+              prev
+                ? { ...prev, status: updated.status, installments: updated.installments }
+                : prev,
+            )
+          }
+        />
       ) : null}
 
       <div className={cardClass}>

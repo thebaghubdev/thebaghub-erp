@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
+import { OrderInstallmentSchedule } from "../components/OrderInstallmentSchedule";
 import { OrderStatusBadge } from "../components/OrderStatusBadge";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { useClientAuth } from "../context/client-auth";
 import { apiFetch } from "../lib/api";
 import { formatPhpDisplay } from "../lib/format-php";
 import { paymentTypeLabel } from "../lib/order-status-filter-options";
+import type { OrderInstallmentRow } from "../lib/order-installments";
 
 type ClientOrderDetail = {
   id: string;
@@ -25,6 +27,7 @@ type ClientOrderDetail = {
     sku: string;
     itemLabel: string;
   };
+  installments: OrderInstallmentRow[];
 };
 
 const cardClass =
@@ -161,6 +164,21 @@ export function ClientOrderDetailPage() {
           )}
         </dl>
       </div>
+
+      {detail.paymentType === "layaway" &&
+      detail.status === "For Payment" &&
+      detail.installments.length > 0 ? (
+        <OrderInstallmentSchedule
+          orderId={detail.id}
+          token={token}
+          layawayPrice={detail.layawayPrice}
+          installments={detail.installments}
+          mode="client"
+          onUpdated={(installments) =>
+            setDetail((prev) => (prev ? { ...prev, installments } : prev))
+          }
+        />
+      ) : null}
 
       <div className={cardClass}>
         <h2 className="text-sm font-semibold text-slate-900">Item</h2>

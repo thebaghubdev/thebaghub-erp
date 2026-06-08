@@ -38,6 +38,7 @@ import { ShopifyShopSession } from './shopify/entities/shopify-shop-session.enti
 import { TablePreferencesModule } from './table-preferences/table-preferences.module';
 import { TablePreference } from './table-preferences/entities/table-preference.entity';
 import { Order } from './orders/entities/order.entity';
+import { OrderInstallment } from './orders/entities/order-installment.entity';
 import { OrdersModule } from './orders/orders.module';
 
 @Module({
@@ -73,6 +74,7 @@ import { OrdersModule } from './orders/orders.module';
           ShopifyShopSession,
           TablePreference,
           Order,
+          OrderInstallment,
         ],
         synchronize:
           config.get<string>('NODE_ENV', 'development') !== 'production',

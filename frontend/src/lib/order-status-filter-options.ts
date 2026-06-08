@@ -1,6 +1,7 @@
 export const ORDER_STATUS_FILTER_OPTIONS = [
   { value: "For Layaway Approval", label: "For Layaway Approval" },
   { value: "For Payment", label: "For Payment" },
+  { value: "Paid", label: "Paid" },
   { value: "Expired", label: "Expired" },
 ];
 

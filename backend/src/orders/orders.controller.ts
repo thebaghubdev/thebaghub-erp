@@ -1,6 +1,22 @@
-import { Controller, Get, Param, ParseUUIDPipe, Post, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseIntPipe,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Req,
+  UploadedFile,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { JwtUser } from '../auth/jwt-user';
 import { StaffOnlyGuard } from '../auth/staff-only.guard';
+import type { MulterFile } from '../inquiries/multer-file.type';
+import { UpdateInstallmentAmountPaidDto } from './dto/update-installment-amount-paid.dto';
 import { OrdersService } from './orders.service';
 
 @Controller('orders')
@@ -24,5 +40,48 @@ export class OrdersController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.ordersService.approveLayawayForStaff(req.user, id);
+  }
+
+  @Post(':id/mark-paid')
+  markPaid(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.ordersService.markLayawayPaidForStaff(req.user, id);
+  }
+
+  @Patch(':id/installments/:installmentNumber/amount-paid')
+  setInstallmentAmountPaid(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('installmentNumber', ParseIntPipe) installmentNumber: number,
+    @Body() dto: UpdateInstallmentAmountPaidDto,
+  ) {
+    return this.ordersService.setInstallmentAmountPaidForStaff(
+      req.user,
+      id,
+      installmentNumber,
+      dto,
+    );
+  }
+
+  @Post(':id/installments/:installmentNumber/proof')
+  @UseInterceptors(
+    FileInterceptor('proof', {
+      limits: { fileSize: 10 * 1024 * 1024 },
+    }),
+  )
+  uploadInstallmentProof(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('installmentNumber', ParseIntPipe) installmentNumber: number,
+    @UploadedFile() proof: MulterFile | undefined,
+  ) {
+    return this.ordersService.uploadInstallmentProofForStaff(
+      req.user,
+      id,
+      installmentNumber,
+      proof,
+    );
   }
 }
