@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
+import { FullPaymentProofUpload } from "../components/FullPaymentProofUpload";
 import { OrderInstallmentSchedule } from "../components/OrderInstallmentSchedule";
 import { OrderStatusBadge } from "../components/OrderStatusBadge";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
@@ -18,6 +19,7 @@ type ClientOrderDetail = {
   layawayPrice: string | null;
   layawayMonthlyPayment: string | null;
   fullPaymentPrice: string | null;
+  fullPaymentProofUrl: string | null;
   holdingPeriod: string | null;
   signatureUrl: string | null;
   createdAt: string;
@@ -163,6 +165,16 @@ export function ClientOrderDetailPage() {
             </>
           )}
         </dl>
+        {detail.paymentType === "full_payment" &&
+        detail.status === "For Payment" ? (
+          <FullPaymentProofUpload<ClientOrderDetail>
+            orderId={detail.id}
+            token={token}
+            apiBase="/api/client/orders"
+            proofUrl={detail.fullPaymentProofUrl}
+            onUpdated={setDetail}
+          />
+        ) : null}
       </div>
 
       {detail.paymentType === "layaway" &&

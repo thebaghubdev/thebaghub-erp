@@ -121,6 +121,7 @@ export type ClientOrderDetail = {
   layawayPrice: string | null;
   layawayMonthlyPayment: string | null;
   fullPaymentPrice: string | null;
+  fullPaymentProofUrl: string | null;
   holdingPeriod: string | null;
   signatureUrl: string | null;
   createdAt: string;
@@ -156,6 +157,7 @@ export type StaffOrderDetail = {
   layawayPrice: string | null;
   layawayMonthlyPayment: string | null;
   fullPaymentPrice: string | null;
+  fullPaymentProofUrl: string | null;
   holdingPeriod: string | null;
   layawayPaymentStartDate: string | null;
   signatureUrl: string | null;
@@ -345,6 +347,47 @@ export class OrdersService {
     }
   }
 
+  private assertFullPaymentProofUploadable(order: Order): void {
+    if (order.paymentType !== PAYMENT_TYPE_FULL) {
+      throw new BadRequestException('Order is not a full payment order');
+    }
+    if (order.status !== ORDER_STATUS_FOR_PAYMENT) {
+      throw new BadRequestException(
+        'Proof can only be uploaded while the order is for payment',
+      );
+    }
+  }
+
+  private async saveFullPaymentProof(
+    order: Order,
+    user: JwtUser,
+    proofFile: MulterFile | undefined,
+  ): Promise<void> {
+    if (!proofFile?.buffer?.length) {
+      throw new BadRequestException('Proof file is required');
+    }
+
+    this.assertFullPaymentProofUploadable(order);
+
+    const mime = proofFile.mimetype?.toLowerCase() ?? '';
+    if (!ALLOWED_PROOF_MIMES.has(mime)) {
+      throw new BadRequestException(
+        `Proof must be an image or PDF (${proofFile.mimetype || 'unknown'})`,
+      );
+    }
+
+    const ext = extFromProofMime(mime);
+    const proofKey = `orders/${order.id}/full-payment/proof-${randomUUID()}.${ext}`;
+    await this.s3.putObject(proofKey, proofFile.buffer, mime);
+
+    await this.ordersRepo.update(order.id, {
+      fullPaymentProofKey: proofKey,
+      fullPaymentProofUploadedAt: new Date(),
+      fullPaymentProofUploadedByUserId: user.userId,
+      updatedById: user.userId,
+    });
+  }
+
   private async findInstallmentForOrder(
     orderId: string,
     installmentNumber: number,
@@ -417,6 +460,9 @@ export class OrdersService {
       layawayPrice: order.layawayPrice,
       layawayMonthlyPayment: order.layawayMonthlyPayment,
       fullPaymentPrice: order.fullPaymentPrice,
+      fullPaymentProofUrl: order.fullPaymentProofKey
+        ? this.s3.getPublicUrl(order.fullPaymentProofKey)
+        : null,
       holdingPeriod: order.holdingPeriod?.toISOString() ?? null,
       signatureUrl: order.signatureKey
         ? this.s3.getPublicUrl(order.signatureKey)
@@ -476,6 +522,9 @@ export class OrdersService {
       layawayPrice: order.layawayPrice,
       layawayMonthlyPayment: order.layawayMonthlyPayment,
       fullPaymentPrice: order.fullPaymentPrice,
+      fullPaymentProofUrl: order.fullPaymentProofKey
+        ? this.s3.getPublicUrl(order.fullPaymentProofKey)
+        : null,
       holdingPeriod: order.holdingPeriod?.toISOString() ?? null,
       layawayPaymentStartDate: formatOrderDate(order.layawayPaymentStartDate),
       signatureUrl: order.signatureKey
@@ -529,7 +578,7 @@ export class OrdersService {
     return this.findOneForStaff(id);
   }
 
-  async markLayawayPaidForStaff(
+  async markPaidForStaff(
     user: JwtUser,
     id: string,
   ): Promise<StaffOrderDetail> {
@@ -537,24 +586,31 @@ export class OrdersService {
     if (!order) {
       throw new NotFoundException('Order not found');
     }
-    if (order.paymentType !== PAYMENT_TYPE_LAYAWAY) {
-      throw new BadRequestException('Order is not a layaway order');
-    }
     if (order.status !== ORDER_STATUS_FOR_PAYMENT) {
       throw new BadRequestException(
         'Only orders awaiting payment can be marked as paid',
       );
     }
 
-    await this.ensureInstallments(order, user.userId);
-    const rows = await this.installmentsRepo.find({
-      where: { orderId: id },
-    });
-    const remaining = computeRemainingBalance(order.layawayPrice, rows);
-    if (remaining > 0) {
-      throw new BadRequestException(
-        'Remaining balance must be zero before marking as paid',
-      );
+    if (order.paymentType === PAYMENT_TYPE_LAYAWAY) {
+      await this.ensureInstallments(order, user.userId);
+      const rows = await this.installmentsRepo.find({
+        where: { orderId: id },
+      });
+      const remaining = computeRemainingBalance(order.layawayPrice, rows);
+      if (remaining > 0) {
+        throw new BadRequestException(
+          'Remaining balance must be zero before marking as paid',
+        );
+      }
+    } else if (order.paymentType === PAYMENT_TYPE_FULL) {
+      if (!order.fullPaymentProofKey) {
+        throw new BadRequestException(
+          'Upload proof of payment before marking this order as paid',
+        );
+      }
+    } else {
+      throw new BadRequestException('Unsupported payment type');
     }
 
     order.status = ORDER_STATUS_PAID;
@@ -588,6 +644,45 @@ export class OrdersService {
     await this.installmentsRepo.save(row);
 
     return this.findOneForStaff(orderId);
+  }
+
+  async uploadFullPaymentProofForStaff(
+    user: JwtUser,
+    orderId: string,
+    proofFile: MulterFile | undefined,
+  ): Promise<StaffOrderDetail> {
+    const order = await this.ordersRepo.findOne({ where: { id: orderId } });
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    await this.saveFullPaymentProof(order, user, proofFile);
+
+    return this.findOneForStaff(orderId);
+  }
+
+  async uploadFullPaymentProofForClient(
+    user: JwtUser,
+    orderId: string,
+    proofFile: MulterFile | undefined,
+  ): Promise<ClientOrderDetail> {
+    const client = await this.clientsRepo.findOne({
+      where: { userId: user.userId },
+    });
+    if (!client) {
+      throw new NotFoundException('Client profile not found');
+    }
+
+    const order = await this.ordersRepo.findOne({
+      where: { id: orderId, customerId: client.id },
+    });
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    await this.saveFullPaymentProof(order, user, proofFile);
+
+    return this.findOneForClient(user, orderId);
   }
 
   async uploadInstallmentProofForStaff(

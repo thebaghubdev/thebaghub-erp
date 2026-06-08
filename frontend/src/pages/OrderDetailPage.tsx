@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { FullPaymentProofUpload } from "../components/FullPaymentProofUpload";
 import { InventoryStatusBadge } from "../components/InventoryStatusBadge";
 import { OrderInstallmentSchedule } from "../components/OrderInstallmentSchedule";
 import { OrderStatusBadge } from "../components/OrderStatusBadge";
@@ -20,6 +21,7 @@ type OrderDetail = {
   layawayPrice: string | null;
   layawayMonthlyPayment: string | null;
   fullPaymentPrice: string | null;
+  fullPaymentProofUrl: string | null;
   holdingPeriod: string | null;
   layawayPaymentStartDate: string | null;
   signatureUrl: string | null;
@@ -315,6 +317,17 @@ export function OrderDetailPage() {
             </>
           )}
         </dl>
+        {detail.paymentType === "full_payment" &&
+        detail.status === "For Payment" ? (
+          <FullPaymentProofUpload<OrderDetail>
+            orderId={detail.id}
+            token={token}
+            apiBase="/api/orders"
+            proofUrl={detail.fullPaymentProofUrl}
+            allowMarkPaid
+            onUpdated={setDetail}
+          />
+        ) : null}
       </div>
 
       <div className={cardClass}>

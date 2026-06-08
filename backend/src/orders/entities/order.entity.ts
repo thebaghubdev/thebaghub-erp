@@ -70,6 +70,28 @@ export class Order extends AuditedEntity {
   @Column({ name: 'signature_key', type: 'varchar', length: 512, nullable: true })
   signatureKey: string | null;
 
+  @Column({
+    name: 'full_payment_proof_key',
+    type: 'varchar',
+    length: 512,
+    nullable: true,
+  })
+  fullPaymentProofKey: string | null;
+
+  @Column({
+    name: 'full_payment_proof_uploaded_at',
+    type: 'timestamptz',
+    nullable: true,
+  })
+  fullPaymentProofUploadedAt: Date | null;
+
+  @Column({
+    name: 'full_payment_proof_uploaded_by_user_id',
+    type: 'uuid',
+    nullable: true,
+  })
+  fullPaymentProofUploadedByUserId: string | null;
+
   @Column({ name: 'holding_period', type: 'timestamptz', nullable: true })
   holdingPeriod: Date | null;
 

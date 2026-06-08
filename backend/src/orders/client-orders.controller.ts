@@ -54,6 +54,24 @@ export class ClientOrdersController {
     );
   }
 
+  @Post(':id/full-payment-proof')
+  @UseInterceptors(
+    FileInterceptor('proof', {
+      limits: { fileSize: 10 * 1024 * 1024 },
+    }),
+  )
+  uploadFullPaymentProof(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+    @UploadedFile() proof: MulterFile | undefined,
+  ) {
+    return this.ordersService.uploadFullPaymentProofForClient(
+      req.user,
+      id,
+      proof,
+    );
+  }
+
   @Post(':id/installments/:installmentNumber/proof')
   @UseInterceptors(
     FileInterceptor('proof', {

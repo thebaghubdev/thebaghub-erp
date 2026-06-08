@@ -47,7 +47,25 @@ export class OrdersController {
     @Req() req: { user: JwtUser },
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    return this.ordersService.markLayawayPaidForStaff(req.user, id);
+    return this.ordersService.markPaidForStaff(req.user, id);
+  }
+
+  @Post(':id/full-payment-proof')
+  @UseInterceptors(
+    FileInterceptor('proof', {
+      limits: { fileSize: 10 * 1024 * 1024 },
+    }),
+  )
+  uploadFullPaymentProof(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+    @UploadedFile() proof: MulterFile | undefined,
+  ) {
+    return this.ordersService.uploadFullPaymentProofForStaff(
+      req.user,
+      id,
+      proof,
+    );
   }
 
   @Patch(':id/installments/:installmentNumber/amount-paid')
