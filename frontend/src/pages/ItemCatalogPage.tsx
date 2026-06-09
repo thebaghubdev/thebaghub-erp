@@ -20,13 +20,7 @@ const searchInputClassName =
   "w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500";
 
 function catalogItemSearchText(item: CatalogItem): string {
-  return [
-    item.productName,
-    item.itemLabel,
-    item.sku,
-    item.brand,
-    item.category,
-  ]
+  return [item.productName, item.itemLabel, item.sku, item.brand, item.category]
     .filter(Boolean)
     .join(" ")
     .toLowerCase();
@@ -53,7 +47,9 @@ export function ItemCatalogPage() {
   const filteredItems = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return catalogItems;
-    return catalogItems.filter((item) => catalogItemSearchText(item).includes(q));
+    return catalogItems.filter((item) =>
+      catalogItemSearchText(item).includes(q),
+    );
   }, [catalogItems, search]);
 
   useEffect(() => {
@@ -159,7 +155,9 @@ export function ItemCatalogPage() {
                 </p>
                 <div className="flex items-center justify-between gap-2 pt-1">
                   <div className="min-w-0">
-                    <p className="truncate text-xs text-slate-500">{item.sku}</p>
+                    <p className="truncate text-xs text-slate-500">
+                      {item.sku}
+                    </p>
                     <p className="truncate text-sm font-semibold tabular-nums text-violet-700">
                       {formatPhpDisplay(item.price)}
                     </p>
@@ -195,7 +193,7 @@ export function ItemCatalogPage() {
                         <button
                           type="button"
                           className={catalogActionBtn}
-                          aria-label="Order now"
+                          aria-label="Buy now"
                           onClick={() => navigate(`/catalog/${item.id}/order`)}
                         >
                           <svg
@@ -212,7 +210,31 @@ export function ItemCatalogPage() {
                             <circle cx="19" cy="21" r="1" />
                             <path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h8.89a2 2 0 0 0 2-1.58l1.31-6.47H5.12" />
                           </svg>
-                          <span className={catalogActionTooltip}>Order now</span>
+                          <span className={catalogActionTooltip}>Buy now</span>
+                        </button>
+                        <button
+                          type="button"
+                          className={catalogActionBtn}
+                          aria-label="Reserve item"
+                          onClick={() =>
+                            navigate(`/catalog/${item.id}/reserve`)
+                          }
+                        >
+                          <svg
+                            viewBox="0 0 24 24"
+                            aria-hidden
+                            className="h-3.5 w-3.5 shrink-0"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <path d="M19 21l-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+                          </svg>
+                          <span className={catalogActionTooltip}>
+                            Reserve item
+                          </span>
                         </button>
                         <button
                           type="button"
@@ -237,27 +259,6 @@ export function ItemCatalogPage() {
                           </svg>
                           <span className={catalogActionTooltip}>
                             Set appointment
-                          </span>
-                        </button>
-                        <button
-                          type="button"
-                          className={catalogActionBtn}
-                          aria-label="Reserve now"
-                        >
-                          <svg
-                            viewBox="0 0 24 24"
-                            aria-hidden
-                            className="h-3.5 w-3.5 shrink-0"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          >
-                            <path d="M19 21l-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
-                          </svg>
-                          <span className={catalogActionTooltip}>
-                            Reserve now
                           </span>
                         </button>
                       </>

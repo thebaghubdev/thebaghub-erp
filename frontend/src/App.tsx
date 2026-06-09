@@ -19,6 +19,7 @@ import { ClientVerifyEmailPage } from './pages/ClientVerifyEmailPage'
 import { ClientMyAccountPage } from './pages/ClientMyAccountPage'
 import { ClientConsignmentDetailPage } from './pages/ClientConsignmentDetailPage'
 import { ClientOrderItemPage } from './pages/ClientOrderItemPage'
+import { ClientReserveItemPage } from './pages/ClientReserveItemPage'
 import { ConsignItemsPage } from './pages/ConsignItemsPage'
 import { InquiryDetailPage } from './pages/InquiryDetailPage'
 import { InventoryItemDetailPage } from './pages/InventoryItemDetailPage'
@@ -146,6 +147,7 @@ const router = createBrowserRouter([
           { path: 'consignments/:id', element: <ClientConsignmentDetailPage /> },
           { path: 'consignments', element: <ConsignItemsPage /> },
           { path: 'catalog/:itemId/order', element: <ClientOrderItemPage /> },
+          { path: 'catalog/:itemId/reserve', element: <ClientReserveItemPage /> },
           { path: 'catalog', element: <ItemCatalogPage /> },
           { path: 'orders/:id', element: <ClientOrderDetailPage /> },
           { path: 'orders', element: <ClientOrdersPage /> },

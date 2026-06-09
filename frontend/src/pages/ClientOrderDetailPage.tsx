@@ -33,8 +33,7 @@ type ClientOrderDetail = {
   installments: OrderInstallmentRow[];
 };
 
-const cardClass =
-  "rounded-2xl border border-slate-200 bg-white p-4 shadow-sm";
+const cardClass = "rounded-2xl border border-slate-200 bg-white p-4 shadow-sm";
 
 function DetailField({
   label,
@@ -148,7 +147,23 @@ export function ClientOrderDetailPage() {
               "—"
             )}
           </DetailField>
-          {detail.paymentType === "full_payment" ? (
+          {detail.status === "Reservation" ? (
+            <DetailField label="Reservation fee">
+              <div className="space-y-2">
+                <span>{formatPhpDisplay(detail.fullPaymentPrice)}</span>
+                {detail.fullPaymentProofUrl ? (
+                  <a
+                    href={detail.fullPaymentProofUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="ml-2 inline-flex items-center justify-center rounded-md border border-violet-200 bg-violet-50 px-2 py-1 text-xs font-medium text-violet-900 transition-colors hover:bg-violet-100 focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500"
+                  >
+                    View proof
+                  </a>
+                ) : null}
+              </div>
+            </DetailField>
+          ) : detail.paymentType === "full_payment" ? (
             <DetailField label="Full payment price">
               {formatPhpDisplay(detail.fullPaymentPrice)}
             </DetailField>

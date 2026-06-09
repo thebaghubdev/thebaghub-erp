@@ -4,6 +4,7 @@ export const ORDER_STATUS_PAID = 'Paid';
 export const ORDER_STATUS_EXPIRED = 'Expired';
 export const ORDER_STATUS_DECLINED = 'Declined';
 export const ORDER_STATUS_CANCELLED = 'Cancelled';
+export const ORDER_STATUS_RESERVATION = 'Reservation';
 
 /** Added to sequential order numbers so they start at 10001 (5 digits). */
 export const ORDER_NUMBER_OFFSET = 10_000;
@@ -17,3 +18,4 @@ export const PAYMENT_TYPE_LAYAWAY = 'layaway';
 /** Hours after order creation before the hold expires. */
 export const FULL_PAYMENT_HOLDING_HOURS = 3;
 export const LAYAWAY_HOLDING_HOURS = 12;
+export const RESERVATION_HOLDING_HOURS = 72;

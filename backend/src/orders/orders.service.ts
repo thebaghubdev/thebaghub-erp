@@ -15,6 +15,7 @@ import type { MulterFile } from '../inquiries/multer-file.type';
 import { S3StorageService } from '../inquiries/s3-storage.service';
 import { CancelOrderDto } from './dto/cancel-order.dto';
 import { CreateOrderDto } from './dto/create-order.dto';
+import { CreateReservationOrderDto } from './dto/create-reservation-order.dto';
 import { DeclineLayawayOrderDto } from './dto/decline-layaway-order.dto';
 import { UpdateInstallmentAmountPaidDto } from './dto/update-installment-amount-paid.dto';
 import { UpdateLayawayTermsDto } from './dto/update-layaway-terms.dto';
@@ -41,9 +42,11 @@ import {
   ORDER_STATUS_FOR_LAYAWAY_APPROVAL,
   ORDER_STATUS_FOR_PAYMENT,
   ORDER_STATUS_PAID,
+  ORDER_STATUS_RESERVATION,
   ORDER_NUMBER_OFFSET,
   PAYMENT_TYPE_FULL,
   PAYMENT_TYPE_LAYAWAY,
+  RESERVATION_HOLDING_HOURS,
 } from './order-status.constants';
 
 const ALLOWED_IMAGE_MIMES = new Set([
@@ -59,6 +62,8 @@ const ALLOWED_PROOF_MIMES = new Set([
   ...ALLOWED_IMAGE_MIMES,
   'application/pdf',
 ]);
+
+const RESERVATION_FEE = 5_000;
 
 export type { OrderInstallmentView };
 
@@ -1051,13 +1056,125 @@ export class OrdersService {
     return this.toClientSummary(saved);
   }
 
+  async createReservationForClient(
+    user: JwtUser,
+    payloadRaw: string | undefined,
+    proofFile: MulterFile | undefined,
+    signatureFile: MulterFile | undefined,
+  ): Promise<ClientOrderSummary> {
+    if (payloadRaw == null || payloadRaw.trim() === '') {
+      throw new BadRequestException('Missing payload');
+    }
+    if (!proofFile?.buffer?.length) {
+      throw new BadRequestException('Reservation payment proof is required');
+    }
+    if (!signatureFile?.buffer?.length) {
+      throw new BadRequestException('Signature image is required');
+    }
+
+    let dto: CreateReservationOrderDto;
+    try {
+      dto = plainToInstance(
+        CreateReservationOrderDto,
+        JSON.parse(payloadRaw) as object,
+        { enableImplicitConversion: true },
+      );
+      await validateOrReject(dto);
+    } catch {
+      throw new BadRequestException('Invalid reservation payload');
+    }
+
+    const proofMime = proofFile.mimetype?.toLowerCase() ?? '';
+    if (!ALLOWED_PROOF_MIMES.has(proofMime)) {
+      throw new BadRequestException(
+        `Proof must be an image or PDF (${proofFile.mimetype || 'unknown'})`,
+      );
+    }
+
+    const signatureMime = signatureFile.mimetype?.toLowerCase() ?? '';
+    if (!ALLOWED_IMAGE_MIMES.has(signatureMime)) {
+      throw new BadRequestException(
+        `Signature must be an image file (${signatureFile.mimetype || 'unknown'})`,
+      );
+    }
+
+    const client = await this.clientsRepo.findOne({
+      where: { userId: user.userId },
+    });
+    if (!client) {
+      throw new NotFoundException('Client profile not found');
+    }
+
+    const item = await this.inventoryRepo.findOne({
+      where: {
+        id: dto.inventoryItemId,
+        status: INVENTORY_STATUS_AVAILABLE_FOR_PURCHASE,
+      },
+    });
+    if (!item) {
+      throw new NotFoundException('Item is not available for purchase');
+    }
+
+    const orderId = randomUUID();
+    const signatureKey = `orders/${orderId}/signature-${randomUUID()}.${extFromMime(signatureMime)}`;
+    const proofKey = `orders/${orderId}/reservation/proof-${randomUUID()}.${extFromProofMime(proofMime)}`;
+    await this.s3.putObject(signatureKey, signatureFile.buffer, signatureMime);
+    await this.s3.putObject(proofKey, proofFile.buffer, proofMime);
+
+    const saved = await this.dataSource.transaction(async (em) => {
+      await em.query('SELECT pg_advisory_xact_lock($1)', [834729105]);
+
+      const maxRow = await em
+        .createQueryBuilder(Order, 'o')
+        .select('MAX(o.orderNumber)', 'max')
+        .getRawOne<{ max: string | null }>();
+      const orderNumber = nextOrderNumber(
+        maxRow?.max ? Number(maxRow.max) : null,
+      );
+
+      const createdAt = new Date();
+      const order = em.create(Order, {
+        id: orderId,
+        orderNumber,
+        status: ORDER_STATUS_RESERVATION,
+        inventoryItemId: item.id,
+        customerId: client.id,
+        paymentType: PAYMENT_TYPE_FULL,
+        layawayMonths: null,
+        layawayPrice: null,
+        layawayMonthlyPayment: null,
+        fullPaymentPrice: formatDecimal(RESERVATION_FEE),
+        fullPaymentProofKey: proofKey,
+        fullPaymentProofUploadedAt: createdAt,
+        fullPaymentProofUploadedByUserId: user.userId,
+        signatureKey,
+        holdingPeriod: addHours(createdAt, RESERVATION_HOLDING_HOURS),
+        createdById: user.userId,
+        updatedById: user.userId,
+      });
+      await em.save(order);
+
+      item.status = INVENTORY_STATUS_ON_HOLD;
+      item.updatedById = user.userId;
+      await em.save(item);
+
+      return order;
+    });
+
+    return this.toClientSummary(saved);
+  }
+
   async expireOrdersPastHoldingPeriod(): Promise<number> {
     const now = new Date();
     const candidates = await this.ordersRepo
       .createQueryBuilder('o')
       .innerJoinAndSelect('o.inventoryItem', 'item')
       .where('o.status IN (:...statuses)', {
-        statuses: [ORDER_STATUS_FOR_PAYMENT, ORDER_STATUS_FOR_LAYAWAY_APPROVAL],
+        statuses: [
+          ORDER_STATUS_FOR_PAYMENT,
+          ORDER_STATUS_FOR_LAYAWAY_APPROVAL,
+          ORDER_STATUS_RESERVATION,
+        ],
       })
       .andWhere('o.holding_period IS NOT NULL')
       .andWhere('o.holding_period <= :now', { now })
@@ -1074,7 +1191,8 @@ export class OrdersService {
         if (
           !lockedOrder ||
           (lockedOrder.status !== ORDER_STATUS_FOR_PAYMENT &&
-            lockedOrder.status !== ORDER_STATUS_FOR_LAYAWAY_APPROVAL)
+            lockedOrder.status !== ORDER_STATUS_FOR_LAYAWAY_APPROVAL &&
+            lockedOrder.status !== ORDER_STATUS_RESERVATION)
         ) {
           return false;
         }

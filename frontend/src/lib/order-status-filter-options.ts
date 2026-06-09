@@ -5,6 +5,7 @@ export const ORDER_STATUS_FILTER_OPTIONS = [
   { value: "Expired", label: "Expired" },
   { value: "Declined", label: "Declined" },
   { value: "Cancelled", label: "Cancelled" },
+  { value: "Reservation", label: "Reservation" },
 ];
 
 function paymentTypeLabel(paymentType: string): string {

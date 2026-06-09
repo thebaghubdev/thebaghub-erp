@@ -8,10 +8,11 @@ import {
   Post,
   Req,
   UploadedFile,
+  UploadedFiles,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FileFieldsInterceptor, FileInterceptor } from '@nestjs/platform-express';
 import { JwtUser } from '../auth/jwt-user';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ClientOnlyGuard } from '../auth/client-only.guard';
@@ -51,6 +52,34 @@ export class ClientOrdersController {
       req.user,
       payload,
       signature,
+    );
+  }
+
+  @Post('reservations')
+  @UseInterceptors(
+    FileFieldsInterceptor([
+      { name: 'proof', maxCount: 1 },
+      { name: 'signature', maxCount: 1 },
+    ], {
+      limits: { fileSize: 10 * 1024 * 1024 },
+    }),
+  )
+  createReservation(
+    @Req() req: { user: JwtUser },
+    @Body('payload') payload: string,
+    @UploadedFiles()
+    files:
+      | {
+          proof?: MulterFile[];
+          signature?: MulterFile[];
+        }
+      | undefined,
+  ) {
+    return this.ordersService.createReservationForClient(
+      req.user,
+      payload,
+      files?.proof?.[0],
+      files?.signature?.[0],
     );
   }
 
