@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { FullPaymentProofUpload } from "../components/FullPaymentProofUpload";
@@ -9,6 +9,10 @@ import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
 import { formatPhpDisplay } from "../lib/format-php";
+import {
+  MAX_LAYAWAY_MONTHS,
+  MIN_LAYAWAY_MONTHS,
+} from "../lib/layaway-pricing";
 import { paymentTypeLabel } from "../lib/order-status-filter-options";
 import type { OrderInstallmentRow } from "../lib/order-installments";
 
@@ -24,6 +28,7 @@ type OrderDetail = {
   fullPaymentProofUrl: string | null;
   holdingPeriod: string | null;
   layawayPaymentStartDate: string | null;
+  declineReason: string | null;
   signatureUrl: string | null;
   createdAt: string;
   updatedAt: string;
@@ -81,6 +86,17 @@ function formatOrderDate(raw: string | null | undefined): string {
   });
 }
 
+function normalizeMoneyInput(raw: string | null | undefined): string {
+  const value = Number.parseFloat(raw ?? "");
+  return Number.isFinite(value) ? value.toFixed(2) : "";
+}
+
+function parsePositiveMoney(raw: string): number | null {
+  if (!/^\d+(\.\d{1,2})?$/.test(raw.trim())) return null;
+  const value = Number.parseFloat(raw);
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
 async function readApiErrorMessage(res: Response): Promise<string> {
   try {
     const j = (await res.json()) as { message?: string | string[] };
@@ -116,6 +132,15 @@ export function OrderDetailPage() {
   const [approveConfirmOpen, setApproveConfirmOpen] = useState(false);
   const [approveBusy, setApproveBusy] = useState(false);
   const [approveError, setApproveError] = useState<string | null>(null);
+  const [declineConfirmOpen, setDeclineConfirmOpen] = useState(false);
+  const [declineBusy, setDeclineBusy] = useState(false);
+  const [declineError, setDeclineError] = useState<string | null>(null);
+  const [declineReason, setDeclineReason] = useState("");
+  const [termsConfirmOpen, setTermsConfirmOpen] = useState(false);
+  const [termsBusy, setTermsBusy] = useState(false);
+  const [termsError, setTermsError] = useState<string | null>(null);
+  const [termsMonths, setTermsMonths] = useState("");
+  const [termsPrice, setTermsPrice] = useState("");
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -166,6 +191,102 @@ export function OrderDetailPage() {
       setApproveBusy(false);
     }
   }, [id, token]);
+
+  const confirmDeclineLayaway = useCallback(async () => {
+    if (!id || !token) return;
+    const reason = declineReason.trim();
+    if (!reason) {
+      setDeclineError("Please enter a reason for declining this layaway order.");
+      return;
+    }
+
+    setDeclineError(null);
+    setDeclineBusy(true);
+    try {
+      const res = await apiFetch(
+        `/api/orders/${id}/decline-layaway`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reason }),
+        },
+        token,
+      );
+      if (!res.ok) throw new Error(await readApiErrorMessage(res));
+      const data = (await res.json()) as OrderDetail;
+      setDetail(data);
+      setDeclineConfirmOpen(false);
+      setDeclineReason("");
+    } catch (e) {
+      setDeclineError(
+        e instanceof Error ? e.message : "Could not decline layaway order",
+      );
+    } finally {
+      setDeclineBusy(false);
+    }
+  }, [declineReason, id, token]);
+
+  const termsMonthsNumber = useMemo(() => {
+    if (!/^\d+$/.test(termsMonths.trim())) return null;
+    const value = Number.parseInt(termsMonths, 10);
+    if (value < MIN_LAYAWAY_MONTHS || value > MAX_LAYAWAY_MONTHS) return null;
+    return value;
+  }, [termsMonths]);
+
+  const termsPriceNumber = useMemo(
+    () => parsePositiveMoney(termsPrice),
+    [termsPrice],
+  );
+
+  const termsMonthlyPayment =
+    termsMonthsNumber != null && termsPriceNumber != null
+      ? (termsPriceNumber / termsMonthsNumber).toFixed(2)
+      : "";
+
+  const termsFormValid =
+    termsMonthsNumber != null && termsPriceNumber != null && !termsBusy;
+
+  const openUpdateTermsDialog = useCallback(() => {
+    if (!detail) return;
+    setTermsError(null);
+    setTermsMonths(detail.layawayMonths != null ? String(detail.layawayMonths) : "");
+    setTermsPrice(normalizeMoneyInput(detail.layawayPrice));
+    setTermsConfirmOpen(true);
+  }, [detail]);
+
+  const confirmUpdateLayawayTerms = useCallback(async () => {
+    if (!id || !token || termsMonthsNumber == null || termsPriceNumber == null) {
+      setTermsError("Enter valid layaway months and layaway price.");
+      return;
+    }
+
+    setTermsError(null);
+    setTermsBusy(true);
+    try {
+      const res = await apiFetch(
+        `/api/orders/${id}/update-layaway-terms`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            layawayMonths: termsMonthsNumber,
+            layawayPrice: termsPriceNumber.toFixed(2),
+          }),
+        },
+        token,
+      );
+      if (!res.ok) throw new Error(await readApiErrorMessage(res));
+      const data = (await res.json()) as OrderDetail;
+      setDetail(data);
+      setTermsConfirmOpen(false);
+    } catch (e) {
+      setTermsError(
+        e instanceof Error ? e.message : "Could not update layaway terms",
+      );
+    } finally {
+      setTermsBusy(false);
+    }
+  }, [id, termsMonthsNumber, termsPriceNumber, token]);
 
   if (loading) {
     return (
@@ -224,7 +345,7 @@ export function OrderDetailPage() {
             <button
               type="button"
               className={layawayApproveBtn}
-              disabled={approveBusy}
+              disabled={approveBusy || declineBusy || termsBusy}
               onClick={() => {
                 setApproveError(null);
                 setApproveConfirmOpen(true);
@@ -232,10 +353,24 @@ export function OrderDetailPage() {
             >
               Approve
             </button>
-            <button type="button" className={layawayDeclineBtn}>
+            <button
+              type="button"
+              className={layawayDeclineBtn}
+              disabled={approveBusy || declineBusy || termsBusy}
+              onClick={() => {
+                setDeclineError(null);
+                setDeclineReason("");
+                setDeclineConfirmOpen(true);
+              }}
+            >
               Decline
             </button>
-            <button type="button" className={layawayUpdateTermsBtn}>
+            <button
+              type="button"
+              className={layawayUpdateTermsBtn}
+              disabled={approveBusy || declineBusy || termsBusy}
+              onClick={openUpdateTermsDialog}
+            >
               Update terms
             </button>
           </div>
@@ -316,6 +451,13 @@ export function OrderDetailPage() {
               </DetailField>
             </>
           )}
+          {detail.declineReason ? (
+            <DetailField label="Decline reason">
+              <span className="whitespace-pre-wrap break-words">
+                {detail.declineReason}
+              </span>
+            </DetailField>
+          ) : null}
         </dl>
         {detail.paymentType === "full_payment" &&
         detail.status === "For Payment" ? (
@@ -394,6 +536,122 @@ export function OrderDetailPage() {
           setApproveConfirmOpen(false);
         }}
         onConfirm={confirmApproveLayaway}
+      />
+      <ConfirmDialog
+        open={declineConfirmOpen}
+        title="Decline layaway order?"
+        description={
+          <div className="space-y-3">
+            <p>
+              The order status will change to Declined and the item will become
+              available for purchase again.
+            </p>
+            <label className="block">
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                Reason for decline
+              </span>
+              <textarea
+                value={declineReason}
+                onChange={(e) => {
+                  setDeclineReason(e.target.value);
+                  if (declineError) setDeclineError(null);
+                }}
+                rows={4}
+                maxLength={1000}
+                disabled={declineBusy}
+                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-500/30 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                placeholder="Explain why this layaway order is being declined."
+              />
+            </label>
+          </div>
+        }
+        confirmLabel="Decline"
+        cancelLabel="Cancel"
+        danger
+        busy={declineBusy}
+        confirmDisabled={!declineReason.trim()}
+        errorMessage={declineError}
+        onCancel={() => {
+          if (declineBusy) return;
+          setDeclineError(null);
+          setDeclineConfirmOpen(false);
+          setDeclineReason("");
+        }}
+        onConfirm={confirmDeclineLayaway}
+      />
+      <ConfirmDialog
+        open={termsConfirmOpen}
+        title="Update layaway terms?"
+        description={
+          <div className="space-y-3">
+            <p>
+              Save the revised terms and move this order to For Payment. The
+              installment schedule will use these values.
+            </p>
+            <label className="block">
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                Layaway months
+              </span>
+              <input
+                type="number"
+                min={MIN_LAYAWAY_MONTHS}
+                max={MAX_LAYAWAY_MONTHS}
+                step={1}
+                value={termsMonths}
+                onChange={(e) => {
+                  setTermsMonths(e.target.value);
+                  if (termsError) setTermsError(null);
+                }}
+                disabled={termsBusy}
+                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-500/30 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+              />
+              <span className="mt-1 block text-xs text-slate-500 dark:text-slate-400">
+                Allowed range: {MIN_LAYAWAY_MONTHS} to {MAX_LAYAWAY_MONTHS} months.
+              </span>
+            </label>
+            <label className="block">
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                Layaway price
+              </span>
+              <input
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={termsPrice}
+                onChange={(e) => {
+                  setTermsPrice(e.target.value);
+                  if (termsError) setTermsError(null);
+                }}
+                disabled={termsBusy}
+                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-500/30 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                placeholder="0.00"
+              />
+            </label>
+            <label className="block">
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                Monthly payment
+              </span>
+              <input
+                type="text"
+                value={termsMonthlyPayment}
+                readOnly
+                className="mt-1 w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-900 shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                placeholder="Calculated automatically"
+              />
+            </label>
+          </div>
+        }
+        confirmLabel="Save terms"
+        cancelLabel="Cancel"
+        busy={termsBusy}
+        confirmDisabled={!termsFormValid}
+        errorMessage={termsError}
+        onCancel={() => {
+          if (termsBusy) return;
+          setTermsError(null);
+          setTermsConfirmOpen(false);
+        }}
+        onConfirm={confirmUpdateLayawayTerms}
       />
     </div>
   );

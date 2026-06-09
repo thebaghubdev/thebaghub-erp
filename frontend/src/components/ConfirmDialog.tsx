@@ -13,6 +13,7 @@ export type ConfirmDialogProps = {
   busy?: boolean;
   /** Optional error shown between the description and actions (e.g. API failure). */
   errorMessage?: string | null;
+  confirmDisabled?: boolean;
   onCancel: () => void;
   onConfirm: () => void | Promise<void>;
 };
@@ -26,6 +27,7 @@ export function ConfirmDialog({
   danger = false,
   busy = false,
   errorMessage = null,
+  confirmDisabled = false,
   onCancel,
   onConfirm,
 }: ConfirmDialogProps) {
@@ -94,7 +96,7 @@ export function ConfirmDialog({
           </button>
           <button
             type="button"
-            disabled={busy}
+            disabled={busy || confirmDisabled}
             onClick={() => void onConfirm()}
             className={`rounded-lg px-3 py-1.5 text-sm font-medium shadow-sm disabled:opacity-50 ${confirmClass}`}
           >

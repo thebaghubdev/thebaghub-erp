@@ -97,4 +97,7 @@ export class Order extends AuditedEntity {
 
   @Column({ name: 'layaway_payment_start_date', type: 'date', nullable: true })
   layawayPaymentStartDate: string | null;
+
+  @Column({ name: 'decline_reason', type: 'text', nullable: true })
+  declineReason: string | null;
 }

@@ -14,7 +14,9 @@ import { InventoryItem } from '../inventory/entities/inventory-item.entity';
 import type { MulterFile } from '../inquiries/multer-file.type';
 import { S3StorageService } from '../inquiries/s3-storage.service';
 import { CreateOrderDto } from './dto/create-order.dto';
+import { DeclineLayawayOrderDto } from './dto/decline-layaway-order.dto';
 import { UpdateInstallmentAmountPaidDto } from './dto/update-installment-amount-paid.dto';
+import { UpdateLayawayTermsDto } from './dto/update-layaway-terms.dto';
 import { OrderInstallment } from './entities/order-installment.entity';
 import { Order } from './entities/order.entity';
 import { calculateLayawayPricing } from './layaway-pricing.util';
@@ -32,6 +34,7 @@ import {
   INVENTORY_STATUS_AVAILABLE_FOR_PURCHASE,
   INVENTORY_STATUS_ON_HOLD,
   LAYAWAY_HOLDING_HOURS,
+  ORDER_STATUS_DECLINED,
   ORDER_STATUS_EXPIRED,
   ORDER_STATUS_FOR_LAYAWAY_APPROVAL,
   ORDER_STATUS_FOR_PAYMENT,
@@ -123,6 +126,7 @@ export type ClientOrderDetail = {
   fullPaymentPrice: string | null;
   fullPaymentProofUrl: string | null;
   holdingPeriod: string | null;
+  declineReason: string | null;
   signatureUrl: string | null;
   createdAt: string;
   updatedAt: string;
@@ -160,6 +164,7 @@ export type StaffOrderDetail = {
   fullPaymentProofUrl: string | null;
   holdingPeriod: string | null;
   layawayPaymentStartDate: string | null;
+  declineReason: string | null;
   signatureUrl: string | null;
   createdAt: string;
   updatedAt: string;
@@ -464,6 +469,7 @@ export class OrdersService {
         ? this.s3.getPublicUrl(order.fullPaymentProofKey)
         : null,
       holdingPeriod: order.holdingPeriod?.toISOString() ?? null,
+      declineReason: order.declineReason,
       signatureUrl: order.signatureKey
         ? this.s3.getPublicUrl(order.signatureKey)
         : null,
@@ -527,6 +533,7 @@ export class OrdersService {
         : null,
       holdingPeriod: order.holdingPeriod?.toISOString() ?? null,
       layawayPaymentStartDate: formatOrderDate(order.layawayPaymentStartDate),
+      declineReason: order.declineReason,
       signatureUrl: order.signatureKey
         ? this.s3.getPublicUrl(order.signatureKey)
         : null,
@@ -568,6 +575,99 @@ export class OrdersService {
     }
 
     await this.dataSource.transaction(async (em) => {
+      order.status = ORDER_STATUS_FOR_PAYMENT;
+      order.layawayPaymentStartDate = todayDateString();
+      order.updatedById = user.userId;
+      await em.save(order);
+      await this.createInstallmentsForOrder(order, em, user.userId);
+    });
+
+    return this.findOneForStaff(id);
+  }
+
+  async declineLayawayForStaff(
+    user: JwtUser,
+    id: string,
+    dto: DeclineLayawayOrderDto,
+  ): Promise<StaffOrderDetail> {
+    const reason = dto.reason.trim();
+    if (!reason) {
+      throw new BadRequestException('Decline reason is required');
+    }
+
+    await this.dataSource.transaction(async (em) => {
+      const order = await em.findOne(Order, {
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!order) {
+        throw new NotFoundException('Order not found');
+      }
+      if (order.status !== ORDER_STATUS_FOR_LAYAWAY_APPROVAL) {
+        throw new BadRequestException(
+          'Only orders awaiting layaway approval can be declined',
+        );
+      }
+      if (order.paymentType !== PAYMENT_TYPE_LAYAWAY) {
+        throw new BadRequestException('Order is not a layaway order');
+      }
+
+      const item = await em.findOne(InventoryItem, {
+        where: { id: order.inventoryItemId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!item) {
+        throw new NotFoundException('Inventory item not found');
+      }
+
+      if (item.status === INVENTORY_STATUS_ON_HOLD) {
+        item.status = INVENTORY_STATUS_AVAILABLE_FOR_PURCHASE;
+        item.updatedById = user.userId;
+        await em.save(item);
+      }
+
+      order.status = ORDER_STATUS_DECLINED;
+      order.declineReason = reason;
+      order.holdingPeriod = null;
+      order.updatedById = user.userId;
+      await em.save(order);
+    });
+
+    return this.findOneForStaff(id);
+  }
+
+  async updateLayawayTermsForStaff(
+    user: JwtUser,
+    id: string,
+    dto: UpdateLayawayTermsDto,
+  ): Promise<StaffOrderDetail> {
+    const layawayPrice = parseMoney(dto.layawayPrice);
+    if (layawayPrice <= 0) {
+      throw new BadRequestException('Layaway price must be greater than zero');
+    }
+
+    await this.dataSource.transaction(async (em) => {
+      const order = await em.findOne(Order, {
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!order) {
+        throw new NotFoundException('Order not found');
+      }
+      if (order.status !== ORDER_STATUS_FOR_LAYAWAY_APPROVAL) {
+        throw new BadRequestException(
+          'Only orders awaiting layaway approval can have terms updated',
+        );
+      }
+      if (order.paymentType !== PAYMENT_TYPE_LAYAWAY) {
+        throw new BadRequestException('Order is not a layaway order');
+      }
+
+      order.layawayMonths = dto.layawayMonths;
+      order.layawayPrice = formatMoney(layawayPrice);
+      order.layawayMonthlyPayment = formatMoney(
+        layawayPrice / dto.layawayMonths,
+      );
       order.status = ORDER_STATUS_FOR_PAYMENT;
       order.layawayPaymentStartDate = todayDateString();
       order.updatedById = user.userId;

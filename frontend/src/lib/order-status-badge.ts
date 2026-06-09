@@ -6,6 +6,7 @@ const BY_STATUS: Record<string, string> = {
   "for payment": "text-violet-800 dark:text-violet-300",
   paid: "text-emerald-800 dark:text-emerald-300",
   expired: "text-zinc-600 dark:text-zinc-400",
+  declined: "text-red-800 dark:text-red-300",
 };
 
 export function orderStatusBadgeClassName(status: string): string {

@@ -3,6 +3,7 @@ export const ORDER_STATUS_FILTER_OPTIONS = [
   { value: "For Payment", label: "For Payment" },
   { value: "Paid", label: "Paid" },
   { value: "Expired", label: "Expired" },
+  { value: "Declined", label: "Declined" },
 ];
 
 function paymentTypeLabel(paymentType: string): string {

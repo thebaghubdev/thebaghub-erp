@@ -21,6 +21,7 @@ type ClientOrderDetail = {
   fullPaymentPrice: string | null;
   fullPaymentProofUrl: string | null;
   holdingPeriod: string | null;
+  declineReason: string | null;
   signatureUrl: string | null;
   createdAt: string;
   updatedAt: string;
@@ -164,6 +165,13 @@ export function ClientOrderDetailPage() {
               </DetailField>
             </>
           )}
+          {detail.declineReason ? (
+            <DetailField label="Decline reason">
+              <span className="whitespace-pre-wrap break-words">
+                {detail.declineReason}
+              </span>
+            </DetailField>
+          ) : null}
         </dl>
         {detail.paymentType === "full_payment" &&
         detail.status === "For Payment" ? (
