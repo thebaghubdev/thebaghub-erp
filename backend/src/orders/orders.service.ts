@@ -13,6 +13,7 @@ import { Client } from '../clients/entities/client.entity';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
 import type { MulterFile } from '../inquiries/multer-file.type';
 import { S3StorageService } from '../inquiries/s3-storage.service';
+import { CancelOrderDto } from './dto/cancel-order.dto';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { DeclineLayawayOrderDto } from './dto/decline-layaway-order.dto';
 import { UpdateInstallmentAmountPaidDto } from './dto/update-installment-amount-paid.dto';
@@ -34,6 +35,7 @@ import {
   INVENTORY_STATUS_AVAILABLE_FOR_PURCHASE,
   INVENTORY_STATUS_ON_HOLD,
   LAYAWAY_HOLDING_HOURS,
+  ORDER_STATUS_CANCELLED,
   ORDER_STATUS_DECLINED,
   ORDER_STATUS_EXPIRED,
   ORDER_STATUS_FOR_LAYAWAY_APPROVAL,
@@ -673,6 +675,52 @@ export class OrdersService {
       order.updatedById = user.userId;
       await em.save(order);
       await this.createInstallmentsForOrder(order, em, user.userId);
+    });
+
+    return this.findOneForStaff(id);
+  }
+
+  async cancelOrderForStaff(
+    user: JwtUser,
+    id: string,
+    dto: CancelOrderDto,
+  ): Promise<StaffOrderDetail> {
+    const reason = dto.reason.trim();
+    if (!reason) {
+      throw new BadRequestException('Cancellation reason is required');
+    }
+
+    await this.dataSource.transaction(async (em) => {
+      const order = await em.findOne(Order, {
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!order) {
+        throw new NotFoundException('Order not found');
+      }
+      if (order.status !== ORDER_STATUS_FOR_PAYMENT) {
+        throw new BadRequestException(
+          'Only orders awaiting payment can be cancelled',
+        );
+      }
+
+      const item = await em.findOne(InventoryItem, {
+        where: { id: order.inventoryItemId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!item) {
+        throw new NotFoundException('Inventory item not found');
+      }
+
+      item.status = INVENTORY_STATUS_AVAILABLE_FOR_PURCHASE;
+      item.updatedById = user.userId;
+      await em.save(item);
+
+      order.status = ORDER_STATUS_CANCELLED;
+      order.declineReason = reason;
+      order.holdingPeriod = null;
+      order.updatedById = user.userId;
+      await em.save(order);
     });
 
     return this.findOneForStaff(id);

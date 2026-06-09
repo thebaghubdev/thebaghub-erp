@@ -68,6 +68,10 @@ function isForLayawayApproval(status: string): boolean {
   return status.trim().toLowerCase() === "for layaway approval";
 }
 
+function isForPayment(status: string): boolean {
+  return status.trim().toLowerCase() === "for payment";
+}
+
 function displayOrDash(value: string | null | undefined): string {
   if (value == null) return "—";
   const text = value.trim();
@@ -136,6 +140,10 @@ export function OrderDetailPage() {
   const [declineBusy, setDeclineBusy] = useState(false);
   const [declineError, setDeclineError] = useState<string | null>(null);
   const [declineReason, setDeclineReason] = useState("");
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
+  const [cancelBusy, setCancelBusy] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
+  const [cancelReason, setCancelReason] = useState("");
   const [termsConfirmOpen, setTermsConfirmOpen] = useState(false);
   const [termsBusy, setTermsBusy] = useState(false);
   const [termsError, setTermsError] = useState<string | null>(null);
@@ -226,6 +234,38 @@ export function OrderDetailPage() {
     }
   }, [declineReason, id, token]);
 
+  const confirmCancelOrder = useCallback(async () => {
+    if (!id || !token) return;
+    const reason = cancelReason.trim();
+    if (!reason) {
+      setCancelError("Please enter a reason for cancelling this order.");
+      return;
+    }
+
+    setCancelError(null);
+    setCancelBusy(true);
+    try {
+      const res = await apiFetch(
+        `/api/orders/${id}/cancel`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reason }),
+        },
+        token,
+      );
+      if (!res.ok) throw new Error(await readApiErrorMessage(res));
+      const data = (await res.json()) as OrderDetail;
+      setDetail(data);
+      setCancelConfirmOpen(false);
+      setCancelReason("");
+    } catch (e) {
+      setCancelError(e instanceof Error ? e.message : "Could not cancel order");
+    } finally {
+      setCancelBusy(false);
+    }
+  }, [cancelReason, id, token]);
+
   const termsMonthsNumber = useMemo(() => {
     if (!/^\d+$/.test(termsMonths.trim())) return null;
     const value = Number.parseInt(termsMonths, 10);
@@ -313,6 +353,7 @@ export function OrderDetailPage() {
   const customerName =
     `${detail.customer.firstName} ${detail.customer.lastName}`.trim() ||
     detail.customer.email;
+  const anyActionBusy = approveBusy || declineBusy || termsBusy || cancelBusy;
 
   return (
     <div className="w-full min-w-0 space-y-6">
@@ -345,7 +386,7 @@ export function OrderDetailPage() {
             <button
               type="button"
               className={layawayApproveBtn}
-              disabled={approveBusy || declineBusy || termsBusy}
+              disabled={anyActionBusy}
               onClick={() => {
                 setApproveError(null);
                 setApproveConfirmOpen(true);
@@ -356,7 +397,7 @@ export function OrderDetailPage() {
             <button
               type="button"
               className={layawayDeclineBtn}
-              disabled={approveBusy || declineBusy || termsBusy}
+              disabled={anyActionBusy}
               onClick={() => {
                 setDeclineError(null);
                 setDeclineReason("");
@@ -368,10 +409,32 @@ export function OrderDetailPage() {
             <button
               type="button"
               className={layawayUpdateTermsBtn}
-              disabled={approveBusy || declineBusy || termsBusy}
+              disabled={anyActionBusy}
               onClick={openUpdateTermsDialog}
             >
               Update terms
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {isForPayment(detail.status) ? (
+        <div className={cardClass}>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
+            Order actions
+          </h2>
+          <div className="mt-4">
+            <button
+              type="button"
+              className={layawayDeclineBtn}
+              disabled={anyActionBusy}
+              onClick={() => {
+                setCancelError(null);
+                setCancelReason("");
+                setCancelConfirmOpen(true);
+              }}
+            >
+              Cancel order
             </button>
           </div>
         </div>
@@ -452,7 +515,7 @@ export function OrderDetailPage() {
             </>
           )}
           {detail.declineReason ? (
-            <DetailField label="Decline reason">
+            <DetailField label="Reason">
               <span className="whitespace-pre-wrap break-words">
                 {detail.declineReason}
               </span>
@@ -578,6 +641,48 @@ export function OrderDetailPage() {
           setDeclineReason("");
         }}
         onConfirm={confirmDeclineLayaway}
+      />
+      <ConfirmDialog
+        open={cancelConfirmOpen}
+        title="Cancel order?"
+        description={
+          <div className="space-y-3">
+            <p>
+              The order status will change to Cancelled and the item will become
+              available for purchase again.
+            </p>
+            <label className="block">
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                Reason for cancelling
+              </span>
+              <textarea
+                value={cancelReason}
+                onChange={(e) => {
+                  setCancelReason(e.target.value);
+                  if (cancelError) setCancelError(null);
+                }}
+                rows={4}
+                maxLength={1000}
+                disabled={cancelBusy}
+                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-500/30 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                placeholder="Explain why this order is being cancelled."
+              />
+            </label>
+          </div>
+        }
+        confirmLabel="Cancel order"
+        cancelLabel="Keep order"
+        danger
+        busy={cancelBusy}
+        confirmDisabled={!cancelReason.trim()}
+        errorMessage={cancelError}
+        onCancel={() => {
+          if (cancelBusy) return;
+          setCancelError(null);
+          setCancelConfirmOpen(false);
+          setCancelReason("");
+        }}
+        onConfirm={confirmCancelOrder}
       />
       <ConfirmDialog
         open={termsConfirmOpen}

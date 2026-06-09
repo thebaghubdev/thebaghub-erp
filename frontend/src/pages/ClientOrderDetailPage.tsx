@@ -166,7 +166,7 @@ export function ClientOrderDetailPage() {
             </>
           )}
           {detail.declineReason ? (
-            <DetailField label="Decline reason">
+            <DetailField label="Reason">
               <span className="whitespace-pre-wrap break-words">
                 {detail.declineReason}
               </span>

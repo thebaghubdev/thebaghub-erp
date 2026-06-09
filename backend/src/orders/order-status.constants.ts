@@ -3,6 +3,7 @@ export const ORDER_STATUS_FOR_PAYMENT = 'For Payment';
 export const ORDER_STATUS_PAID = 'Paid';
 export const ORDER_STATUS_EXPIRED = 'Expired';
 export const ORDER_STATUS_DECLINED = 'Declined';
+export const ORDER_STATUS_CANCELLED = 'Cancelled';
 
 /** Added to sequential order numbers so they start at 10001 (5 digits). */
 export const ORDER_NUMBER_OFFSET = 10_000;
