@@ -29,6 +29,11 @@ export class ClientOrdersController {
     return this.ordersService.findMineForClient(req.user);
   }
 
+  @Get('waitlists')
+  listWaitlists(@Req() req: { user: JwtUser }) {
+    return this.ordersService.findWaitlistsForClient(req.user);
+  }
+
   @Get(':id')
   getOne(
     @Req() req: { user: JwtUser },
@@ -95,6 +100,24 @@ export class ClientOrdersController {
     @UploadedFile() proof: MulterFile | undefined,
   ) {
     return this.ordersService.uploadFullPaymentProofForClient(
+      req.user,
+      id,
+      proof,
+    );
+  }
+
+  @Post(':id/reservation-payment-proof')
+  @UseInterceptors(
+    FileInterceptor('proof', {
+      limits: { fileSize: 10 * 1024 * 1024 },
+    }),
+  )
+  uploadReservationPaymentProof(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+    @UploadedFile() proof: MulterFile | undefined,
+  ) {
+    return this.ordersService.uploadReservationPaymentProofForClient(
       req.user,
       id,
       proof,

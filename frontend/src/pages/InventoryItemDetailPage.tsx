@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { InventoryStatusBadge } from "../components/InventoryStatusBadge";
@@ -37,6 +37,16 @@ type InventoryDetailForStaff = {
   } | null;
 };
 
+type InventoryItemWaitlistClientRow = {
+  id: string;
+  clientId: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  contactNumber: string;
+  createdAt: string;
+};
+
 function formatDatePurchased(raw: unknown): string {
   if (raw == null) return "";
   const s = String(raw).trim();
@@ -55,6 +65,15 @@ function yesNo(v: unknown): string {
   return v === true || v === "true" ? "Yes" : "No";
 }
 
+function isWaitlistViewableStatus(status: string): boolean {
+  const normalized = status.trim().toLowerCase();
+  return normalized === "available for purchase" || normalized === "on hold";
+}
+
+function clientName(row: InventoryItemWaitlistClientRow): string {
+  return `${row.firstName} ${row.lastName}`.trim() || row.email;
+}
+
 const cardClass =
   "rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900";
 
@@ -63,10 +82,17 @@ const recordActionBtn =
 
 export function InventoryItemDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const waitlistModalTitleId = useId();
   const { token } = usePortalAuth();
   const [detail, setDetail] = useState<InventoryDetailForStaff | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [waitlistModalOpen, setWaitlistModalOpen] = useState(false);
+  const [waitlistRows, setWaitlistRows] = useState<
+    InventoryItemWaitlistClientRow[]
+  >([]);
+  const [waitlistsLoading, setWaitlistsLoading] = useState(false);
+  const [waitlistsError, setWaitlistsError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -94,6 +120,43 @@ export function InventoryItemDetailPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const loadWaitlists = useCallback(async () => {
+    if (!id) return;
+    setWaitlistsError(null);
+    setWaitlistsLoading(true);
+    try {
+      const res = await apiFetch(`/api/inventory/${id}/waitlists`, {}, token);
+      if (!res.ok) throw new Error(`Request failed (${res.status})`);
+      const data = (await res.json()) as InventoryItemWaitlistClientRow[];
+      setWaitlistRows(Array.isArray(data) ? data : []);
+    } catch (e) {
+      setWaitlistsError(
+        e instanceof Error ? e.message : "Failed to load waitlist",
+      );
+      setWaitlistRows([]);
+    } finally {
+      setWaitlistsLoading(false);
+    }
+  }, [id, token]);
+
+  const openWaitlistModal = useCallback(() => {
+    setWaitlistModalOpen(true);
+    void loadWaitlists();
+  }, [loadWaitlists]);
+
+  const closeWaitlistModal = useCallback(() => {
+    setWaitlistModalOpen(false);
+  }, []);
+
+  useEffect(() => {
+    if (!waitlistModalOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeWaitlistModal();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [waitlistModalOpen, closeWaitlistModal]);
 
   if (loading) {
     return (
@@ -151,6 +214,15 @@ export function InventoryItemDetailPage() {
             Record
           </h2>
         <div className="flex flex-wrap items-center justify-end gap-2">
+          {isWaitlistViewableStatus(detail.status) ? (
+            <button
+              type="button"
+              className={recordActionBtn}
+              onClick={openWaitlistModal}
+            >
+              View waitlist
+            </button>
+          ) : null}
           {detail.status === "Available For Purchase" && detail.itemPosting ? (
             <Link
               to={`/portal/posting/${detail.id}`}
@@ -379,6 +451,123 @@ export function InventoryItemDetailPage() {
           </div>
         </dl>
       </div>
+
+      {waitlistModalOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          role="dialog"
+          aria-modal
+          aria-labelledby={waitlistModalTitleId}
+          onClick={closeWaitlistModal}
+        >
+          <div
+            className="max-h-[85vh] w-full max-w-4xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl dark:border-slate-800 dark:bg-slate-900"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+              <div className="min-w-0">
+                <h2
+                  id={waitlistModalTitleId}
+                  className="text-base font-semibold text-slate-900 dark:text-slate-100"
+                >
+                  Waitlist
+                </h2>
+                <p className="mt-1 break-all text-xs text-slate-500 dark:text-slate-400">
+                  {detail.sku}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="rounded-lg px-2 py-1 text-sm font-medium text-slate-600 hover:bg-slate-100 focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500 dark:text-slate-300 dark:hover:bg-slate-800"
+                onClick={closeWaitlistModal}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="max-h-[70vh] overflow-auto p-4">
+              {waitlistsError ? (
+                <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+                  {waitlistsError}
+                  <button
+                    type="button"
+                    className="ml-2 font-medium text-violet-700 underline dark:text-violet-300"
+                    onClick={() => void loadWaitlists()}
+                  >
+                    Retry
+                  </button>
+                </p>
+              ) : null}
+
+              <div className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800">
+                <table className="min-w-full border-collapse text-left text-sm">
+                  <thead className="border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-600 dark:border-slate-800 dark:bg-slate-950/60 dark:text-slate-400">
+                    <tr>
+                      <th scope="col" className="px-3 py-2.5">
+                        Client
+                      </th>
+                      <th scope="col" className="px-3 py-2.5">
+                        Email
+                      </th>
+                      <th scope="col" className="px-3 py-2.5">
+                        Contact
+                      </th>
+                      <th scope="col" className="px-3 py-2.5">
+                        Waitlisted
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                    {waitlistsLoading && waitlistRows.length === 0 ? (
+                      <tr>
+                        <td
+                          colSpan={4}
+                          className="px-3 py-8 text-center text-slate-500 dark:text-slate-400"
+                        >
+                          Loading…
+                        </td>
+                      </tr>
+                    ) : null}
+                    {!waitlistsLoading &&
+                    waitlistRows.length === 0 &&
+                    !waitlistsError ? (
+                      <tr>
+                        <td
+                          colSpan={4}
+                          className="px-3 py-8 text-center text-slate-500 dark:text-slate-400"
+                        >
+                          No clients are waitlisted for this item.
+                        </td>
+                      </tr>
+                    ) : null}
+                    {waitlistRows.map((row) => (
+                      <tr key={row.id}>
+                        <td className="px-3 py-2.5 align-top">
+                          <span className="font-medium text-slate-900 dark:text-slate-100">
+                            {clientName(row)}
+                          </span>
+                          <span className="mt-0.5 block break-all font-mono text-[0.65rem] text-slate-500 dark:text-slate-400">
+                            {row.clientId}
+                          </span>
+                        </td>
+                        <td className="break-all px-3 py-2.5 align-top text-slate-700 dark:text-slate-300">
+                          {row.email}
+                        </td>
+                        <td className="px-3 py-2.5 align-top text-slate-700 dark:text-slate-300">
+                          {row.contactNumber}
+                        </td>
+                        <td className="px-3 py-2.5 align-top text-slate-700 dark:text-slate-300">
+                          <SubmittedAtCell iso={row.createdAt} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

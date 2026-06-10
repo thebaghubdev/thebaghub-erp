@@ -132,6 +132,11 @@ export class InventoryController {
     );
   }
 
+  @Get(':id/waitlists')
+  listWaitlists(@Param('id', ParseUUIDPipe) id: string) {
+    return this.inventoryService.listWaitlistsForInventoryItem(id);
+  }
+
   @Post(':id/item-authentication-metrics')
   @HttpCode(HttpStatus.OK)
   saveItemAuthenticationMetrics(

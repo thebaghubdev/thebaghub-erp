@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useClientAuth } from "../context/client-auth";
 import { apiFetch } from "../lib/api";
@@ -31,7 +31,7 @@ function isOnHold(status: string): boolean {
 }
 
 const catalogActionBtn =
-  "group relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-700 transition-colors hover:bg-slate-100 focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500";
+  "group relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-700 transition-colors hover:bg-slate-100 focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500 disabled:cursor-not-allowed disabled:opacity-60";
 
 const catalogActionTooltip =
   "pointer-events-none absolute bottom-full right-0 z-10 mb-1 hidden whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[0.65rem] font-medium text-white shadow-lg group-hover:block group-focus-visible:block";
@@ -42,6 +42,14 @@ export function ItemCatalogPage() {
   const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [waitlistError, setWaitlistError] = useState<string | null>(null);
+  const [waitlistMessage, setWaitlistMessage] = useState<string | null>(null);
+  const [waitlistingIds, setWaitlistingIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [waitlistedIds, setWaitlistedIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [search, setSearch] = useState("");
 
   const filteredItems = useMemo(() => {
@@ -84,6 +92,45 @@ export function ItemCatalogPage() {
     };
   }, [token]);
 
+  const handleAddToWaitlist = useCallback(
+    async (item: CatalogItem) => {
+      if (!token || waitlistingIds.has(item.id)) return;
+      setWaitlistError(null);
+      setWaitlistMessage(null);
+      setWaitlistingIds((ids) => new Set(ids).add(item.id));
+      try {
+        const res = await apiFetch(
+          `/api/client/item-catalog/${item.id}/waitlist`,
+          { method: "POST" },
+          token,
+        );
+        if (!res.ok) {
+          let message = `Request failed (${res.status})`;
+          try {
+            const body = (await res.json()) as { message?: unknown };
+            if (typeof body.message === "string") message = body.message;
+          } catch {
+            // Keep the status fallback when the response is not JSON.
+          }
+          throw new Error(message);
+        }
+        setWaitlistedIds((ids) => new Set(ids).add(item.id));
+        setWaitlistMessage(`${item.productName} was added to your waitlist.`);
+      } catch (e) {
+        setWaitlistError(
+          e instanceof Error ? e.message : "Failed to add item to waitlist",
+        );
+      } finally {
+        setWaitlistingIds((ids) => {
+          const next = new Set(ids);
+          next.delete(item.id);
+          return next;
+        });
+      }
+    },
+    [token, waitlistingIds],
+  );
+
   return (
     <div className="w-full min-w-0">
       {!catalogLoading && catalogItems.length > 0 ? (
@@ -103,6 +150,16 @@ export function ItemCatalogPage() {
       {catalogError ? (
         <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
           {catalogError}
+        </p>
+      ) : null}
+      {waitlistError ? (
+        <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+          {waitlistError}
+        </p>
+      ) : null}
+      {waitlistMessage ? (
+        <p className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+          {waitlistMessage}
         </p>
       ) : null}
       {catalogLoading ? (
@@ -167,7 +224,16 @@ export function ItemCatalogPage() {
                       <button
                         type="button"
                         className={catalogActionBtn}
-                        aria-label="Add to waitlist"
+                        aria-label={
+                          waitlistedIds.has(item.id)
+                            ? "Added to waitlist"
+                            : "Add to waitlist"
+                        }
+                        disabled={
+                          waitlistingIds.has(item.id) ||
+                          waitlistedIds.has(item.id)
+                        }
+                        onClick={() => void handleAddToWaitlist(item)}
                       >
                         <svg
                           viewBox="0 0 24 24"
@@ -185,7 +251,11 @@ export function ItemCatalogPage() {
                           <path d="M22 11h-6" />
                         </svg>
                         <span className={catalogActionTooltip}>
-                          Add to waitlist
+                          {waitlistedIds.has(item.id)
+                            ? "Added to waitlist"
+                            : waitlistingIds.has(item.id)
+                              ? "Adding…"
+                              : "Add to waitlist"}
                         </span>
                       </button>
                     ) : (

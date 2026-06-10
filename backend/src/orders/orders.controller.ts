@@ -98,6 +98,24 @@ export class OrdersController {
     );
   }
 
+  @Post(':id/reservation-payment-proof')
+  @UseInterceptors(
+    FileInterceptor('proof', {
+      limits: { fileSize: 10 * 1024 * 1024 },
+    }),
+  )
+  uploadReservationPaymentProof(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+    @UploadedFile() proof: MulterFile | undefined,
+  ) {
+    return this.ordersService.uploadReservationPaymentProofForStaff(
+      req.user,
+      id,
+      proof,
+    );
+  }
+
   @Patch(':id/installments/:installmentNumber/amount-paid')
   setInstallmentAmountPaid(
     @Req() req: { user: JwtUser },

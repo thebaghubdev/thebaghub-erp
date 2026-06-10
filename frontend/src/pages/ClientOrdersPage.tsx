@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { HorizontalScrollMirror } from "../components/HorizontalScrollMirror";
+import { InventoryStatusBadge } from "../components/InventoryStatusBadge";
 import { OrderStatusBadge } from "../components/OrderStatusBadge";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { TablePaginationBar } from "../components/TablePaginationBar";
@@ -10,7 +11,7 @@ import { apiFetch } from "../lib/api";
 import { formatPhpDisplay } from "../lib/format-php";
 import { paymentTypeLabel } from "../lib/order-status-filter-options";
 
-type ClientOrdersTab = "orders" | "appointments";
+type ClientOrdersTab = "orders" | "waitlists" | "appointments";
 
 type MyOrderRow = {
   id: string;
@@ -20,6 +21,17 @@ type MyOrderRow = {
   itemLabel: string;
   paymentType: string;
   amount: string | null;
+  createdAt: string;
+};
+
+type MyWaitlistRow = {
+  id: string;
+  inventoryItemId: string;
+  itemSku: string;
+  itemLabel: string;
+  productName: string;
+  status: string;
+  price: string | null;
   createdAt: string;
 };
 
@@ -33,8 +45,12 @@ export function ClientOrdersPage() {
   const [rows, setRows] = useState<MyOrderRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [waitlistRows, setWaitlistRows] = useState<MyWaitlistRow[]>([]);
+  const [waitlistsLoading, setWaitlistsLoading] = useState(false);
+  const [waitlistsError, setWaitlistsError] = useState<string | null>(null);
 
   const ordersPagination = useClientPagination(rows);
+  const waitlistsPagination = useClientPagination(waitlistRows);
 
   const loadMyOrders = useCallback(async () => {
     if (!token) return;
@@ -53,9 +69,29 @@ export function ClientOrdersPage() {
     }
   }, [token]);
 
+  const loadMyWaitlists = useCallback(async () => {
+    if (!token) return;
+    setWaitlistsError(null);
+    setWaitlistsLoading(true);
+    try {
+      const res = await apiFetch("/api/client/orders/waitlists", {}, token);
+      if (!res.ok) throw new Error(`Request failed (${res.status})`);
+      const data = (await res.json()) as MyWaitlistRow[];
+      setWaitlistRows(Array.isArray(data) ? data : []);
+    } catch (e) {
+      setWaitlistsError(
+        e instanceof Error ? e.message : "Failed to load your waitlists",
+      );
+      setWaitlistRows([]);
+    } finally {
+      setWaitlistsLoading(false);
+    }
+  }, [token]);
+
   useEffect(() => {
     if (tab === "orders") void loadMyOrders();
-  }, [tab, loadMyOrders]);
+    if (tab === "waitlists") void loadMyWaitlists();
+  }, [tab, loadMyOrders, loadMyWaitlists]);
 
   return (
     <div className="w-full min-w-0">
@@ -78,6 +114,21 @@ export function ClientOrdersPage() {
           onClick={() => setTab("orders")}
         >
           My orders
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "waitlists"}
+          id="tab-client-waitlists"
+          aria-controls="panel-client-waitlists"
+          className={`${tabBtn} ${
+            tab === "waitlists"
+              ? "border-violet-600 text-violet-700"
+              : "text-slate-600 hover:text-slate-900"
+          }`}
+          onClick={() => setTab("waitlists")}
+        >
+          My waitlists
         </button>
         <button
           type="button"
@@ -224,6 +275,118 @@ export function ClientOrdersPage() {
                       </td>
                       <td className="max-w-[8rem] min-w-0 px-2 py-2.5 align-top tabular-nums text-slate-800 sm:px-4 sm:py-3">
                         {formatPhpDisplay(row.amount)}
+                      </td>
+                      <td className="max-w-[10rem] min-w-0 px-2 py-2.5 align-top sm:px-4 sm:py-3">
+                        <SubmittedAtCell iso={row.createdAt} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </HorizontalScrollMirror>
+          </div>
+        </section>
+      )}
+
+      {tab === "waitlists" && (
+        <section
+          id="panel-client-waitlists"
+          role="tabpanel"
+          aria-labelledby="tab-client-waitlists"
+        >
+          {waitlistsError ? (
+            <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+              {waitlistsError}
+              <button
+                type="button"
+                className="ml-2 font-medium text-violet-700 underline"
+                onClick={() => void loadMyWaitlists()}
+              >
+                Retry
+              </button>
+            </p>
+          ) : null}
+
+          <div className="max-w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="border-b border-slate-200 bg-slate-50/80 px-3 py-3 sm:px-4">
+              <TablePaginationBar
+                totalCount={waitlistsPagination.totalCount}
+                pageIndex={waitlistsPagination.pageIndex}
+                pageSize={waitlistsPagination.pageSize}
+                onPageIndexChange={waitlistsPagination.setPageIndex}
+                onPageSizeChange={waitlistsPagination.setPageSize}
+                disabled={waitlistsLoading && waitlistRows.length === 0}
+                itemLabel="waitlisted items"
+              />
+            </div>
+            <HorizontalScrollMirror>
+              <table className="w-max min-w-full border-collapse text-left text-sm">
+                <thead className="border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                  <tr>
+                    <th
+                      scope="col"
+                      className="max-w-[14rem] min-w-0 px-2 py-2.5 sm:px-4 sm:py-3"
+                    >
+                      Item
+                    </th>
+                    <th
+                      scope="col"
+                      className="max-w-[10rem] min-w-0 px-2 py-2.5 sm:px-4 sm:py-3"
+                    >
+                      Status
+                    </th>
+                    <th
+                      scope="col"
+                      className="max-w-[8rem] min-w-0 px-2 py-2.5 sm:px-4 sm:py-3"
+                    >
+                      Price
+                    </th>
+                    <th
+                      scope="col"
+                      className="max-w-[10rem] min-w-0 px-2 py-2.5 sm:px-4 sm:py-3"
+                    >
+                      Waitlisted
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {waitlistsLoading && waitlistRows.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={4}
+                        className="px-4 py-8 text-center text-slate-500"
+                      >
+                        Loading…
+                      </td>
+                    </tr>
+                  ) : null}
+                  {!waitlistsLoading &&
+                  waitlistRows.length === 0 &&
+                  !waitlistsError ? (
+                    <tr>
+                      <td
+                        colSpan={4}
+                        className="px-4 py-8 text-center text-slate-500"
+                      >
+                        No waitlisted items yet.
+                      </td>
+                    </tr>
+                  ) : null}
+                  {waitlistsPagination.pageItems.map((row) => (
+                    <tr key={row.id} className="hover:bg-slate-50">
+                      <td className="max-w-[14rem] min-w-0 break-words px-2 py-2.5 align-top sm:px-4 sm:py-3">
+                        <span className="font-medium text-slate-900">
+                          {row.productName || row.itemLabel}
+                        </span>
+                        <span className="mt-0.5 block break-all font-mono text-[0.65rem] text-slate-500">
+                          {row.itemSku}
+                        </span>
+                      </td>
+                      <td className="max-w-[10rem] min-w-0 px-2 py-2.5 align-top sm:px-4 sm:py-3">
+                        <InventoryStatusBadge status={row.status} />
+                      </td>
+                      <td className="max-w-[8rem] min-w-0 px-2 py-2.5 align-top tabular-nums text-slate-800 sm:px-4 sm:py-3">
+                        {formatPhpDisplay(row.price)}
                       </td>
                       <td className="max-w-[10rem] min-w-0 px-2 py-2.5 align-top sm:px-4 sm:py-3">
                         <SubmittedAtCell iso={row.createdAt} />

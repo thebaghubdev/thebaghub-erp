@@ -71,6 +71,28 @@ export class Order extends AuditedEntity {
   signatureKey: string | null;
 
   @Column({
+    name: 'reservation_payment_proof_key',
+    type: 'varchar',
+    length: 512,
+    nullable: true,
+  })
+  reservationPaymentProofKey: string | null;
+
+  @Column({
+    name: 'reservation_payment_proof_uploaded_at',
+    type: 'timestamptz',
+    nullable: true,
+  })
+  reservationPaymentProofUploadedAt: Date | null;
+
+  @Column({
+    name: 'reservation_payment_proof_uploaded_by_user_id',
+    type: 'uuid',
+    nullable: true,
+  })
+  reservationPaymentProofUploadedByUserId: string | null;
+
+  @Column({
     name: 'full_payment_proof_key',
     type: 'varchar',
     length: 512,

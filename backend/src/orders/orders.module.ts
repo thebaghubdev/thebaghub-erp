@@ -7,13 +7,20 @@ import { ClientOrdersController } from './client-orders.controller';
 import { OrdersController } from './orders.controller';
 import { OrderInstallment } from './entities/order-installment.entity';
 import { Order } from './entities/order.entity';
+import { Waitlist } from './entities/waitlist.entity';
 import { OrdersExpiryCron } from './orders-expiry.cron';
 import { OrdersService } from './orders.service';
 
 @Module({
   imports: [
     InquiriesModule,
-    TypeOrmModule.forFeature([Order, OrderInstallment, Client, InventoryItem]),
+    TypeOrmModule.forFeature([
+      Order,
+      OrderInstallment,
+      Waitlist,
+      Client,
+      InventoryItem,
+    ]),
   ],
   controllers: [ClientOrdersController, OrdersController],
   providers: [OrdersService, OrdersExpiryCron],

@@ -7,7 +7,13 @@ type FullPaymentProofUploadProps<TDetail> = {
   orderId: string;
   token: string | null;
   apiBase: string;
+  endpointPath?: string;
   proofUrl: string | null;
+  title?: string;
+  uploadLabel?: string;
+  noProofLabel?: string;
+  confirmTitle?: string;
+  confirmDescription?: string;
   allowMarkPaid?: boolean;
   onUpdated: (detail: TDetail) => void;
 };
@@ -16,7 +22,13 @@ export function FullPaymentProofUpload<TDetail>({
   orderId,
   token,
   apiBase,
+  endpointPath = "full-payment-proof",
   proofUrl,
+  title = "Proof of payment",
+  uploadLabel = "Upload proof of payment",
+  noProofLabel = "No proof uploaded yet.",
+  confirmTitle = "Mark full payment as paid?",
+  confirmDescription = "This order will be marked as paid. Make sure the uploaded proof of payment has been reviewed.",
   allowMarkPaid = false,
   onUpdated,
 }: FullPaymentProofUploadProps<TDetail>) {
@@ -34,7 +46,7 @@ export function FullPaymentProofUpload<TDetail>({
         const fd = new FormData();
         fd.append("proof", file);
         const res = await apiFetch(
-          `${apiBase}/${orderId}/full-payment-proof`,
+          `${apiBase}/${orderId}/${endpointPath}`,
           { method: "POST", body: fd },
           token,
         );
@@ -49,7 +61,7 @@ export function FullPaymentProofUpload<TDetail>({
         setBusyKey(null);
       }
     },
-    [apiBase, onUpdated, orderId, token],
+    [apiBase, endpointPath, onUpdated, orderId, token],
   );
 
   const confirmMarkPaid = useCallback(async () => {
@@ -84,7 +96,7 @@ export function FullPaymentProofUpload<TDetail>({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
-            Proof of payment
+            {title}
           </p>
           {proofUrl ? (
             <a
@@ -97,7 +109,7 @@ export function FullPaymentProofUpload<TDetail>({
             </a>
           ) : (
             <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-              No proof uploaded yet.
+              {noProofLabel}
             </p>
           )}
         </div>
@@ -115,7 +127,7 @@ export function FullPaymentProofUpload<TDetail>({
               }}
             />
             <span className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5 text-sm font-medium text-violet-900 transition-colors hover:bg-violet-100 dark:border-violet-800 dark:bg-violet-950/60 dark:text-violet-100 dark:hover:bg-violet-900/80">
-              {uploadBusy ? "Uploading…" : "Upload proof of payment"}
+              {uploadBusy ? "Uploading…" : uploadLabel}
             </span>
           </label>
           {canShowMarkPaid ? (
@@ -141,8 +153,8 @@ export function FullPaymentProofUpload<TDetail>({
       {allowMarkPaid ? (
         <ConfirmDialog
           open={markPaidConfirmOpen}
-          title="Mark full payment as paid?"
-          description="This order will be marked as paid. Make sure the uploaded proof of payment has been reviewed."
+          title={confirmTitle}
+          description={confirmDescription}
           confirmLabel="Mark as paid"
           busy={markPaidBusy}
           errorMessage={markPaidError}

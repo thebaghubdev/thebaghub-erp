@@ -39,6 +39,7 @@ import { TablePreferencesModule } from './table-preferences/table-preferences.mo
 import { TablePreference } from './table-preferences/entities/table-preference.entity';
 import { Order } from './orders/entities/order.entity';
 import { OrderInstallment } from './orders/entities/order-installment.entity';
+import { Waitlist } from './orders/entities/waitlist.entity';
 import { OrdersModule } from './orders/orders.module';
 
 @Module({
@@ -75,6 +76,7 @@ import { OrdersModule } from './orders/orders.module';
           TablePreference,
           Order,
           OrderInstallment,
+          Waitlist,
         ],
         synchronize:
           config.get<string>('NODE_ENV', 'development') !== 'production',

@@ -42,6 +42,7 @@ import { InquiryStatus } from '../enums/inquiry-status.enum';
 import { InquiriesService } from '../inquiries/inquiries.service';
 import { CONSIGNMENT_COORDINATOR_POSITION } from '../notifications/notification.constants';
 import { NotificationsService } from '../notifications/notifications.service';
+import { Waitlist } from '../orders/entities/waitlist.entity';
 import {
   ShopifyAdminService,
   type ShopifyCreateProductInput,
@@ -176,6 +177,16 @@ export type InventoryDetailForStaff = {
     form: Record<string, unknown>;
   };
   itemPosting: ItemPostingForStaff | null;
+};
+
+export type InventoryItemWaitlistClientRow = {
+  id: string;
+  clientId: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  contactNumber: string;
+  createdAt: string;
 };
 
 export type ItemPostingForStaff = {
@@ -572,6 +583,8 @@ export class InventoryService {
     private readonly itemAuthMetricRepo: Repository<ItemAuthenticationMetric>,
     @InjectRepository(AuthenticationMetric)
     private readonly authenticationMetricRepo: Repository<AuthenticationMetric>,
+    @InjectRepository(Waitlist)
+    private readonly waitlistsRepo: Repository<Waitlist>,
     @Inject(forwardRef(() => InquiriesService))
     private readonly inquiriesService: InquiriesService,
     private readonly notifications: NotificationsService,
@@ -1414,6 +1427,31 @@ export class InventoryService {
       },
       itemPosting: posting ? mapItemPostingForStaff(posting) : null,
     };
+  }
+
+  async listWaitlistsForInventoryItem(
+    id: string,
+  ): Promise<InventoryItemWaitlistClientRow[]> {
+    const item = await this.inventoryRepo.findOne({ where: { id } });
+    if (!item) {
+      throw new NotFoundException('Inventory item not found');
+    }
+
+    const rows = await this.waitlistsRepo.find({
+      where: { inventoryItemId: id },
+      relations: { client: true },
+      order: { createdAt: 'DESC' },
+    });
+
+    return rows.map((row) => ({
+      id: row.id,
+      clientId: row.clientId,
+      firstName: row.client.firstName,
+      lastName: row.client.lastName,
+      email: row.client.email,
+      contactNumber: row.client.contactNumber,
+      createdAt: row.createdAt.toISOString(),
+    }));
   }
 
   /**

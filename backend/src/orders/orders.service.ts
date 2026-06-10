@@ -21,6 +21,7 @@ import { UpdateInstallmentAmountPaidDto } from './dto/update-installment-amount-
 import { UpdateLayawayTermsDto } from './dto/update-layaway-terms.dto';
 import { OrderInstallment } from './entities/order-installment.entity';
 import { Order } from './entities/order.entity';
+import { Waitlist } from './entities/waitlist.entity';
 import { calculateLayawayPricing } from './layaway-pricing.util';
 import {
   buildScheduledAmounts,
@@ -122,6 +123,17 @@ export type ClientOrderListRow = {
   createdAt: string;
 };
 
+export type ClientWaitlistRow = {
+  id: string;
+  inventoryItemId: string;
+  itemSku: string;
+  itemLabel: string;
+  productName: string;
+  status: string;
+  price: string | null;
+  createdAt: string;
+};
+
 export type ClientOrderDetail = {
   id: string;
   orderNumber: number;
@@ -131,6 +143,9 @@ export type ClientOrderDetail = {
   layawayPrice: string | null;
   layawayMonthlyPayment: string | null;
   fullPaymentPrice: string | null;
+  fullPaymentTotalPrice: string | null;
+  remainingBalancePrice: string | null;
+  reservationPaymentProofUrl: string | null;
   fullPaymentProofUrl: string | null;
   holdingPeriod: string | null;
   declineReason: string | null;
@@ -168,6 +183,9 @@ export type StaffOrderDetail = {
   layawayPrice: string | null;
   layawayMonthlyPayment: string | null;
   fullPaymentPrice: string | null;
+  fullPaymentTotalPrice: string | null;
+  remainingBalancePrice: string | null;
+  reservationPaymentProofUrl: string | null;
   fullPaymentProofUrl: string | null;
   holdingPeriod: string | null;
   layawayPaymentStartDate: string | null;
@@ -214,7 +232,9 @@ function customerName(client: Client): string {
   return `${client.firstName} ${client.lastName}`.trim() || client.email;
 }
 
-function formatOrderDate(value: Date | string | null | undefined): string | null {
+function formatOrderDate(
+  value: Date | string | null | undefined,
+): string | null {
   if (value == null) return null;
   if (value instanceof Date) {
     const y = value.getFullYear();
@@ -249,6 +269,8 @@ export class OrdersService {
     private readonly ordersRepo: Repository<Order>,
     @InjectRepository(OrderInstallment)
     private readonly installmentsRepo: Repository<OrderInstallment>,
+    @InjectRepository(Waitlist)
+    private readonly waitlistsRepo: Repository<Waitlist>,
     @InjectRepository(Client)
     private readonly clientsRepo: Repository<Client>,
     @InjectRepository(InventoryItem)
@@ -363,9 +385,23 @@ export class OrdersService {
     if (order.paymentType !== PAYMENT_TYPE_FULL) {
       throw new BadRequestException('Order is not a full payment order');
     }
-    if (order.status !== ORDER_STATUS_FOR_PAYMENT) {
+    if (
+      order.status !== ORDER_STATUS_FOR_PAYMENT &&
+      order.status !== ORDER_STATUS_RESERVATION
+    ) {
       throw new BadRequestException(
-        'Proof can only be uploaded while the order is for payment',
+        'Proof can only be uploaded while the order is for payment or reservation',
+      );
+    }
+  }
+
+  private assertReservationPaymentProofUploadable(order: Order): void {
+    if (order.paymentType !== PAYMENT_TYPE_FULL) {
+      throw new BadRequestException('Order is not a full payment order');
+    }
+    if (order.status !== ORDER_STATUS_RESERVATION) {
+      throw new BadRequestException(
+        'Reservation proof can only be uploaded while the order is reserved',
       );
     }
   }
@@ -392,12 +428,91 @@ export class OrdersService {
     const proofKey = `orders/${order.id}/full-payment/proof-${randomUUID()}.${ext}`;
     await this.s3.putObject(proofKey, proofFile.buffer, mime);
 
+    const legacyReservationProof =
+      order.status === ORDER_STATUS_RESERVATION &&
+      order.reservationPaymentProofKey == null
+        ? order.fullPaymentProofKey
+        : null;
+
     await this.ordersRepo.update(order.id, {
+      ...(legacyReservationProof
+        ? {
+            reservationPaymentProofKey: legacyReservationProof,
+            reservationPaymentProofUploadedAt: order.fullPaymentProofUploadedAt,
+            reservationPaymentProofUploadedByUserId:
+              order.fullPaymentProofUploadedByUserId,
+          }
+        : {}),
       fullPaymentProofKey: proofKey,
       fullPaymentProofUploadedAt: new Date(),
       fullPaymentProofUploadedByUserId: user.userId,
       updatedById: user.userId,
     });
+  }
+
+  private async saveReservationPaymentProof(
+    order: Order,
+    user: JwtUser,
+    proofFile: MulterFile | undefined,
+  ): Promise<void> {
+    if (!proofFile?.buffer?.length) {
+      throw new BadRequestException('Proof file is required');
+    }
+
+    this.assertReservationPaymentProofUploadable(order);
+
+    const mime = proofFile.mimetype?.toLowerCase() ?? '';
+    if (!ALLOWED_PROOF_MIMES.has(mime)) {
+      throw new BadRequestException(
+        `Proof must be an image or PDF (${proofFile.mimetype || 'unknown'})`,
+      );
+    }
+
+    const ext = extFromProofMime(mime);
+    const proofKey = `orders/${order.id}/reservation/proof-${randomUUID()}.${ext}`;
+    await this.s3.putObject(proofKey, proofFile.buffer, mime);
+
+    await this.ordersRepo.update(order.id, {
+      reservationPaymentProofKey: proofKey,
+      reservationPaymentProofUploadedAt: new Date(),
+      reservationPaymentProofUploadedByUserId: user.userId,
+      updatedById: user.userId,
+    });
+  }
+
+  private reservationPaymentProofUrl(order: Order): string | null {
+    const proofKey =
+      order.reservationPaymentProofKey ??
+      (order.status === ORDER_STATUS_RESERVATION
+        ? order.fullPaymentProofKey
+        : null);
+
+    return proofKey ? this.s3.getPublicUrl(proofKey) : null;
+  }
+
+  private fullPaymentProofUrl(order: Order): string | null {
+    if (
+      order.status === ORDER_STATUS_RESERVATION &&
+      order.reservationPaymentProofKey == null
+    ) {
+      return null;
+    }
+    return order.fullPaymentProofKey
+      ? this.s3.getPublicUrl(order.fullPaymentProofKey)
+      : null;
+  }
+
+  private fullPaymentTotalPrice(order: Order): string | null {
+    if (order.status !== ORDER_STATUS_RESERVATION) return order.fullPaymentPrice;
+    const itemPrice = parseItemPrice(order.inventoryItem?.tbhSellingPrice);
+    return itemPrice == null ? null : formatMoney(itemPrice);
+  }
+
+  private remainingBalancePrice(order: Order): string | null {
+    if (order.status !== ORDER_STATUS_RESERVATION) return null;
+    const itemPrice = parseItemPrice(order.inventoryItem?.tbhSellingPrice);
+    if (itemPrice == null) return null;
+    return formatMoney(Math.max(0, itemPrice - RESERVATION_FEE));
   }
 
   private async findInstallmentForOrder(
@@ -442,6 +557,36 @@ export class OrdersService {
     }));
   }
 
+  async findWaitlistsForClient(user: JwtUser): Promise<ClientWaitlistRow[]> {
+    const client = await this.clientsRepo.findOne({
+      where: { userId: user.userId },
+    });
+    if (!client) {
+      throw new NotFoundException('Client profile not found');
+    }
+
+    const rows = await this.waitlistsRepo.find({
+      where: { clientId: client.id },
+      relations: { inventoryItem: { itemPosting: true } },
+      order: { createdAt: 'DESC' },
+    });
+
+    return rows.map((row) => {
+      const itemLabel = itemLabelFromSnapshot(row.inventoryItem);
+      return {
+        id: row.id,
+        inventoryItemId: row.inventoryItemId,
+        itemSku: row.inventoryItem.sku,
+        itemLabel,
+        productName:
+          row.inventoryItem.itemPosting?.productName?.trim() || itemLabel,
+        status: row.inventoryItem.status,
+        price: row.inventoryItem.tbhSellingPrice,
+        createdAt: row.createdAt.toISOString(),
+      };
+    });
+  }
+
   async findOneForClient(
     user: JwtUser,
     id: string,
@@ -472,9 +617,10 @@ export class OrdersService {
       layawayPrice: order.layawayPrice,
       layawayMonthlyPayment: order.layawayMonthlyPayment,
       fullPaymentPrice: order.fullPaymentPrice,
-      fullPaymentProofUrl: order.fullPaymentProofKey
-        ? this.s3.getPublicUrl(order.fullPaymentProofKey)
-        : null,
+      fullPaymentTotalPrice: this.fullPaymentTotalPrice(order),
+      remainingBalancePrice: this.remainingBalancePrice(order),
+      reservationPaymentProofUrl: this.reservationPaymentProofUrl(order),
+      fullPaymentProofUrl: this.fullPaymentProofUrl(order),
       holdingPeriod: order.holdingPeriod?.toISOString() ?? null,
       declineReason: order.declineReason,
       signatureUrl: order.signatureKey
@@ -535,9 +681,10 @@ export class OrdersService {
       layawayPrice: order.layawayPrice,
       layawayMonthlyPayment: order.layawayMonthlyPayment,
       fullPaymentPrice: order.fullPaymentPrice,
-      fullPaymentProofUrl: order.fullPaymentProofKey
-        ? this.s3.getPublicUrl(order.fullPaymentProofKey)
-        : null,
+      fullPaymentTotalPrice: this.fullPaymentTotalPrice(order),
+      remainingBalancePrice: this.remainingBalancePrice(order),
+      reservationPaymentProofUrl: this.reservationPaymentProofUrl(order),
+      fullPaymentProofUrl: this.fullPaymentProofUrl(order),
       holdingPeriod: order.holdingPeriod?.toISOString() ?? null,
       layawayPaymentStartDate: formatOrderDate(order.layawayPaymentStartDate),
       declineReason: order.declineReason,
@@ -731,21 +878,17 @@ export class OrdersService {
     return this.findOneForStaff(id);
   }
 
-  async markPaidForStaff(
-    user: JwtUser,
-    id: string,
-  ): Promise<StaffOrderDetail> {
+  async markPaidForStaff(user: JwtUser, id: string): Promise<StaffOrderDetail> {
     const order = await this.ordersRepo.findOne({ where: { id } });
     if (!order) {
       throw new NotFoundException('Order not found');
     }
-    if (order.status !== ORDER_STATUS_FOR_PAYMENT) {
-      throw new BadRequestException(
-        'Only orders awaiting payment can be marked as paid',
-      );
-    }
-
     if (order.paymentType === PAYMENT_TYPE_LAYAWAY) {
+      if (order.status !== ORDER_STATUS_FOR_PAYMENT) {
+        throw new BadRequestException(
+          'Only layaway orders awaiting payment can be marked as paid',
+        );
+      }
       await this.ensureInstallments(order, user.userId);
       const rows = await this.installmentsRepo.find({
         where: { orderId: id },
@@ -757,6 +900,14 @@ export class OrdersService {
         );
       }
     } else if (order.paymentType === PAYMENT_TYPE_FULL) {
+      if (
+        order.status !== ORDER_STATUS_FOR_PAYMENT &&
+        order.status !== ORDER_STATUS_RESERVATION
+      ) {
+        throw new BadRequestException(
+          'Only full payment orders awaiting payment or reserved can be marked as paid',
+        );
+      }
       if (!order.fullPaymentProofKey) {
         throw new BadRequestException(
           'Upload proof of payment before marking this order as paid',
@@ -834,6 +985,45 @@ export class OrdersService {
     }
 
     await this.saveFullPaymentProof(order, user, proofFile);
+
+    return this.findOneForClient(user, orderId);
+  }
+
+  async uploadReservationPaymentProofForStaff(
+    user: JwtUser,
+    orderId: string,
+    proofFile: MulterFile | undefined,
+  ): Promise<StaffOrderDetail> {
+    const order = await this.ordersRepo.findOne({ where: { id: orderId } });
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    await this.saveReservationPaymentProof(order, user, proofFile);
+
+    return this.findOneForStaff(orderId);
+  }
+
+  async uploadReservationPaymentProofForClient(
+    user: JwtUser,
+    orderId: string,
+    proofFile: MulterFile | undefined,
+  ): Promise<ClientOrderDetail> {
+    const client = await this.clientsRepo.findOne({
+      where: { userId: user.userId },
+    });
+    if (!client) {
+      throw new NotFoundException('Client profile not found');
+    }
+
+    const order = await this.ordersRepo.findOne({
+      where: { id: orderId, customerId: client.id },
+    });
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    await this.saveReservationPaymentProof(order, user, proofFile);
 
     return this.findOneForClient(user, orderId);
   }
@@ -956,7 +1146,9 @@ export class OrdersService {
     }
 
     if (dto.paymentType === PAYMENT_TYPE_LAYAWAY && dto.layawayMonths == null) {
-      throw new BadRequestException('Layaway months are required for layaway orders');
+      throw new BadRequestException(
+        'Layaway months are required for layaway orders',
+      );
     }
 
     const mime = signatureFile.mimetype?.toLowerCase() ?? '';
@@ -1144,9 +1336,9 @@ export class OrdersService {
         layawayPrice: null,
         layawayMonthlyPayment: null,
         fullPaymentPrice: formatDecimal(RESERVATION_FEE),
-        fullPaymentProofKey: proofKey,
-        fullPaymentProofUploadedAt: createdAt,
-        fullPaymentProofUploadedByUserId: user.userId,
+        reservationPaymentProofKey: proofKey,
+        reservationPaymentProofUploadedAt: createdAt,
+        reservationPaymentProofUploadedByUserId: user.userId,
         signatureKey,
         holdingPeriod: addHours(createdAt, RESERVATION_HOLDING_HOURS),
         createdById: user.userId,

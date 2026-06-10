@@ -1,7 +1,14 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
+import { JwtUser } from '../auth/jwt-user';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
+import { Waitlist } from '../orders/entities/waitlist.entity';
+import { Client } from './entities/client.entity';
 
 const AVAILABLE_FOR_PURCHASE_STATUS = 'Available For Purchase';
 const ON_HOLD_STATUS = 'On Hold';
@@ -35,6 +42,13 @@ export type ClientCatalogItemDetail = ClientCatalogItem & {
   tags: string[];
   photos: Array<{ key: string; url: string; position: number | null }>;
   itemDetails: Record<string, unknown>;
+};
+
+export type ClientWaitlistSummary = {
+  id: string;
+  inventoryItemId: string;
+  clientId: string;
+  createdAt: string;
 };
 
 function snapshotFormString(
@@ -93,6 +107,10 @@ export class ClientCatalogService {
   constructor(
     @InjectRepository(InventoryItem)
     private readonly inventoryRepo: Repository<InventoryItem>,
+    @InjectRepository(Client)
+    private readonly clientsRepo: Repository<Client>,
+    @InjectRepository(Waitlist)
+    private readonly waitlistsRepo: Repository<Waitlist>,
   ) {}
 
   async findAvailableItems(): Promise<ClientCatalogItem[]> {
@@ -183,6 +201,55 @@ export class ClientCatalogService {
       tags: posting?.tags ?? [],
       photos: photosFromSnapshot(photos),
       itemDetails: { ...(form ?? {}) },
+    };
+  }
+
+  async addToWaitlist(
+    user: JwtUser,
+    inventoryItemId: string,
+  ): Promise<ClientWaitlistSummary> {
+    const client = await this.clientsRepo.findOne({
+      where: { userId: user.userId },
+    });
+    if (!client) {
+      throw new NotFoundException('Client profile not found');
+    }
+
+    const item = await this.inventoryRepo.findOne({
+      where: { id: inventoryItemId },
+    });
+    if (!item) {
+      throw new NotFoundException('Catalog item not found');
+    }
+    if (item.status !== ON_HOLD_STATUS) {
+      throw new BadRequestException('Only on-hold items can be waitlisted');
+    }
+
+    await this.waitlistsRepo
+      .createQueryBuilder()
+      .insert()
+      .into(Waitlist)
+      .values({
+        inventoryItemId: item.id,
+        clientId: client.id,
+        createdById: user.userId,
+        updatedById: user.userId,
+      })
+      .orIgnore()
+      .execute();
+
+    const row = await this.waitlistsRepo.findOne({
+      where: { inventoryItemId: item.id, clientId: client.id },
+    });
+    if (!row) {
+      throw new BadRequestException('Unable to add item to waitlist');
+    }
+
+    return {
+      id: row.id,
+      inventoryItemId: row.inventoryItemId,
+      clientId: row.clientId,
+      createdAt: row.createdAt.toISOString(),
     };
   }
 }

@@ -25,6 +25,9 @@ type OrderDetail = {
   layawayPrice: string | null;
   layawayMonthlyPayment: string | null;
   fullPaymentPrice: string | null;
+  fullPaymentTotalPrice: string | null;
+  remainingBalancePrice: string | null;
+  reservationPaymentProofUrl: string | null;
   fullPaymentProofUrl: string | null;
   holdingPeriod: string | null;
   layawayPaymentStartDate: string | null;
@@ -495,21 +498,26 @@ export function OrderDetailPage() {
             )}
           </DetailField>
           {detail.status === "Reservation" ? (
-            <DetailField label="Reservation fee">
-              <div className="space-y-2">
-                <span>{formatPhpDisplay(detail.fullPaymentPrice)}</span>
-                {detail.fullPaymentProofUrl ? (
-                  <a
-                    href={detail.fullPaymentProofUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="ml-2 inline-flex items-center justify-center rounded-md border border-violet-200 bg-violet-50 px-2 py-1 text-xs font-medium text-violet-900 transition-colors hover:bg-violet-100 focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500 dark:border-violet-800 dark:bg-violet-950/60 dark:text-violet-100 dark:hover:bg-violet-900/80"
-                  >
-                    View proof
-                  </a>
-                ) : null}
-              </div>
-            </DetailField>
+            <>
+              <DetailField label="Reservation fee">
+                <div className="space-y-2">
+                  <span>{formatPhpDisplay(detail.fullPaymentPrice)}</span>
+                  {detail.reservationPaymentProofUrl ? (
+                    <a
+                      href={detail.reservationPaymentProofUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="ml-2 inline-flex items-center justify-center rounded-md border border-violet-200 bg-violet-50 px-2 py-1 text-xs font-medium text-violet-900 transition-colors hover:bg-violet-100 focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500 dark:border-violet-800 dark:bg-violet-950/60 dark:text-violet-100 dark:hover:bg-violet-900/80"
+                    >
+                      View proof
+                    </a>
+                  ) : null}
+                </div>
+              </DetailField>
+              <DetailField label="Full payment price">
+                {formatPhpDisplay(detail.fullPaymentTotalPrice)}
+              </DetailField>
+            </>
           ) : detail.paymentType === "full_payment" ? (
             <DetailField label="Full payment price">
               {formatPhpDisplay(detail.fullPaymentPrice)}
@@ -539,12 +547,59 @@ export function OrderDetailPage() {
           ) : null}
         </dl>
         {detail.paymentType === "full_payment" &&
+        detail.status === "Reservation" ? (
+          <>
+            <FullPaymentProofUpload<OrderDetail>
+              orderId={detail.id}
+              token={token}
+              apiBase="/api/orders"
+              endpointPath="reservation-payment-proof"
+              proofUrl={detail.reservationPaymentProofUrl}
+              title="Reservation fee proof of payment"
+              uploadLabel="Upload reservation proof"
+              onUpdated={setDetail}
+            />
+            <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-950/40">
+              <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                Remaining balance
+              </p>
+              <p className="mt-0.5 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                {formatPhpDisplay(detail.remainingBalancePrice)}
+              </p>
+              <FullPaymentProofUpload<OrderDetail>
+                orderId={detail.id}
+                token={token}
+                apiBase="/api/orders"
+                endpointPath="full-payment-proof"
+                proofUrl={detail.fullPaymentProofUrl}
+                title="Remaining balance proof of payment"
+                uploadLabel="Upload remaining balance proof"
+                allowMarkPaid
+                confirmTitle="Mark remaining balance as paid?"
+                confirmDescription="This reservation order will be marked as paid. Make sure the uploaded remaining balance proof has been reviewed."
+                onUpdated={setDetail}
+              />
+            </div>
+          </>
+        ) : null}
+        {detail.paymentType === "full_payment" &&
         detail.status === "For Payment" ? (
           <FullPaymentProofUpload<OrderDetail>
             orderId={detail.id}
             token={token}
             apiBase="/api/orders"
+            endpointPath="full-payment-proof"
             proofUrl={detail.fullPaymentProofUrl}
+            title={
+              detail.reservationPaymentProofUrl
+                ? "Remaining balance proof of payment"
+                : "Proof of payment"
+            }
+            uploadLabel={
+              detail.reservationPaymentProofUrl
+                ? "Upload remaining balance proof"
+                : "Upload proof of payment"
+            }
             allowMarkPaid
             onUpdated={setDetail}
           />
