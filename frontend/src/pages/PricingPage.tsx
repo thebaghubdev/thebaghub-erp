@@ -15,7 +15,11 @@ import {
   parsePhpStringToNumber,
 } from "../lib/format-php";
 
-const PRICING_PAGE_STATUSES = new Set(["For Pricing", "For Editing"]);
+const PRICING_PAGE_STATUSES = new Set([
+  "For Pricing",
+  "For Repricing",
+  "For Editing",
+]);
 
 const cellInputClass =
   "w-full min-h-8 max-w-[8.5rem] rounded-md border border-slate-300 bg-white px-2 py-1 text-xs tabular-nums text-slate-900 focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100";
@@ -573,7 +577,7 @@ export function PricingPage() {
         columns={columns}
         tableId="portal.pricing"
         isLoading={loading}
-        emptyMessage="No items are currently For Pricing or For Editing."
+        emptyMessage="No items are currently For Pricing, For Repricing, or For Editing."
         hideEmptyState={!!error}
         getRowId={(r) => r.id}
         onRowClick={

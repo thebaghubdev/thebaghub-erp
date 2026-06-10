@@ -5,6 +5,7 @@ const BY_STATUS: Record<string, string> = {
   "for authentication": "text-amber-800 dark:text-amber-300",
   "for photoshoot": "text-violet-800 dark:text-violet-300",
   "for pricing": "text-emerald-800 dark:text-emerald-300",
+  "for repricing": "text-orange-800 dark:text-orange-300",
   "for editing": "text-teal-800 dark:text-teal-300",
   "for posting": "text-fuchsia-800 dark:text-fuchsia-300",
   "available for purchase": "text-green-800 dark:text-green-300",

@@ -8,11 +8,12 @@ import {
   Post,
   Query,
   Req,
+  UploadedFile,
   UploadedFiles,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
-import { FilesInterceptor } from '@nestjs/platform-express';
+import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { JwtUser } from '../auth/jwt-user';
 import { StaffOnlyGuard } from '../auth/staff-only.guard';
 import type { MulterFile } from './multer-file.type';
@@ -91,6 +92,26 @@ export class InquiriesController {
     return this.inquiriesService.submitAuthenticatedReturnNewOffer(
       id,
       body,
+      req.user,
+    );
+  }
+
+  @Post(':id/consignment-price')
+  @UseInterceptors(
+    FileInterceptor('proof', {
+      limits: { fileSize: 25 * 1024 * 1024 },
+    }),
+  )
+  updateConsignmentPrice(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body('offerPrice') offerPrice: string,
+    @UploadedFile() proof: MulterFile | undefined,
+  ) {
+    return this.inquiriesService.updateConsignmentPrice(
+      id,
+      offerPrice,
+      proof,
       req.user,
     );
   }

@@ -80,6 +80,8 @@ type InquiryDetail = {
   photoCount: number;
   offerTransactionType: TransactionType | null;
   offerPrice: string | null;
+  originalOfferPrice: string | null;
+  repricingProofUrl: string | null;
   clientOfferConfirmation?: ClientOfferConfirmation | null;
   /** Staff-only notes persisted on the inquiry row. */
   notes: string | null;
@@ -289,6 +291,7 @@ export function InquiryDetailPage() {
     | "notes"
     | "reauthenticationNotes"
     | "createNewOffer"
+    | "updateConsignmentPrice"
     | "uploadThirdPartyProof"
     | "markThirdPartyPaid"
     | null
@@ -305,6 +308,12 @@ export function InquiryDetailPage() {
   const createNewOfferModalTitleId = useId();
   const [createNewOfferModalOpen, setCreateNewOfferModalOpen] = useState(false);
   const [createNewOfferPriceInput, setCreateNewOfferPriceInput] = useState("");
+  const [repricingModalOpen, setRepricingModalOpen] = useState(false);
+  const [repricingOfferPriceInput, setRepricingOfferPriceInput] = useState("");
+  const [repricingProof, setRepricingProof] =
+    useState<ProofPaymentPreview | null>(null);
+  const [repricingProofDropActive, setRepricingProofDropActive] =
+    useState(false);
   const [proofPaymentModalOpen, setProofPaymentModalOpen] = useState(false);
   const [proofPaymentImages, setProofPaymentImages] = useState<
     ProofPaymentPreview[]
@@ -313,6 +322,8 @@ export function InquiryDetailPage() {
   const [markPaidConfirmOpen, setMarkPaidConfirmOpen] = useState(false);
   const [moreActionsOpen, setMoreActionsOpen] = useState(false);
   const moreActionsMenuRef = useRef<HTMLDivElement>(null);
+  const repricingModalTitleId = useId();
+  const repricingProofInputId = useId();
   const proofPaymentInputId = useId();
   const proofPaymentModalTitleId = useId();
   const [auditOpen, setAuditOpen] = useState(false);
@@ -418,6 +429,25 @@ export function InquiryDetailPage() {
     return () => window.removeEventListener("keydown", onKey);
   }, [createNewOfferModalOpen, actionBusy]);
 
+  const closeRepricingModal = useCallback(() => {
+    if (actionBusy === "updateConsignmentPrice") return;
+    setRepricingProof((prev) => {
+      if (prev) URL.revokeObjectURL(prev.previewUrl);
+      return null;
+    });
+    setRepricingProofDropActive(false);
+    setRepricingModalOpen(false);
+  }, [actionBusy]);
+
+  useEffect(() => {
+    if (!repricingModalOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeRepricingModal();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [repricingModalOpen, closeRepricingModal]);
+
   useEffect(() => {
     if (!moreActionsOpen) return;
     const onMouseDown = (e: MouseEvent) => {
@@ -474,6 +504,45 @@ export function InquiryDetailPage() {
       const img = prev.find((i) => i.id === proofId);
       if (img) URL.revokeObjectURL(img.previewUrl);
       return prev.filter((i) => i.id !== proofId);
+    });
+  }, []);
+
+  const openRepricingModal = useCallback(() => {
+    if (!detail) return;
+    setActionError(null);
+    setRepricingOfferPriceInput(
+      detail.offerPrice != null && detail.offerPrice !== ""
+        ? (() => {
+            const n = parsePhpStringToNumber(String(detail.offerPrice));
+            return n != null ? n.toFixed(2) : String(detail.offerPrice);
+          })()
+        : "",
+    );
+    setRepricingProof((prev) => {
+      if (prev) URL.revokeObjectURL(prev.previewUrl);
+      return null;
+    });
+    setRepricingProofDropActive(false);
+    setRepricingModalOpen(true);
+  }, [detail]);
+
+  const setRepricingProofFile = useCallback((fileList: FileList | File[]) => {
+    const file = Array.from(fileList).find(isImageFile);
+    if (!file) return;
+    setRepricingProof((prev) => {
+      if (prev) URL.revokeObjectURL(prev.previewUrl);
+      return {
+        id: randomId(),
+        file,
+        previewUrl: URL.createObjectURL(file),
+      };
+    });
+  }, []);
+
+  const removeRepricingProof = useCallback(() => {
+    setRepricingProof((prev) => {
+      if (prev) URL.revokeObjectURL(prev.previewUrl);
+      return null;
     });
   }, []);
 
@@ -618,6 +687,60 @@ export function InquiryDetailPage() {
       }
     },
     [id, token, detail, createNewOfferPriceInput],
+  );
+
+  const submitConsignmentPriceUpdate = useCallback(
+    async (e: FormEvent) => {
+      e.preventDefault();
+      if (!id || !token || !detail) return;
+      const price = parsePhpStringToNumber(repricingOfferPriceInput);
+      if (price == null || price <= 0) {
+        setActionError("Enter a valid new offer price greater than zero.");
+        return;
+      }
+      if (!repricingProof) {
+        setActionError("Upload proof of consignor agreement.");
+        return;
+      }
+      setActionError(null);
+      setActionBusy("updateConsignmentPrice");
+      try {
+        const fd = new FormData();
+        fd.append("offerPrice", price.toFixed(2));
+        fd.append("proof", repricingProof.file);
+        const res = await apiFetch(
+          `/api/inquiries/${id}/consignment-price`,
+          { method: "POST", body: fd },
+          token,
+        );
+        if (!res.ok) throw new Error(await readApiErrorMessage(res));
+        const data = (await res.json()) as InquiryDetail;
+        setDetail(data);
+        setAuditRows(null);
+        setRepricingProof((prev) => {
+          if (prev) URL.revokeObjectURL(prev.previewUrl);
+          return null;
+        });
+        setRepricingProofDropActive(false);
+        setRepricingModalOpen(false);
+      } catch (err) {
+        setActionError(
+          err instanceof Error
+            ? err.message
+            : "Could not update consignment price",
+        );
+      } finally {
+        setActionBusy(null);
+      }
+    },
+    [
+      id,
+      token,
+      detail,
+      repricingOfferPriceInput,
+      repricingProof,
+      closeRepricingModal,
+    ],
   );
 
   const saveNotes = useCallback(
@@ -778,7 +901,8 @@ export function InquiryDetailPage() {
       !declineConfirmOpen &&
       !notesModalOpen &&
       !reauthNotesModalOpen &&
-      !createNewOfferModalOpen ? (
+      !createNewOfferModalOpen &&
+      !repricingModalOpen ? (
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
           {actionError}
         </p>
@@ -906,6 +1030,11 @@ export function InquiryDetailPage() {
                               type="button"
                               role="menuitem"
                               disabled={actionBusy !== null}
+                              onClick={() => {
+                                setActionError(null);
+                                setMoreActionsOpen(false);
+                                openRepricingModal();
+                              }}
                               className="flex w-full items-center px-3 py-2 text-left text-sm text-slate-800 hover:bg-slate-50 disabled:opacity-50 dark:text-slate-100 dark:hover:bg-slate-800"
                             >
                               Update consignment price
@@ -1019,6 +1148,33 @@ export function InquiryDetailPage() {
                       {formatPhpDisplay(detail.offerPrice)}
                     </dd>
                   </div>
+                  {detail.originalOfferPrice ? (
+                    <div>
+                      <dt className="text-slate-500 dark:text-slate-400">
+                        Original offer price
+                      </dt>
+                      <dd className="tabular-nums font-medium text-slate-900 dark:text-slate-100">
+                        {formatPhpDisplay(detail.originalOfferPrice)}
+                      </dd>
+                    </div>
+                  ) : null}
+                  {detail.repricingProofUrl ? (
+                    <div>
+                      <dt className="text-slate-500 dark:text-slate-400">
+                        Repricing proof
+                      </dt>
+                      <dd>
+                        <a
+                          href={detail.repricingProofUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-medium text-violet-700 hover:text-violet-900 dark:text-violet-300 dark:hover:text-violet-100"
+                        >
+                          View proof
+                        </a>
+                      </dd>
+                    </div>
+                  ) : null}
                 </div>
               </dl>
             ) : null}
@@ -1867,6 +2023,167 @@ export function InquiryDetailPage() {
                           className="rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-teal-700 disabled:opacity-50 dark:bg-teal-600 dark:hover:bg-teal-500"
                         >
                           {actionBusy === "createNewOffer" ? "Saving…" : "Save"}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>,
+                document.body,
+              )
+            : null}
+
+          {repricingModalOpen && detail && typeof document !== "undefined"
+            ? createPortal(
+                <div
+                  className="fixed inset-0 z-[100] flex items-end justify-center p-4 sm:items-center"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby={repricingModalTitleId}
+                >
+                  <button
+                    type="button"
+                    className="absolute inset-0 bg-slate-900/50"
+                    aria-label="Close consignment price update"
+                    onClick={closeRepricingModal}
+                  />
+                  <div className="relative z-10 max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+                    <h2
+                      id={repricingModalTitleId}
+                      className="text-base font-semibold text-slate-900 dark:text-slate-100"
+                    >
+                      Update consignment price
+                    </h2>
+                    <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+                      Save the consignor's agreed lower offer and upload proof of
+                      agreement. The item will move to For Repricing.
+                    </p>
+                    <form
+                      onSubmit={(e) => void submitConsignmentPriceUpdate(e)}
+                      className="mt-4 space-y-4"
+                    >
+                      {actionError && repricingModalOpen ? (
+                        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+                          {actionError}
+                        </p>
+                      ) : null}
+                      <div className="rounded-lg border border-slate-200 bg-slate-50/90 px-3 py-2.5 text-sm dark:border-slate-600 dark:bg-slate-950/60">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                          Current offer
+                        </p>
+                        <p className="mt-2 tabular-nums font-medium text-slate-900 dark:text-slate-100">
+                          {detail.offerPrice
+                            ? formatPhpDisplay(detail.offerPrice)
+                            : "—"}
+                        </p>
+                      </div>
+                      <div>
+                        <label
+                          htmlFor="repricing-offer-price"
+                          className="block text-sm font-medium text-slate-700 dark:text-slate-300"
+                        >
+                          New offer price (PHP)
+                        </label>
+                        <div className="mt-1">
+                          <PhpPriceInput
+                            id="repricing-offer-price"
+                            value={repricingOfferPriceInput}
+                            onChange={setRepricingOfferPriceInput}
+                            disabled={actionBusy !== null}
+                            required
+                            className="w-full rounded-lg border border-slate-300 bg-white py-2 pr-3 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
+                            placeholder="0.00"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                          Proof of consignor agreement
+                        </p>
+                        <input
+                          id={repricingProofInputId}
+                          type="file"
+                          accept="image/*"
+                          className="sr-only"
+                          aria-label="Select proof of consignor agreement"
+                          onChange={(e) => {
+                            if (e.target.files?.length)
+                              setRepricingProofFile(e.target.files);
+                            e.target.value = "";
+                          }}
+                        />
+                        <label
+                          htmlFor={repricingProofInputId}
+                          className={`${proofPaymentDropzoneClass} mt-2 ${repricingProofDropActive ? "border-violet-500 bg-violet-50 dark:border-violet-400 dark:bg-violet-950/50" : ""}`}
+                          onDragEnter={(e) => {
+                            e.preventDefault();
+                            setRepricingProofDropActive(true);
+                          }}
+                          onDragLeave={(e) => {
+                            e.preventDefault();
+                            if (
+                              !e.currentTarget.contains(
+                                e.relatedTarget as Node,
+                              )
+                            ) {
+                              setRepricingProofDropActive(false);
+                            }
+                          }}
+                          onDragOver={(e) => {
+                            e.preventDefault();
+                            e.dataTransfer.dropEffect = "copy";
+                          }}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setRepricingProofDropActive(false);
+                            if (e.dataTransfer.files?.length) {
+                              setRepricingProofFile(e.dataTransfer.files);
+                            }
+                          }}
+                        >
+                          <span className="text-sm font-medium text-slate-800 dark:text-slate-100">
+                            Drop image here or click to choose
+                          </span>
+                          <span className="text-xs text-slate-500 dark:text-slate-400">
+                            PNG, JPG, or other image formats.
+                          </span>
+                        </label>
+                        {repricingProof ? (
+                          <div className="mt-3 overflow-hidden rounded-lg border border-slate-200 bg-slate-50 dark:border-slate-600 dark:bg-slate-800">
+                            <div className="relative aspect-video">
+                              <img
+                                src={repricingProof.previewUrl}
+                                alt=""
+                                className="h-full w-full object-cover"
+                              />
+                              <button
+                                type="button"
+                                onClick={removeRepricingProof}
+                                className="absolute right-2 top-2 rounded bg-slate-900/70 px-2 py-0.5 text-xs font-medium text-white hover:bg-slate-900"
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                      <div className="flex flex-wrap justify-end gap-2 border-t border-slate-200 pt-3 dark:border-slate-600">
+                        <button
+                          type="button"
+                          disabled={actionBusy !== null}
+                          onClick={closeRepricingModal}
+                          className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={actionBusy !== null}
+                          className="rounded-lg bg-violet-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-violet-700 disabled:opacity-50 dark:bg-violet-600 dark:hover:bg-violet-500"
+                        >
+                          {actionBusy === "updateConsignmentPrice"
+                            ? "Saving…"
+                            : "Save"}
                         </button>
                       </div>
                     </form>

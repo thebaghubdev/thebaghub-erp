@@ -62,6 +62,25 @@ export class Inquiry extends AuditedEntity {
   @Column({ name: 'offer_price', type: 'numeric', precision: 12, scale: 2, nullable: true })
   offerPrice: string | null;
 
+  /** First offer price before a posted item was sent for repricing. */
+  @Column({
+    name: 'original_offer_price',
+    type: 'numeric',
+    precision: 12,
+    scale: 2,
+    nullable: true,
+  })
+  originalOfferPrice: string | null;
+
+  /** S3 object key for proof of consignor agreement to repricing. */
+  @Column({
+    name: 'repricing_proof',
+    type: 'varchar',
+    length: 512,
+    nullable: true,
+  })
+  repricingProofKey: string | null;
+
   /** Preferred payment method after the consignor confirms the offer (column storage). */
   @Column({
     name: 'preferred_payment_method',

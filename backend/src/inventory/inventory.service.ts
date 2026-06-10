@@ -541,12 +541,14 @@ function mergeItemAuthenticationFormIntoSnapshot(
 const FOR_AUTHENTICATION_INVENTORY_STATUS = 'For Authentication';
 const FOR_PHOTOSHOOT_INVENTORY_STATUS = 'For Photoshoot';
 const FOR_PRICING_INVENTORY_STATUS = 'For Pricing';
+const FOR_REPRICING_INVENTORY_STATUS = 'For Repricing';
 const FOR_EDITING_INVENTORY_STATUS = 'For Editing';
 const FOR_POSTING_INVENTORY_STATUS = 'For Posting';
 const AVAILABLE_FOR_PURCHASE_INVENTORY_STATUS = 'Available For Purchase';
 
 const UPDATE_TBH_PRICE_ALLOWED_INVENTORY_STATUSES = new Set<string>([
   FOR_PRICING_INVENTORY_STATUS,
+  FOR_REPRICING_INVENTORY_STATUS,
   FOR_EDITING_INVENTORY_STATUS,
 ]);
 const MIN_PHOTOS_TO_FINISH_PHOTOSHOOT = 1;
@@ -1245,7 +1247,7 @@ export class InventoryService {
     }
     if (!UPDATE_TBH_PRICE_ALLOWED_INVENTORY_STATUSES.has(item.status)) {
       throw new BadRequestException(
-        'TBH selling price can only be updated for items in For Pricing or For Editing status.',
+        'TBH selling price can only be updated for items in For Pricing, For Repricing, or For Editing status.',
       );
     }
     const raw = dto.tbhSellingPrice;

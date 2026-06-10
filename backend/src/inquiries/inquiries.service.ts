@@ -64,6 +64,8 @@ function extFromMime(mime: string): string {
 
 const MAX_AUTH_RETURN_PHOTO_BYTES = 15 * 1024 * 1024;
 const MAX_AUTH_RETURN_PHOTOS = 20;
+const AVAILABLE_FOR_PURCHASE_INVENTORY_STATUS = 'Available For Purchase';
+const FOR_REPRICING_INVENTORY_STATUS = 'For Repricing';
 
 function parseImageDataUrl(
   dataUrl: string,
@@ -195,6 +197,8 @@ export type StaffInquiryRow = {
   photoCount: number;
   offerTransactionType: 'consignment' | 'direct_purchase' | null;
   offerPrice: string | null;
+  originalOfferPrice: string | null;
+  repricingProofUrl: string | null;
   clientOfferConfirmation: ClientOfferConfirmationView | null;
   notes: string | null;
   isWalkIn: boolean;
@@ -500,6 +504,14 @@ export class InquiriesService {
       offerPrice:
         r.offerPrice != null && r.offerPrice !== ''
           ? String(r.offerPrice)
+          : null,
+      originalOfferPrice:
+        r.originalOfferPrice != null && r.originalOfferPrice !== ''
+          ? String(r.originalOfferPrice)
+          : null,
+      repricingProofUrl:
+        r.repricingProofKey != null && r.repricingProofKey.trim() !== ''
+          ? this.s3.getPublicUrl(r.repricingProofKey)
           : null,
       clientOfferConfirmation: this.mapClientOfferConfirmationForApi(r),
       notes: (() => {
@@ -1535,6 +1547,82 @@ export class InquiriesService {
       label,
     });
     this.notifyConsignorOfferEmail(id, r.consignor);
+    return this.findOneForStaff(id);
+  }
+
+  async updateConsignmentPrice(
+    id: string,
+    rawOfferPrice: string | undefined,
+    proof: MulterFile | undefined,
+    user: JwtUser,
+  ): Promise<StaffInquiryDetail> {
+    const parsedOfferPrice = Number(
+      String(rawOfferPrice ?? '')
+        .trim()
+        .replace(/,/g, '')
+        .replace(/^\u20b1\s?/i, ''),
+    );
+    if (!Number.isFinite(parsedOfferPrice) || parsedOfferPrice <= 0) {
+      throw new BadRequestException('Enter a valid offer price greater than zero.');
+    }
+    if (!proof?.buffer?.length) {
+      throw new BadRequestException('Proof of consignor agreement is required.');
+    }
+    const mime = proof.mimetype?.toLowerCase() ?? '';
+    if (!ALLOWED_IMAGE_MIMES.has(mime)) {
+      throw new BadRequestException(
+        `Unsupported image type: ${proof.mimetype || 'unknown'}`,
+      );
+    }
+
+    const key = `inquiries/${id}/repricing-proof/${randomUUID()}.${extFromMime(mime)}`;
+    await this.s3.putObject(key, proof.buffer, mime);
+    const label = await this.inquiryAudit.staffActorLabel(user.userId);
+
+    await this.inquiriesRepo.manager.transaction(async (em) => {
+      const r = await em.findOne(Inquiry, { where: { id } });
+      if (!r) {
+        throw new NotFoundException('Inquiry not found');
+      }
+      if (r.offerPrice == null || String(r.offerPrice).trim() === '') {
+        throw new BadRequestException('Current offer price is not set.');
+      }
+      const inv = await em.findOne(InventoryItem, {
+        where: { inquiryId: id },
+      });
+      if (!inv) {
+        throw new BadRequestException(
+          'No linked inventory item was found for this inquiry.',
+        );
+      }
+      if (inv.status !== AVAILABLE_FOR_PURCHASE_INVENTORY_STATUS) {
+        throw new BadRequestException(
+          'Consignment price can only be updated while the item is available for purchase.',
+        );
+      }
+
+      const before = cloneInquiryForAudit(r);
+      if (r.originalOfferPrice == null || String(r.originalOfferPrice) === '') {
+        r.originalOfferPrice = String(r.offerPrice);
+      }
+      r.offerPrice = parsedOfferPrice.toFixed(2);
+      r.repricingProofKey = key;
+      r.updatedById = user.userId;
+      await em.save(r);
+
+      inv.status = FOR_REPRICING_INVENTORY_STATUS;
+      inv.updatedById = user.userId;
+      await em.save(inv);
+
+      await this.inquiryAudit.recordDiff(
+        id,
+        before,
+        r,
+        { userId: user.userId, label },
+        em,
+      );
+    });
+
     return this.findOneForStaff(id);
   }
 
