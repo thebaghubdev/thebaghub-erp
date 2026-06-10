@@ -215,6 +215,8 @@ export type StaffInquiryDetail = StaffInquiryRow & {
   updatedAt: Date;
   /** Set when an `inventory_items` row links to this inquiry (`inquiry_id`). */
   linkedInventoryItemId: string | null;
+  /** Status for the linked inventory row, when present. */
+  linkedInventoryItemStatus: string | null;
   itemSnapshot: {
     clientItemId: string;
     form: Record<string, unknown>;
@@ -557,7 +559,7 @@ export class InquiriesService {
     }));
     const linkedInv = await this.inventoryItemRepo.findOne({
       where: { inquiryId: r.id },
-      select: { id: true },
+      select: { id: true, status: true },
     });
 
     const thirdPartyReauthenticationReasons =
@@ -601,6 +603,7 @@ export class InquiriesService {
       ...base,
       updatedAt: r.updatedAt,
       linkedInventoryItemId: linkedInv?.id ?? null,
+      linkedInventoryItemStatus: linkedInv?.status ?? null,
       itemSnapshot: {
         clientItemId: r.itemSnapshot.clientItemId,
         form: (r.itemSnapshot.form ?? {}) as Record<string, unknown>,

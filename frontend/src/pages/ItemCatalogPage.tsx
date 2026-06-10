@@ -160,13 +160,6 @@ export function ItemCatalogPage() {
     [navigate, shouldBlockOwnItemAction],
   );
 
-  const handleSetAppointment = useCallback(
-    (item: CatalogItem) => {
-      if (shouldBlockOwnItemAction(item)) return;
-    },
-    [shouldBlockOwnItemAction],
-  );
-
   return (
     <div className="w-full min-w-0">
       {!catalogLoading && catalogItems.length > 0 ? (
@@ -338,32 +331,6 @@ export function ItemCatalogPage() {
                           </svg>
                           <span className={catalogActionTooltip}>
                             Reserve item
-                          </span>
-                        </button>
-                        <button
-                          type="button"
-                          className={catalogActionBtn}
-                          aria-label="Set appointment"
-                          onClick={() => handleSetAppointment(item)}
-                        >
-                          <svg
-                            viewBox="0 0 24 24"
-                            aria-hidden
-                            className="h-3.5 w-3.5 shrink-0"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          >
-                            <rect x="3" y="4" width="18" height="18" rx="2" />
-                            <path d="M16 2v4" />
-                            <path d="M8 2v4" />
-                            <path d="M3 10h18" />
-                            <path d="M9 16l2 2 4-4" />
-                          </svg>
-                          <span className={catalogActionTooltip}>
-                            Set appointment
                           </span>
                         </button>
                       </>

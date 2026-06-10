@@ -89,6 +89,8 @@ type InquiryDetail = {
   contractExpirationDate: string | null;
   /** Present when an inventory line references this inquiry. */
   linkedInventoryItemId: string | null;
+  /** Present when an inventory line references this inquiry. */
+  linkedInventoryItemStatus: string | null;
   itemSnapshot: {
     clientItemId: string;
     form: Record<string, unknown>;
@@ -119,6 +121,10 @@ function isThirdPartyAuthPaymentFlowStatus(status: string): boolean {
     s === "authenticated_requested_for_reauthentication" ||
     s === "authenticated_for_3rd_party"
   );
+}
+
+function isAvailableForPurchaseStatus(status: string | null | undefined): boolean {
+  return status?.trim().toLowerCase() === "available for purchase";
 }
 
 function formatClientPaymentMethod(
@@ -740,6 +746,15 @@ export function InquiryDetailPage() {
   }, [id, token]);
 
   const form = detail?.itemSnapshot.form ?? {};
+  const showThirdPartyActions =
+    detail != null &&
+    isThirdPartyAuthPaymentFlowStatus(detail.status) &&
+    detail.linkedInventoryItemId != null;
+  const showAvailableForPurchaseActions =
+    detail != null &&
+    isAvailableForPurchaseStatus(detail.linkedInventoryItemStatus);
+  const showMoreActions =
+    showThirdPartyActions || showAvailableForPurchaseActions;
 
   return (
     <div className="mx-auto max-w-4xl space-y-4">
@@ -849,8 +864,7 @@ export function InquiryDetailPage() {
                   Update the offer
                 </button>
               ) : null}
-              {isThirdPartyAuthPaymentFlowStatus(detail.status) &&
-              detail.linkedInventoryItemId ? (
+              {showMoreActions ? (
                 <div className="relative" ref={moreActionsMenuRef}>
                   <button
                     type="button"
@@ -885,8 +899,33 @@ export function InquiryDetailPage() {
                       role="menu"
                       className="absolute right-0 top-full z-50 mt-1 min-w-[16rem] rounded-lg border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-600 dark:bg-slate-900"
                     >
-                      {detail.status.trim().toLowerCase() ===
-                      "authenticated_requested_for_reauthentication" ? (
+                      {showAvailableForPurchaseActions ? (
+                        <>
+                          <li role="none">
+                            <button
+                              type="button"
+                              role="menuitem"
+                              disabled={actionBusy !== null}
+                              className="flex w-full items-center px-3 py-2 text-left text-sm text-slate-800 hover:bg-slate-50 disabled:opacity-50 dark:text-slate-100 dark:hover:bg-slate-800"
+                            >
+                              Update consignment price
+                            </button>
+                          </li>
+                          <li role="none">
+                            <button
+                              type="button"
+                              role="menuitem"
+                              disabled={actionBusy !== null}
+                              className="flex w-full items-center px-3 py-2 text-left text-sm text-slate-800 hover:bg-slate-50 disabled:opacity-50 dark:text-slate-100 dark:hover:bg-slate-800"
+                            >
+                              Renew contract
+                            </button>
+                          </li>
+                        </>
+                      ) : null}
+                      {showThirdPartyActions &&
+                      detail.status.trim().toLowerCase() ===
+                        "authenticated_requested_for_reauthentication" ? (
                         <>
                           <li role="none">
                             <button
@@ -923,21 +962,23 @@ export function InquiryDetailPage() {
                           </li>
                         </>
                       ) : null}
-                      <li role="none">
-                        <button
-                          type="button"
-                          role="menuitem"
-                          disabled={actionBusy !== null}
-                          onClick={() => {
-                            setActionError(null);
-                            setMoreActionsOpen(false);
-                            openReauthNotesModal();
-                          }}
-                          className="flex w-full items-center px-3 py-2 text-left text-sm text-slate-800 hover:bg-slate-50 disabled:opacity-50 dark:text-slate-100 dark:hover:bg-slate-800"
-                        >
-                          Update reauthentication notes
-                        </button>
-                      </li>
+                      {showThirdPartyActions ? (
+                        <li role="none">
+                          <button
+                            type="button"
+                            role="menuitem"
+                            disabled={actionBusy !== null}
+                            onClick={() => {
+                              setActionError(null);
+                              setMoreActionsOpen(false);
+                              openReauthNotesModal();
+                            }}
+                            className="flex w-full items-center px-3 py-2 text-left text-sm text-slate-800 hover:bg-slate-50 disabled:opacity-50 dark:text-slate-100 dark:hover:bg-slate-800"
+                          >
+                            Update reauthentication notes
+                          </button>
+                        </li>
+                      ) : null}
                     </ul>
                   ) : null}
                 </div>
