@@ -838,6 +838,8 @@ export class InventoryService {
         `Only items in "${FOR_AUTHENTICATION_INVENTORY_STATUS}" or "${AUTHENTICATED_FOR_THIRD_PARTY_INVENTORY_STATUS}" status can be approved from authentication.`,
       );
     }
+    const approvingThirdPartyAuthentication =
+      item.status === AUTHENTICATED_FOR_THIRD_PARTY_INVENTORY_STATUS;
     const auth = await this.enforceAuthenticatorAccess(inventoryItemId, actor, {
       createIfMissing: false,
     });
@@ -850,6 +852,16 @@ export class InventoryService {
     await this.inventoryRepo.save(item);
 
     if (item.inquiryId) {
+      if (approvingThirdPartyAuthentication) {
+        const inquiry = await this.inventoryRepo.manager.findOne(Inquiry, {
+          where: { id: item.inquiryId },
+        });
+        if (inquiry?.status === InquiryStatus.AUTHENTICATED_FOR_3RD_PARTY) {
+          inquiry.status = InquiryStatus.FOR_PROCESSING;
+          inquiry.updatedById = actor.userId;
+          await this.inventoryRepo.manager.save(inquiry);
+        }
+      }
       await this.inquiriesService.populateContractDatesForInquiry(
         item.inquiryId,
       );
