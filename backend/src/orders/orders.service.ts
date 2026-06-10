@@ -282,7 +282,13 @@ export class OrdersService {
   private async getInstallmentViewsForOrder(
     order: Order,
   ): Promise<OrderInstallmentView[]> {
-    if (!shouldIncludeInstallmentSchedule(order)) {
+    if (
+      order.paymentType !== PAYMENT_TYPE_LAYAWAY ||
+      (order.status !== ORDER_STATUS_FOR_PAYMENT &&
+        order.status !== ORDER_STATUS_PAID) ||
+      order.layawayMonths == null ||
+      order.layawayMonths <= 0
+    ) {
       return [];
     }
     await this.ensureInstallments(order);
@@ -850,9 +856,12 @@ export class OrdersService {
       if (!order) {
         throw new NotFoundException('Order not found');
       }
-      if (order.status !== ORDER_STATUS_FOR_PAYMENT) {
+      if (
+        order.status !== ORDER_STATUS_FOR_PAYMENT &&
+        order.status !== ORDER_STATUS_PAID
+      ) {
         throw new BadRequestException(
-          'Only orders awaiting payment can be cancelled',
+          'Only orders awaiting payment or paid orders can be cancelled',
         );
       }
 
@@ -1174,6 +1183,9 @@ export class OrdersService {
     if (!item) {
       throw new NotFoundException('Item is not available for purchase');
     }
+    if (item.consignorId === client.id) {
+      throw new BadRequestException('This is your item and you cannot buy it.');
+    }
 
     const itemPrice = parseItemPrice(item.tbhSellingPrice);
     if (itemPrice == null) {
@@ -1305,6 +1317,9 @@ export class OrdersService {
     });
     if (!item) {
       throw new NotFoundException('Item is not available for purchase');
+    }
+    if (item.consignorId === client.id) {
+      throw new BadRequestException('This is your item and you cannot buy it.');
     }
 
     const orderId = randomUUID();

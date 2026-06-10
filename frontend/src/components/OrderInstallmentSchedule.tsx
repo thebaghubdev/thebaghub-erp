@@ -17,6 +17,7 @@ type OrderInstallmentScheduleProps = {
   layawayPrice: string | null;
   installments: OrderInstallmentRow[];
   mode: "staff" | "client";
+  readOnly?: boolean;
   onUpdated: (installments: OrderInstallmentRow[]) => void;
   onMarkPaid?: (detail: { status: string; installments: OrderInstallmentRow[] }) => void;
 };
@@ -27,6 +28,7 @@ export function OrderInstallmentSchedule({
   layawayPrice,
   installments,
   mode,
+  readOnly = false,
   onUpdated,
   onMarkPaid,
 }: OrderInstallmentScheduleProps) {
@@ -197,7 +199,7 @@ export function OrderInstallmentSchedule({
                       {formatPhpDisplay(row.scheduledAmount)}
                     </td>
                     <td className="px-3 py-3">
-                      {mode === "staff" ? (
+                      {mode === "staff" && !readOnly ? (
                         <div className="flex min-w-[10rem] flex-col gap-2">
                           <PhpPriceInput
                             id={`installment-amount-${row.installmentNumber}`}
@@ -242,22 +244,24 @@ export function OrderInstallmentSchedule({
                         ) : (
                           <span className="text-sm text-slate-500">—</span>
                         )}
-                        <label className="inline-flex cursor-pointer items-center">
-                          <input
-                            type="file"
-                            accept="image/*,application/pdf"
-                            className="sr-only"
-                            disabled={proofBusy}
-                            onChange={(e) => {
-                              const file = e.target.files?.[0];
-                              e.target.value = "";
-                              if (file) void uploadProof(row.installmentNumber, file);
-                            }}
-                          />
-                          <span className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-800 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-800">
-                            {proofBusy ? "Uploading…" : "Upload proof"}
-                          </span>
-                        </label>
+                        {!readOnly ? (
+                          <label className="inline-flex cursor-pointer items-center">
+                            <input
+                              type="file"
+                              accept="image/*,application/pdf"
+                              className="sr-only"
+                              disabled={proofBusy}
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                e.target.value = "";
+                                if (file) void uploadProof(row.installmentNumber, file);
+                              }}
+                            />
+                            <span className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-800 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-800">
+                              {proofBusy ? "Uploading…" : "Upload proof"}
+                            </span>
+                          </label>
+                        ) : null}
                       </div>
                     </td>
                   </tr>
@@ -277,7 +281,7 @@ export function OrderInstallmentSchedule({
                     <span className="tabular-nums text-sm font-semibold text-slate-900 dark:text-slate-100">
                       {formatPhpAmount(remainingBalance)}
                     </span>
-                    {mode === "staff" && onMarkPaid ? (
+                    {mode === "staff" && onMarkPaid && !readOnly ? (
                       <button
                         type="button"
                         disabled={!canMarkPaid || markPaidBusy}
@@ -298,7 +302,7 @@ export function OrderInstallmentSchedule({
           </table>
         </HorizontalScrollMirror>
       </div>
-      {mode === "staff" && onMarkPaid ? (
+      {mode === "staff" && onMarkPaid && !readOnly ? (
         <ConfirmDialog
           open={markPaidConfirmOpen}
           title="Mark layaway as paid?"

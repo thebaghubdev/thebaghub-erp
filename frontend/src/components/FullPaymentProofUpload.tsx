@@ -15,6 +15,7 @@ type FullPaymentProofUploadProps<TDetail> = {
   confirmTitle?: string;
   confirmDescription?: string;
   allowMarkPaid?: boolean;
+  readOnly?: boolean;
   onUpdated: (detail: TDetail) => void;
 };
 
@@ -30,6 +31,7 @@ export function FullPaymentProofUpload<TDetail>({
   confirmTitle = "Mark full payment as paid?",
   confirmDescription = "This order will be marked as paid. Make sure the uploaded proof of payment has been reviewed.",
   allowMarkPaid = false,
+  readOnly = false,
   onUpdated,
 }: FullPaymentProofUploadProps<TDetail>) {
   const [busyKey, setBusyKey] = useState<"upload" | "mark-paid" | null>(null);
@@ -89,7 +91,7 @@ export function FullPaymentProofUpload<TDetail>({
 
   const uploadBusy = busyKey === "upload";
   const markPaidBusy = busyKey === "mark-paid";
-  const canShowMarkPaid = allowMarkPaid && proofUrl != null;
+  const canShowMarkPaid = !readOnly && allowMarkPaid && proofUrl != null;
 
   return (
     <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-950/40">
@@ -114,22 +116,24 @@ export function FullPaymentProofUpload<TDetail>({
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <label className="inline-flex cursor-pointer items-center">
-            <input
-              type="file"
-              accept="image/*,application/pdf"
-              className="sr-only"
-              disabled={uploadBusy}
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                e.target.value = "";
-                if (file) void uploadProof(file);
-              }}
-            />
-            <span className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5 text-sm font-medium text-violet-900 transition-colors hover:bg-violet-100 dark:border-violet-800 dark:bg-violet-950/60 dark:text-violet-100 dark:hover:bg-violet-900/80">
-              {uploadBusy ? "Uploading…" : uploadLabel}
-            </span>
-          </label>
+          {!readOnly ? (
+            <label className="inline-flex cursor-pointer items-center">
+              <input
+                type="file"
+                accept="image/*,application/pdf"
+                className="sr-only"
+                disabled={uploadBusy}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = "";
+                  if (file) void uploadProof(file);
+                }}
+              />
+              <span className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5 text-sm font-medium text-violet-900 transition-colors hover:bg-violet-100 dark:border-violet-800 dark:bg-violet-950/60 dark:text-violet-100 dark:hover:bg-violet-900/80">
+                {uploadBusy ? "Uploading…" : uploadLabel}
+              </span>
+            </label>
+          ) : null}
           {canShowMarkPaid ? (
             <button
               type="button"

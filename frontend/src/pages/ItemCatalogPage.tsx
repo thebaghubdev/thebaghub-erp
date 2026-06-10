@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { NoticeDialog } from "../components/NoticeDialog";
 import { useClientAuth } from "../context/client-auth";
 import { apiFetch } from "../lib/api";
 import { formatPhpDisplay } from "../lib/format-php";
@@ -14,6 +15,7 @@ type CatalogItem = {
   price: string | null;
   imageUrl: string | null;
   status: string;
+  isOwnConsignedItem: boolean;
 };
 
 const searchInputClassName =
@@ -36,6 +38,9 @@ const catalogActionBtn =
 const catalogActionTooltip =
   "pointer-events-none absolute bottom-full right-0 z-10 mb-1 hidden whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[0.65rem] font-medium text-white shadow-lg group-hover:block group-focus-visible:block";
 
+const ownConsignedItemMessage =
+  "This is your item and you cannot buy it.";
+
 export function ItemCatalogPage() {
   const { token } = useClientAuth();
   const navigate = useNavigate();
@@ -50,6 +55,7 @@ export function ItemCatalogPage() {
   const [waitlistedIds, setWaitlistedIds] = useState<Set<string>>(
     () => new Set(),
   );
+  const [ownItemDialogOpen, setOwnItemDialogOpen] = useState(false);
   const [search, setSearch] = useState("");
 
   const filteredItems = useMemo(() => {
@@ -92,9 +98,16 @@ export function ItemCatalogPage() {
     };
   }, [token]);
 
+  const shouldBlockOwnItemAction = useCallback((item: CatalogItem): boolean => {
+    if (!item.isOwnConsignedItem) return false;
+    setOwnItemDialogOpen(true);
+    return true;
+  }, []);
+
   const handleAddToWaitlist = useCallback(
     async (item: CatalogItem) => {
       if (!token || waitlistingIds.has(item.id)) return;
+      if (shouldBlockOwnItemAction(item)) return;
       setWaitlistError(null);
       setWaitlistMessage(null);
       setWaitlistingIds((ids) => new Set(ids).add(item.id));
@@ -128,7 +141,30 @@ export function ItemCatalogPage() {
         });
       }
     },
-    [token, waitlistingIds],
+    [token, waitlistingIds, shouldBlockOwnItemAction],
+  );
+
+  const handleBuyNow = useCallback(
+    (item: CatalogItem) => {
+      if (shouldBlockOwnItemAction(item)) return;
+      navigate(`/catalog/${item.id}/order`);
+    },
+    [navigate, shouldBlockOwnItemAction],
+  );
+
+  const handleReserveItem = useCallback(
+    (item: CatalogItem) => {
+      if (shouldBlockOwnItemAction(item)) return;
+      navigate(`/catalog/${item.id}/reserve`);
+    },
+    [navigate, shouldBlockOwnItemAction],
+  );
+
+  const handleSetAppointment = useCallback(
+    (item: CatalogItem) => {
+      if (shouldBlockOwnItemAction(item)) return;
+    },
+    [shouldBlockOwnItemAction],
   );
 
   return (
@@ -264,7 +300,7 @@ export function ItemCatalogPage() {
                           type="button"
                           className={catalogActionBtn}
                           aria-label="Buy now"
-                          onClick={() => navigate(`/catalog/${item.id}/order`)}
+                          onClick={() => handleBuyNow(item)}
                         >
                           <svg
                             viewBox="0 0 24 24"
@@ -286,9 +322,7 @@ export function ItemCatalogPage() {
                           type="button"
                           className={catalogActionBtn}
                           aria-label="Reserve item"
-                          onClick={() =>
-                            navigate(`/catalog/${item.id}/reserve`)
-                          }
+                          onClick={() => handleReserveItem(item)}
                         >
                           <svg
                             viewBox="0 0 24 24"
@@ -310,6 +344,7 @@ export function ItemCatalogPage() {
                           type="button"
                           className={catalogActionBtn}
                           aria-label="Set appointment"
+                          onClick={() => handleSetAppointment(item)}
                         >
                           <svg
                             viewBox="0 0 24 24"
@@ -340,6 +375,12 @@ export function ItemCatalogPage() {
           ))}
         </div>
       )}
+      <NoticeDialog
+        open={ownItemDialogOpen}
+        title="Unable to continue"
+        message={ownConsignedItemMessage}
+        onClose={() => setOwnItemDialogOpen(false)}
+      />
     </div>
   );
 }

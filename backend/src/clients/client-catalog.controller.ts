@@ -17,13 +17,16 @@ export class ClientCatalogController {
   constructor(private readonly clientCatalogService: ClientCatalogService) {}
 
   @Get()
-  findAvailableItems() {
-    return this.clientCatalogService.findAvailableItems();
+  findAvailableItems(@Req() req: { user: JwtUser }) {
+    return this.clientCatalogService.findAvailableItems(req.user);
   }
 
   @Get(':id')
-  findAvailableItemDetail(@Param('id', ParseUUIDPipe) id: string) {
-    return this.clientCatalogService.findAvailableItemDetail(id);
+  findAvailableItemDetail(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.clientCatalogService.findAvailableItemDetail(req.user, id);
   }
 
   @Post(':id/waitlist')

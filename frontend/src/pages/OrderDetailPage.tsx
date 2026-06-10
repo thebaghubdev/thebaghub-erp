@@ -71,8 +71,9 @@ function isForLayawayApproval(status: string): boolean {
   return status.trim().toLowerCase() === "for layaway approval";
 }
 
-function isForPayment(status: string): boolean {
-  return status.trim().toLowerCase() === "for payment";
+function isCancellableOrderStatus(status: string): boolean {
+  const normalized = status.trim().toLowerCase();
+  return normalized === "for payment" || normalized === "paid";
 }
 
 function displayOrDash(value: string | null | undefined): string {
@@ -357,6 +358,19 @@ export function OrderDetailPage() {
     `${detail.customer.firstName} ${detail.customer.lastName}`.trim() ||
     detail.customer.email;
   const anyActionBusy = approveBusy || declineBusy || termsBusy || cancelBusy;
+  const isPaidOrder = detail.status === "Paid";
+  const showReservationPaymentProofs =
+    detail.paymentType === "full_payment" &&
+    (detail.status === "Reservation" ||
+      (isPaidOrder && detail.reservationPaymentProofUrl != null));
+  const showFullPaymentProof =
+    detail.paymentType === "full_payment" &&
+    (detail.status === "For Payment" ||
+      (isPaidOrder && detail.reservationPaymentProofUrl == null));
+  const showLayawaySchedule =
+    detail.paymentType === "layaway" &&
+    (detail.status === "For Payment" || isPaidOrder) &&
+    detail.installments.length > 0;
 
   return (
     <div className="w-full min-w-0 space-y-6">
@@ -421,7 +435,7 @@ export function OrderDetailPage() {
         </div>
       ) : null}
 
-      {isForPayment(detail.status) ? (
+      {isCancellableOrderStatus(detail.status) ? (
         <div className={cardClass}>
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
             Order actions
@@ -443,15 +457,14 @@ export function OrderDetailPage() {
         </div>
       ) : null}
 
-      {detail.paymentType === "layaway" &&
-      detail.status === "For Payment" &&
-      detail.installments.length > 0 ? (
+      {showLayawaySchedule ? (
         <OrderInstallmentSchedule
           orderId={detail.id}
           token={token}
           layawayPrice={detail.layawayPrice}
           installments={detail.installments}
           mode="staff"
+          readOnly={isPaidOrder}
           onUpdated={(installments) =>
             setDetail((prev) => (prev ? { ...prev, installments } : prev))
           }
@@ -546,8 +559,7 @@ export function OrderDetailPage() {
             </DetailField>
           ) : null}
         </dl>
-        {detail.paymentType === "full_payment" &&
-        detail.status === "Reservation" ? (
+        {showReservationPaymentProofs ? (
           <>
             <FullPaymentProofUpload<OrderDetail>
               orderId={detail.id}
@@ -557,6 +569,7 @@ export function OrderDetailPage() {
               proofUrl={detail.reservationPaymentProofUrl}
               title="Reservation fee proof of payment"
               uploadLabel="Upload reservation proof"
+              readOnly={isPaidOrder}
               onUpdated={setDetail}
             />
             <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-950/40">
@@ -574,7 +587,8 @@ export function OrderDetailPage() {
                 proofUrl={detail.fullPaymentProofUrl}
                 title="Remaining balance proof of payment"
                 uploadLabel="Upload remaining balance proof"
-                allowMarkPaid
+                allowMarkPaid={!isPaidOrder}
+                readOnly={isPaidOrder}
                 confirmTitle="Mark remaining balance as paid?"
                 confirmDescription="This reservation order will be marked as paid. Make sure the uploaded remaining balance proof has been reviewed."
                 onUpdated={setDetail}
@@ -582,8 +596,7 @@ export function OrderDetailPage() {
             </div>
           </>
         ) : null}
-        {detail.paymentType === "full_payment" &&
-        detail.status === "For Payment" ? (
+        {showFullPaymentProof ? (
           <FullPaymentProofUpload<OrderDetail>
             orderId={detail.id}
             token={token}
@@ -600,7 +613,8 @@ export function OrderDetailPage() {
                 ? "Upload remaining balance proof"
                 : "Upload proof of payment"
             }
-            allowMarkPaid
+            allowMarkPaid={!isPaidOrder}
+            readOnly={isPaidOrder}
             onUpdated={setDetail}
           />
         ) : null}

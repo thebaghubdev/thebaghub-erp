@@ -107,6 +107,20 @@ export function ClientOrderDetailPage() {
     );
   }
 
+  const isPaidOrder = detail.status === "Paid";
+  const showReservationPaymentProofs =
+    detail.paymentType === "full_payment" &&
+    (detail.status === "Reservation" ||
+      (isPaidOrder && detail.reservationPaymentProofUrl != null));
+  const showFullPaymentProof =
+    detail.paymentType === "full_payment" &&
+    (detail.status === "For Payment" ||
+      (isPaidOrder && detail.reservationPaymentProofUrl == null));
+  const showLayawaySchedule =
+    detail.paymentType === "layaway" &&
+    (detail.status === "For Payment" || isPaidOrder) &&
+    detail.installments.length > 0;
+
   return (
     <div className="w-full min-w-0 space-y-4">
       <Link
@@ -196,8 +210,7 @@ export function ClientOrderDetailPage() {
             </DetailField>
           ) : null}
         </dl>
-        {detail.paymentType === "full_payment" &&
-        detail.status === "Reservation" ? (
+        {showReservationPaymentProofs ? (
           <>
             <FullPaymentProofUpload<ClientOrderDetail>
               orderId={detail.id}
@@ -207,6 +220,7 @@ export function ClientOrderDetailPage() {
               proofUrl={detail.reservationPaymentProofUrl}
               title="Reservation fee proof of payment"
               uploadLabel="Upload reservation proof"
+              readOnly={isPaidOrder}
               onUpdated={setDetail}
             />
             <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
@@ -224,13 +238,13 @@ export function ClientOrderDetailPage() {
                 proofUrl={detail.fullPaymentProofUrl}
                 title="Remaining balance proof of payment"
                 uploadLabel="Upload remaining balance proof"
+                readOnly={isPaidOrder}
                 onUpdated={setDetail}
               />
             </div>
           </>
         ) : null}
-        {detail.paymentType === "full_payment" &&
-        detail.status === "For Payment" ? (
+        {showFullPaymentProof ? (
           <FullPaymentProofUpload<ClientOrderDetail>
             orderId={detail.id}
             token={token}
@@ -247,20 +261,20 @@ export function ClientOrderDetailPage() {
                 ? "Upload remaining balance proof"
                 : "Upload proof of payment"
             }
+            readOnly={isPaidOrder}
             onUpdated={setDetail}
           />
         ) : null}
       </div>
 
-      {detail.paymentType === "layaway" &&
-      detail.status === "For Payment" &&
-      detail.installments.length > 0 ? (
+      {showLayawaySchedule ? (
         <OrderInstallmentSchedule
           orderId={detail.id}
           token={token}
           layawayPrice={detail.layawayPrice}
           installments={detail.installments}
           mode="client"
+          readOnly={isPaidOrder}
           onUpdated={(installments) =>
             setDetail((prev) => (prev ? { ...prev, installments } : prev))
           }

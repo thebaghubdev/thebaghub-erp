@@ -30,6 +30,7 @@ export type ClientCatalogItem = {
   productDescription: string | null;
   imageUrl: string | null;
   status: string;
+  isOwnConsignedItem: boolean;
 };
 
 export type ClientCatalogItemDetail = ClientCatalogItem & {
@@ -113,7 +114,14 @@ export class ClientCatalogService {
     private readonly waitlistsRepo: Repository<Waitlist>,
   ) {}
 
-  async findAvailableItems(): Promise<ClientCatalogItem[]> {
+  async findAvailableItems(user: JwtUser): Promise<ClientCatalogItem[]> {
+    const client = await this.clientsRepo.findOne({
+      where: { userId: user.userId },
+    });
+    if (!client) {
+      throw new NotFoundException('Client profile not found');
+    }
+
     const rows = await this.inventoryRepo.find({
       where: { status: In(CLIENT_CATALOG_STATUSES) },
       relations: { itemPosting: true },
@@ -150,11 +158,22 @@ export class ClientCatalogService {
             : null,
         imageUrl: firstPhotoUrl(photos),
         status: item.status,
+        isOwnConsignedItem: item.consignorId === client.id,
       };
     });
   }
 
-  async findAvailableItemDetail(id: string): Promise<ClientCatalogItemDetail> {
+  async findAvailableItemDetail(
+    user: JwtUser,
+    id: string,
+  ): Promise<ClientCatalogItemDetail> {
+    const client = await this.clientsRepo.findOne({
+      where: { userId: user.userId },
+    });
+    if (!client) {
+      throw new NotFoundException('Client profile not found');
+    }
+
     const item = await this.inventoryRepo.findOne({
       where: { id, status: AVAILABLE_FOR_PURCHASE_STATUS },
       relations: { itemPosting: true },
@@ -201,6 +220,7 @@ export class ClientCatalogService {
       tags: posting?.tags ?? [],
       photos: photosFromSnapshot(photos),
       itemDetails: { ...(form ?? {}) },
+      isOwnConsignedItem: item.consignorId === client.id,
     };
   }
 
@@ -220,6 +240,9 @@ export class ClientCatalogService {
     });
     if (!item) {
       throw new NotFoundException('Catalog item not found');
+    }
+    if (item.consignorId === client.id) {
+      throw new BadRequestException('This is your item and you cannot buy it.');
     }
     if (item.status !== ON_HOLD_STATUS) {
       throw new BadRequestException('Only on-hold items can be waitlisted');
