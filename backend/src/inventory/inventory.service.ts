@@ -1240,7 +1240,7 @@ export class InventoryService {
   }> {
     const item = await this.inventoryRepo.findOne({
       where: { id },
-      relations: { inquiry: true },
+      relations: { inquiry: true, itemPosting: true },
     });
     if (!item) {
       throw new NotFoundException('Inventory item not found');
@@ -1250,6 +1250,7 @@ export class InventoryService {
         'TBH selling price can only be updated for items in For Pricing, For Repricing, or For Editing status.',
       );
     }
+    const wasForRepricing = item.status === FOR_REPRICING_INVENTORY_STATUS;
     const raw = dto.tbhSellingPrice;
     let next: string | null;
     if (raw == null || String(raw).trim() === '') {
@@ -1261,8 +1262,18 @@ export class InventoryService {
       }
       next = n.toFixed(2);
     }
+    if (wasForRepricing && next == null) {
+      throw new BadRequestException(
+        'TBH selling price is required to finish repricing.',
+      );
+    }
     item.tbhSellingPrice = next;
-    if (next != null) {
+    if (wasForRepricing) {
+      item.updatedById = actorUserId;
+      await this.inventoryRepo.save(item);
+      await this.syncPostedItemToShopify(item.itemPosting, item);
+      item.status = AVAILABLE_FOR_PURCHASE_INVENTORY_STATUS;
+    } else if (next != null) {
       const pct = markupPercentFromOfferOrNull(
         next,
         item.inquiry?.offerPrice,
@@ -1691,6 +1702,29 @@ export class InventoryService {
       );
     }
 
+    const productId = await this.syncPostedItemToShopify(posting, item);
+    return {
+      productId,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  private async syncPostedItemToShopify(
+    posting: ItemPosting | null | undefined,
+    item: InventoryItem,
+  ): Promise<string> {
+    if (!posting) {
+      throw new NotFoundException('Posting data not found for this item.');
+    }
+    const shopifyProductId =
+      posting.shopifyProductId != null
+        ? String(posting.shopifyProductId).trim()
+        : '';
+    if (!shopifyProductId) {
+      throw new BadRequestException(
+        'Shopify product ID is missing. Link an existing Shopify product before updating.',
+      );
+    }
     const { variant, images, productFields } = buildShopifyProductPayload(
       posting,
       item,
@@ -1751,10 +1785,7 @@ export class InventoryService {
       await this.itemPostingRepo.save(posting);
     }
 
-    return {
-      productId: shopifyProductId,
-      updatedAt: new Date().toISOString(),
-    };
+    return shopifyProductId;
   }
 
   async linkShopifyProduct(

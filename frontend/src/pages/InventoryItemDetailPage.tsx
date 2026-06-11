@@ -23,6 +23,8 @@ type InventoryDetailForStaff = {
   consignorName: string | null;
   consignorEmail: string | null;
   consignorPhone: string | null;
+  inquiryOfferPrice: string | null;
+  tbhSellingPrice: string | null;
   itemSnapshot: {
     clientItemId: string;
     form: Record<string, unknown>;
@@ -68,6 +70,15 @@ function yesNo(v: unknown): string {
 function isWaitlistViewableStatus(status: string): boolean {
   const normalized = status.trim().toLowerCase();
   return normalized === "available for purchase" || normalized === "on hold";
+}
+
+function isPriceViewableStatus(status: string): boolean {
+  const normalized = status.trim().toLowerCase();
+  return (
+    normalized === "available for purchase" ||
+    normalized === "on hold" ||
+    normalized === "for repricing"
+  );
 }
 
 function clientName(row: InventoryItemWaitlistClientRow): string {
@@ -185,6 +196,7 @@ export function InventoryItemDetailPage() {
   const itemModel = str(form.itemModel);
   const brandModelSubtitle =
     brand && itemModel ? `${brand} — ${itemModel}` : brand || itemModel || "—";
+  const showPricing = isPriceViewableStatus(detail.status);
 
   return (
     <div className="w-full min-w-0 space-y-6">
@@ -223,7 +235,7 @@ export function InventoryItemDetailPage() {
               View waitlist
             </button>
           ) : null}
-          {detail.status === "Available For Purchase" && detail.itemPosting ? (
+          {showPricing && detail.itemPosting ? (
             <Link
               to={`/portal/posting/${detail.id}`}
               className={recordActionBtn}
@@ -401,6 +413,26 @@ export function InventoryItemDetailPage() {
               </dt>
               <dd>{str(form.sourceOfPurchase)}</dd>
             </div>
+          ) : null}
+          {showPricing ? (
+            <>
+              <div>
+                <dt className="text-slate-500 dark:text-slate-400">
+                  Consignor price
+                </dt>
+                <dd className="tabular-nums">
+                  {formatPhpDisplay(detail.inquiryOfferPrice)}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-slate-500 dark:text-slate-400">
+                  TBH selling price
+                </dt>
+                <dd className="tabular-nums">
+                  {formatPhpDisplay(detail.tbhSellingPrice)}
+                </dd>
+              </div>
+            </>
           ) : null}
           {str(form.consignmentSellingPrice) ? (
             <div>

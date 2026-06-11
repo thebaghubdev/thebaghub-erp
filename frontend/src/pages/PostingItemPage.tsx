@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { InventoryStatusBadge } from "../components/InventoryStatusBadge";
 import { apiFetch } from "../lib/api";
+import { formatPhpDisplay } from "../lib/format-php";
 import { usePortalAuth } from "../context/portal-auth";
 
 type ItemPosting = {
@@ -23,6 +24,7 @@ type InventoryDetailForStaff = {
   sku: string;
   status: string;
   consignorName: string | null;
+  tbhSellingPrice: string | null;
   itemSnapshot: {
     form: Record<string, unknown>;
   };
@@ -365,6 +367,14 @@ export function PostingItemPage() {
                 Price comparison
               </dt>
               <dd>{posting.priceComparison ?? "—"}</dd>
+            </div>
+            <div>
+              <dt className="text-slate-500 dark:text-slate-400">
+                TBH selling price
+              </dt>
+              <dd className="tabular-nums">
+                {formatPhpDisplay(detail.tbhSellingPrice)}
+              </dd>
             </div>
             <div>
               <dt className="text-slate-500 dark:text-slate-400">Consignor</dt>
