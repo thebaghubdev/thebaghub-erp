@@ -81,6 +81,16 @@ export class Inquiry extends AuditedEntity {
   })
   repricingProofKey: string | null;
 
+  /** Requested offer price while a posted item is in contract-renewal review. */
+  @Column({
+    name: 'contract_renewal_requested_price',
+    type: 'numeric',
+    precision: 12,
+    scale: 2,
+    nullable: true,
+  })
+  contractRenewalRequestedPrice: string | null;
+
   /** Preferred payment method after the consignor confirms the offer (column storage). */
   @Column({
     name: 'preferred_payment_method',

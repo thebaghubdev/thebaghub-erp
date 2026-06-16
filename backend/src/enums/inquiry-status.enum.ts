@@ -23,6 +23,10 @@ export enum InquiryStatus {
    * (inventory: Authenticated: For 3rd party authentication).
    */
   AUTHENTICATED_FOR_3RD_PARTY = 'authenticated_for_3rd_party',
+  /** Posted item is waiting for staff/client flow to renew its consignment contract. */
+  FOR_CONTRACT_RENEWAL = 'for_contract_renewal',
+  /** Renewed/repriced posted item is waiting for selling price update. */
+  FOR_REPRICING = 'for_repricing',
   DECLINED = 'declined',
   CANCELLED = 'cancelled',
 }

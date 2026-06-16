@@ -59,6 +59,7 @@ type ClientInquiryDetail = {
   photoCount: number;
   offerTransactionType: TransactionType | null;
   offerPrice: string | null;
+  contractRenewalRequestedPrice: string | null;
   clientOfferConfirmation?: ClientOfferConfirmation | null;
   /** Set when staff has scheduled this item for delivery. */
   deliverySchedule?: {
@@ -101,6 +102,10 @@ function isThirdPartyAuthPaymentFlowStatus(status: string): boolean {
     s === "authenticated_requested_for_reauthentication" ||
     s === "authenticated_for_3rd_party"
   );
+}
+
+function isForContractRenewalStatus(status: string): boolean {
+  return status.trim().toLowerCase() === "for_contract_renewal";
 }
 
 function formatClientPaymentMethod(
@@ -206,7 +211,16 @@ export function ClientConsignmentDetailPage() {
     null,
   );
   const [signatureFieldKey, setSignatureFieldKey] = useState(0);
+  const [renewalModalOpen, setRenewalModalOpen] = useState(false);
+  const [renewalBusy, setRenewalBusy] = useState(false);
+  const [renewalFormError, setRenewalFormError] = useState<string | null>(null);
+  const [renewalTermsAccepted, setRenewalTermsAccepted] = useState(false);
+  const [renewalTermsModalOpen, setRenewalTermsModalOpen] = useState(false);
+  const [renewalSignatureFile, setRenewalSignatureFile] =
+    useState<File | null>(null);
+  const [renewalSignatureFieldKey, setRenewalSignatureFieldKey] = useState(0);
   const confirmOfferTitleId = useId();
+  const renewalModalTitleId = useId();
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -300,6 +314,14 @@ export function ClientConsignmentDetailPage() {
     setConfirmModalOpen(true);
   }, []);
 
+  const openRenewalModal = useCallback(() => {
+    setRenewalFormError(null);
+    setRenewalTermsAccepted(false);
+    setRenewalSignatureFile(null);
+    setRenewalSignatureFieldKey((k) => k + 1);
+    setRenewalModalOpen(true);
+  }, []);
+
   const submitConfirmOffer = useCallback(
     async (e: FormEvent) => {
       e.preventDefault();
@@ -368,6 +390,48 @@ export function ClientConsignmentDetailPage() {
     ],
   );
 
+  const submitContractRenewal = useCallback(
+    async (e: FormEvent) => {
+      e.preventDefault();
+      if (!id || !token) return;
+      if (!renewalTermsAccepted) {
+        setRenewalFormError(
+          "You must read and agree to The Bag Hub Consignment Terms and Conditions.",
+        );
+        return;
+      }
+      if (!renewalSignatureFile) {
+        setRenewalFormError(
+          "Please add your signature by drawing or uploading an image.",
+        );
+        return;
+      }
+      setRenewalFormError(null);
+      setRenewalBusy(true);
+      try {
+        const fd = new FormData();
+        fd.append("payload", JSON.stringify({ termsAccepted: true }));
+        fd.append("signature", renewalSignatureFile);
+        const res = await apiFetch(
+          `/api/client/consignment-inquiry/${id}/contract-renewal/accept`,
+          { method: "POST", body: fd },
+          token,
+        );
+        if (!res.ok) throw new Error(await readApiErrorMessage(res));
+        const data = (await res.json()) as ClientInquiryDetail;
+        setDetail(data);
+        setRenewalModalOpen(false);
+      } catch (err) {
+        setRenewalFormError(
+          err instanceof Error ? err.message : "Could not renew contract",
+        );
+      } finally {
+        setRenewalBusy(false);
+      }
+    },
+    [id, token, renewalTermsAccepted, renewalSignatureFile],
+  );
+
   const form = detail?.itemSnapshot.form ?? {};
 
   return (
@@ -409,7 +473,8 @@ export function ClientConsignmentDetailPage() {
             ) : null}
 
             {canClientCancelInquiry(detail.status) ||
-            isAwaitingOfferConfirmation(detail.status) ? (
+            isAwaitingOfferConfirmation(detail.status) ||
+            isForContractRenewalStatus(detail.status) ? (
               <div className="mt-4 flex flex-wrap gap-2">
                 {canClientCancelInquiry(detail.status) ? (
                   <button
@@ -435,6 +500,19 @@ export function ClientConsignmentDetailPage() {
                     className="rounded-lg bg-violet-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-violet-700 disabled:opacity-50"
                   >
                     Confirm offer
+                  </button>
+                ) : null}
+                {isForContractRenewalStatus(detail.status) ? (
+                  <button
+                    type="button"
+                    disabled={renewalBusy}
+                    onClick={() => {
+                      setActionError(null);
+                      openRenewalModal();
+                    }}
+                    className="rounded-lg bg-violet-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-violet-700 disabled:opacity-50"
+                  >
+                    {renewalBusy ? "Renewing…" : "Renew contract"}
                   </button>
                 ) : null}
               </div>
@@ -571,21 +649,44 @@ export function ClientConsignmentDetailPage() {
               </div>
             ) : null}
 
-            {detail.offerPrice != null && detail.offerPrice !== "" ? (
+            {(detail.offerPrice != null && detail.offerPrice !== "") ||
+            (isForContractRenewalStatus(detail.status) &&
+              detail.contractRenewalRequestedPrice != null &&
+              detail.contractRenewalRequestedPrice !== "") ? (
               <dl className="mt-4 rounded-lg border border-slate-100 bg-slate-50/80 p-3 text-sm">
                 <div className="flex flex-wrap gap-x-6 gap-y-1">
-                  <div>
-                    <dt className="text-slate-500">Offer type</dt>
-                    <dd className="font-medium text-slate-900">
-                      {formatOfferTransactionLabel(detail.offerTransactionType)}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-slate-500">Offer price</dt>
-                    <dd className="tabular-nums font-medium text-slate-900">
-                      {formatPhpDisplay(detail.offerPrice)}
-                    </dd>
-                  </div>
+                  {detail.offerPrice != null && detail.offerPrice !== "" ? (
+                    <>
+                      <div>
+                        <dt className="text-slate-500">Offer type</dt>
+                        <dd className="font-medium text-slate-900">
+                          {formatOfferTransactionLabel(
+                            detail.offerTransactionType,
+                          )}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-slate-500">Offer price</dt>
+                        <dd className="tabular-nums font-medium text-slate-900">
+                          {formatPhpDisplay(detail.offerPrice)}
+                        </dd>
+                      </div>
+                    </>
+                  ) : null}
+                  {isForContractRenewalStatus(detail.status) &&
+                  detail.contractRenewalRequestedPrice != null &&
+                  detail.contractRenewalRequestedPrice !== "" ? (
+                    <div>
+                      <dt className="text-slate-500">
+                        Renewal requested price
+                      </dt>
+                      <dd className="tabular-nums font-medium text-slate-900">
+                        {formatPhpDisplay(
+                          detail.contractRenewalRequestedPrice,
+                        )}
+                      </dd>
+                    </div>
+                  ) : null}
                 </div>
               </dl>
             ) : null}
@@ -1059,12 +1160,144 @@ export function ClientConsignmentDetailPage() {
           )
         : null}
 
+      {renewalModalOpen && detail && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-[100] flex items-end justify-center p-4 sm:items-center"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby={renewalModalTitleId}
+            >
+              <button
+                type="button"
+                className="absolute inset-0 bg-slate-900/50"
+                aria-label="Close contract renewal form"
+                onClick={() => {
+                  if (renewalBusy) return;
+                  setRenewalModalOpen(false);
+                }}
+              />
+              <div className="relative z-10 max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-slate-200 bg-white p-4 shadow-xl">
+                <h2
+                  id={renewalModalTitleId}
+                  className="text-base font-semibold text-slate-900"
+                >
+                  Renew contract
+                </h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  Review the renewal offer, agree to the consignment terms, and
+                  sign to renew your contract.
+                </p>
+                <form
+                  onSubmit={(e) => void submitContractRenewal(e)}
+                  className="mt-4 space-y-4"
+                >
+                  <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-3 text-sm">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      New offer price
+                    </p>
+                    <p className="mt-2 tabular-nums font-medium text-slate-900">
+                      {detail.contractRenewalRequestedPrice
+                        ? formatPhpDisplay(detail.contractRenewalRequestedPrice)
+                        : "—"}
+                    </p>
+                  </div>
+
+                  <div className="flex items-start gap-2 pt-1">
+                    <input
+                      id="renewal-consignment-terms"
+                      type="checkbox"
+                      checked={renewalTermsAccepted}
+                      onChange={(e) => {
+                        if (!e.target.checked) {
+                          setRenewalTermsAccepted(false);
+                        }
+                      }}
+                      onClick={(e) => {
+                        if (!renewalTermsAccepted) {
+                          e.preventDefault();
+                          setRenewalFormError(null);
+                          setRenewalTermsModalOpen(true);
+                        }
+                      }}
+                      disabled={renewalBusy}
+                      className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 text-violet-600 focus:ring-violet-500 disabled:opacity-50"
+                    />
+                    <label
+                      htmlFor="renewal-consignment-terms"
+                      className="text-sm leading-snug text-slate-700"
+                    >
+                      I agree to The Bag Hub Consignment Terms and Conditions.
+                    </label>
+                  </div>
+
+                  <div>
+                    <p className="text-sm font-medium text-slate-700">
+                      Signature
+                    </p>
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      Draw your signature or upload a clear image of it.
+                    </p>
+                    <div className="mt-2">
+                      <OfferSignatureField
+                        key={renewalSignatureFieldKey}
+                        disabled={renewalBusy}
+                        onSignatureChange={setRenewalSignatureFile}
+                      />
+                    </div>
+                  </div>
+
+                  {renewalFormError ? (
+                    <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                      {renewalFormError}
+                    </p>
+                  ) : null}
+
+                  <div className="flex flex-wrap justify-end gap-2 pt-2">
+                    <button
+                      type="button"
+                      disabled={renewalBusy}
+                      onClick={() => setRenewalModalOpen(false)}
+                      className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={
+                        renewalBusy ||
+                        !renewalTermsAccepted ||
+                        !renewalSignatureFile
+                      }
+                      className="rounded-lg bg-violet-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {renewalBusy ? "Submitting…" : "Submit"}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+
       <TermsScrollAgreeModal
         open={termsAgreementModalOpen}
         onClose={() => setTermsAgreementModalOpen(false)}
         onAgree={() => {
           setConsignmentTermsAccepted(true);
           setTermsAgreementModalOpen(false);
+        }}
+        url={CONSIGNMENT_TERMS_URL}
+        title="Consignment — terms and conditions"
+      />
+
+      <TermsScrollAgreeModal
+        open={renewalTermsModalOpen}
+        onClose={() => setRenewalTermsModalOpen(false)}
+        onAgree={() => {
+          setRenewalTermsAccepted(true);
+          setRenewalTermsModalOpen(false);
         }}
         url={CONSIGNMENT_TERMS_URL}
         title="Consignment — terms and conditions"

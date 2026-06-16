@@ -49,6 +49,23 @@ type InventoryItemWaitlistClientRow = {
   createdAt: string;
 };
 
+type ClientAccountRow = {
+  id: string;
+  userId: string;
+  username: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  contactNumber: string;
+  createdAt: string;
+};
+
+function formatClientOption(c: ClientAccountRow): string {
+  const name = [c.firstName, c.lastName].filter(Boolean).join(" ").trim();
+  const primary = name || c.username;
+  return `${primary} · ${c.email}`;
+}
+
 function formatDatePurchased(raw: unknown): string {
   if (raw == null) return "";
   const s = String(raw).trim();
@@ -69,7 +86,11 @@ function yesNo(v: unknown): string {
 
 function isWaitlistViewableStatus(status: string): boolean {
   const normalized = status.trim().toLowerCase();
-  return normalized === "available for purchase" || normalized === "on hold";
+  return (
+    normalized === "available for purchase" ||
+    normalized === "on hold" ||
+    normalized === "for repricing"
+  );
 }
 
 function isPriceViewableStatus(status: string): boolean {
@@ -91,9 +112,13 @@ const cardClass =
 const recordActionBtn =
   "inline-flex shrink-0 items-center justify-center rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5 text-sm font-medium text-violet-900 transition-colors hover:bg-violet-100 focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500 dark:border-violet-800 dark:bg-violet-950/60 dark:text-violet-100 dark:hover:bg-violet-900/80";
 
+const clientSelectField =
+  "box-border h-11 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-0 text-sm leading-5 text-slate-900 outline-none ring-violet-500 focus:ring-2 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100";
+
 export function InventoryItemDetailPage() {
   const { id } = useParams<{ id: string }>();
   const waitlistModalTitleId = useId();
+  const addClientModalTitleId = useId();
   const { token } = usePortalAuth();
   const [detail, setDetail] = useState<InventoryDetailForStaff | null>(null);
   const [loading, setLoading] = useState(true);
@@ -104,6 +129,13 @@ export function InventoryItemDetailPage() {
   >([]);
   const [waitlistsLoading, setWaitlistsLoading] = useState(false);
   const [waitlistsError, setWaitlistsError] = useState<string | null>(null);
+  const [addClientModalOpen, setAddClientModalOpen] = useState(false);
+  const [clients, setClients] = useState<ClientAccountRow[]>([]);
+  const [clientsLoading, setClientsLoading] = useState(false);
+  const [clientsError, setClientsError] = useState<string | null>(null);
+  const [selectedClientId, setSelectedClientId] = useState("");
+  const [addClientBusy, setAddClientBusy] = useState(false);
+  const [addClientError, setAddClientError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -158,16 +190,103 @@ export function InventoryItemDetailPage() {
 
   const closeWaitlistModal = useCallback(() => {
     setWaitlistModalOpen(false);
+    setAddClientModalOpen(false);
+    setSelectedClientId("");
+    setAddClientError(null);
   }, []);
+
+  const loadClients = useCallback(async () => {
+    setClientsError(null);
+    setClientsLoading(true);
+    try {
+      const res = await apiFetch("/api/accounts/clients", {}, token);
+      if (!res.ok) throw new Error(`Request failed (${res.status})`);
+      const data = (await res.json()) as ClientAccountRow[];
+      setClients(Array.isArray(data) ? data : []);
+    } catch (e) {
+      setClientsError(
+        e instanceof Error ? e.message : "Failed to load client accounts",
+      );
+      setClients([]);
+    } finally {
+      setClientsLoading(false);
+    }
+  }, [token]);
+
+  const openAddClientModal = useCallback(() => {
+    setAddClientModalOpen(true);
+    setSelectedClientId("");
+    setAddClientError(null);
+    void loadClients();
+  }, [loadClients]);
+
+  const closeAddClientModal = useCallback(() => {
+    setAddClientModalOpen(false);
+    setSelectedClientId("");
+    setAddClientError(null);
+  }, []);
+
+  const submitAddClientToWaitlist = useCallback(async () => {
+    if (!id || !selectedClientId) {
+      setAddClientError("Select a client.");
+      return;
+    }
+    setAddClientBusy(true);
+    setAddClientError(null);
+    try {
+      const res = await apiFetch(
+        `/api/inventory/${id}/waitlists`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ clientId: selectedClientId }),
+        },
+        token,
+      );
+      if (!res.ok) {
+        let message = `Request failed (${res.status})`;
+        try {
+          const body = (await res.json()) as { message?: string | string[] };
+          if (typeof body.message === "string") message = body.message;
+          else if (Array.isArray(body.message)) message = body.message.join(", ");
+        } catch {
+          /* ignore */
+        }
+        throw new Error(message);
+      }
+      const row = (await res.json()) as InventoryItemWaitlistClientRow;
+      setWaitlistRows((prev) => {
+        const withoutDuplicate = prev.filter((r) => r.clientId !== row.clientId);
+        return [row, ...withoutDuplicate];
+      });
+      closeAddClientModal();
+    } catch (e) {
+      setAddClientError(
+        e instanceof Error ? e.message : "Failed to add client to waitlist",
+      );
+    } finally {
+      setAddClientBusy(false);
+    }
+  }, [closeAddClientModal, id, selectedClientId, token]);
 
   useEffect(() => {
     if (!waitlistModalOpen) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") closeWaitlistModal();
+      if (e.key !== "Escape") return;
+      if (addClientModalOpen) {
+        closeAddClientModal();
+        return;
+      }
+      closeWaitlistModal();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [waitlistModalOpen, closeWaitlistModal]);
+  }, [
+    addClientModalOpen,
+    closeAddClientModal,
+    closeWaitlistModal,
+    waitlistModalOpen,
+  ]);
 
   if (loading) {
     return (
@@ -197,6 +316,15 @@ export function InventoryItemDetailPage() {
   const brandModelSubtitle =
     brand && itemModel ? `${brand} — ${itemModel}` : brand || itemModel || "—";
   const showPricing = isPriceViewableStatus(detail.status);
+  const waitlistedClientIds = new Set(waitlistRows.map((row) => row.clientId));
+  const selectableClients = clients
+    .filter((c) => c.id !== detail.consignorId)
+    .filter((c) => !waitlistedClientIds.has(c.id))
+    .sort((a, b) =>
+      formatClientOption(a).localeCompare(formatClientOption(b), undefined, {
+        sensitivity: "base",
+      }),
+    );
 
   return (
     <div className="w-full min-w-0 space-y-6">
@@ -508,13 +636,22 @@ export function InventoryItemDetailPage() {
                   {detail.sku}
                 </p>
               </div>
-              <button
-                type="button"
-                className="rounded-lg px-2 py-1 text-sm font-medium text-slate-600 hover:bg-slate-100 focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500 dark:text-slate-300 dark:hover:bg-slate-800"
-                onClick={closeWaitlistModal}
-              >
-                Close
-              </button>
+              <div className="flex shrink-0 items-center gap-2">
+                <button
+                  type="button"
+                  className={recordActionBtn}
+                  onClick={openAddClientModal}
+                >
+                  Add client
+                </button>
+                <button
+                  type="button"
+                  className="rounded-lg px-2 py-1 text-sm font-medium text-slate-600 hover:bg-slate-100 focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500 dark:text-slate-300 dark:hover:bg-slate-800"
+                  onClick={closeWaitlistModal}
+                >
+                  Close
+                </button>
+              </div>
             </div>
 
             <div className="max-h-[70vh] overflow-auto p-4">
@@ -598,6 +735,117 @@ export function InventoryItemDetailPage() {
               </div>
             </div>
           </div>
+
+          {addClientModalOpen ? (
+            <div
+              className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
+              role="dialog"
+              aria-modal
+              aria-labelledby={addClientModalTitleId}
+              onClick={closeAddClientModal}
+            >
+              <div
+                className="w-full max-w-lg overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl dark:border-slate-800 dark:bg-slate-900"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+                  <h3
+                    id={addClientModalTitleId}
+                    className="text-base font-semibold text-slate-900 dark:text-slate-100"
+                  >
+                    Add client to waitlist
+                  </h3>
+                  <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+                    Select a client to add to the waitlist for this item.
+                  </p>
+                </div>
+
+                <div className="space-y-4 p-4">
+                  <div>
+                    <label
+                      htmlFor="waitlist-client-select"
+                      className="mb-2 block text-sm font-medium text-slate-800 dark:text-slate-200"
+                    >
+                      Client
+                    </label>
+                    <select
+                      id="waitlist-client-select"
+                      className={clientSelectField}
+                      value={selectedClientId}
+                      onChange={(e) => setSelectedClientId(e.target.value)}
+                      disabled={
+                        clientsLoading || !!clientsError || addClientBusy
+                      }
+                      aria-busy={clientsLoading}
+                    >
+                      <option value="">
+                        {clientsLoading
+                          ? "Loading clients…"
+                          : "Select a client…"}
+                      </option>
+                      {selectableClients.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {formatClientOption(c)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {clientsError ? (
+                    <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+                      {clientsError}
+                      <button
+                        type="button"
+                        className="ml-2 font-medium text-violet-700 underline dark:text-violet-300"
+                        onClick={() => void loadClients()}
+                      >
+                        Retry
+                      </button>
+                    </p>
+                  ) : null}
+
+                  {!clientsLoading &&
+                  !clientsError &&
+                  selectableClients.length === 0 ? (
+                    <p className="text-sm text-slate-600 dark:text-slate-400">
+                      No eligible clients are available to add. The consignor and
+                      clients already on the waitlist are excluded.
+                    </p>
+                  ) : null}
+
+                  {addClientError ? (
+                    <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+                      {addClientError}
+                    </p>
+                  ) : null}
+                </div>
+
+                <div className="flex justify-end gap-2 border-t border-slate-200 px-4 py-3 dark:border-slate-800">
+                  <button
+                    type="button"
+                    className="rounded-lg px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100 focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500 dark:text-slate-200 dark:hover:bg-slate-800"
+                    onClick={closeAddClientModal}
+                    disabled={addClientBusy}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-lg bg-violet-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-violet-700 focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500 disabled:cursor-not-allowed disabled:opacity-60"
+                    onClick={() => void submitAddClientToWaitlist()}
+                    disabled={
+                      addClientBusy ||
+                      clientsLoading ||
+                      !!clientsError ||
+                      !selectedClientId
+                    }
+                  >
+                    {addClientBusy ? "Saving…" : "Save"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>

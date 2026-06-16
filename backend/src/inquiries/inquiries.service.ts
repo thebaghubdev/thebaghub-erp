@@ -66,6 +66,7 @@ const MAX_AUTH_RETURN_PHOTO_BYTES = 15 * 1024 * 1024;
 const MAX_AUTH_RETURN_PHOTOS = 20;
 const AVAILABLE_FOR_PURCHASE_INVENTORY_STATUS = 'Available For Purchase';
 const FOR_REPRICING_INVENTORY_STATUS = 'For Repricing';
+const FOR_CONTRACT_RENEWAL_INVENTORY_STATUS = 'For Contract Renewal';
 
 function parseImageDataUrl(
   dataUrl: string,
@@ -198,6 +199,7 @@ export type StaffInquiryRow = {
   offerTransactionType: 'consignment' | 'direct_purchase' | null;
   offerPrice: string | null;
   originalOfferPrice: string | null;
+  contractRenewalRequestedPrice: string | null;
   repricingProofUrl: string | null;
   clientOfferConfirmation: ClientOfferConfirmationView | null;
   notes: string | null;
@@ -508,6 +510,11 @@ export class InquiriesService {
       originalOfferPrice:
         r.originalOfferPrice != null && r.originalOfferPrice !== ''
           ? String(r.originalOfferPrice)
+          : null,
+      contractRenewalRequestedPrice:
+        r.contractRenewalRequestedPrice != null &&
+        r.contractRenewalRequestedPrice !== ''
+          ? String(r.contractRenewalRequestedPrice)
           : null,
       repricingProofUrl:
         r.repricingProofKey != null && r.repricingProofKey.trim() !== ''
@@ -1177,6 +1184,127 @@ export class InquiriesService {
     return this.findOneForClient(user, inquiryId);
   }
 
+  async acceptContractRenewalForClient(
+    user: JwtUser,
+    inquiryId: string,
+    payloadRaw: string | undefined,
+    signatureFile: MulterFile | undefined,
+  ): Promise<ClientInquiryDetail> {
+    if (payloadRaw == null || payloadRaw.trim() === '') {
+      throw new BadRequestException('Missing payload');
+    }
+    let termsAccepted = false;
+    try {
+      const payload = JSON.parse(payloadRaw) as { termsAccepted?: unknown };
+      termsAccepted = payload.termsAccepted === true;
+    } catch {
+      throw new BadRequestException('Invalid contract renewal payload');
+    }
+    if (!termsAccepted) {
+      throw new BadRequestException(
+        'Consignment terms and conditions must be accepted.',
+      );
+    }
+    if (!signatureFile?.buffer?.length) {
+      throw new BadRequestException('Signature image is required');
+    }
+    const mime = signatureFile.mimetype?.toLowerCase() ?? '';
+    if (!ALLOWED_IMAGE_MIMES.has(mime)) {
+      throw new BadRequestException(
+        `Signature must be an image file (${signatureFile.mimetype || 'unknown'})`,
+      );
+    }
+
+    const client = await this.clientsRepo.findOne({
+      where: { userId: user.userId },
+    });
+    if (!client) {
+      throw new NotFoundException('Client profile not found');
+    }
+
+    const settingRow = await this.settingsRepo.findOne({
+      where: { key: CONTRACT_EXPIRATION_DAYS_KEY },
+    });
+    if (!settingRow) {
+      throw new BadRequestException(
+        `Setting "${CONTRACT_EXPIRATION_DAYS_KEY}" is not configured`,
+      );
+    }
+    const days = Number.parseInt(String(settingRow.value).trim(), 10);
+    if (!Number.isFinite(days) || days < 0) {
+      throw new BadRequestException(
+        `Setting "${CONTRACT_EXPIRATION_DAYS_KEY}" must be a non-negative integer`,
+      );
+    }
+    const now = new Date();
+    const contractStart = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+    );
+    const contractExpiration = new Date(contractStart);
+    contractExpiration.setUTCDate(contractExpiration.getUTCDate() + days);
+
+    const signatureKey = `inquiries/${inquiryId}/contract-renewal-signature-${randomUUID()}.${extFromMime(mime)}`;
+    await this.s3.putObject(signatureKey, signatureFile.buffer, mime);
+
+    await this.inquiriesRepo.manager.transaction(async (em) => {
+      const inquiry = await em.findOne(Inquiry, {
+        where: { id: inquiryId, consignorId: client.id },
+      });
+      if (!inquiry) {
+        throw new NotFoundException('Inquiry not found');
+      }
+      if (inquiry.status !== InquiryStatus.FOR_CONTRACT_RENEWAL) {
+        throw new BadRequestException(
+          'This inquiry is not waiting for contract renewal.',
+        );
+      }
+      if (
+        inquiry.contractRenewalRequestedPrice == null ||
+        String(inquiry.contractRenewalRequestedPrice).trim() === ''
+      ) {
+        throw new BadRequestException('No renewal offer price is available.');
+      }
+
+      const inv = await em.findOne(InventoryItem, {
+        where: { inquiryId: inquiry.id },
+      });
+      if (!inv) {
+        throw new BadRequestException(
+          'No linked inventory item was found for this inquiry.',
+        );
+      }
+      if (inv.status !== FOR_CONTRACT_RENEWAL_INVENTORY_STATUS) {
+        throw new BadRequestException(
+          'Linked inventory item is not currently for contract renewal.',
+        );
+      }
+
+      const before = cloneInquiryForAudit(inquiry);
+      inquiry.offerPrice = String(inquiry.contractRenewalRequestedPrice);
+      inquiry.contractRenewalRequestedPrice = null;
+      inquiry.offerSignatureKey = signatureKey;
+      inquiry.contractStartDate = contractStart;
+      inquiry.contractExpirationDate = contractExpiration;
+      inquiry.status = InquiryStatus.FOR_REPRICING;
+      inquiry.updatedById = user.userId;
+      await em.save(inquiry);
+
+      inv.status = FOR_REPRICING_INVENTORY_STATUS;
+      inv.updatedById = user.userId;
+      await em.save(inv);
+
+      await this.inquiryAudit.recordDiff(
+        inquiry.id,
+        before,
+        inquiry,
+        this.inquiryAudit.consignorActor(user.userId),
+        em,
+      );
+    });
+
+    return this.findOneForClient(user, inquiryId);
+  }
+
   async submitConsignmentInquiry(
     user: JwtUser,
     payloadRaw: string | undefined,
@@ -1618,6 +1746,114 @@ export class InquiriesService {
         id,
         before,
         r,
+        { userId: user.userId, label },
+        em,
+      );
+    });
+
+    return this.findOneForStaff(id);
+  }
+
+  async renewContract(
+    id: string,
+    dto: SubmitAuthenticatedReturnNewOfferDto,
+    user: JwtUser,
+  ): Promise<StaffInquiryDetail> {
+    const r = await this.inquiriesRepo.findOne({ where: { id } });
+    if (!r) {
+      throw new NotFoundException('Inquiry not found');
+    }
+    if (r.offerPrice == null || String(r.offerPrice).trim() === '') {
+      throw new BadRequestException('Current offer price is not set.');
+    }
+    const label = await this.inquiryAudit.staffActorLabel(user.userId);
+
+    await this.inquiriesRepo.manager.transaction(async (em) => {
+      const inquiry = await em.findOne(Inquiry, { where: { id } });
+      if (!inquiry) {
+        throw new NotFoundException('Inquiry not found');
+      }
+      const inv = await em.findOne(InventoryItem, {
+        where: { inquiryId: id },
+      });
+      if (!inv) {
+        throw new BadRequestException(
+          'No linked inventory item was found for this inquiry.',
+        );
+      }
+      if (inv.status !== AVAILABLE_FOR_PURCHASE_INVENTORY_STATUS) {
+        throw new BadRequestException(
+          'Contract renewal can only be started while the item is available for purchase.',
+        );
+      }
+
+      const before = cloneInquiryForAudit(inquiry);
+      inquiry.contractRenewalRequestedPrice = dto.offerPrice.toFixed(2);
+      inquiry.status = InquiryStatus.FOR_CONTRACT_RENEWAL;
+      inquiry.updatedById = user.userId;
+      await em.save(inquiry);
+
+      inv.status = FOR_CONTRACT_RENEWAL_INVENTORY_STATUS;
+      inv.updatedById = user.userId;
+      await em.save(inv);
+
+      await this.inquiryAudit.recordDiff(
+        id,
+        before,
+        inquiry,
+        { userId: user.userId, label },
+        em,
+      );
+    });
+
+    return this.findOneForStaff(id);
+  }
+
+  async cancelContractRenewal(
+    id: string,
+    user: JwtUser,
+  ): Promise<StaffInquiryDetail> {
+    const label = await this.inquiryAudit.staffActorLabel(user.userId);
+
+    await this.inquiriesRepo.manager.transaction(async (em) => {
+      const inquiry = await em.findOne(Inquiry, { where: { id } });
+      if (!inquiry) {
+        throw new NotFoundException('Inquiry not found');
+      }
+      if (inquiry.status !== InquiryStatus.FOR_CONTRACT_RENEWAL) {
+        throw new BadRequestException(
+          'Only inquiries for contract renewal can be cancelled.',
+        );
+      }
+
+      const inv = await em.findOne(InventoryItem, {
+        where: { inquiryId: id },
+      });
+      if (!inv) {
+        throw new BadRequestException(
+          'No linked inventory item was found for this inquiry.',
+        );
+      }
+      if (inv.status !== FOR_CONTRACT_RENEWAL_INVENTORY_STATUS) {
+        throw new BadRequestException(
+          'Linked inventory item is not currently for contract renewal.',
+        );
+      }
+
+      const before = cloneInquiryForAudit(inquiry);
+      inquiry.contractRenewalRequestedPrice = null;
+      inquiry.status = InquiryStatus.FOR_PROCESSING;
+      inquiry.updatedById = user.userId;
+      await em.save(inquiry);
+
+      inv.status = AVAILABLE_FOR_PURCHASE_INVENTORY_STATUS;
+      inv.updatedById = user.userId;
+      await em.save(inv);
+
+      await this.inquiryAudit.recordDiff(
+        id,
+        before,
+        inquiry,
         { userId: user.userId, label },
         em,
       );

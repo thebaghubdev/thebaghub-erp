@@ -26,6 +26,7 @@ type AuditState = {
   status: string;
   offerTransactionType: string | null;
   offerPrice: string | null;
+  contractRenewalRequestedPrice: string | null;
   preferredPaymentMethod: string | null;
   preferredPaymentBranch: string | null;
   offerSignaturePresent: boolean;
@@ -52,6 +53,7 @@ export function cloneInquiryForAudit(r: Inquiry): Inquiry {
       status: r.status,
       offerTransactionType: r.offerTransactionType,
       offerPrice: r.offerPrice,
+      contractRenewalRequestedPrice: r.contractRenewalRequestedPrice,
       preferredPaymentMethod: r.preferredPaymentMethod,
       preferredPaymentBranch: r.preferredPaymentBranch,
       offerSignatureKey: r.offerSignatureKey,
@@ -73,6 +75,11 @@ function toAuditState(r: Inquiry): AuditState {
     offerPrice:
       r.offerPrice != null && String(r.offerPrice).trim() !== ''
         ? String(r.offerPrice)
+        : null,
+    contractRenewalRequestedPrice:
+      r.contractRenewalRequestedPrice != null &&
+      String(r.contractRenewalRequestedPrice).trim() !== ''
+        ? String(r.contractRenewalRequestedPrice)
         : null,
     preferredPaymentMethod: r.preferredPaymentMethod ?? null,
     preferredPaymentBranch: r.preferredPaymentBranch ?? null,
@@ -138,6 +145,11 @@ function diffStates(
     after.offerTransactionType,
   );
   push('Offer price', before.offerPrice, after.offerPrice);
+  push(
+    'Contract renewal requested price',
+    before.contractRenewalRequestedPrice,
+    after.contractRenewalRequestedPrice,
+  );
   push(
     'Preferred payment method',
     before.preferredPaymentMethod,
@@ -220,6 +232,7 @@ export class InquiryAuditService {
       status: '',
       offerTransactionType: null,
       offerPrice: null,
+      contractRenewalRequestedPrice: null,
       preferredPaymentMethod: null,
       preferredPaymentBranch: null,
       offerSignaturePresent: false,

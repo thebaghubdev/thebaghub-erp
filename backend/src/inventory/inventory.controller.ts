@@ -26,6 +26,7 @@ import { UpdateInventoryPricingDto } from './dto/update-inventory-pricing.dto';
 import { CreateItemPostingDto } from './dto/create-item-posting.dto';
 import { ScheduleItemPostingsDto } from './dto/schedule-item-postings.dto';
 import { LinkShopifyProductDto } from './dto/link-shopify-product.dto';
+import { AddInventoryWaitlistClientDto } from './dto/add-inventory-waitlist-client.dto';
 import { InventoryService } from './inventory.service';
 
 @Controller('inventory')
@@ -135,6 +136,20 @@ export class InventoryController {
   @Get(':id/waitlists')
   listWaitlists(@Param('id', ParseUUIDPipe) id: string) {
     return this.inventoryService.listWaitlistsForInventoryItem(id);
+  }
+
+  @Post(':id/waitlists')
+  @HttpCode(HttpStatus.OK)
+  addWaitlistClient(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AddInventoryWaitlistClientDto,
+    @Req() req: { user: JwtUser },
+  ) {
+    return this.inventoryService.addClientToWaitlistForInventoryItem(
+      id,
+      dto.clientId,
+      req.user.userId,
+    );
   }
 
   @Post(':id/item-authentication-metrics')

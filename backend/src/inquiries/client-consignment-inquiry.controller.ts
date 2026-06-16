@@ -77,6 +77,27 @@ export class ClientConsignmentInquiryController {
     );
   }
 
+  /** Consignor accepts a staff-requested contract renewal (multipart: `payload` JSON + `signature` image). */
+  @Post(':id/contract-renewal/accept')
+  @UseInterceptors(
+    FileInterceptor('signature', {
+      limits: { fileSize: 5 * 1024 * 1024 },
+    }),
+  )
+  acceptContractRenewal(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body('payload') payload: string,
+    @UploadedFile() signature: MulterFile | undefined,
+  ) {
+    return this.inquiriesService.acceptContractRenewalForClient(
+      req.user,
+      id,
+      payload,
+      signature,
+    );
+  }
+
   /** Consignor cancels their own inquiry while it is still active. */
   @Post(':id/cancel')
   cancel(

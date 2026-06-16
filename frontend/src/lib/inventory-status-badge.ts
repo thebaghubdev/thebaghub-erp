@@ -9,6 +9,7 @@ const BY_STATUS: Record<string, string> = {
   "for editing": "text-teal-800 dark:text-teal-300",
   "for posting": "text-fuchsia-800 dark:text-fuchsia-300",
   "available for purchase": "text-green-800 dark:text-green-300",
+  "for contract renewal": "text-cyan-800 dark:text-cyan-300",
   "authenticated: requested for reauthentication": "text-sky-800 dark:text-sky-300",
   "authenticated: for 3rd party authentication":
     "text-indigo-800 dark:text-indigo-300",

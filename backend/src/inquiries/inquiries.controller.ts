@@ -116,6 +116,23 @@ export class InquiriesController {
     );
   }
 
+  @Post(':id/contract-renewal')
+  renewContract(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: SubmitAuthenticatedReturnNewOfferDto,
+  ) {
+    return this.inquiriesService.renewContract(id, body, req.user);
+  }
+
+  @Post(':id/contract-renewal/cancel')
+  cancelContractRenewal(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.inquiriesService.cancelContractRenewal(id, req.user);
+  }
+
   @Patch(':id/notes')
   updateNotes(
     @Req() req: { user: JwtUser },

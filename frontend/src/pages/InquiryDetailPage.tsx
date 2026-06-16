@@ -81,6 +81,7 @@ type InquiryDetail = {
   offerTransactionType: TransactionType | null;
   offerPrice: string | null;
   originalOfferPrice: string | null;
+  contractRenewalRequestedPrice: string | null;
   repricingProofUrl: string | null;
   clientOfferConfirmation?: ClientOfferConfirmation | null;
   /** Staff-only notes persisted on the inquiry row. */
@@ -127,6 +128,10 @@ function isThirdPartyAuthPaymentFlowStatus(status: string): boolean {
 
 function isAvailableForPurchaseStatus(status: string | null | undefined): boolean {
   return status?.trim().toLowerCase() === "available for purchase";
+}
+
+function isForContractRenewalStatus(status: string): boolean {
+  return status.trim().toLowerCase() === "for_contract_renewal";
 }
 
 function formatClientPaymentMethod(
@@ -292,6 +297,8 @@ export function InquiryDetailPage() {
     | "reauthenticationNotes"
     | "createNewOffer"
     | "updateConsignmentPrice"
+    | "renewContract"
+    | "cancelContractRenewal"
     | "uploadThirdPartyProof"
     | "markThirdPartyPaid"
     | null
@@ -314,6 +321,11 @@ export function InquiryDetailPage() {
     useState<ProofPaymentPreview | null>(null);
   const [repricingProofDropActive, setRepricingProofDropActive] =
     useState(false);
+  const [renewContractModalOpen, setRenewContractModalOpen] = useState(false);
+  const [renewContractOfferPriceInput, setRenewContractOfferPriceInput] =
+    useState("");
+  const [cancelRenewContractConfirmOpen, setCancelRenewContractConfirmOpen] =
+    useState(false);
   const [proofPaymentModalOpen, setProofPaymentModalOpen] = useState(false);
   const [proofPaymentImages, setProofPaymentImages] = useState<
     ProofPaymentPreview[]
@@ -324,6 +336,7 @@ export function InquiryDetailPage() {
   const moreActionsMenuRef = useRef<HTMLDivElement>(null);
   const repricingModalTitleId = useId();
   const repricingProofInputId = useId();
+  const renewContractModalTitleId = useId();
   const proofPaymentInputId = useId();
   const proofPaymentModalTitleId = useId();
   const [auditOpen, setAuditOpen] = useState(false);
@@ -448,6 +461,20 @@ export function InquiryDetailPage() {
     return () => window.removeEventListener("keydown", onKey);
   }, [repricingModalOpen, closeRepricingModal]);
 
+  const closeRenewContractModal = useCallback(() => {
+    if (actionBusy === "renewContract") return;
+    setRenewContractModalOpen(false);
+  }, [actionBusy]);
+
+  useEffect(() => {
+    if (!renewContractModalOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeRenewContractModal();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [renewContractModalOpen, closeRenewContractModal]);
+
   useEffect(() => {
     if (!moreActionsOpen) return;
     const onMouseDown = (e: MouseEvent) => {
@@ -545,6 +572,20 @@ export function InquiryDetailPage() {
       return null;
     });
   }, []);
+
+  const openRenewContractModal = useCallback(() => {
+    if (!detail) return;
+    setActionError(null);
+    setRenewContractOfferPriceInput(
+      detail.offerPrice != null && detail.offerPrice !== ""
+        ? (() => {
+            const n = parsePhpStringToNumber(String(detail.offerPrice));
+            return n != null ? n.toFixed(2) : String(detail.offerPrice);
+          })()
+        : "",
+    );
+    setRenewContractModalOpen(true);
+  }, [detail]);
 
   const confirmDecline = useCallback(async () => {
     if (!id || !token) return;
@@ -743,6 +784,68 @@ export function InquiryDetailPage() {
     ],
   );
 
+  const submitContractRenewal = useCallback(
+    async (e: FormEvent) => {
+      e.preventDefault();
+      if (!id || !token || !detail) return;
+      const price = parsePhpStringToNumber(renewContractOfferPriceInput);
+      if (price == null || price <= 0) {
+        setActionError("Enter a valid new offer price greater than zero.");
+        return;
+      }
+      setActionError(null);
+      setActionBusy("renewContract");
+      try {
+        const res = await apiFetch(
+          `/api/inquiries/${id}/contract-renewal`,
+          {
+            method: "POST",
+            body: JSON.stringify({ offerPrice: price }),
+          },
+          token,
+        );
+        if (!res.ok) throw new Error(await readApiErrorMessage(res));
+        const data = (await res.json()) as InquiryDetail;
+        setDetail(data);
+        setAuditRows(null);
+        setRenewContractModalOpen(false);
+      } catch (err) {
+        setActionError(
+          err instanceof Error ? err.message : "Could not renew contract",
+        );
+      } finally {
+        setActionBusy(null);
+      }
+    },
+    [id, token, detail, renewContractOfferPriceInput],
+  );
+
+  const confirmCancelContractRenewal = useCallback(async () => {
+    if (!id || !token) return;
+    setActionError(null);
+    setActionBusy("cancelContractRenewal");
+    try {
+      const res = await apiFetch(
+        `/api/inquiries/${id}/contract-renewal/cancel`,
+        { method: "POST" },
+        token,
+      );
+      if (!res.ok) throw new Error(await readApiErrorMessage(res));
+      const data = (await res.json()) as InquiryDetail;
+      setDetail(data);
+      setAuditRows(null);
+      setCancelRenewContractConfirmOpen(false);
+    } catch (err) {
+      setActionError(
+        err instanceof Error
+          ? err.message
+          : "Could not cancel contract renewal",
+      );
+    } finally {
+      setActionBusy(null);
+    }
+  }, [id, token]);
+
   const saveNotes = useCallback(
     async (e: FormEvent) => {
       e.preventDefault();
@@ -876,8 +979,12 @@ export function InquiryDetailPage() {
   const showAvailableForPurchaseActions =
     detail != null &&
     isAvailableForPurchaseStatus(detail.linkedInventoryItemStatus);
+  const showContractRenewalActions =
+    detail != null && isForContractRenewalStatus(detail.status);
   const showMoreActions =
-    showThirdPartyActions || showAvailableForPurchaseActions;
+    showThirdPartyActions ||
+    showAvailableForPurchaseActions ||
+    showContractRenewalActions;
 
   return (
     <div className="mx-auto max-w-4xl space-y-4">
@@ -902,7 +1009,9 @@ export function InquiryDetailPage() {
       !notesModalOpen &&
       !reauthNotesModalOpen &&
       !createNewOfferModalOpen &&
-      !repricingModalOpen ? (
+      !repricingModalOpen &&
+      !renewContractModalOpen &&
+      !cancelRenewContractConfirmOpen ? (
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
           {actionError}
         </p>
@@ -1045,12 +1154,34 @@ export function InquiryDetailPage() {
                               type="button"
                               role="menuitem"
                               disabled={actionBusy !== null}
+                              onClick={() => {
+                                setActionError(null);
+                                setMoreActionsOpen(false);
+                                openRenewContractModal();
+                              }}
                               className="flex w-full items-center px-3 py-2 text-left text-sm text-slate-800 hover:bg-slate-50 disabled:opacity-50 dark:text-slate-100 dark:hover:bg-slate-800"
                             >
                               Renew contract
                             </button>
                           </li>
                         </>
+                      ) : null}
+                      {showContractRenewalActions ? (
+                        <li role="none">
+                          <button
+                            type="button"
+                            role="menuitem"
+                            disabled={actionBusy !== null}
+                            onClick={() => {
+                              setActionError(null);
+                              setMoreActionsOpen(false);
+                              setCancelRenewContractConfirmOpen(true);
+                            }}
+                            className="flex w-full items-center px-3 py-2 text-left text-sm text-red-700 hover:bg-red-50 disabled:opacity-50 dark:text-red-300 dark:hover:bg-red-950/40"
+                          >
+                            Cancel contract renewal
+                          </button>
+                        </li>
                       ) : null}
                       {showThirdPartyActions &&
                       detail.status.trim().toLowerCase() ===
@@ -1155,6 +1286,16 @@ export function InquiryDetailPage() {
                       </dt>
                       <dd className="tabular-nums font-medium text-slate-900 dark:text-slate-100">
                         {formatPhpDisplay(detail.originalOfferPrice)}
+                      </dd>
+                    </div>
+                  ) : null}
+                  {detail.contractRenewalRequestedPrice ? (
+                    <div>
+                      <dt className="text-slate-500 dark:text-slate-400">
+                        Renewal requested price
+                      </dt>
+                      <dd className="tabular-nums font-medium text-slate-900 dark:text-slate-100">
+                        {formatPhpDisplay(detail.contractRenewalRequestedPrice)}
                       </dd>
                     </div>
                   ) : null}
@@ -2193,6 +2334,93 @@ export function InquiryDetailPage() {
               )
             : null}
 
+          {renewContractModalOpen && detail && typeof document !== "undefined"
+            ? createPortal(
+                <div
+                  className="fixed inset-0 z-[100] flex items-end justify-center p-4 sm:items-center"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby={renewContractModalTitleId}
+                >
+                  <button
+                    type="button"
+                    className="absolute inset-0 bg-slate-900/50"
+                    aria-label="Close contract renewal"
+                    onClick={closeRenewContractModal}
+                  />
+                  <div className="relative z-10 w-full max-w-md rounded-2xl border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+                    <h2
+                      id={renewContractModalTitleId}
+                      className="text-base font-semibold text-slate-900 dark:text-slate-100"
+                    >
+                      Renew contract
+                    </h2>
+                    <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+                      Save the requested renewal price and move this inquiry to
+                      For Contract Renewal.
+                    </p>
+                    <form
+                      onSubmit={(e) => void submitContractRenewal(e)}
+                      className="mt-4 space-y-4"
+                    >
+                      {actionError && renewContractModalOpen ? (
+                        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+                          {actionError}
+                        </p>
+                      ) : null}
+                      <div className="rounded-lg border border-slate-200 bg-slate-50/90 px-3 py-2.5 text-sm dark:border-slate-600 dark:bg-slate-950/60">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                          Current offer
+                        </p>
+                        <p className="mt-2 tabular-nums font-medium text-slate-900 dark:text-slate-100">
+                          {detail.offerPrice
+                            ? formatPhpDisplay(detail.offerPrice)
+                            : "—"}
+                        </p>
+                      </div>
+                      <div>
+                        <label
+                          htmlFor="renew-contract-offer-price"
+                          className="block text-sm font-medium text-slate-700 dark:text-slate-300"
+                        >
+                          New offer price (PHP)
+                        </label>
+                        <div className="mt-1">
+                          <PhpPriceInput
+                            id="renew-contract-offer-price"
+                            value={renewContractOfferPriceInput}
+                            onChange={setRenewContractOfferPriceInput}
+                            disabled={actionBusy !== null}
+                            required
+                            className="w-full rounded-lg border border-slate-300 bg-white py-2 pr-3 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
+                            placeholder="0.00"
+                          />
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap justify-end gap-2 border-t border-slate-200 pt-3 dark:border-slate-600">
+                        <button
+                          type="button"
+                          disabled={actionBusy !== null}
+                          onClick={closeRenewContractModal}
+                          className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={actionBusy !== null}
+                          className="rounded-lg bg-violet-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-violet-700 disabled:opacity-50 dark:bg-violet-600 dark:hover:bg-violet-500"
+                        >
+                          {actionBusy === "renewContract" ? "Saving…" : "Save"}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>,
+                document.body,
+              )
+            : null}
+
           {notesModalOpen && detail && typeof document !== "undefined"
             ? createPortal(
                 <div
@@ -2506,6 +2734,23 @@ export function InquiryDetailPage() {
           setMarkPaidConfirmOpen(false);
         }}
         onConfirm={confirmMarkThirdPartyPaid}
+      />
+
+      <ConfirmDialog
+        open={cancelRenewContractConfirmOpen}
+        title="Cancel contract renewal?"
+        description="This will clear the requested renewal price and move the item back to Available For Purchase."
+        confirmLabel="Cancel renewal"
+        cancelLabel="Keep renewal"
+        danger
+        busy={actionBusy === "cancelContractRenewal"}
+        errorMessage={actionError}
+        onCancel={() => {
+          if (actionBusy !== null) return;
+          setActionError(null);
+          setCancelRenewContractConfirmOpen(false);
+        }}
+        onConfirm={confirmCancelContractRenewal}
       />
 
       <ConfirmDialog

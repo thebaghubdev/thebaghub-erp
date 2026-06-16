@@ -12,11 +12,31 @@ import { Client } from './entities/client.entity';
 
 const AVAILABLE_FOR_PURCHASE_STATUS = 'Available For Purchase';
 const ON_HOLD_STATUS = 'On Hold';
+const FOR_REPRICING_STATUS = 'For Repricing';
+const FOR_CONTRACT_RENEWAL_STATUS = 'For Contract Renewal';
 
 const CLIENT_CATALOG_STATUSES = [
   AVAILABLE_FOR_PURCHASE_STATUS,
   ON_HOLD_STATUS,
+  FOR_REPRICING_STATUS,
+  FOR_CONTRACT_RENEWAL_STATUS,
 ];
+
+const CLIENT_WAITLISTABLE_STATUSES = [
+  ON_HOLD_STATUS,
+  FOR_REPRICING_STATUS,
+  FOR_CONTRACT_RENEWAL_STATUS,
+];
+
+function clientVisibleStatus(status: string): string {
+  if (
+    status === FOR_REPRICING_STATUS ||
+    status === FOR_CONTRACT_RENEWAL_STATUS
+  ) {
+    return ON_HOLD_STATUS;
+  }
+  return status;
+}
 
 export type ClientCatalogItem = {
   id: string;
@@ -157,7 +177,7 @@ export class ClientCatalogService {
             ? String(posting.productDescription).trim()
             : null,
         imageUrl: firstPhotoUrl(photos),
-        status: item.status,
+        status: clientVisibleStatus(item.status),
         isOwnConsignedItem: item.consignorId === client.id,
       };
     });
@@ -244,7 +264,7 @@ export class ClientCatalogService {
     if (item.consignorId === client.id) {
       throw new BadRequestException('This is your item and you cannot buy it.');
     }
-    if (item.status !== ON_HOLD_STATUS) {
+    if (!CLIENT_WAITLISTABLE_STATUSES.includes(item.status)) {
       throw new BadRequestException('Only on-hold items can be waitlisted');
     }
 

@@ -13,6 +13,8 @@ export const INQUIRY_STATUS_VALUES = [
   "authenticated_new_offer",
   "authenticated_requested_for_reauthentication",
   "authenticated_for_3rd_party",
+  "for_contract_renewal",
+  "for_repricing",
   "declined",
   "cancelled",
 ] as const;

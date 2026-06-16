@@ -1,6 +1,7 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthenticationMetric } from '../authentication-metrics/entities/authentication-metric.entity';
+import { Client } from '../clients/entities/client.entity';
 import { Employee } from '../employees/entities/employee.entity';
 import { InquiriesModule } from '../inquiries/inquiries.module';
 import { NotificationsModule } from '../notifications/notifications.module';
@@ -20,6 +21,7 @@ import { InventoryService } from './inventory.service';
     NotificationsModule,
     ShopifyModule,
     TypeOrmModule.forFeature([
+      Client,
       InventoryItem,
       ItemAuthentication,
       ItemAuthenticationMetric,

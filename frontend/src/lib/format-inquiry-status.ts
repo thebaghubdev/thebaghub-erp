@@ -7,6 +7,8 @@ const STATUS_LABELS: Record<string, string> = {
   authenticated_requested_for_reauthentication:
     "Authenticated: Requested for Reauthentication",
   authenticated_for_3rd_party: "Authenticated: For 3rd party authentication",
+  for_contract_renewal: "For Contract Renewal",
+  for_repricing: "For Repricing",
 };
 
 /** Human-readable inquiry status for tables and detail headers. */

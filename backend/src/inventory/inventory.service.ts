@@ -42,6 +42,7 @@ import { InquiryStatus } from '../enums/inquiry-status.enum';
 import { InquiriesService } from '../inquiries/inquiries.service';
 import { CONSIGNMENT_COORDINATOR_POSITION } from '../notifications/notification.constants';
 import { NotificationsService } from '../notifications/notifications.service';
+import { Client } from '../clients/entities/client.entity';
 import { Waitlist } from '../orders/entities/waitlist.entity';
 import {
   ShopifyAdminService,
@@ -545,6 +546,13 @@ const FOR_REPRICING_INVENTORY_STATUS = 'For Repricing';
 const FOR_EDITING_INVENTORY_STATUS = 'For Editing';
 const FOR_POSTING_INVENTORY_STATUS = 'For Posting';
 const AVAILABLE_FOR_PURCHASE_INVENTORY_STATUS = 'Available For Purchase';
+const ON_HOLD_INVENTORY_STATUS = 'On Hold';
+
+const STAFF_WAITLISTABLE_INVENTORY_STATUSES = [
+  AVAILABLE_FOR_PURCHASE_INVENTORY_STATUS,
+  ON_HOLD_INVENTORY_STATUS,
+  FOR_REPRICING_INVENTORY_STATUS,
+];
 
 const UPDATE_TBH_PRICE_ALLOWED_INVENTORY_STATUSES = new Set<string>([
   FOR_PRICING_INVENTORY_STATUS,
@@ -587,6 +595,8 @@ export class InventoryService {
     private readonly authenticationMetricRepo: Repository<AuthenticationMetric>,
     @InjectRepository(Waitlist)
     private readonly waitlistsRepo: Repository<Waitlist>,
+    @InjectRepository(Client)
+    private readonly clientsRepo: Repository<Client>,
     @Inject(forwardRef(() => InquiriesService))
     private readonly inquiriesService: InquiriesService,
     private readonly notifications: NotificationsService,
@@ -1477,6 +1487,65 @@ export class InventoryService {
       contactNumber: row.client.contactNumber,
       createdAt: row.createdAt.toISOString(),
     }));
+  }
+
+  async addClientToWaitlistForInventoryItem(
+    inventoryItemId: string,
+    clientId: string,
+    actorUserId: string,
+  ): Promise<InventoryItemWaitlistClientRow> {
+    const item = await this.inventoryRepo.findOne({
+      where: { id: inventoryItemId },
+    });
+    if (!item) {
+      throw new NotFoundException('Inventory item not found');
+    }
+    if (!STAFF_WAITLISTABLE_INVENTORY_STATUSES.includes(item.status)) {
+      throw new BadRequestException(
+        'Waitlist entries cannot be added for this item status',
+      );
+    }
+
+    const client = await this.clientsRepo.findOne({ where: { id: clientId } });
+    if (!client) {
+      throw new NotFoundException('Client not found');
+    }
+    if (item.consignorId === client.id) {
+      throw new BadRequestException(
+        'The consignor cannot be added to the waitlist',
+      );
+    }
+
+    await this.waitlistsRepo
+      .createQueryBuilder()
+      .insert()
+      .into(Waitlist)
+      .values({
+        inventoryItemId: item.id,
+        clientId: client.id,
+        createdById: actorUserId,
+        updatedById: actorUserId,
+      })
+      .orIgnore()
+      .execute();
+
+    const row = await this.waitlistsRepo.findOne({
+      where: { inventoryItemId: item.id, clientId: client.id },
+      relations: { client: true },
+    });
+    if (!row) {
+      throw new BadRequestException('Unable to add client to waitlist');
+    }
+
+    return {
+      id: row.id,
+      clientId: row.clientId,
+      firstName: row.client.firstName,
+      lastName: row.client.lastName,
+      email: row.client.email,
+      contactNumber: row.client.contactNumber,
+      createdAt: row.createdAt.toISOString(),
+    };
   }
 
   /**
