@@ -76,6 +76,14 @@ function isCancellableOrderStatus(status: string): boolean {
   return normalized === "for payment" || normalized === "paid";
 }
 
+function isReservationOrderStatus(status: string): boolean {
+  return status.trim().toLowerCase() === "reservation";
+}
+
+function isCancelledOrderStatus(status: string): boolean {
+  return status.trim().toLowerCase() === "cancelled";
+}
+
 function displayOrDash(value: string | null | undefined): string {
   if (value == null) return "—";
   const text = value.trim();
@@ -148,6 +156,12 @@ export function OrderDetailPage() {
   const [cancelBusy, setCancelBusy] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
   const [cancelReason, setCancelReason] = useState("");
+  const [reservationCancelConfirmOpen, setReservationCancelConfirmOpen] =
+    useState(false);
+  const [reservationCancelBusy, setReservationCancelBusy] = useState(false);
+  const [reservationCancelError, setReservationCancelError] = useState<
+    string | null
+  >(null);
   const [termsConfirmOpen, setTermsConfirmOpen] = useState(false);
   const [termsBusy, setTermsBusy] = useState(false);
   const [termsError, setTermsError] = useState<string | null>(null);
@@ -270,6 +284,34 @@ export function OrderDetailPage() {
     }
   }, [cancelReason, id, token]);
 
+  const confirmCancelReservation = useCallback(async () => {
+    if (!id || !token) return;
+
+    setReservationCancelError(null);
+    setReservationCancelBusy(true);
+    try {
+      const res = await apiFetch(
+        `/api/orders/${id}/cancel`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reason: "Reservation cancelled" }),
+        },
+        token,
+      );
+      if (!res.ok) throw new Error(await readApiErrorMessage(res));
+      const data = (await res.json()) as OrderDetail;
+      setDetail(data);
+      setReservationCancelConfirmOpen(false);
+    } catch (e) {
+      setReservationCancelError(
+        e instanceof Error ? e.message : "Could not cancel reservation",
+      );
+    } finally {
+      setReservationCancelBusy(false);
+    }
+  }, [id, token]);
+
   const termsMonthsNumber = useMemo(() => {
     if (!/^\d+$/.test(termsMonths.trim())) return null;
     const value = Number.parseInt(termsMonths, 10);
@@ -357,7 +399,12 @@ export function OrderDetailPage() {
   const customerName =
     `${detail.customer.firstName} ${detail.customer.lastName}`.trim() ||
     detail.customer.email;
-  const anyActionBusy = approveBusy || declineBusy || termsBusy || cancelBusy;
+  const anyActionBusy =
+    approveBusy ||
+    declineBusy ||
+    termsBusy ||
+    cancelBusy ||
+    reservationCancelBusy;
   const isPaidOrder = detail.status === "Paid";
   const showReservationPaymentProofs =
     detail.paymentType === "full_payment" &&
@@ -430,6 +477,27 @@ export function OrderDetailPage() {
               onClick={openUpdateTermsDialog}
             >
               Update terms
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {isReservationOrderStatus(detail.status) ? (
+        <div className={cardClass}>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
+            Reservation actions
+          </h2>
+          <div className="mt-4">
+            <button
+              type="button"
+              className={layawayDeclineBtn}
+              disabled={anyActionBusy}
+              onClick={() => {
+                setReservationCancelError(null);
+                setReservationCancelConfirmOpen(true);
+              }}
+            >
+              Cancel reservation
             </button>
           </div>
         </div>
@@ -531,11 +599,12 @@ export function OrderDetailPage() {
                 {formatPhpDisplay(detail.fullPaymentTotalPrice)}
               </DetailField>
             </>
-          ) : detail.paymentType === "full_payment" ? (
+          ) : detail.paymentType === "full_payment" &&
+            !isCancelledOrderStatus(detail.status) ? (
             <DetailField label="Full payment price">
               {formatPhpDisplay(detail.fullPaymentPrice)}
             </DetailField>
-          ) : (
+          ) : detail.paymentType === "layaway" ? (
             <>
               <DetailField label="Layaway months">
                 {detail.layawayMonths ?? "—"}
@@ -550,7 +619,7 @@ export function OrderDetailPage() {
                 {formatOrderDate(detail.layawayPaymentStartDate)}
               </DetailField>
             </>
-          )}
+          ) : null}
           {detail.declineReason ? (
             <DetailField label="Reason">
               <span className="whitespace-pre-wrap break-words">
@@ -768,6 +837,22 @@ export function OrderDetailPage() {
           setCancelReason("");
         }}
         onConfirm={confirmCancelOrder}
+      />
+      <ConfirmDialog
+        open={reservationCancelConfirmOpen}
+        title="Cancel reservation?"
+        description="The order status will change to Cancelled and the item will become available for purchase again."
+        confirmLabel="Cancel reservation"
+        cancelLabel="Keep reservation"
+        danger
+        busy={reservationCancelBusy}
+        errorMessage={reservationCancelError}
+        onCancel={() => {
+          if (reservationCancelBusy) return;
+          setReservationCancelError(null);
+          setReservationCancelConfirmOpen(false);
+        }}
+        onConfirm={confirmCancelReservation}
       />
       <ConfirmDialog
         open={termsConfirmOpen}

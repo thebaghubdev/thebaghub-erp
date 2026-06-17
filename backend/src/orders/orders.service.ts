@@ -858,10 +858,11 @@ export class OrdersService {
       }
       if (
         order.status !== ORDER_STATUS_FOR_PAYMENT &&
-        order.status !== ORDER_STATUS_PAID
+        order.status !== ORDER_STATUS_PAID &&
+        order.status !== ORDER_STATUS_RESERVATION
       ) {
         throw new BadRequestException(
-          'Only orders awaiting payment or paid orders can be cancelled',
+          'Only reservation, payment, or paid orders can be cancelled',
         );
       }
 
