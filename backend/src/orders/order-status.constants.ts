@@ -11,6 +11,7 @@ export const ORDER_STATUS_RESERVATION = 'Reservation';
 export const ORDER_NUMBER_OFFSET = 10_000;
 
 export const INVENTORY_STATUS_ON_HOLD = 'On Hold';
+export const INVENTORY_STATUS_RESERVED_LAYAWAY = 'Reserved - Layaway';
 export const INVENTORY_STATUS_AVAILABLE_FOR_PURCHASE = 'Available For Purchase';
 export const INVENTORY_STATUS_OUT_FOR_DELIVERY = 'Out for delivery';
 

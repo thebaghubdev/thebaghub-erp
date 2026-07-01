@@ -16,6 +16,7 @@ import { InventoryItem } from '../inventory/entities/inventory-item.entity';
 import type { MulterFile } from '../inquiries/multer-file.type';
 import { S3StorageService } from '../inquiries/s3-storage.service';
 import { MailService } from '../mail/mail.service';
+import { ApproveLayawayOrderDto } from './dto/approve-layaway-order.dto';
 import { CancelOrderDto } from './dto/cancel-order.dto';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { CreateReservationOrderDto } from './dto/create-reservation-order.dto';
@@ -40,6 +41,7 @@ import {
   INVENTORY_STATUS_AVAILABLE_FOR_PURCHASE,
   INVENTORY_STATUS_ON_HOLD,
   INVENTORY_STATUS_OUT_FOR_DELIVERY,
+  INVENTORY_STATUS_RESERVED_LAYAWAY,
   LAYAWAY_HOLDING_HOURS,
   ORDER_STATUS_CANCELLED,
   ORDER_STATUS_DECLINED,
@@ -103,6 +105,22 @@ function formatDecimal(value: number): string {
 
 function addHours(ref: Date, hours: number): Date {
   return new Date(ref.getTime() + hours * 60 * 60 * 1000);
+}
+
+function assertConsignorPaymentReleaseWithinTerms(
+  consignorPaymentRelease: number,
+  layawayMonths: number | null | undefined,
+): void {
+  if (
+    layawayMonths == null ||
+    layawayMonths <= 0 ||
+    consignorPaymentRelease < 1 ||
+    consignorPaymentRelease > layawayMonths
+  ) {
+    throw new BadRequestException(
+      'Consignor payment release must be within the layaway term',
+    );
+  }
 }
 
 export type ClientOrderSummary = {
@@ -198,6 +216,7 @@ export type StaffOrderDetail = {
   shippingFeeProofUrl: string | null;
   holdingPeriod: string | null;
   layawayPaymentStartDate: string | null;
+  consignorPaymentRelease: number | null;
   declineReason: string | null;
   signatureUrl: string | null;
   createdAt: string;
@@ -722,6 +741,7 @@ export class OrdersService {
       shippingFeeProofUrl: this.shippingFeeProofUrl(order),
       holdingPeriod: order.holdingPeriod?.toISOString() ?? null,
       layawayPaymentStartDate: formatOrderDate(order.layawayPaymentStartDate),
+      consignorPaymentRelease: order.consignorPaymentRelease,
       declineReason: order.declineReason,
       signatureUrl: order.signatureKey
         ? this.s3.getPublicUrl(order.signatureKey)
@@ -749,25 +769,47 @@ export class OrdersService {
   async approveLayawayForStaff(
     user: JwtUser,
     id: string,
+    dto: ApproveLayawayOrderDto,
   ): Promise<StaffOrderDetail> {
-    const order = await this.ordersRepo.findOne({ where: { id } });
-    if (!order) {
-      throw new NotFoundException('Order not found');
-    }
-    if (order.status !== ORDER_STATUS_FOR_LAYAWAY_APPROVAL) {
-      throw new BadRequestException(
-        'Only orders awaiting layaway approval can be approved',
-      );
-    }
-    if (order.paymentType !== PAYMENT_TYPE_LAYAWAY) {
-      throw new BadRequestException('Order is not a layaway order');
-    }
-
     await this.dataSource.transaction(async (em) => {
+      const order = await em.findOne(Order, {
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!order) {
+        throw new NotFoundException('Order not found');
+      }
+      if (order.status !== ORDER_STATUS_FOR_LAYAWAY_APPROVAL) {
+        throw new BadRequestException(
+          'Only orders awaiting layaway approval can be approved',
+        );
+      }
+      if (order.paymentType !== PAYMENT_TYPE_LAYAWAY) {
+        throw new BadRequestException('Order is not a layaway order');
+      }
+      assertConsignorPaymentReleaseWithinTerms(
+        dto.consignorPaymentRelease,
+        order.layawayMonths,
+      );
+
+      const item = await em.findOne(InventoryItem, {
+        where: { id: order.inventoryItemId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!item) {
+        throw new NotFoundException('Inventory item not found');
+      }
+
       order.status = ORDER_STATUS_FOR_PAYMENT;
       order.layawayPaymentStartDate = todayDateString();
+      order.consignorPaymentRelease = dto.consignorPaymentRelease;
       order.updatedById = user.userId;
       await em.save(order);
+
+      item.status = INVENTORY_STATUS_RESERVED_LAYAWAY;
+      item.updatedById = user.userId;
+      await em.save(item);
+
       await this.createInstallmentsForOrder(order, em, user.userId);
     });
 
@@ -834,6 +876,10 @@ export class OrdersService {
     if (layawayPrice <= 0) {
       throw new BadRequestException('Layaway price must be greater than zero');
     }
+    assertConsignorPaymentReleaseWithinTerms(
+      dto.consignorPaymentRelease,
+      dto.layawayMonths,
+    );
 
     await this.dataSource.transaction(async (em) => {
       const order = await em.findOne(Order, {
@@ -857,10 +903,24 @@ export class OrdersService {
       order.layawayMonthlyPayment = formatMoney(
         layawayPrice / dto.layawayMonths,
       );
+      order.consignorPaymentRelease = dto.consignorPaymentRelease;
       order.status = ORDER_STATUS_FOR_PAYMENT;
       order.layawayPaymentStartDate = todayDateString();
       order.updatedById = user.userId;
       await em.save(order);
+
+      const item = await em.findOne(InventoryItem, {
+        where: { id: order.inventoryItemId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!item) {
+        throw new NotFoundException('Inventory item not found');
+      }
+
+      item.status = INVENTORY_STATUS_RESERVED_LAYAWAY;
+      item.updatedById = user.userId;
+      await em.save(item);
+
       await this.createInstallmentsForOrder(order, em, user.userId);
     });
 

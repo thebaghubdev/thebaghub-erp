@@ -15,4 +15,8 @@ export class UpdateLayawayTermsDto {
     message: 'layawayPrice must be a valid decimal with up to 2 places',
   })
   layawayPrice: string;
+
+  @IsInt()
+  @Min(1)
+  consignorPaymentRelease: number;
 }

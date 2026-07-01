@@ -33,6 +33,7 @@ type OrderDetail = {
   shippingFeeProofUrl: string | null;
   holdingPeriod: string | null;
   layawayPaymentStartDate: string | null;
+  consignorPaymentRelease: number | null;
   declineReason: string | null;
   signatureUrl: string | null;
   createdAt: string;
@@ -115,6 +116,32 @@ function parsePositiveMoney(raw: string): number | null {
   return Number.isFinite(value) && value > 0 ? value : null;
 }
 
+function consignorPaymentReleaseLabel(paymentNumber: number): string {
+  const mod10 = paymentNumber % 10;
+  const mod100 = paymentNumber % 100;
+  let suffix = "th";
+  if (mod100 < 11 || mod100 > 13) {
+    if (mod10 === 1) suffix = "st";
+    else if (mod10 === 2) suffix = "nd";
+    else if (mod10 === 3) suffix = "rd";
+  }
+  return `${paymentNumber}${suffix} payment`;
+}
+
+function consignorPaymentReleaseOptions(months: number | null) {
+  if (months == null || months < 1) return [];
+  return Array.from({ length: months }, (_, index) => {
+    const paymentNumber = index + 1;
+    return {
+      value: String(paymentNumber),
+      label: consignorPaymentReleaseLabel(paymentNumber),
+    };
+  });
+}
+
+const formSelectClass =
+  "mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-500/30 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100";
+
 async function readApiErrorMessage(res: Response): Promise<string> {
   try {
     const j = (await res.json()) as { message?: string | string[] };
@@ -169,6 +196,10 @@ export function OrderDetailPage() {
   const [termsError, setTermsError] = useState<string | null>(null);
   const [termsMonths, setTermsMonths] = useState("");
   const [termsPrice, setTermsPrice] = useState("");
+  const [approveConsignorPaymentRelease, setApproveConsignorPaymentRelease] =
+    useState("");
+  const [termsConsignorPaymentRelease, setTermsConsignorPaymentRelease] =
+    useState("");
   const [outForDeliveryOpen, setOutForDeliveryOpen] = useState(false);
   const [outForDeliveryBusy, setOutForDeliveryBusy] = useState(false);
   const [outForDeliveryError, setOutForDeliveryError] = useState<string | null>(
@@ -208,18 +239,32 @@ export function OrderDetailPage() {
 
   const confirmApproveLayaway = useCallback(async () => {
     if (!id || !token) return;
+    const consignorPaymentRelease = Number.parseInt(
+      approveConsignorPaymentRelease,
+      10,
+    );
+    if (!Number.isFinite(consignorPaymentRelease) || consignorPaymentRelease < 1) {
+      setApproveError("Please select a consignor payment release.");
+      return;
+    }
+
     setApproveError(null);
     setApproveBusy(true);
     try {
       const res = await apiFetch(
         `/api/orders/${id}/approve-layaway`,
-        { method: "POST" },
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ consignorPaymentRelease }),
+        },
         token,
       );
       if (!res.ok) throw new Error(await readApiErrorMessage(res));
       const data = (await res.json()) as OrderDetail;
       setDetail(data);
       setApproveConfirmOpen(false);
+      setApproveConsignorPaymentRelease("");
     } catch (e) {
       setApproveError(
         e instanceof Error ? e.message : "Could not approve layaway order",
@@ -227,7 +272,7 @@ export function OrderDetailPage() {
     } finally {
       setApproveBusy(false);
     }
-  }, [id, token]);
+  }, [approveConsignorPaymentRelease, id, token]);
 
   const confirmDeclineLayaway = useCallback(async () => {
     if (!id || !token) return;
@@ -341,19 +386,45 @@ export function OrderDetailPage() {
       : "";
 
   const termsFormValid =
-    termsMonthsNumber != null && termsPriceNumber != null && !termsBusy;
+    termsMonthsNumber != null &&
+    termsPriceNumber != null &&
+    termsConsignorPaymentRelease !== "" &&
+    !termsBusy;
+
+  const approvePaymentReleaseOptions = useMemo(
+    () => consignorPaymentReleaseOptions(detail?.layawayMonths ?? null),
+    [detail?.layawayMonths],
+  );
+
+  const termsPaymentReleaseOptions = useMemo(
+    () => consignorPaymentReleaseOptions(termsMonthsNumber),
+    [termsMonthsNumber],
+  );
 
   const openUpdateTermsDialog = useCallback(() => {
     if (!detail) return;
     setTermsError(null);
     setTermsMonths(detail.layawayMonths != null ? String(detail.layawayMonths) : "");
     setTermsPrice(normalizeMoneyInput(detail.layawayPrice));
+    setTermsConsignorPaymentRelease(
+      detail.consignorPaymentRelease != null
+        ? String(detail.consignorPaymentRelease)
+        : "",
+    );
     setTermsConfirmOpen(true);
   }, [detail]);
 
   const confirmUpdateLayawayTerms = useCallback(async () => {
     if (!id || !token || termsMonthsNumber == null || termsPriceNumber == null) {
       setTermsError("Enter valid layaway months and layaway price.");
+      return;
+    }
+    const consignorPaymentRelease = Number.parseInt(
+      termsConsignorPaymentRelease,
+      10,
+    );
+    if (!Number.isFinite(consignorPaymentRelease) || consignorPaymentRelease < 1) {
+      setTermsError("Please select a consignor payment release.");
       return;
     }
 
@@ -368,6 +439,7 @@ export function OrderDetailPage() {
           body: JSON.stringify({
             layawayMonths: termsMonthsNumber,
             layawayPrice: termsPriceNumber.toFixed(2),
+            consignorPaymentRelease,
           }),
         },
         token,
@@ -376,6 +448,7 @@ export function OrderDetailPage() {
       const data = (await res.json()) as OrderDetail;
       setDetail(data);
       setTermsConfirmOpen(false);
+      setTermsConsignorPaymentRelease("");
     } catch (e) {
       setTermsError(
         e instanceof Error ? e.message : "Could not update layaway terms",
@@ -383,7 +456,13 @@ export function OrderDetailPage() {
     } finally {
       setTermsBusy(false);
     }
-  }, [id, termsMonthsNumber, termsPriceNumber, token]);
+  }, [
+    id,
+    termsConsignorPaymentRelease,
+    termsMonthsNumber,
+    termsPriceNumber,
+    token,
+  ]);
 
   const confirmOutForDelivery = useCallback(async () => {
     if (!id || !token) return;
@@ -509,6 +588,7 @@ export function OrderDetailPage() {
               disabled={anyActionBusy}
               onClick={() => {
                 setApproveError(null);
+                setApproveConsignorPaymentRelease("");
                 setApproveConfirmOpen(true);
               }}
             >
@@ -691,6 +771,11 @@ export function OrderDetailPage() {
               <DetailField label="Layaway payment start date">
                 {formatOrderDate(detail.layawayPaymentStartDate)}
               </DetailField>
+              {detail.consignorPaymentRelease != null ? (
+                <DetailField label="Consignor payment release">
+                  {consignorPaymentReleaseLabel(detail.consignorPaymentRelease)}
+                </DetailField>
+              ) : null}
             </>
           ) : null}
           {detail.declineReason ? (
@@ -835,14 +920,41 @@ export function OrderDetailPage() {
       <ConfirmDialog
         open={approveConfirmOpen}
         title="Approve layaway order?"
-        description="The order status will change to For Payment and the layaway payment start date will be set to today."
+        description={
+          <div className="space-y-3">
+            <p>
+              The order status will change to For Payment and the layaway payment
+              start date will be set to today.
+            </p>
+            <label className="block">
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                Consignor payment release
+              </span>
+              <select
+                value={approveConsignorPaymentRelease}
+                onChange={(e) => setApproveConsignorPaymentRelease(e.target.value)}
+                disabled={approveBusy || approvePaymentReleaseOptions.length === 0}
+                className={formSelectClass}
+              >
+                <option value="">Select…</option>
+                {approvePaymentReleaseOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        }
         confirmLabel="Approve"
         cancelLabel="Cancel"
         busy={approveBusy}
+        confirmDisabled={!approveConsignorPaymentRelease}
         errorMessage={approveError}
         onCancel={() => {
           if (approveBusy) return;
           setApproveError(null);
+          setApproveConsignorPaymentRelease("");
           setApproveConfirmOpen(false);
         }}
         onConfirm={confirmApproveLayaway}
@@ -968,6 +1080,7 @@ export function OrderDetailPage() {
                 value={termsMonths}
                 onChange={(e) => {
                   setTermsMonths(e.target.value);
+                  setTermsConsignorPaymentRelease("");
                   if (termsError) setTermsError(null);
                 }}
                 disabled={termsBusy}
@@ -1007,6 +1120,26 @@ export function OrderDetailPage() {
                 placeholder="Calculated automatically"
               />
             </label>
+            <label className="block">
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                Consignor payment release
+              </span>
+              <select
+                value={termsConsignorPaymentRelease}
+                onChange={(e) =>
+                  setTermsConsignorPaymentRelease(e.target.value)
+                }
+                disabled={termsBusy || termsPaymentReleaseOptions.length === 0}
+                className={formSelectClass}
+              >
+                <option value="">Select…</option>
+                {termsPaymentReleaseOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
         }
         confirmLabel="Save terms"
@@ -1017,6 +1150,7 @@ export function OrderDetailPage() {
         onCancel={() => {
           if (termsBusy) return;
           setTermsError(null);
+          setTermsConsignorPaymentRelease("");
           setTermsConfirmOpen(false);
         }}
         onConfirm={confirmUpdateLayawayTerms}

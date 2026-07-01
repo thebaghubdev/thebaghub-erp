@@ -16,6 +16,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { JwtUser } from '../auth/jwt-user';
 import { StaffOnlyGuard } from '../auth/staff-only.guard';
 import type { MulterFile } from '../inquiries/multer-file.type';
+import { ApproveLayawayOrderDto } from './dto/approve-layaway-order.dto';
 import { CancelOrderDto } from './dto/cancel-order.dto';
 import { DeclineLayawayOrderDto } from './dto/decline-layaway-order.dto';
 import { UpdateInstallmentAmountPaidDto } from './dto/update-installment-amount-paid.dto';
@@ -41,8 +42,9 @@ export class OrdersController {
   approveLayaway(
     @Req() req: { user: JwtUser },
     @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ApproveLayawayOrderDto,
   ) {
-    return this.ordersService.approveLayawayForStaff(req.user, id);
+    return this.ordersService.approveLayawayForStaff(req.user, id, dto);
   }
 
   @Post(':id/decline-layaway')
