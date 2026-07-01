@@ -29,6 +29,8 @@ type OrderDetail = {
   remainingBalancePrice: string | null;
   reservationPaymentProofUrl: string | null;
   fullPaymentProofUrl: string | null;
+  shippingFeeCareOf: string | null;
+  shippingFeeProofUrl: string | null;
   holdingPeriod: string | null;
   layawayPaymentStartDate: string | null;
   declineReason: string | null;
@@ -167,6 +169,15 @@ export function OrderDetailPage() {
   const [termsError, setTermsError] = useState<string | null>(null);
   const [termsMonths, setTermsMonths] = useState("");
   const [termsPrice, setTermsPrice] = useState("");
+  const [outForDeliveryOpen, setOutForDeliveryOpen] = useState(false);
+  const [outForDeliveryBusy, setOutForDeliveryBusy] = useState(false);
+  const [outForDeliveryError, setOutForDeliveryError] = useState<string | null>(
+    null,
+  );
+  const [shippingFeeCareOf, setShippingFeeCareOf] = useState("");
+  const [shippingFeeProofFile, setShippingFeeProofFile] = useState<File | null>(
+    null,
+  );
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -374,6 +385,49 @@ export function OrderDetailPage() {
     }
   }, [id, termsMonthsNumber, termsPriceNumber, token]);
 
+  const confirmOutForDelivery = useCallback(async () => {
+    if (!id || !token) return;
+    if (!shippingFeeCareOf) {
+      setOutForDeliveryError("Please select who covers the shipping fee.");
+      return;
+    }
+    if (shippingFeeCareOf === "The Bag Hub" && !shippingFeeProofFile) {
+      setOutForDeliveryError(
+        "Please upload proof of payment for the shipping fee.",
+      );
+      return;
+    }
+
+    setOutForDeliveryError(null);
+    setOutForDeliveryBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append("shippingFeeCareOf", shippingFeeCareOf);
+      if (shippingFeeProofFile) {
+        fd.append("proof", shippingFeeProofFile);
+      }
+      const res = await apiFetch(
+        `/api/orders/${id}/out-for-delivery`,
+        { method: "POST", body: fd },
+        token,
+      );
+      if (!res.ok) throw new Error(await readApiErrorMessage(res));
+      const data = (await res.json()) as OrderDetail;
+      setDetail(data);
+      setOutForDeliveryOpen(false);
+      setShippingFeeCareOf("");
+      setShippingFeeProofFile(null);
+    } catch (e) {
+      setOutForDeliveryError(
+        e instanceof Error
+          ? e.message
+          : "Could not mark order as out for delivery",
+      );
+    } finally {
+      setOutForDeliveryBusy(false);
+    }
+  }, [id, shippingFeeCareOf, shippingFeeProofFile, token]);
+
   if (loading) {
     return (
       <div className="text-sm text-slate-600 dark:text-slate-400">Loading…</div>
@@ -404,8 +458,10 @@ export function OrderDetailPage() {
     declineBusy ||
     termsBusy ||
     cancelBusy ||
-    reservationCancelBusy;
+    reservationCancelBusy ||
+    outForDeliveryBusy;
   const isPaidOrder = detail.status === "Paid";
+  const isOutForDeliveryOrder = detail.status === "Out for delivery";
   const showReservationPaymentProofs =
     detail.paymentType === "full_payment" &&
     (detail.status === "Reservation" ||
@@ -416,7 +472,7 @@ export function OrderDetailPage() {
       (isPaidOrder && detail.reservationPaymentProofUrl == null));
   const showLayawaySchedule =
     detail.paymentType === "layaway" &&
-    (detail.status === "For Payment" || isPaidOrder) &&
+    (detail.status === "For Payment" || isPaidOrder || isOutForDeliveryOrder) &&
     detail.installments.length > 0;
 
   return (
@@ -503,24 +559,41 @@ export function OrderDetailPage() {
         </div>
       ) : null}
 
-      {isCancellableOrderStatus(detail.status) ? (
+      {isCancellableOrderStatus(detail.status) || isPaidOrder ? (
         <div className={cardClass}>
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
             Order actions
           </h2>
-          <div className="mt-4">
-            <button
-              type="button"
-              className={layawayDeclineBtn}
-              disabled={anyActionBusy}
-              onClick={() => {
-                setCancelError(null);
-                setCancelReason("");
-                setCancelConfirmOpen(true);
-              }}
-            >
-              Cancel order
-            </button>
+          <div className="mt-4 flex flex-wrap gap-2">
+            {isPaidOrder ? (
+              <button
+                type="button"
+                className={layawayApproveBtn}
+                disabled={anyActionBusy}
+                onClick={() => {
+                  setOutForDeliveryError(null);
+                  setShippingFeeCareOf("");
+                  setShippingFeeProofFile(null);
+                  setOutForDeliveryOpen(true);
+                }}
+              >
+                Out for delivery
+              </button>
+            ) : null}
+            {isCancellableOrderStatus(detail.status) ? (
+              <button
+                type="button"
+                className={layawayDeclineBtn}
+                disabled={anyActionBusy}
+                onClick={() => {
+                  setCancelError(null);
+                  setCancelReason("");
+                  setCancelConfirmOpen(true);
+                }}
+              >
+                Cancel order
+              </button>
+            ) : null}
           </div>
         </div>
       ) : null}
@@ -532,7 +605,7 @@ export function OrderDetailPage() {
           layawayPrice={detail.layawayPrice}
           installments={detail.installments}
           mode="staff"
-          readOnly={isPaidOrder}
+          readOnly={isPaidOrder || isOutForDeliveryOrder}
           onUpdated={(installments) =>
             setDetail((prev) => (prev ? { ...prev, installments } : prev))
           }
@@ -627,7 +700,27 @@ export function OrderDetailPage() {
               </span>
             </DetailField>
           ) : null}
+          {detail.shippingFeeCareOf ? (
+            <DetailField label="Shipping fee care of">
+              {detail.shippingFeeCareOf}
+            </DetailField>
+          ) : null}
         </dl>
+        {detail.shippingFeeProofUrl ? (
+          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-950/40">
+            <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
+              Shipping fee proof of payment
+            </p>
+            <a
+              href={detail.shippingFeeProofUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-2 inline-flex items-center justify-center rounded-md border border-violet-200 bg-violet-50 px-2 py-1 text-xs font-medium text-violet-900 transition-colors hover:bg-violet-100 focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500 dark:border-violet-800 dark:bg-violet-950/60 dark:text-violet-100 dark:hover:bg-violet-900/80"
+            >
+              View proof
+            </a>
+          </div>
+        ) : null}
         {showReservationPaymentProofs ? (
           <>
             <FullPaymentProofUpload<OrderDetail>
@@ -638,7 +731,7 @@ export function OrderDetailPage() {
               proofUrl={detail.reservationPaymentProofUrl}
               title="Reservation fee proof of payment"
               uploadLabel="Upload reservation proof"
-              readOnly={isPaidOrder}
+              readOnly={isPaidOrder || isOutForDeliveryOrder}
               onUpdated={setDetail}
             />
             <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-950/40">
@@ -656,8 +749,8 @@ export function OrderDetailPage() {
                 proofUrl={detail.fullPaymentProofUrl}
                 title="Remaining balance proof of payment"
                 uploadLabel="Upload remaining balance proof"
-                allowMarkPaid={!isPaidOrder}
-                readOnly={isPaidOrder}
+                allowMarkPaid={!isPaidOrder && !isOutForDeliveryOrder}
+                readOnly={isPaidOrder || isOutForDeliveryOrder}
                 confirmTitle="Mark remaining balance as paid?"
                 confirmDescription="This reservation order will be marked as paid. Make sure the uploaded remaining balance proof has been reviewed."
                 onUpdated={setDetail}
@@ -682,8 +775,8 @@ export function OrderDetailPage() {
                 ? "Upload remaining balance proof"
                 : "Upload proof of payment"
             }
-            allowMarkPaid={!isPaidOrder}
-            readOnly={isPaidOrder}
+            allowMarkPaid={!isPaidOrder && !isOutForDeliveryOrder}
+            readOnly={isPaidOrder || isOutForDeliveryOrder}
             onUpdated={setDetail}
           />
         ) : null}
@@ -928,6 +1021,107 @@ export function OrderDetailPage() {
         }}
         onConfirm={confirmUpdateLayawayTerms}
       />
+
+      {outForDeliveryOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          role="dialog"
+          aria-modal
+          aria-labelledby="out-for-delivery-title"
+          onClick={() => {
+            if (!outForDeliveryBusy) setOutForDeliveryOpen(false);
+          }}
+        >
+          <div
+            className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-700 dark:bg-slate-900"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3
+              id="out-for-delivery-title"
+              className="text-base font-semibold text-slate-900 dark:text-slate-100"
+            >
+              Out for delivery
+            </h3>
+            <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+              The order and inventory item will be marked as out for delivery.
+              Waitlisted clients will be notified that this item is no longer
+              available.
+            </p>
+            <div className="mt-4 space-y-4">
+              <label className="block">
+                <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                  Shipping fee care of
+                </span>
+                <select
+                  value={shippingFeeCareOf}
+                  onChange={(e) => {
+                    setShippingFeeCareOf(e.target.value);
+                    if (e.target.value !== "The Bag Hub") {
+                      setShippingFeeProofFile(null);
+                    }
+                    if (outForDeliveryError) setOutForDeliveryError(null);
+                  }}
+                  disabled={outForDeliveryBusy}
+                  className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-500/30 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                >
+                  <option value="">Select…</option>
+                  <option value="The Bag Hub">The Bag Hub</option>
+                  <option value="Client">Client</option>
+                </select>
+              </label>
+              {shippingFeeCareOf === "The Bag Hub" ? (
+                <label className="block">
+                  <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                    Proof of payment for shipping fee
+                  </span>
+                  <input
+                    type="file"
+                    accept="image/*,application/pdf"
+                    disabled={outForDeliveryBusy}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0] ?? null;
+                      setShippingFeeProofFile(file);
+                      if (outForDeliveryError) setOutForDeliveryError(null);
+                    }}
+                    className="mt-1 block w-full text-sm text-slate-700 file:mr-3 file:rounded-lg file:border-0 file:bg-violet-50 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-violet-900 hover:file:bg-violet-100 disabled:opacity-50 dark:text-slate-300 dark:file:bg-violet-950/60 dark:file:text-violet-100"
+                  />
+                </label>
+              ) : null}
+              {outForDeliveryError ? (
+                <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+                  {outForDeliveryError}
+                </p>
+              ) : null}
+            </div>
+            <div className="mt-5 flex flex-wrap justify-end gap-2 border-t border-slate-200 pt-4 dark:border-slate-700">
+              <button
+                type="button"
+                disabled={outForDeliveryBusy}
+                onClick={() => {
+                  if (outForDeliveryBusy) return;
+                  setOutForDeliveryOpen(false);
+                  setOutForDeliveryError(null);
+                }}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={
+                  outForDeliveryBusy ||
+                  !shippingFeeCareOf ||
+                  (shippingFeeCareOf === "The Bag Hub" && !shippingFeeProofFile)
+                }
+                onClick={() => void confirmOutForDelivery()}
+                className={layawayApproveBtn}
+              >
+                {outForDeliveryBusy ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

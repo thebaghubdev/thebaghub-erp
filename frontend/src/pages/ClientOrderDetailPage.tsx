@@ -108,17 +108,22 @@ export function ClientOrderDetailPage() {
   }
 
   const isPaidOrder = detail.status === "Paid";
+  const isOutForDeliveryOrder = detail.status === "Out for delivery";
   const showReservationPaymentProofs =
     detail.paymentType === "full_payment" &&
     (detail.status === "Reservation" ||
-      (isPaidOrder && detail.reservationPaymentProofUrl != null));
+      ((isPaidOrder || isOutForDeliveryOrder) &&
+        detail.reservationPaymentProofUrl != null));
   const showFullPaymentProof =
     detail.paymentType === "full_payment" &&
     (detail.status === "For Payment" ||
-      (isPaidOrder && detail.reservationPaymentProofUrl == null));
+      ((isPaidOrder || isOutForDeliveryOrder) &&
+        detail.reservationPaymentProofUrl == null));
   const showLayawaySchedule =
     detail.paymentType === "layaway" &&
-    (detail.status === "For Payment" || isPaidOrder) &&
+    (detail.status === "For Payment" ||
+      isPaidOrder ||
+      isOutForDeliveryOrder) &&
     detail.installments.length > 0;
 
   return (
@@ -220,7 +225,7 @@ export function ClientOrderDetailPage() {
               proofUrl={detail.reservationPaymentProofUrl}
               title="Reservation fee proof of payment"
               uploadLabel="Upload reservation proof"
-              readOnly={isPaidOrder}
+              readOnly={isPaidOrder || isOutForDeliveryOrder}
               onUpdated={setDetail}
             />
             <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
@@ -238,7 +243,7 @@ export function ClientOrderDetailPage() {
                 proofUrl={detail.fullPaymentProofUrl}
                 title="Remaining balance proof of payment"
                 uploadLabel="Upload remaining balance proof"
-                readOnly={isPaidOrder}
+                readOnly={isPaidOrder || isOutForDeliveryOrder}
                 onUpdated={setDetail}
               />
             </div>
@@ -261,7 +266,7 @@ export function ClientOrderDetailPage() {
                 ? "Upload remaining balance proof"
                 : "Upload proof of payment"
             }
-            readOnly={isPaidOrder}
+            readOnly={isPaidOrder || isOutForDeliveryOrder}
             onUpdated={setDetail}
           />
         ) : null}
@@ -274,7 +279,7 @@ export function ClientOrderDetailPage() {
           layawayPrice={detail.layawayPrice}
           installments={detail.installments}
           mode="client"
-          readOnly={isPaidOrder}
+          readOnly={isPaidOrder || isOutForDeliveryOrder}
           onUpdated={(installments) =>
             setDetail((prev) => (prev ? { ...prev, installments } : prev))
           }

@@ -80,6 +80,26 @@ export class OrdersController {
     return this.ordersService.markPaidForStaff(req.user, id);
   }
 
+  @Post(':id/out-for-delivery')
+  @UseInterceptors(
+    FileInterceptor('proof', {
+      limits: { fileSize: 10 * 1024 * 1024 },
+    }),
+  )
+  markOutForDelivery(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body('shippingFeeCareOf') shippingFeeCareOf: string | undefined,
+    @UploadedFile() proof: MulterFile | undefined,
+  ) {
+    return this.ordersService.markOutForDeliveryForStaff(
+      req.user,
+      id,
+      shippingFeeCareOf,
+      proof,
+    );
+  }
+
   @Post(':id/full-payment-proof')
   @UseInterceptors(
     FileInterceptor('proof', {

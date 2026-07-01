@@ -1,18 +1,21 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomUUID } from 'crypto';
 import { plainToInstance } from 'class-transformer';
 import { validateOrReject } from 'class-validator';
+import { ConfigService } from '@nestjs/config';
 import { DataSource, Repository } from 'typeorm';
 import { JwtUser } from '../auth/jwt-user';
 import { Client } from '../clients/entities/client.entity';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
 import type { MulterFile } from '../inquiries/multer-file.type';
 import { S3StorageService } from '../inquiries/s3-storage.service';
+import { MailService } from '../mail/mail.service';
 import { CancelOrderDto } from './dto/cancel-order.dto';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { CreateReservationOrderDto } from './dto/create-reservation-order.dto';
@@ -36,18 +39,22 @@ import {
   FULL_PAYMENT_HOLDING_HOURS,
   INVENTORY_STATUS_AVAILABLE_FOR_PURCHASE,
   INVENTORY_STATUS_ON_HOLD,
+  INVENTORY_STATUS_OUT_FOR_DELIVERY,
   LAYAWAY_HOLDING_HOURS,
   ORDER_STATUS_CANCELLED,
   ORDER_STATUS_DECLINED,
   ORDER_STATUS_EXPIRED,
   ORDER_STATUS_FOR_LAYAWAY_APPROVAL,
   ORDER_STATUS_FOR_PAYMENT,
+  ORDER_STATUS_OUT_FOR_DELIVERY,
   ORDER_STATUS_PAID,
   ORDER_STATUS_RESERVATION,
   ORDER_NUMBER_OFFSET,
   PAYMENT_TYPE_FULL,
   PAYMENT_TYPE_LAYAWAY,
   RESERVATION_HOLDING_HOURS,
+  SHIPPING_FEE_CARE_OF_OPTIONS,
+  SHIPPING_FEE_CARE_OF_TBH,
 } from './order-status.constants';
 
 const ALLOWED_IMAGE_MIMES = new Set([
@@ -187,6 +194,8 @@ export type StaffOrderDetail = {
   remainingBalancePrice: string | null;
   reservationPaymentProofUrl: string | null;
   fullPaymentProofUrl: string | null;
+  shippingFeeCareOf: string | null;
+  shippingFeeProofUrl: string | null;
   holdingPeriod: string | null;
   layawayPaymentStartDate: string | null;
   declineReason: string | null;
@@ -264,6 +273,8 @@ function nextOrderNumber(currentMax: number | null): number {
 
 @Injectable()
 export class OrdersService {
+  private readonly logger = new Logger(OrdersService.name);
+
   constructor(
     @InjectRepository(Order)
     private readonly ordersRepo: Repository<Order>,
@@ -277,6 +288,8 @@ export class OrdersService {
     private readonly inventoryRepo: Repository<InventoryItem>,
     private readonly dataSource: DataSource,
     private readonly s3: S3StorageService,
+    private readonly mail: MailService,
+    private readonly config: ConfigService,
   ) {}
 
   private async getInstallmentViewsForOrder(
@@ -285,7 +298,8 @@ export class OrdersService {
     if (
       order.paymentType !== PAYMENT_TYPE_LAYAWAY ||
       (order.status !== ORDER_STATUS_FOR_PAYMENT &&
-        order.status !== ORDER_STATUS_PAID) ||
+        order.status !== ORDER_STATUS_PAID &&
+        order.status !== ORDER_STATUS_OUT_FOR_DELIVERY) ||
       order.layawayMonths == null ||
       order.layawayMonths <= 0
     ) {
@@ -508,6 +522,19 @@ export class OrdersService {
       : null;
   }
 
+  private shippingFeeProofUrl(order: Order): string | null {
+    return order.shippingFeeProofKey
+      ? this.s3.getPublicUrl(order.shippingFeeProofKey)
+      : null;
+  }
+
+  private catalogUrl(): string {
+    const origin = this.config
+      .get<string>('FRONTEND_ORIGIN', 'http://localhost:5173')
+      .replace(/\/$/, '');
+    return `${origin}/catalog`;
+  }
+
   private fullPaymentTotalPrice(order: Order): string | null {
     if (order.status !== ORDER_STATUS_RESERVATION) return order.fullPaymentPrice;
     const itemPrice = parseItemPrice(order.inventoryItem?.tbhSellingPrice);
@@ -691,6 +718,8 @@ export class OrdersService {
       remainingBalancePrice: this.remainingBalancePrice(order),
       reservationPaymentProofUrl: this.reservationPaymentProofUrl(order),
       fullPaymentProofUrl: this.fullPaymentProofUrl(order),
+      shippingFeeCareOf: order.shippingFeeCareOf,
+      shippingFeeProofUrl: this.shippingFeeProofUrl(order),
       holdingPeriod: order.holdingPeriod?.toISOString() ?? null,
       layawayPaymentStartDate: formatOrderDate(order.layawayPaymentStartDate),
       declineReason: order.declineReason,
@@ -932,6 +961,140 @@ export class OrdersService {
     await this.ordersRepo.save(order);
 
     return this.findOneForStaff(id);
+  }
+
+  async markOutForDeliveryForStaff(
+    user: JwtUser,
+    id: string,
+    shippingFeeCareOfRaw: string | undefined,
+    proofFile: MulterFile | undefined,
+  ): Promise<StaffOrderDetail> {
+    const shippingFeeCareOf = shippingFeeCareOfRaw?.trim() ?? '';
+    if (
+      !SHIPPING_FEE_CARE_OF_OPTIONS.includes(
+        shippingFeeCareOf as (typeof SHIPPING_FEE_CARE_OF_OPTIONS)[number],
+      )
+    ) {
+      throw new BadRequestException(
+        'Shipping fee care of must be The Bag Hub or Client',
+      );
+    }
+
+    if (shippingFeeCareOf === SHIPPING_FEE_CARE_OF_TBH) {
+      if (!proofFile?.buffer?.length) {
+        throw new BadRequestException(
+          'Proof of payment for shipping fee is required when The Bag Hub covers shipping',
+        );
+      }
+      const mime = proofFile.mimetype?.toLowerCase() ?? '';
+      if (!ALLOWED_PROOF_MIMES.has(mime)) {
+        throw new BadRequestException(
+          `Proof must be an image or PDF (${proofFile.mimetype || 'unknown'})`,
+        );
+      }
+    }
+
+    let waitlistRecipients: Array<{
+      email: string;
+      firstName: string;
+      itemLabel: string;
+    }> = [];
+
+    await this.dataSource.transaction(async (em) => {
+      const order = await em.findOne(Order, {
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!order) {
+        throw new NotFoundException('Order not found');
+      }
+      if (order.status !== ORDER_STATUS_PAID) {
+        throw new BadRequestException(
+          'Only paid orders can be marked as out for delivery',
+        );
+      }
+
+      const item = await em.findOne(InventoryItem, {
+        where: { id: order.inventoryItemId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!item) {
+        throw new NotFoundException('Inventory item not found');
+      }
+
+      let shippingFeeProofKey: string | null = null;
+      if (shippingFeeCareOf === SHIPPING_FEE_CARE_OF_TBH && proofFile) {
+        const mime = proofFile.mimetype!.toLowerCase();
+        const ext = extFromProofMime(mime);
+        shippingFeeProofKey = `orders/${order.id}/shipping-fee/proof-${randomUUID()}.${ext}`;
+        await this.s3.putObject(shippingFeeProofKey, proofFile.buffer, mime);
+      }
+
+      item.status = INVENTORY_STATUS_OUT_FOR_DELIVERY;
+      item.updatedById = user.userId;
+      await em.save(item);
+
+      order.status = ORDER_STATUS_OUT_FOR_DELIVERY;
+      order.shippingFeeCareOf = shippingFeeCareOf;
+      order.shippingFeeProofKey = shippingFeeProofKey;
+      order.shippingFeeProofUploadedAt =
+        shippingFeeProofKey != null ? new Date() : null;
+      order.shippingFeeProofUploadedByUserId =
+        shippingFeeProofKey != null ? user.userId : null;
+      order.updatedById = user.userId;
+      await em.save(order);
+
+      const waitlistRows = await em.find(Waitlist, {
+        where: { inventoryItemId: item.id },
+        relations: { client: true },
+      });
+      const itemLabel = itemLabelFromSnapshot(item);
+      waitlistRecipients = waitlistRows
+        .filter((row) => row.clientId !== order.customerId)
+        .map((row) => ({
+          email: row.client.email.trim(),
+          firstName: row.client.firstName.trim() || 'there',
+          itemLabel,
+        }));
+
+      if (waitlistRows.length > 0) {
+        await em.delete(Waitlist, { inventoryItemId: item.id });
+      }
+    });
+
+    if (waitlistRecipients.length > 0) {
+      this.notifyWaitlistedClientsItemSold(waitlistRecipients).catch((err) => {
+        this.logger.error(
+          `Failed to notify waitlisted clients for order ${id}`,
+          err instanceof Error ? err.stack : String(err),
+        );
+      });
+    }
+
+    return this.findOneForStaff(id);
+  }
+
+  private async notifyWaitlistedClientsItemSold(
+    recipients: Array<{ email: string; firstName: string; itemLabel: string }>,
+  ): Promise<void> {
+    if (!this.mail.isConfigured()) {
+      this.logger.debug(
+        'MAIL_* not configured; skipping waitlist sold notifications',
+      );
+      return;
+    }
+
+    const catalogUrl = this.catalogUrl();
+    await Promise.all(
+      recipients.map((recipient) =>
+        this.mail.sendWaitlistItemSoldNotice({
+          to: recipient.email,
+          firstName: recipient.firstName,
+          itemLabel: recipient.itemLabel,
+          catalogUrl,
+        }),
+      ),
+    );
   }
 
   async setInstallmentAmountPaidForStaff(

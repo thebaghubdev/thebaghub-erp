@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Client } from '../clients/entities/client.entity';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
 import { InquiriesModule } from '../inquiries/inquiries.module';
+import { MailModule } from '../mail/mail.module';
 import { ClientOrdersController } from './client-orders.controller';
 import { OrdersController } from './orders.controller';
 import { OrderInstallment } from './entities/order-installment.entity';
@@ -14,6 +15,7 @@ import { OrdersService } from './orders.service';
 @Module({
   imports: [
     InquiriesModule,
+    MailModule,
     TypeOrmModule.forFeature([
       Order,
       OrderInstallment,

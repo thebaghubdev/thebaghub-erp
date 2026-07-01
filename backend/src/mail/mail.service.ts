@@ -158,6 +158,51 @@ ${params.viewInquiryUrl}`;
     });
     this.logger.log(`Sent reauthentication request notice to ${params.to}`);
   }
+
+  /** Notifies waitlisted clients that an item they waitlisted has been sold. */
+  async sendWaitlistItemSoldNotice(params: {
+    to: string;
+    firstName: string;
+    itemLabel: string;
+    catalogUrl: string;
+  }): Promise<void> {
+    const fromName =
+      this.config.get<string>('MAIL_FROM_NAME', '')?.trim() || 'The Bag Hub';
+    const fromAddr = this.config.get<string>('MAIL_FROM', '')?.trim();
+    if (!fromAddr) {
+      throw new Error('MAIL_FROM is not set.');
+    }
+    const from = `${fromName} <${fromAddr}>`;
+    const subject = 'Waitlisted item sold — The Bag Hub';
+    const itemWords = params.itemLabel.trim();
+    const itemPhrasePlain = itemWords ? ` (${itemWords})` : '';
+    const itemPhraseHtml = itemWords
+      ? ` <strong>${escapeHtml(itemWords)}</strong>`
+      : '';
+    const text = `Hi ${params.firstName},
+
+The item you waitlisted${itemPhrasePlain} has been purchased by another client and is no longer available.
+
+We encourage you to browse our catalog for more great finds:
+${params.catalogUrl}
+
+Thank you for your interest in The Bag Hub.`;
+
+    const html = `<p>Hi ${escapeHtml(params.firstName)},</p>
+<p>The item you waitlisted${itemPhraseHtml} has been purchased by another client and is no longer available.</p>
+<p>We encourage you to browse our catalog for more great finds:</p>
+<p><a href="${escapeHtml(params.catalogUrl)}">Browse the catalog</a></p>
+<p style="color:#64748b;font-size:12px">Thank you for your interest in The Bag Hub.</p>`;
+
+    await this.getTransporter().sendMail({
+      from,
+      to: params.to,
+      subject,
+      text,
+      html,
+    });
+    this.logger.log(`Sent waitlist sold notice to ${params.to}`);
+  }
 }
 
 function escapeHtml(s: string): string {

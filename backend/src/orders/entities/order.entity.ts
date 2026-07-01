@@ -122,4 +122,34 @@ export class Order extends AuditedEntity {
 
   @Column({ name: 'decline_reason', type: 'text', nullable: true })
   declineReason: string | null;
+
+  @Column({
+    name: 'shipping_fee_care_of',
+    type: 'varchar',
+    length: 32,
+    nullable: true,
+  })
+  shippingFeeCareOf: string | null;
+
+  @Column({
+    name: 'shipping_fee_proof_key',
+    type: 'varchar',
+    length: 512,
+    nullable: true,
+  })
+  shippingFeeProofKey: string | null;
+
+  @Column({
+    name: 'shipping_fee_proof_uploaded_at',
+    type: 'timestamptz',
+    nullable: true,
+  })
+  shippingFeeProofUploadedAt: Date | null;
+
+  @Column({
+    name: 'shipping_fee_proof_uploaded_by_user_id',
+    type: 'uuid',
+    nullable: true,
+  })
+  shippingFeeProofUploadedByUserId: string | null;
 }
