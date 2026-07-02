@@ -41,6 +41,8 @@ import { Order } from './orders/entities/order.entity';
 import { OrderInstallment } from './orders/entities/order-installment.entity';
 import { Waitlist } from './orders/entities/waitlist.entity';
 import { OrdersModule } from './orders/orders.module';
+import { Media } from './media/entities/media.entity';
+import { MediaModule } from './media/media.module';
 
 @Module({
   imports: [
@@ -77,6 +79,7 @@ import { OrdersModule } from './orders/orders.module';
           Order,
           OrderInstallment,
           Waitlist,
+          Media,
         ],
         synchronize:
           config.get<string>('NODE_ENV', 'development') !== 'production',
@@ -95,6 +98,7 @@ import { OrdersModule } from './orders/orders.module';
     ShopifyModule,
     TablePreferencesModule,
     OrdersModule,
+    MediaModule,
   ],
   controllers: [AppController],
   providers: [

@@ -4,6 +4,7 @@ import { Client } from '../clients/entities/client.entity';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
 import { InquiriesModule } from '../inquiries/inquiries.module';
 import { MailModule } from '../mail/mail.module';
+import { MediaModule } from '../media/media.module';
 import { ClientOrdersController } from './client-orders.controller';
 import { OrdersController } from './orders.controller';
 import { OrderInstallment } from './entities/order-installment.entity';
@@ -16,6 +17,7 @@ import { OrdersService } from './orders.service';
   imports: [
     InquiriesModule,
     MailModule,
+    MediaModule,
     TypeOrmModule.forFeature([
       Order,
       OrderInstallment,

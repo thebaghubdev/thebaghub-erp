@@ -9,13 +9,13 @@ import { Client } from '../../clients/entities/client.entity';
 import { AuditedEntity } from '../../common/entities/audited.entity';
 import { InquiryStatus } from '../../enums/inquiry-status.enum';
 
-/** Stored snapshot for the single item on this inquiry row. */
+/** API-facing image reference (resolved from `media` table). */
 export type InquiryItemImage = { key: string; url: string };
 
+/** Stored snapshot for the single item on this inquiry row (form only). */
 export type InquiryItemSnapshot = {
   clientItemId: string;
   form: Record<string, unknown>;
-  images: InquiryItemImage[];
 };
 
 /** Shape of offer confirmation payload / API view (payment + optional bank + signature). */
@@ -28,8 +28,6 @@ export type ClientOfferConfirmationData = {
     bank: 'bdo' | 'bpi' | 'other';
     branch: string;
   } | null;
-  /** S3 object key for uploaded/drawn signature image. */
-  signatureKey?: string;
 };
 
 @Entity('inquiries')
@@ -72,15 +70,6 @@ export class Inquiry extends AuditedEntity {
   })
   originalOfferPrice: string | null;
 
-  /** S3 object key for proof of consignor agreement to repricing. */
-  @Column({
-    name: 'repricing_proof',
-    type: 'varchar',
-    length: 512,
-    nullable: true,
-  })
-  repricingProofKey: string | null;
-
   /** Requested offer price while a posted item is in contract-renewal review. */
   @Column({
     name: 'contract_renewal_requested_price',
@@ -113,15 +102,6 @@ export class Inquiry extends AuditedEntity {
   })
   preferredPaymentBranch: 'pasig' | 'makati' | null;
 
-  /** S3 key for signature image submitted with offer confirmation. */
-  @Column({
-    name: 'offer_signature_key',
-    type: 'varchar',
-    length: 512,
-    nullable: true,
-  })
-  offerSignatureKey: string | null;
-
   /** Internal staff notes (not shown to clients). */
   @Column({ type: 'text', nullable: true })
   notes: string | null;
@@ -145,10 +125,6 @@ export class Inquiry extends AuditedEntity {
   /** Authenticator return-to-coordinator narrative (issues, flaws, damages, etc.). */
   @Column({ name: 'return_reasons', type: 'text', nullable: true })
   returnReasons: string | null;
-
-  /** S3 object keys for photos attached to an authenticator return. */
-  @Column({ name: 'return_photos', type: 'jsonb', nullable: true })
-  returnPhotos: string[] | null;
 
   /** Optional suggested price range lower bound (PHP). */
   @Column({
@@ -181,15 +157,7 @@ export class Inquiry extends AuditedEntity {
   })
   thirdPartyReauthenticationReasons: string | null;
 
-  /** S3 object keys for uploaded proof of payment for 3rd party authentication fee. */
-  @Column({
-    name: 'third_party_payment_proof_keys',
-    type: 'jsonb',
-    nullable: true,
-  })
-  thirdPartyPaymentProofKeys: string[] | null;
-
-  /** One line item per inquiry row (form + uploaded image locations). */
+  /** One line item per inquiry row (form fields only; images in `media`). */
   @Column({ type: 'jsonb', name: 'item_snapshot' })
   itemSnapshot: InquiryItemSnapshot;
 }

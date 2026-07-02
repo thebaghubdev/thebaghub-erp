@@ -9,12 +9,9 @@ import { AuditedEntity } from '../../common/entities/audited.entity';
 import { Employee } from '../../employees/entities/employee.entity';
 import { InventoryItem } from './inventory-item.entity';
 
-export type ThirdPartyAuthenticationData = {
-  selectedAuthenticator: 'LegitGrails' | 'Entrupy' | null;
-  certificateLink: string | null;
-  certificatePhotos: string[];
-  notes: string | null;
-};
+import { ThirdPartyAuthenticationData } from './item-authentication.types';
+
+export type { ThirdPartyAuthenticationData } from './item-authentication.types';
 
 @Entity('item_authentication')
 export class ItemAuthentication extends AuditedEntity {

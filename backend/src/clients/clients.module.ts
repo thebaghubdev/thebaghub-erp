@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module';
+import { MediaModule } from '../media/media.module';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
 import { ItemAuthentication } from '../inventory/entities/item-authentication.entity';
 import { ItemPosting } from '../inventory/entities/item-posting.entity';
@@ -15,6 +16,7 @@ import { Client } from './entities/client.entity';
   imports: [
     TypeOrmModule.forFeature([Client, InventoryItem, ItemAuthentication, ItemPosting, Waitlist]),
     AuthModule,
+    MediaModule,
   ],
   controllers: [ClientProfileController, ClientCatalogController],
   providers: [ClientProfileService, ClientCatalogService],

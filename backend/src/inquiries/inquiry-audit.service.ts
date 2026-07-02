@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import type { EntityManager } from 'typeorm';
 import { Repository } from 'typeorm';
 import { Employee } from '../employees/entities/employee.entity';
+import type { InquiryMediaAuditSnapshot } from '../media/media.types';
 import { Inquiry } from './entities/inquiry.entity';
 import { InquiryAuditEntry } from './entities/inquiry-audit-entry.entity';
 
@@ -56,14 +57,16 @@ export function cloneInquiryForAudit(r: Inquiry): Inquiry {
       contractRenewalRequestedPrice: r.contractRenewalRequestedPrice,
       preferredPaymentMethod: r.preferredPaymentMethod,
       preferredPaymentBranch: r.preferredPaymentBranch,
-      offerSignatureKey: r.offerSignatureKey,
       notes: r.notes,
       itemSnapshot: r.itemSnapshot,
     }),
   ) as Inquiry;
 }
 
-function toAuditState(r: Inquiry): AuditState {
+function toAuditState(
+  r: Inquiry,
+  media?: InquiryMediaAuditSnapshot,
+): AuditState {
   const form = (r.itemSnapshot?.form ?? {}) as Record<string, unknown>;
   const itemForm: Record<string, string> = {};
   for (const k of Object.keys(form)) {
@@ -83,16 +86,14 @@ function toAuditState(r: Inquiry): AuditState {
         : null,
     preferredPaymentMethod: r.preferredPaymentMethod ?? null,
     preferredPaymentBranch: r.preferredPaymentBranch ?? null,
-    offerSignaturePresent: Boolean(r.offerSignatureKey?.trim()),
+    offerSignaturePresent: media?.offerSignaturePresent ?? false,
     notes: (() => {
       if (r.notes == null) return null;
       const t = String(r.notes).trim();
       return t === '' ? null : truncate(t);
     })(),
     itemForm,
-    imageCount: Array.isArray(r.itemSnapshot?.images)
-      ? r.itemSnapshot.images.length
-      : 0,
+    imageCount: media?.imageCount ?? 0,
   };
 }
 
@@ -215,8 +216,13 @@ export class InquiryAuditService {
     after: Inquiry,
     actor: InquiryAuditActor,
     manager?: EntityManager,
+    beforeMedia?: InquiryMediaAuditSnapshot,
+    afterMedia?: InquiryMediaAuditSnapshot,
   ): Promise<void> {
-    const rows = diffStates(toAuditState(before), toAuditState(after));
+    const rows = diffStates(
+      toAuditState(before, beforeMedia),
+      toAuditState(after, afterMedia),
+    );
     if (rows.length === 0) return;
     await this.persistRows(inquiryId, rows, actor, manager);
   }
@@ -227,6 +233,7 @@ export class InquiryAuditService {
     inquiry: Inquiry,
     actor: InquiryAuditActor,
     manager?: EntityManager,
+    media?: InquiryMediaAuditSnapshot,
   ): Promise<void> {
     const empty: AuditState = {
       status: '',
@@ -240,7 +247,7 @@ export class InquiryAuditService {
       itemForm: {},
       imageCount: 0,
     };
-    const rows = diffStates(empty, toAuditState(inquiry));
+    const rows = diffStates(empty, toAuditState(inquiry, media));
     if (rows.length === 0) return;
     await this.persistRows(inquiryId, rows, actor, manager);
   }

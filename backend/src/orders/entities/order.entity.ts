@@ -67,17 +67,6 @@ export class Order extends AuditedEntity {
   })
   fullPaymentPrice: string | null;
 
-  @Column({ name: 'signature_key', type: 'varchar', length: 512, nullable: true })
-  signatureKey: string | null;
-
-  @Column({
-    name: 'reservation_payment_proof_key',
-    type: 'varchar',
-    length: 512,
-    nullable: true,
-  })
-  reservationPaymentProofKey: string | null;
-
   @Column({
     name: 'reservation_payment_proof_uploaded_at',
     type: 'timestamptz',
@@ -91,14 +80,6 @@ export class Order extends AuditedEntity {
     nullable: true,
   })
   reservationPaymentProofUploadedByUserId: string | null;
-
-  @Column({
-    name: 'full_payment_proof_key',
-    type: 'varchar',
-    length: 512,
-    nullable: true,
-  })
-  fullPaymentProofKey: string | null;
 
   @Column({
     name: 'full_payment_proof_uploaded_at',
@@ -133,14 +114,6 @@ export class Order extends AuditedEntity {
     nullable: true,
   })
   shippingFeeCareOf: string | null;
-
-  @Column({
-    name: 'shipping_fee_proof_key',
-    type: 'varchar',
-    length: 512,
-    nullable: true,
-  })
-  shippingFeeProofKey: string | null;
 
   @Column({
     name: 'shipping_fee_proof_uploaded_at',

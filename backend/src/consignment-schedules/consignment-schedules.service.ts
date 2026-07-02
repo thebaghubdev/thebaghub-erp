@@ -97,7 +97,6 @@ function mergeItemFormFromReceive(
   }
   return {
     clientItemId: snapshot.clientItemId,
-    images: Array.isArray(snapshot.images) ? snapshot.images : [],
     form: next,
   };
 }

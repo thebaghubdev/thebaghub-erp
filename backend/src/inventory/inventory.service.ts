@@ -30,7 +30,9 @@ import { AuthenticationMetric } from '../authentication-metrics/entities/authent
 import { CreateItemPhotoshootsDto } from './dto/create-item-photoshoots.dto';
 import { BatchAssignAuthenticatorDto } from './dto/batch-assign-authenticator.dto';
 import type { MulterFile } from '../inquiries/multer-file.type';
-import { S3StorageService } from '../inquiries/s3-storage.service';
+import { MediaOwnerType } from '../enums/media-owner-type.enum';
+import { MediaPurpose } from '../enums/media-purpose.enum';
+import { MediaService } from '../media/media.service';
 import { ItemAuthenticationDetailsDto } from './dto/item-authentication-details.dto';
 import { ItemAuthenticationSnapshotFormDto } from './dto/item-authentication-snapshot-form.dto';
 import { SaveItemAuthenticationMetricsDto } from './dto/save-item-authentication-metrics.dto';
@@ -50,6 +52,7 @@ import {
   type ShopifyCreateProductInput,
   type ShopifyUpdateProductInput,
 } from '../shopify/shopify-admin.service';
+import type { ThirdPartyAuthenticationData } from './entities/item-authentication.types';
 
 const PHOTOSHOOT_ALLOWED_IMAGE_MIMES = new Set([
   'image/jpeg',
@@ -70,23 +73,28 @@ function photoshootExtFromMime(mime: string): string {
   return 'bin';
 }
 
-function parsePhotoshootSnapshotImages(
-  snapshot: Record<string, unknown> | null,
-): Array<{ key: string; url: string }> {
-  if (!snapshot || typeof snapshot !== 'object') return [];
-  const images = snapshot['images'];
-  if (!Array.isArray(images)) return [];
-  const out: Array<{ key: string; url: string }> = [];
-  for (const img of images) {
-    if (!img || typeof img !== 'object') continue;
-    const rec = img as { key?: unknown; url?: unknown };
-    if (typeof rec.key !== 'string' || typeof rec.url !== 'string') continue;
-    const key = rec.key.trim();
-    const url = rec.url.trim();
-    if (!key || !url) continue;
-    out.push({ key, url });
+const MAX_AUTH_METRIC_PHOTO_BYTES = 15 * 1024 * 1024;
+
+function parseImageDataUrl(
+  dataUrl: string,
+): { buffer: Buffer; mime: string } | null {
+  const m = /^data:([^;]+);base64,(.*)$/s.exec(dataUrl.trim());
+  if (!m) return null;
+  const mime = m[1].toLowerCase();
+  if (!PHOTOSHOOT_ALLOWED_IMAGE_MIMES.has(mime)) return null;
+  try {
+    const buffer = Buffer.from(m[2], 'base64');
+    if (buffer.length === 0 || buffer.length > MAX_AUTH_METRIC_PHOTO_BYTES) {
+      return null;
+    }
+    return { buffer, mime };
+  } catch {
+    return null;
   }
-  return out;
+}
+
+function authMetricExtFromMime(mime: string): string {
+  return photoshootExtFromMime(mime);
 }
 
 export type ItemPhotoshootCalendarRow = {
@@ -98,7 +106,7 @@ export type ItemPhotoshootCalendarRow = {
   itemLabel: string;
   inclusions: string;
   consignorName: string | null;
-  /** Saved S3-backed images from `photos_snapshot`. */
+  /** Saved S3-backed photoshoot images from media. */
   photos: Array<{ key: string; url: string }>;
 };
 
@@ -414,68 +422,27 @@ function normalizePriceComparison(value: string | null | undefined): string | nu
   return n.toFixed(2);
 }
 
-function selectedPhotoUrls(value: Array<Record<string, unknown>>): string[] {
-  const urls: string[] = [];
-  for (const photo of value) {
-    const raw = photo.url;
-    if (typeof raw !== 'string') continue;
-    const url = raw.trim();
-    if (url) urls.push(url);
+function selectedPhotoKeys(
+  value: Array<Record<string, unknown>>,
+): Array<{ key: string; position: number }> {
+  const entries: Array<{ key: string; position: number }> = [];
+  for (let i = 0; i < value.length; i++) {
+    const photo = value[i];
+    const key = typeof photo.key === 'string' ? photo.key.trim() : '';
+    if (!key) continue;
+    const rawPosition = Number(photo.position);
+    entries.push({
+      key,
+      position: Number.isFinite(rawPosition) ? rawPosition : i,
+    });
   }
-  return urls;
-}
-
-function mapItemPostingForStaff(posting: ItemPosting): ItemPostingForStaff {
-  return {
-    id: posting.id,
-    postingDate: posting.postingDate
-      ? posting.postingDate.toISOString()
-      : null,
-    productName: posting.productName,
-    collections: posting.collections,
-    tags: posting.tags,
-    priceComparison:
-      posting.priceComparison != null &&
-      String(posting.priceComparison).trim() !== ''
-        ? String(posting.priceComparison)
-        : null,
-    productDescription: posting.productDescription,
-    selectedPhotosSnapshot: posting.selectedPhotosSnapshot,
-    shopifyProductId:
-      posting.shopifyProductId != null &&
-      String(posting.shopifyProductId).trim() !== ''
-        ? String(posting.shopifyProductId).trim()
-        : null,
-    shopifyVariantId:
-      posting.shopifyVariantId != null &&
-      String(posting.shopifyVariantId).trim() !== ''
-        ? String(posting.shopifyVariantId).trim()
-        : null,
-    shopifyPostedAt: posting.shopifyPostedAt
-      ? posting.shopifyPostedAt.toISOString()
-      : null,
-  };
-}
-
-function readShopifyVariantId(raw: unknown): string | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const variants = (raw as Record<string, unknown>).variants;
-  if (!Array.isArray(variants) || variants.length === 0) return null;
-  const first = variants[0];
-  if (!first || typeof first !== 'object') return null;
-  const id = (first as Record<string, unknown>).id;
-  return id != null ? String(id) : null;
-}
-
-function numericShopifyIdForCompare(id: string): string {
-  const trimmed = id.trim();
-  const m = /\/(\d+)$/.exec(trimmed);
-  return m?.[1] ?? trimmed;
+  return entries;
 }
 
 function buildShopifyProductPayload(
   posting: ItemPosting,
   item: InventoryItem,
+  photoUrls: string[],
 ): {
   productName: string;
   price: string;
@@ -515,9 +482,7 @@ function buildShopifyProductPayload(
     productName,
     price,
     variant,
-    images: selectedPhotoUrls(posting.selectedPhotosSnapshot).map((src) => ({
-      src,
-    })),
+    images: photoUrls.map((src) => ({ src })),
     productFields: {
       title: productName,
       body_html: posting.productDescription,
@@ -526,6 +491,22 @@ function buildShopifyProductPayload(
       tags: posting.tags.join(', '),
     },
   };
+}
+
+function readShopifyVariantId(raw: unknown): string | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const variants = (raw as Record<string, unknown>).variants;
+  if (!Array.isArray(variants) || variants.length === 0) return null;
+  const first = variants[0];
+  if (!first || typeof first !== 'object') return null;
+  const id = (first as Record<string, unknown>).id;
+  return id != null ? String(id) : null;
+}
+
+function numericShopifyIdForCompare(id: string): string {
+  const trimmed = id.trim();
+  const m = /\/(\d+)$/.exec(trimmed);
+  return m?.[1] ?? trimmed;
 }
 
 /**
@@ -566,22 +547,16 @@ function isAuthenticatorPosition(position: string): boolean {
   return position.trim().toLowerCase() === 'authenticator';
 }
 
-function normalizeThirdPartyAuthenticationData(
+function normalizeThirdPartyAuthenticationDataForSave(
   raw:
     | {
         selectedAuthenticator?: unknown;
         certificateLink?: unknown;
-        certificatePhotos?: unknown;
         notes?: unknown;
       }
     | null
     | undefined,
-): {
-  selectedAuthenticator: 'LegitGrails' | 'Entrupy' | null;
-  certificateLink: string | null;
-  certificatePhotos: string[];
-  notes: string | null;
-} | null {
+): ThirdPartyAuthenticationData | null {
   if (!raw || typeof raw !== 'object') return null;
   const selectedAuthenticator =
     raw.selectedAuthenticator === 'LegitGrails' ||
@@ -592,11 +567,6 @@ function normalizeThirdPartyAuthenticationData(
     typeof raw.certificateLink === 'string' && raw.certificateLink.trim() !== ''
       ? raw.certificateLink.trim()
       : null;
-  const certificatePhotos = Array.isArray(raw.certificatePhotos)
-    ? raw.certificatePhotos
-        .filter((v): v is string => typeof v === 'string' && v.trim() !== '')
-        .map((v) => v.trim())
-    : [];
   const notes =
     typeof raw.notes === 'string' && raw.notes.trim() !== ''
       ? raw.notes.trim()
@@ -604,12 +574,11 @@ function normalizeThirdPartyAuthenticationData(
   if (
     selectedAuthenticator == null &&
     certificateLink == null &&
-    certificatePhotos.length === 0 &&
     notes == null
   ) {
     return null;
   }
-  return { selectedAuthenticator, certificateLink, certificatePhotos, notes };
+  return { selectedAuthenticator, certificateLink, notes };
 }
 
 function mergeItemAuthenticationFormIntoSnapshot(
@@ -634,7 +603,6 @@ function mergeItemAuthenticationFormIntoSnapshot(
   set('inclusions');
   item.itemSnapshot = {
     clientItemId: base.clientItemId,
-    images: Array.isArray(base.images) ? [...base.images] : [],
     form,
   };
 }
@@ -701,8 +669,94 @@ export class InventoryService {
     private readonly inquiriesService: InquiriesService,
     private readonly notifications: NotificationsService,
     private readonly shopifyAdmin: ShopifyAdminService,
-    private readonly s3: S3StorageService,
+    private readonly media: MediaService,
   ) {}
+
+  private async loadPostingPhotosSnapshot(
+    postingId: string,
+  ): Promise<Array<Record<string, unknown>>> {
+    const rows = await this.media.findByOwner(
+      MediaOwnerType.ITEM_POSTING,
+      postingId,
+      { purpose: MediaPurpose.POSTING_SELECTION, orderBySort: true },
+    );
+    return this.media.toKeyUrlPositionList(rows).map(({ key, url, position }) => ({
+      key,
+      url,
+      position,
+    }));
+  }
+
+  private async loadPostingPhotoUrls(postingId: string): Promise<string[]> {
+    const rows = await this.media.findByOwner(
+      MediaOwnerType.ITEM_POSTING,
+      postingId,
+      { purpose: MediaPurpose.POSTING_SELECTION, orderBySort: true },
+    );
+    return this.media.toUrlList(rows);
+  }
+
+  private async mapItemPostingForStaff(
+    posting: ItemPosting,
+  ): Promise<ItemPostingForStaff> {
+    return {
+      id: posting.id,
+      postingDate: posting.postingDate
+        ? posting.postingDate.toISOString()
+        : null,
+      productName: posting.productName,
+      collections: posting.collections,
+      tags: posting.tags,
+      priceComparison:
+        posting.priceComparison != null &&
+        String(posting.priceComparison).trim() !== ''
+          ? String(posting.priceComparison)
+          : null,
+      productDescription: posting.productDescription,
+      selectedPhotosSnapshot: await this.loadPostingPhotosSnapshot(posting.id),
+      shopifyProductId:
+        posting.shopifyProductId != null &&
+        String(posting.shopifyProductId).trim() !== ''
+          ? String(posting.shopifyProductId).trim()
+          : null,
+      shopifyVariantId:
+        posting.shopifyVariantId != null &&
+        String(posting.shopifyVariantId).trim() !== ''
+          ? String(posting.shopifyVariantId).trim()
+          : null,
+      shopifyPostedAt: posting.shopifyPostedAt
+        ? posting.shopifyPostedAt.toISOString()
+        : null,
+    };
+  }
+
+  private async loadThirdPartyAuthenticationView(
+    auth: ItemAuthentication | null | undefined,
+    inventoryItemId: string,
+  ): Promise<InventoryDetailForStaff['thirdPartyAuthentication']> {
+    const saved = normalizeThirdPartyAuthenticationDataForSave(
+      auth?.thirdPartyAuthenticationData,
+    );
+    const certificatePhotos = this.media.toUrlList(
+      await this.media.findByOwner(
+        MediaOwnerType.INVENTORY_ITEM,
+        inventoryItemId,
+        { purpose: MediaPurpose.CERTIFICATE, orderBySort: true },
+      ),
+    );
+    if (
+      saved == null &&
+      certificatePhotos.length === 0
+    ) {
+      return null;
+    }
+    return {
+      selectedAuthenticator: saved?.selectedAuthenticator ?? null,
+      certificateLink: saved?.certificateLink ?? null,
+      certificatePhotos,
+      notes: saved?.notes ?? null,
+    };
+  }
 
   /**
    * Ensures the actor may edit item-authentication data for this inventory row.
@@ -801,6 +855,14 @@ export class InventoryService {
       updatedById: null,
     });
     await em.save(itemAuth);
+
+    await this.media.copyOwnerMedia(
+      MediaOwnerType.INQUIRY,
+      inquiry.id,
+      MediaOwnerType.INVENTORY_ITEM,
+      inventoryRow.id,
+      MediaPurpose.ITEM_PHOTO,
+    );
   }
 
   /**
@@ -850,12 +912,22 @@ export class InventoryService {
     const rows = await this.itemAuthMetricRepo.find({
       where: { itemAuthenticationId: auth.id },
     });
-    return rows.map((row) => ({
-      authenticationMetricId: row.authenticationMetricId,
-      notes: row.notes,
-      metricStatus: row.metricStatus,
-      photos: row.photos,
-    }));
+    return Promise.all(
+      rows.map(async (row) => {
+        const mediaRows = await this.media.findByOwner(
+          MediaOwnerType.ITEM_AUTHENTICATION_METRIC,
+          row.id,
+          { purpose: MediaPurpose.AUTH_METRIC, orderBySort: true },
+        );
+        const urls = this.media.toUrlList(mediaRows);
+        return {
+          authenticationMetricId: row.authenticationMetricId,
+          notes: row.notes,
+          metricStatus: row.metricStatus,
+          photos: urls.length > 0 ? urls : null,
+        };
+      }),
+    );
   }
 
   async saveItemAuthenticationMetrics(
@@ -896,11 +968,33 @@ export class InventoryService {
       if (dto.authenticationDetails) {
         applyAuthenticationDetailsToEntity(authRow, dto.authenticationDetails);
       }
-      authRow.thirdPartyAuthenticationData = normalizeThirdPartyAuthenticationData(
+      authRow.thirdPartyAuthenticationData = normalizeThirdPartyAuthenticationDataForSave(
         dto.thirdPartyAuthentication,
       );
       authRow.updatedById = actor.userId;
       await em.save(authRow);
+
+      if (dto.thirdPartyAuthentication?.certificatePhotos !== undefined) {
+        const certificatePhotos =
+          dto.thirdPartyAuthentication.certificatePhotos === null
+            ? []
+            : Array.isArray(dto.thirdPartyAuthentication.certificatePhotos)
+              ? dto.thirdPartyAuthentication.certificatePhotos
+              : [];
+        await this.media.replaceAllFromDataUrls(
+          MediaOwnerType.INVENTORY_ITEM,
+          inventoryItemId,
+          MediaPurpose.CERTIFICATE,
+          certificatePhotos,
+          (index, mime) =>
+            `inventory-items/${inventoryItemId}/certificate/${index}-${randomUUID()}.${authMetricExtFromMime(mime)}`,
+          parseImageDataUrl,
+          {
+            uploadedByUserId: actor.userId,
+            createdById: actor.userId,
+          },
+        );
+      }
 
       const itemAuthId = authRow.id;
       for (const row of dto.rows) {
@@ -908,14 +1002,6 @@ export class InventoryService {
           row.notes == null || String(row.notes).trim() === ''
             ? null
             : String(row.notes).trim();
-        const photos =
-          row.photos === undefined
-            ? null
-            : row.photos === null
-              ? null
-              : Array.isArray(row.photos) && row.photos.length > 0
-                ? row.photos
-                : null;
         let existing = await em.findOne(ItemAuthenticationMetric, {
           where: {
             itemAuthenticationId: itemAuthId,
@@ -928,14 +1014,34 @@ export class InventoryService {
             authenticationMetricId: row.authenticationMetricId,
             notes,
             metricStatus: row.metricStatus ?? null,
-            photos,
           });
         } else {
           existing.notes = notes;
           existing.metricStatus = row.metricStatus ?? null;
-          existing.photos = photos;
         }
         await em.save(existing);
+
+        if (row.photos !== undefined) {
+          const photoDataUrls =
+            row.photos === null
+              ? []
+              : Array.isArray(row.photos)
+                ? row.photos
+                : [];
+          await this.media.replaceAllFromDataUrls(
+            MediaOwnerType.ITEM_AUTHENTICATION_METRIC,
+            existing.id,
+            MediaPurpose.AUTH_METRIC,
+            photoDataUrls,
+            (index, mime) =>
+              `item-authentication-metrics/${existing!.id}/${index}-${randomUUID()}.${authMetricExtFromMime(mime)}`,
+            parseImageDataUrl,
+            {
+              uploadedByUserId: actor.userId,
+              createdById: actor.userId,
+            },
+          );
+        }
       }
     });
     return { saved: dto.rows.length };
@@ -1479,9 +1585,19 @@ export class InventoryService {
       posting.tags = tags;
       posting.priceComparison = priceComparison;
       posting.productDescription = productDescription;
-      posting.selectedPhotosSnapshot = selectedPhotosSnapshot;
       posting.updatedById = actorUserId;
       await em.save(posting);
+
+      await this.media.referenceExistingKeys(
+        MediaOwnerType.ITEM_POSTING,
+        posting.id,
+        MediaPurpose.POSTING_SELECTION,
+        selectedPhotoKeys(selectedPhotosSnapshot),
+        {
+          uploadedByUserId: actorUserId,
+          createdById: actorUserId,
+        },
+      );
 
       const shopifyProductId =
         posting.shopifyProductId != null
@@ -1550,8 +1666,9 @@ export class InventoryService {
       assignedToEmployeeId: auth?.assignedToId ?? null,
       assignedToName: formatEmployeeName(auth?.assignedTo ?? null),
       authenticationStatus: auth?.authenticationStatus ?? 'Pending',
-      thirdPartyAuthentication: normalizeThirdPartyAuthenticationData(
-        auth?.thirdPartyAuthenticationData,
+      thirdPartyAuthentication: await this.loadThirdPartyAuthenticationView(
+        auth,
+        id,
       ),
       reauthenticationNotes:
         auth?.reauthenticationNotes != null &&
@@ -1573,7 +1690,7 @@ export class InventoryService {
         clientItemId: r.itemSnapshot.clientItemId,
         form: (r.itemSnapshot.form ?? {}) as Record<string, unknown>,
       },
-      itemPosting: posting ? mapItemPostingForStaff(posting) : null,
+      itemPosting: posting ? await this.mapItemPostingForStaff(posting) : null,
     };
   }
 
@@ -1717,7 +1834,9 @@ export class InventoryService {
       .orderBy('p.photoshootDate', 'ASC')
       .addOrderBy('p.id', 'ASC')
       .getMany();
-    return rows.map((p) => this.mapItemPhotoshootToCalendarRow(p));
+    return Promise.all(
+      rows.map((p) => this.mapItemPhotoshootToCalendarRow(p)),
+    );
   }
 
   async listItemPostingsForStaff(): Promise<ItemPostingCalendarRow[]> {
@@ -1781,7 +1900,6 @@ export class InventoryService {
             tags: [],
             priceComparison: null,
             productDescription: null,
-            selectedPhotosSnapshot: [],
             createdById: actorUserId,
           });
         }
@@ -1819,9 +1937,11 @@ export class InventoryService {
       );
     }
 
+    const photoUrls = await this.loadPostingPhotoUrls(posting.id);
     const { variant, images, productFields } = buildShopifyProductPayload(
       posting,
       item,
+      photoUrls,
     );
     const product: ShopifyCreateProductInput = {
       ...productFields,
@@ -1907,9 +2027,11 @@ export class InventoryService {
         'Shopify product ID is missing. Link an existing Shopify product before updating.',
       );
     }
+    const photoUrls = await this.loadPostingPhotoUrls(posting.id);
     const { variant, images, productFields } = buildShopifyProductPayload(
       posting,
       item,
+      photoUrls,
     );
     const updateVariant: ShopifyUpdateProductInput['variants'][number] = {
       price: variant.price,
@@ -2036,14 +2158,21 @@ export class InventoryService {
     return this.mapItemPhotoshootToCalendarRow(p);
   }
 
-  private mapItemPhotoshootToCalendarRow(
+  private async mapItemPhotoshootToCalendarRow(
     p: ItemPhotoshoot,
-  ): ItemPhotoshootCalendarRow {
+  ): Promise<ItemPhotoshootCalendarRow> {
     const inv = p.inventoryItem;
     const c = inv.consignor;
     const name = c
       ? [c.firstName, c.lastName].filter(Boolean).join(' ').trim()
       : '';
+    const photos = this.media.toKeyUrlList(
+      await this.media.findByOwner(
+        MediaOwnerType.ITEM_PHOTOSHOOT,
+        p.id,
+        { purpose: MediaPurpose.PHOTOSHOOT, orderBySort: true },
+      ),
+    );
     return {
       id: p.id,
       inventoryItemId: inv.id,
@@ -2052,7 +2181,7 @@ export class InventoryService {
       itemLabel: itemLabelFromSnapshot(inv.itemSnapshot),
       inclusions: inclusionsFromSnapshot(inv.itemSnapshot),
       consignorName: name.length > 0 ? name : null,
-      photos: parsePhotoshootSnapshotImages(p.photosSnapshot),
+      photos,
     };
   }
 
@@ -2094,18 +2223,6 @@ export class InventoryService {
       throw new NotFoundException('Photoshoot schedule not found');
     }
 
-    const existingImages = parsePhotoshootSnapshotImages(row.photosSnapshot);
-    const existingByKey = new Map(existingImages.map((i) => [i.key, i]));
-    const retained: Array<{ key: string; url: string }> = [];
-    for (const key of retainKeys) {
-      const img = existingByKey.get(key);
-      if (!img) {
-        throw new BadRequestException(`Unknown image key: ${key}`);
-      }
-      retained.push(img);
-    }
-
-    const newImages: Array<{ key: string; url: string }> = [];
     for (const file of files) {
       const mime = file.mimetype?.toLowerCase() ?? '';
       if (!PHOTOSHOOT_ALLOWED_IMAGE_MIMES.has(mime)) {
@@ -2113,14 +2230,25 @@ export class InventoryService {
           `Unsupported image type: ${file.mimetype || 'unknown'}`,
         );
       }
-      const ext = photoshootExtFromMime(mime);
-      const key = `item-photoshoots/${photoshootId}/${randomUUID()}.${ext}`;
-      await this.s3.putObject(key, file.buffer, mime);
-      newImages.push({ key, url: this.s3.getPublicUrl(key) });
     }
 
-    const merged = [...retained, ...newImages];
-    row.photosSnapshot = { images: merged };
+    await this.media.replaceGallery(
+      MediaOwnerType.ITEM_PHOTOSHOOT,
+      photoshootId,
+      MediaPurpose.PHOTOSHOOT,
+      retainKeys,
+      files,
+      (_index, file) => {
+        const mime = file.mimetype?.toLowerCase() ?? 'image/jpeg';
+        const ext = photoshootExtFromMime(mime);
+        return `item-photoshoots/${photoshootId}/${randomUUID()}.${ext}`;
+      },
+      {
+        uploadedByUserId: actorUserId,
+        createdById: actorUserId,
+      },
+    );
+
     row.updatedById = actorUserId;
     await this.itemPhotoshootRepo.save(row);
 
@@ -2151,10 +2279,14 @@ export class InventoryService {
         `Inventory must be in "${FOR_PHOTOSHOOT_INVENTORY_STATUS}" to finish the photoshoot (current: "${item.status}").`,
       );
     }
-    const images = parsePhotoshootSnapshotImages(row.photosSnapshot);
-    if (images.length < MIN_PHOTOS_TO_FINISH_PHOTOSHOOT) {
+    const photoCount = await this.media.countByOwner(
+      MediaOwnerType.ITEM_PHOTOSHOOT,
+      row.id,
+      MediaPurpose.PHOTOSHOOT,
+    );
+    if (photoCount < MIN_PHOTOS_TO_FINISH_PHOTOSHOOT) {
       throw new BadRequestException(
-        `At least ${MIN_PHOTOS_TO_FINISH_PHOTOSHOOT} photo is required before you can finish the photoshoot (saved: ${images.length}).`,
+        `At least ${MIN_PHOTOS_TO_FINISH_PHOTOSHOOT} photo is required before you can finish the photoshoot (saved: ${photoCount}).`,
       );
     }
     item.status = FOR_PRICING_INVENTORY_STATUS;
@@ -2210,7 +2342,6 @@ export class InventoryService {
               inventoryItem: { id: inventoryItemId } as InventoryItem,
               photoshootDate,
               employeeId: null,
-              photosSnapshot: null,
               createdById: actorUserId,
               updatedById: actorUserId,
             }),

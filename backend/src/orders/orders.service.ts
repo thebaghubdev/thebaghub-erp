@@ -14,7 +14,9 @@ import { JwtUser } from '../auth/jwt-user';
 import { Client } from '../clients/entities/client.entity';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
 import type { MulterFile } from '../inquiries/multer-file.type';
-import { S3StorageService } from '../inquiries/s3-storage.service';
+import { MediaOwnerType } from '../enums/media-owner-type.enum';
+import { MediaPurpose } from '../enums/media-purpose.enum';
+import { MediaService } from '../media/media.service';
 import { MailService } from '../mail/mail.service';
 import { ApproveLayawayOrderDto } from './dto/approve-layaway-order.dto';
 import { CancelOrderDto } from './dto/cancel-order.dto';
@@ -306,7 +308,7 @@ export class OrdersService {
     @InjectRepository(InventoryItem)
     private readonly inventoryRepo: Repository<InventoryItem>,
     private readonly dataSource: DataSource,
-    private readonly s3: S3StorageService,
+    private readonly media: MediaService,
     private readonly mail: MailService,
     private readonly config: ConfigService,
   ) {}
@@ -329,10 +331,21 @@ export class OrdersService {
       where: { orderId: order.id },
       order: { installmentNumber: 'ASC' },
     });
+    const proofUrlByInstallmentId = new Map<string, string | null>();
+    for (const row of rows) {
+      proofUrlByInstallmentId.set(
+        row.id,
+        await this.media.findFirstUrl(
+          MediaOwnerType.ORDER_INSTALLMENT,
+          row.id,
+          MediaPurpose.PAYMENT_PROOF,
+        ),
+      );
+    }
     return computeInstallmentViews(
       rows,
       formatOrderDate(order.layawayPaymentStartDate),
-      (key) => this.s3.getPublicUrl(key),
+      (row) => proofUrlByInstallmentId.get(row.id) ?? null,
     );
   }
 
@@ -367,7 +380,6 @@ export class OrdersService {
         installmentNumber: index + 1,
         scheduledAmount,
         amountPaid: null,
-        proofKey: null,
         proofUploadedAt: null,
         proofUploadedByUserId: null,
         createdById: userId ?? order.updatedById,
@@ -402,7 +414,6 @@ export class OrdersService {
         installmentNumber: i + 1,
         scheduledAmount: scheduledAmounts[i],
         amountPaid: null,
-        proofKey: null,
         proofUploadedAt: null,
         proofUploadedByUserId: null,
         createdById: userId,
@@ -464,25 +475,66 @@ export class OrdersService {
     }
 
     const ext = extFromProofMime(mime);
-    const proofKey = `orders/${order.id}/full-payment/proof-${randomUUID()}.${ext}`;
-    await this.s3.putObject(proofKey, proofFile.buffer, mime);
+    const storageKey = `orders/${order.id}/full-payment/proof-${randomUUID()}.${ext}`;
 
-    const legacyReservationProof =
+    if (
       order.status === ORDER_STATUS_RESERVATION &&
-      order.reservationPaymentProofKey == null
-        ? order.fullPaymentProofKey
-        : null;
+      !(await this.media.hasMedia(
+        MediaOwnerType.ORDER,
+        order.id,
+        MediaPurpose.PAYMENT_PROOF,
+        { proofType: 'reservation' },
+      ))
+    ) {
+      const existingFull = await this.media.findByOwner(
+        MediaOwnerType.ORDER,
+        order.id,
+        {
+          purpose: MediaPurpose.PAYMENT_PROOF,
+          metadata: { proofType: 'full' },
+          orderBySort: true,
+        },
+      );
+      if (existingFull[0]) {
+        await this.media.create({
+          storageKey: existingFull[0].storageKey,
+          contentType: existingFull[0].contentType,
+          byteSize:
+            existingFull[0].byteSize != null
+              ? Number(existingFull[0].byteSize)
+              : null,
+          originalFilename: existingFull[0].originalFilename,
+          ownerType: MediaOwnerType.ORDER,
+          ownerId: order.id,
+          purpose: MediaPurpose.PAYMENT_PROOF,
+          sortOrder: 0,
+          uploadedByUserId: existingFull[0].uploadedByUserId,
+          createdById: existingFull[0].createdById,
+          metadata: { proofType: 'reservation' },
+        });
+        await this.ordersRepo.update(order.id, {
+          reservationPaymentProofUploadedAt: order.fullPaymentProofUploadedAt,
+          reservationPaymentProofUploadedByUserId:
+            order.fullPaymentProofUploadedByUserId,
+          updatedById: user.userId,
+        });
+      }
+    }
+
+    await this.media.replaceSingle(
+      MediaOwnerType.ORDER,
+      order.id,
+      MediaPurpose.PAYMENT_PROOF,
+      proofFile,
+      storageKey,
+      {
+        uploadedByUserId: user.userId,
+        createdById: user.userId,
+        metadata: { proofType: 'full' },
+      },
+    );
 
     await this.ordersRepo.update(order.id, {
-      ...(legacyReservationProof
-        ? {
-            reservationPaymentProofKey: legacyReservationProof,
-            reservationPaymentProofUploadedAt: order.fullPaymentProofUploadedAt,
-            reservationPaymentProofUploadedByUserId:
-              order.fullPaymentProofUploadedByUserId,
-          }
-        : {}),
-      fullPaymentProofKey: proofKey,
       fullPaymentProofUploadedAt: new Date(),
       fullPaymentProofUploadedByUserId: user.userId,
       updatedById: user.userId,
@@ -508,43 +560,81 @@ export class OrdersService {
     }
 
     const ext = extFromProofMime(mime);
-    const proofKey = `orders/${order.id}/reservation/proof-${randomUUID()}.${ext}`;
-    await this.s3.putObject(proofKey, proofFile.buffer, mime);
+    const storageKey = `orders/${order.id}/reservation/proof-${randomUUID()}.${ext}`;
+    await this.media.replaceSingle(
+      MediaOwnerType.ORDER,
+      order.id,
+      MediaPurpose.PAYMENT_PROOF,
+      proofFile,
+      storageKey,
+      {
+        uploadedByUserId: user.userId,
+        createdById: user.userId,
+        metadata: { proofType: 'reservation' },
+      },
+    );
 
     await this.ordersRepo.update(order.id, {
-      reservationPaymentProofKey: proofKey,
       reservationPaymentProofUploadedAt: new Date(),
       reservationPaymentProofUploadedByUserId: user.userId,
       updatedById: user.userId,
     });
   }
 
-  private reservationPaymentProofUrl(order: Order): string | null {
-    const proofKey =
-      order.reservationPaymentProofKey ??
-      (order.status === ORDER_STATUS_RESERVATION
-        ? order.fullPaymentProofKey
-        : null);
-
-    return proofKey ? this.s3.getPublicUrl(proofKey) : null;
+  private async reservationPaymentProofUrl(order: Order): Promise<string | null> {
+    const reservation = await this.media.findFirstUrl(
+      MediaOwnerType.ORDER,
+      order.id,
+      MediaPurpose.PAYMENT_PROOF,
+      { proofType: 'reservation' },
+    );
+    if (reservation) return reservation;
+    if (order.status === ORDER_STATUS_RESERVATION) {
+      return this.media.findFirstUrl(
+        MediaOwnerType.ORDER,
+        order.id,
+        MediaPurpose.PAYMENT_PROOF,
+        { proofType: 'full' },
+      );
+    }
+    return null;
   }
 
-  private fullPaymentProofUrl(order: Order): string | null {
+  private async fullPaymentProofUrl(order: Order): Promise<string | null> {
     if (
       order.status === ORDER_STATUS_RESERVATION &&
-      order.reservationPaymentProofKey == null
+      !(await this.media.hasMedia(
+        MediaOwnerType.ORDER,
+        order.id,
+        MediaPurpose.PAYMENT_PROOF,
+        { proofType: 'reservation' },
+      ))
     ) {
       return null;
     }
-    return order.fullPaymentProofKey
-      ? this.s3.getPublicUrl(order.fullPaymentProofKey)
-      : null;
+    return this.media.findFirstUrl(
+      MediaOwnerType.ORDER,
+      order.id,
+      MediaPurpose.PAYMENT_PROOF,
+      { proofType: 'full' },
+    );
   }
 
-  private shippingFeeProofUrl(order: Order): string | null {
-    return order.shippingFeeProofKey
-      ? this.s3.getPublicUrl(order.shippingFeeProofKey)
-      : null;
+  private async shippingFeeProofUrl(order: Order): Promise<string | null> {
+    return this.media.findFirstUrl(
+      MediaOwnerType.ORDER,
+      order.id,
+      MediaPurpose.PAYMENT_PROOF,
+      { proofType: 'shipping_fee' },
+    );
+  }
+
+  private async signatureUrlForOrder(orderId: string): Promise<string | null> {
+    return this.media.findFirstUrl(
+      MediaOwnerType.ORDER,
+      orderId,
+      MediaPurpose.SIGNATURE,
+    );
   }
 
   private catalogUrl(): string {
@@ -671,13 +761,11 @@ export class OrdersService {
       fullPaymentPrice: order.fullPaymentPrice,
       fullPaymentTotalPrice: this.fullPaymentTotalPrice(order),
       remainingBalancePrice: this.remainingBalancePrice(order),
-      reservationPaymentProofUrl: this.reservationPaymentProofUrl(order),
-      fullPaymentProofUrl: this.fullPaymentProofUrl(order),
+      reservationPaymentProofUrl: await this.reservationPaymentProofUrl(order),
+      fullPaymentProofUrl: await this.fullPaymentProofUrl(order),
       holdingPeriod: order.holdingPeriod?.toISOString() ?? null,
       declineReason: order.declineReason,
-      signatureUrl: order.signatureKey
-        ? this.s3.getPublicUrl(order.signatureKey)
-        : null,
+      signatureUrl: await this.signatureUrlForOrder(order.id),
       createdAt: order.createdAt.toISOString(),
       updatedAt: order.updatedAt.toISOString(),
       inventoryItem: {
@@ -735,17 +823,15 @@ export class OrdersService {
       fullPaymentPrice: order.fullPaymentPrice,
       fullPaymentTotalPrice: this.fullPaymentTotalPrice(order),
       remainingBalancePrice: this.remainingBalancePrice(order),
-      reservationPaymentProofUrl: this.reservationPaymentProofUrl(order),
-      fullPaymentProofUrl: this.fullPaymentProofUrl(order),
+      reservationPaymentProofUrl: await this.reservationPaymentProofUrl(order),
+      fullPaymentProofUrl: await this.fullPaymentProofUrl(order),
       shippingFeeCareOf: order.shippingFeeCareOf,
-      shippingFeeProofUrl: this.shippingFeeProofUrl(order),
+      shippingFeeProofUrl: await this.shippingFeeProofUrl(order),
       holdingPeriod: order.holdingPeriod?.toISOString() ?? null,
       layawayPaymentStartDate: formatOrderDate(order.layawayPaymentStartDate),
       consignorPaymentRelease: order.consignorPaymentRelease,
       declineReason: order.declineReason,
-      signatureUrl: order.signatureKey
-        ? this.s3.getPublicUrl(order.signatureKey)
-        : null,
+      signatureUrl: await this.signatureUrlForOrder(order.id),
       createdAt: order.createdAt.toISOString(),
       updatedAt: order.updatedAt.toISOString(),
       customer: {
@@ -1007,7 +1093,14 @@ export class OrdersService {
           'Only full payment orders awaiting payment or reserved can be marked as paid',
         );
       }
-      if (!order.fullPaymentProofKey) {
+      if (
+        !(await this.media.hasMedia(
+          MediaOwnerType.ORDER,
+          order.id,
+          MediaPurpose.PAYMENT_PROOF,
+          { proofType: 'full' },
+        ))
+      ) {
         throw new BadRequestException(
           'Upload proof of payment before marking this order as paid',
         );
@@ -1082,12 +1175,27 @@ export class OrdersService {
         throw new NotFoundException('Inventory item not found');
       }
 
-      let shippingFeeProofKey: string | null = null;
       if (shippingFeeCareOf === SHIPPING_FEE_CARE_OF_TBH && proofFile) {
         const mime = proofFile.mimetype!.toLowerCase();
         const ext = extFromProofMime(mime);
-        shippingFeeProofKey = `orders/${order.id}/shipping-fee/proof-${randomUUID()}.${ext}`;
-        await this.s3.putObject(shippingFeeProofKey, proofFile.buffer, mime);
+        const storageKey = `orders/${order.id}/shipping-fee/proof-${randomUUID()}.${ext}`;
+        await this.media.replaceSingle(
+          MediaOwnerType.ORDER,
+          order.id,
+          MediaPurpose.PAYMENT_PROOF,
+          proofFile,
+          storageKey,
+          {
+            uploadedByUserId: user.userId,
+            createdById: user.userId,
+            metadata: { proofType: 'shipping_fee' },
+          },
+        );
+        order.shippingFeeProofUploadedAt = new Date();
+        order.shippingFeeProofUploadedByUserId = user.userId;
+      } else {
+        order.shippingFeeProofUploadedAt = null;
+        order.shippingFeeProofUploadedByUserId = null;
       }
 
       item.status = INVENTORY_STATUS_OUT_FOR_DELIVERY;
@@ -1096,11 +1204,6 @@ export class OrdersService {
 
       order.status = ORDER_STATUS_OUT_FOR_DELIVERY;
       order.shippingFeeCareOf = shippingFeeCareOf;
-      order.shippingFeeProofKey = shippingFeeProofKey;
-      order.shippingFeeProofUploadedAt =
-        shippingFeeProofKey != null ? new Date() : null;
-      order.shippingFeeProofUploadedByUserId =
-        shippingFeeProofKey != null ? user.userId : null;
       order.updatedById = user.userId;
       await em.save(order);
 
@@ -1285,16 +1388,25 @@ export class OrdersService {
       );
     }
 
-    await this.findInstallmentForOrder(orderId, installmentNumber);
+    const installment = await this.findInstallmentForOrder(orderId, installmentNumber);
 
     const ext = extFromProofMime(mime);
-    const proofKey = `orders/${orderId}/installments/${installmentNumber}/proof-${randomUUID()}.${ext}`;
-    await this.s3.putObject(proofKey, proofFile.buffer, mime);
+    const storageKey = `orders/${orderId}/installments/${installmentNumber}/proof-${randomUUID()}.${ext}`;
+    await this.media.replaceSingle(
+      MediaOwnerType.ORDER_INSTALLMENT,
+      installment.id,
+      MediaPurpose.PAYMENT_PROOF,
+      proofFile,
+      storageKey,
+      {
+        uploadedByUserId: user.userId,
+        createdById: user.userId,
+      },
+    );
 
     await this.installmentsRepo.update(
       { orderId, installmentNumber },
       {
-        proofKey,
         proofUploadedAt: new Date(),
         proofUploadedByUserId: user.userId,
         updatedById: user.userId,
@@ -1337,16 +1449,25 @@ export class OrdersService {
       );
     }
 
-    await this.findInstallmentForOrder(orderId, installmentNumber);
+    const installment = await this.findInstallmentForOrder(orderId, installmentNumber);
 
     const ext = extFromProofMime(mime);
-    const proofKey = `orders/${orderId}/installments/${installmentNumber}/proof-${randomUUID()}.${ext}`;
-    await this.s3.putObject(proofKey, proofFile.buffer, mime);
+    const storageKey = `orders/${orderId}/installments/${installmentNumber}/proof-${randomUUID()}.${ext}`;
+    await this.media.replaceSingle(
+      MediaOwnerType.ORDER_INSTALLMENT,
+      installment.id,
+      MediaPurpose.PAYMENT_PROOF,
+      proofFile,
+      storageKey,
+      {
+        uploadedByUserId: user.userId,
+        createdById: user.userId,
+      },
+    );
 
     await this.installmentsRepo.update(
       { orderId, installmentNumber },
       {
-        proofKey,
         proofUploadedAt: new Date(),
         proofUploadedByUserId: user.userId,
         updatedById: user.userId,
@@ -1442,7 +1563,17 @@ export class OrdersService {
     const ext = extFromMime(mime);
     const orderId = randomUUID();
     const signatureKey = `orders/${orderId}/signature-${randomUUID()}.${ext}`;
-    await this.s3.putObject(signatureKey, signatureFile.buffer, mime);
+    await this.media.replaceSingle(
+      MediaOwnerType.ORDER,
+      orderId,
+      MediaPurpose.SIGNATURE,
+      signatureFile,
+      signatureKey,
+      {
+        uploadedByUserId: user.userId,
+        createdById: user.userId,
+      },
+    );
 
     const saved = await this.dataSource.transaction(async (em) => {
       await em.query('SELECT pg_advisory_xact_lock($1)', [834729105]);
@@ -1467,7 +1598,6 @@ export class OrdersService {
         layawayPrice,
         layawayMonthlyPayment,
         fullPaymentPrice,
-        signatureKey,
         holdingPeriod: addHours(createdAt, holdingHours),
         createdById: user.userId,
         updatedById: user.userId,
@@ -1549,8 +1679,29 @@ export class OrdersService {
     const orderId = randomUUID();
     const signatureKey = `orders/${orderId}/signature-${randomUUID()}.${extFromMime(signatureMime)}`;
     const proofKey = `orders/${orderId}/reservation/proof-${randomUUID()}.${extFromProofMime(proofMime)}`;
-    await this.s3.putObject(signatureKey, signatureFile.buffer, signatureMime);
-    await this.s3.putObject(proofKey, proofFile.buffer, proofMime);
+    await this.media.replaceSingle(
+      MediaOwnerType.ORDER,
+      orderId,
+      MediaPurpose.SIGNATURE,
+      signatureFile,
+      signatureKey,
+      {
+        uploadedByUserId: user.userId,
+        createdById: user.userId,
+      },
+    );
+    await this.media.replaceSingle(
+      MediaOwnerType.ORDER,
+      orderId,
+      MediaPurpose.PAYMENT_PROOF,
+      proofFile,
+      proofKey,
+      {
+        uploadedByUserId: user.userId,
+        createdById: user.userId,
+        metadata: { proofType: 'reservation' },
+      },
+    );
 
     const saved = await this.dataSource.transaction(async (em) => {
       await em.query('SELECT pg_advisory_xact_lock($1)', [834729105]);
@@ -1575,10 +1726,8 @@ export class OrdersService {
         layawayPrice: null,
         layawayMonthlyPayment: null,
         fullPaymentPrice: formatDecimal(RESERVATION_FEE),
-        reservationPaymentProofKey: proofKey,
         reservationPaymentProofUploadedAt: createdAt,
         reservationPaymentProofUploadedByUserId: user.userId,
-        signatureKey,
         holdingPeriod: addHours(createdAt, RESERVATION_HOLDING_HOURS),
         createdById: user.userId,
         updatedById: user.userId,

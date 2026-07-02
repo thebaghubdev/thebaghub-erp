@@ -42,9 +42,6 @@ export class OrderInstallment extends AuditedEntity {
   })
   amountPaid: string | null;
 
-  @Column({ name: 'proof_key', type: 'varchar', length: 512, nullable: true })
-  proofKey: string | null;
-
   @Column({ name: 'proof_uploaded_at', type: 'timestamptz', nullable: true })
   proofUploadedAt: Date | null;
 

@@ -34,7 +34,4 @@ export class ItemPhotoshoot extends AuditedEntity {
 
   @Column({ name: 'photoshoot_date', type: 'date' })
   photoshootDate: Date;
-
-  @Column({ name: 'photos_snapshot', type: 'jsonb', nullable: true })
-  photosSnapshot: Record<string, unknown> | null;
 }

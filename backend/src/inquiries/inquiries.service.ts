@@ -39,7 +39,10 @@ import {
   InquiryItemSnapshot,
 } from './entities/inquiry.entity';
 import type { MulterFile } from './multer-file.type';
-import { S3StorageService } from './s3-storage.service';
+import { MediaOwnerType } from '../enums/media-owner-type.enum';
+import { MediaPurpose } from '../enums/media-purpose.enum';
+import type { InquiryMediaAuditSnapshot } from '../media/media.types';
+import { MediaService } from '../media/media.service';
 import { CONSIGNMENT_COORDINATOR_POSITION } from '../notifications/notification.constants';
 import { NotificationsService } from '../notifications/notifications.service';
 
@@ -293,7 +296,7 @@ export class InquiriesService {
     private readonly scheduleItemRepo: Repository<ConsignmentScheduleItem>,
     @InjectRepository(Setting)
     private readonly settingsRepo: Repository<Setting>,
-    private readonly s3: S3StorageService,
+    private readonly media: MediaService,
     private readonly inquiryAudit: InquiryAuditService,
     @Inject(forwardRef(() => InventoryService))
     private readonly inventoryService: InventoryService,
@@ -301,6 +304,24 @@ export class InquiriesService {
     private readonly mail: MailService,
     private readonly config: ConfigService,
   ) {}
+
+  private async inquiryMediaAudit(
+    inquiryId: string,
+  ): Promise<InquiryMediaAuditSnapshot> {
+    const [imageCount, offerSignaturePresent] = await Promise.all([
+      this.media.countByOwner(
+        MediaOwnerType.INQUIRY,
+        inquiryId,
+        MediaPurpose.ITEM_PHOTO,
+      ),
+      this.media.hasMedia(
+        MediaOwnerType.INQUIRY,
+        inquiryId,
+        MediaPurpose.SIGNATURE,
+      ),
+    ]);
+    return { imageCount, offerSignaturePresent };
+  }
 
   /** Client portal URL for this inquiry (consignor reviews / confirms offer). */
   private consignorInquiryUrl(inquiryId: string): string {
@@ -443,11 +464,19 @@ export class InquiriesService {
     };
   }
 
-  /** Builds API view from `preferred_payment_method`, `offer_signature_key`, and client bank fields. */
-  private mapClientOfferConfirmationForApi(
+  /** Builds API view from `preferred_payment_method` and signature media. */
+  private async mapClientOfferConfirmationForApi(
     r: Inquiry,
-  ): ClientOfferConfirmationView | null {
-    if (!r.preferredPaymentMethod || !r.offerSignatureKey) {
+  ): Promise<ClientOfferConfirmationView | null> {
+    if (!r.preferredPaymentMethod) {
+      return null;
+    }
+    const signatureUrl = await this.media.findFirstUrl(
+      MediaOwnerType.INQUIRY,
+      r.id,
+      MediaPurpose.SIGNATURE,
+    );
+    if (!signatureUrl) {
       return null;
     }
     const consignor = r.consignor;
@@ -470,14 +499,29 @@ export class InquiriesService {
       paymentMethod: r.preferredPaymentMethod,
       paymentBranch: r.preferredPaymentBranch ?? null,
       bankDetails,
-      signatureUrl: this.s3.getPublicUrl(r.offerSignatureKey),
+      signatureUrl,
     };
   }
 
-  private mapInquiryToStaffRow(r: Inquiry): StaffInquiryRow {
+  private async mapInquiryToStaffRowAsync(
+    r: Inquiry,
+    photoCount?: number,
+  ): Promise<StaffInquiryRow> {
     const form = (r.itemSnapshot?.form ?? {}) as Record<string, unknown>;
     const c = r.consignor;
     const name = c ? `${c.firstName ?? ''} ${c.lastName ?? ''}`.trim() : '';
+    const resolvedPhotoCount =
+      photoCount ??
+      (await this.media.countByOwner(
+        MediaOwnerType.INQUIRY,
+        r.id,
+        MediaPurpose.ITEM_PHOTO,
+      ));
+    const repricingProofUrl = await this.media.findFirstUrl(
+      MediaOwnerType.INQUIRY,
+      r.id,
+      MediaPurpose.REPRICING_PROOF,
+    );
     return {
       id: r.id,
       sku: r.sku,
@@ -499,9 +543,7 @@ export class InquiriesService {
         snapshotFormString(form, 'directPurchaseSellingPrice') || '—',
       consentDirectPurchase: Boolean(form.consentDirectPurchase),
       consentPriceNomination: Boolean(form.consentPriceNomination),
-      photoCount: Array.isArray(r.itemSnapshot?.images)
-        ? r.itemSnapshot.images.length
-        : 0,
+      photoCount: resolvedPhotoCount,
       offerTransactionType: r.offerTransactionType ?? null,
       offerPrice:
         r.offerPrice != null && r.offerPrice !== ''
@@ -516,11 +558,8 @@ export class InquiriesService {
         r.contractRenewalRequestedPrice !== ''
           ? String(r.contractRenewalRequestedPrice)
           : null,
-      repricingProofUrl:
-        r.repricingProofKey != null && r.repricingProofKey.trim() !== ''
-          ? this.s3.getPublicUrl(r.repricingProofKey)
-          : null,
-      clientOfferConfirmation: this.mapClientOfferConfirmationForApi(r),
+      repricingProofUrl,
+      clientOfferConfirmation: await this.mapClientOfferConfirmationForApi(r),
       notes: (() => {
         if (r.notes == null) return null;
         const t = String(r.notes).trim();
@@ -547,7 +586,16 @@ export class InquiriesService {
       order: { createdAt: 'DESC' },
       relations: { consignor: true },
     });
-    return rows.map((r) => this.mapInquiryToStaffRow(r));
+    const photoCounts = await this.media.countByOwners(
+      MediaOwnerType.INQUIRY,
+      rows.map((r) => r.id),
+      MediaPurpose.ITEM_PHOTO,
+    );
+    return Promise.all(
+      rows.map((r) =>
+        this.mapInquiryToStaffRowAsync(r, photoCounts.get(r.id) ?? 0),
+      ),
+    );
   }
 
   private parseInquiryStatusFilter(raw: string): InquiryStatus {
@@ -568,14 +616,13 @@ export class InquiriesService {
     if (!r) {
       throw new NotFoundException('Inquiry not found');
     }
-    const base = this.mapInquiryToStaffRow(r);
-    const rawImages = Array.isArray(r.itemSnapshot?.images)
-      ? r.itemSnapshot.images
-      : [];
-    const images = rawImages.map((img) => ({
-      key: img.key,
-      url: this.s3.getPublicUrl(img.key),
-    }));
+    const base = await this.mapInquiryToStaffRowAsync(r);
+    const itemPhotos = await this.media.findByOwner(
+      MediaOwnerType.INQUIRY,
+      r.id,
+      { purpose: MediaPurpose.ITEM_PHOTO, orderBySort: true },
+    );
+    const images = this.media.toKeyUrlList(itemPhotos);
     const linkedInv = await this.inventoryItemRepo.findOne({
       where: { inquiryId: r.id },
       select: { id: true, status: true },
@@ -587,25 +634,28 @@ export class InquiriesService {
       String(r.thirdPartyReauthenticationReasons).trim() !== ''
         ? String(r.thirdPartyReauthenticationReasons).trim()
         : null;
-    const thirdPartyPaymentProofUrls =
-      this.inquiryIsInThirdPartyPaymentFlow(r.status) &&
-      Array.isArray(r.thirdPartyPaymentProofKeys)
-        ? r.thirdPartyPaymentProofKeys
-            .filter(
-              (k): k is string => typeof k === 'string' && k.trim() !== '',
-            )
-            .map((k) => this.s3.getPublicUrl(k))
-        : [];
+    const thirdPartyPaymentProofUrls = this.inquiryIsInThirdPartyPaymentFlow(
+      r.status,
+    )
+      ? this.media.toUrlList(
+          await this.media.findByOwner(MediaOwnerType.INQUIRY, r.id, {
+            purpose: MediaPurpose.THIRD_PARTY_PAYMENT,
+            orderBySort: true,
+          }),
+        )
+      : [];
 
-    const thirdPartyIssuePhotoUrls =
-      this.inquiryIsInThirdPartyPaymentFlow(r.status) &&
-      Array.isArray(r.returnPhotos)
-        ? r.returnPhotos
-            .filter(
-              (k): k is string => typeof k === 'string' && k.trim() !== '',
-            )
-            .map((k) => this.s3.getPublicUrl(k))
-        : [];
+    const thirdPartyIssuePhotoUrls = this.inquiryIsInThirdPartyPaymentFlow(
+      r.status,
+    )
+      ? this.media.toUrlList(
+          await this.media.findByOwner(MediaOwnerType.INQUIRY, r.id, {
+            purpose: MediaPurpose.AUTH_RETURN,
+            metadata: { context: 'third_party_request' },
+            orderBySort: true,
+          }),
+        )
+      : [];
 
     let thirdPartyReauthenticationNotes: string | null = null;
     if (linkedInv?.id && this.inquiryIsInThirdPartyPaymentFlow(r.status)) {
@@ -639,11 +689,13 @@ export class InquiriesService {
     ) {
       const authenticationSummary =
         await this.inventoryService.getAuthenticationSummaryForInquiry(r.id);
-      const rawKeys = Array.isArray(r.returnPhotos)
-        ? r.returnPhotos.filter(
-            (k): k is string => typeof k === 'string' && k.trim() !== '',
-          )
-        : [];
+      const returnPhotoUrls = this.media.toUrlList(
+        await this.media.findByOwner(MediaOwnerType.INQUIRY, r.id, {
+          purpose: MediaPurpose.AUTH_RETURN,
+          metadata: { context: 'coordinator_return' },
+          orderBySort: true,
+        }),
+      );
       detail.authenticatedReturnDetail = {
         authenticationSummary,
         priceRangeMin:
@@ -658,7 +710,7 @@ export class InquiriesService {
           r.returnReasons != null && String(r.returnReasons).trim() !== ''
             ? String(r.returnReasons).trim()
             : null,
-        returnPhotoUrls: rawKeys.map((key) => this.s3.getPublicUrl(key)),
+        returnPhotoUrls,
       };
     }
     return detail;
@@ -717,15 +769,14 @@ export class InquiriesService {
     if (!r) {
       throw new NotFoundException('Inquiry not found');
     }
-    const base = this.mapInquiryToStaffRow(r);
+    const base = await this.mapInquiryToStaffRowAsync(r);
     const { notes: _notes, ...rest } = base;
-    const rawImages = Array.isArray(r.itemSnapshot?.images)
-      ? r.itemSnapshot.images
-      : [];
-    const images = rawImages.map((img) => ({
-      key: img.key,
-      url: this.s3.getPublicUrl(img.key),
-    }));
+    const itemPhotos = await this.media.findByOwner(
+      MediaOwnerType.INQUIRY,
+      r.id,
+      { purpose: MediaPurpose.ITEM_PHOTO, orderBySort: true },
+    );
+    const images = this.media.toKeyUrlList(itemPhotos);
     const deliverySchedule = await this.loadDeliveryScheduleForInquiry(
       r.id,
       r.status,
@@ -737,24 +788,27 @@ export class InquiriesService {
         ? String(r.thirdPartyReauthenticationReasons).trim()
         : null;
 
-    const thirdPartyPaymentProofUrls =
-      this.inquiryIsInThirdPartyPaymentFlow(r.status) &&
-      Array.isArray(r.thirdPartyPaymentProofKeys)
-        ? r.thirdPartyPaymentProofKeys
-            .filter(
-              (k): k is string => typeof k === 'string' && k.trim() !== '',
-            )
-            .map((k) => this.s3.getPublicUrl(k))
-        : [];
-    const thirdPartyIssuePhotoUrls =
-      this.inquiryIsInThirdPartyPaymentFlow(r.status) &&
-      Array.isArray(r.returnPhotos)
-        ? r.returnPhotos
-            .filter(
-              (k): k is string => typeof k === 'string' && k.trim() !== '',
-            )
-            .map((k) => this.s3.getPublicUrl(k))
-        : [];
+    const thirdPartyPaymentProofUrls = this.inquiryIsInThirdPartyPaymentFlow(
+      r.status,
+    )
+      ? this.media.toUrlList(
+          await this.media.findByOwner(MediaOwnerType.INQUIRY, r.id, {
+            purpose: MediaPurpose.THIRD_PARTY_PAYMENT,
+            orderBySort: true,
+          }),
+        )
+      : [];
+    const thirdPartyIssuePhotoUrls = this.inquiryIsInThirdPartyPaymentFlow(
+      r.status,
+    )
+      ? this.media.toUrlList(
+          await this.media.findByOwner(MediaOwnerType.INQUIRY, r.id, {
+            purpose: MediaPurpose.AUTH_RETURN,
+            metadata: { context: 'third_party_request' },
+            orderBySort: true,
+          }),
+        )
+      : [];
     const linkedInvClient = await this.inventoryItemRepo.findOne({
       where: { inquiryId: r.id },
       select: { id: true },
@@ -813,9 +867,6 @@ export class InquiriesService {
         'Proof of payment can only be uploaded while reauthentication payment is pending',
       );
     }
-    const existing = Array.isArray(r.thirdPartyPaymentProofKeys)
-      ? [...r.thirdPartyPaymentProofKeys]
-      : [];
     for (const file of files) {
       const mime = file.mimetype?.toLowerCase() ?? '';
       if (!ALLOWED_IMAGE_MIMES.has(mime)) {
@@ -823,13 +874,19 @@ export class InquiriesService {
           `Unsupported image type: ${file.mimetype || 'unknown'}`,
         );
       }
-      const ext = extFromMime(mime);
-      const key = `inquiries/${inquiryId}/third-party-payment/${randomUUID()}.${ext}`;
-      await this.s3.putObject(key, file.buffer, mime);
-      existing.push(key);
     }
     const before = cloneInquiryForAudit(r);
-    r.thirdPartyPaymentProofKeys = existing;
+    await this.media.appendFiles(
+      MediaOwnerType.INQUIRY,
+      inquiryId,
+      MediaPurpose.THIRD_PARTY_PAYMENT,
+      files,
+      (_i, file) => {
+        const mime = file.mimetype.toLowerCase();
+        return `inquiries/${inquiryId}/third-party-payment/${randomUUID()}.${extFromMime(mime)}`;
+      },
+      { uploadedByUserId: user.userId },
+    );
     r.updatedById = user.userId;
     await this.inquiriesRepo.save(r);
     const label = await this.inquiryAudit.staffActorLabel(user.userId);
@@ -855,10 +912,12 @@ export class InquiriesService {
         'Inquiry is not waiting for reauthentication payment',
       );
     }
-    if (
-      !Array.isArray(r0.thirdPartyPaymentProofKeys) ||
-      r0.thirdPartyPaymentProofKeys.length === 0
-    ) {
+    const hasProof = await this.media.hasMedia(
+      MediaOwnerType.INQUIRY,
+      inquiryId,
+      MediaPurpose.THIRD_PARTY_PAYMENT,
+    );
+    if (!hasProof) {
       throw new BadRequestException(
         'Upload proof of payment before marking this inquiry as paid',
       );
@@ -991,10 +1050,6 @@ export class InquiriesService {
       );
     }
 
-    const existing = Array.isArray(r.itemSnapshot?.images)
-      ? [...r.itemSnapshot.images]
-      : [];
-
     for (const file of files) {
       const mime = file.mimetype?.toLowerCase() ?? '';
       if (!ALLOWED_IMAGE_MIMES.has(mime)) {
@@ -1002,18 +1057,18 @@ export class InquiriesService {
           `Unsupported image type: ${file.mimetype || 'unknown'}`,
         );
       }
-      const ext = extFromMime(mime);
-      const key = `inquiries/${inquiryId}/${randomUUID()}.${ext}`;
-      await this.s3.putObject(key, file.buffer, mime);
-      existing.push({ key, url: this.s3.getPublicUrl(key) });
     }
 
-    r.itemSnapshot = {
-      clientItemId: r.itemSnapshot.clientItemId,
-      form: r.itemSnapshot.form ?? {},
-      images: existing,
-    };
-    await this.inquiriesRepo.save(r);
+    await this.media.appendFiles(
+      MediaOwnerType.INQUIRY,
+      inquiryId,
+      MediaPurpose.ITEM_PHOTO,
+      files,
+      (_i, file) => {
+        const mime = file.mimetype.toLowerCase();
+        return `inquiries/${inquiryId}/${randomUUID()}.${extFromMime(mime)}`;
+      },
+    );
     return this.findOneForClient(user, inquiryId);
   }
 
@@ -1072,6 +1127,8 @@ export class InquiriesService {
       throw new BadRequestException('No offer is available to confirm');
     }
 
+    const beforeMedia = await this.inquiryMediaAudit(inquiryId);
+
     let bankDetails: ClientOfferConfirmationData['bankDetails'] = null;
     let paymentBranch: ClientOfferConfirmationData['paymentBranch'] = null;
     if (dto.paymentMethod === 'direct_deposit') {
@@ -1095,7 +1152,14 @@ export class InquiriesService {
 
     const ext = extFromMime(mime);
     const signatureKey = `inquiries/${inquiryId}/offer-signature-${randomUUID()}.${ext}`;
-    await this.s3.putObject(signatureKey, signatureFile.buffer, mime);
+    await this.media.replaceSingle(
+      MediaOwnerType.INQUIRY,
+      inquiryId,
+      MediaPurpose.SIGNATURE,
+      signatureFile,
+      signatureKey,
+      { uploadedByUserId: user.userId },
+    );
 
     if (dto.paymentMethod === 'direct_deposit' && bankDetails) {
       client.bankAccountNumber = bankDetails.accountNumber;
@@ -1113,7 +1177,6 @@ export class InquiriesService {
     const before = cloneInquiryForAudit(r);
     r.preferredPaymentMethod = dto.paymentMethod;
     r.preferredPaymentBranch = paymentBranch;
-    r.offerSignatureKey = signatureKey;
 
     const isAuthenticatedNewOfferConfirm =
       r.status === InquiryStatus.AUTHENTICATED_NEW_OFFER;
@@ -1174,11 +1237,33 @@ export class InquiriesService {
       r.contractExpirationDate = withContract.contractExpirationDate;
     }
 
+    const savedInquiry = await this.inquiriesRepo.findOne({
+      where: { id: inquiryId },
+    });
+    if (savedInquiry?.status === InquiryStatus.FOR_PROCESSING) {
+      const inv = await this.inventoryItemRepo.findOne({
+        where: { inquiryId },
+      });
+      if (inv) {
+        await this.media.copyOwnerMedia(
+          MediaOwnerType.INQUIRY,
+          inquiryId,
+          MediaOwnerType.INVENTORY_ITEM,
+          inv.id,
+          MediaPurpose.ITEM_PHOTO,
+        );
+      }
+    }
+
+    const afterMedia = await this.inquiryMediaAudit(inquiryId);
     await this.inquiryAudit.recordDiff(
       r.id,
       before,
       r,
       this.inquiryAudit.consignorActor(user.userId),
+      undefined,
+      beforeMedia,
+      afterMedia,
     );
     this.notifyCoordinatorsConsignorConfirmedOffer(r);
     return this.findOneForClient(user, inquiryId);
@@ -1244,7 +1329,15 @@ export class InquiriesService {
     contractExpiration.setUTCDate(contractExpiration.getUTCDate() + days);
 
     const signatureKey = `inquiries/${inquiryId}/contract-renewal-signature-${randomUUID()}.${extFromMime(mime)}`;
-    await this.s3.putObject(signatureKey, signatureFile.buffer, mime);
+    const beforeMedia = await this.inquiryMediaAudit(inquiryId);
+    await this.media.replaceSingle(
+      MediaOwnerType.INQUIRY,
+      inquiryId,
+      MediaPurpose.SIGNATURE,
+      signatureFile,
+      signatureKey,
+      { uploadedByUserId: user.userId },
+    );
 
     await this.inquiriesRepo.manager.transaction(async (em) => {
       const inquiry = await em.findOne(Inquiry, {
@@ -1282,7 +1375,6 @@ export class InquiriesService {
       const before = cloneInquiryForAudit(inquiry);
       inquiry.offerPrice = String(inquiry.contractRenewalRequestedPrice);
       inquiry.contractRenewalRequestedPrice = null;
-      inquiry.offerSignatureKey = signatureKey;
       inquiry.contractStartDate = contractStart;
       inquiry.contractExpirationDate = contractExpiration;
       inquiry.status = InquiryStatus.FOR_REPRICING;
@@ -1299,6 +1391,8 @@ export class InquiriesService {
         inquiry,
         this.inquiryAudit.consignorActor(user.userId),
         em,
+        beforeMedia,
+        await this.inquiryMediaAudit(inquiryId),
       );
     });
 
@@ -1349,13 +1443,17 @@ export class InquiriesService {
     let fileIdx = 0;
     const refNow = new Date();
 
-    type Planned = { inquiryId: string; itemSnapshot: InquiryItemSnapshot };
+    type Planned = {
+      inquiryId: string;
+      itemSnapshot: InquiryItemSnapshot;
+      files: MulterFile[];
+    };
     const planned: Planned[] = [];
 
     for (let itemIdx = 0; itemIdx < dto.items.length; itemIdx++) {
       const row = dto.items[itemIdx];
       const inquiryId = randomUUID();
-      const images: InquiryItemSnapshot['images'] = [];
+      const itemFiles: MulterFile[] = [];
 
       for (let j = 0; j < row.imageCount; j++) {
         const file = files[fileIdx++];
@@ -1365,10 +1463,7 @@ export class InquiriesService {
             `Unsupported image type: ${file.mimetype || 'unknown'}`,
           );
         }
-        const ext = extFromMime(mime);
-        const key = `inquiries/${inquiryId}/${randomUUID()}.${ext}`;
-        await this.s3.putObject(key, file.buffer, mime);
-        images.push({ key, url: this.s3.getPublicUrl(key) });
+        itemFiles.push(file);
       }
 
       planned.push({
@@ -1376,13 +1471,12 @@ export class InquiriesService {
         itemSnapshot: {
           clientItemId: row.clientItemId,
           form: { ...row.form } as unknown as Record<string, unknown>,
-          images,
         },
+        files: itemFiles,
       });
     }
 
-    return await this.inquiriesRepo.manager
-      .transaction(async (em) => {
+    const out = await this.inquiriesRepo.manager.transaction(async (em) => {
         await em.query(
           `SELECT pg_advisory_xact_lock(hashtext($1::text)::bigint)`,
           [utcDayLockKey(refNow)],
@@ -1422,24 +1516,37 @@ export class InquiriesService {
         );
 
         return { inquiries: results };
-      })
-      .then((out) => {
-        const skus = out.inquiries.map((i) => i.sku).join(', ');
-        const text =
-          out.inquiries.length === 1
-            ? `A client submitted a new consignment inquiry (${skus}).`
-            : `A client submitted ${out.inquiries.length} new consignment inquiries: ${skus}.`;
-        void this.notifications
-          .notify({
-            message: text,
-            receiverRole: CONSIGNMENT_COORDINATOR_POSITION,
-            inquiryId: out.inquiries[0]?.id ?? null,
-          })
-          .catch((err) => {
-            this.logger.error('Failed to notify consignment coordinators', err);
-          });
-        return out;
       });
+
+    for (const row of planned) {
+      if (row.files.length === 0) continue;
+      await this.media.appendFiles(
+        MediaOwnerType.INQUIRY,
+        row.inquiryId,
+        MediaPurpose.ITEM_PHOTO,
+        row.files,
+        (_i, file) => {
+          const mime = file.mimetype.toLowerCase();
+          return `inquiries/${row.inquiryId}/${randomUUID()}.${extFromMime(mime)}`;
+        },
+      );
+    }
+
+    const skus = out.inquiries.map((i) => i.sku).join(', ');
+    const text =
+      out.inquiries.length === 1
+        ? `A client submitted a new consignment inquiry (${skus}).`
+        : `A client submitted ${out.inquiries.length} new consignment inquiries: ${skus}.`;
+    void this.notifications
+      .notify({
+        message: text,
+        receiverRole: CONSIGNMENT_COORDINATOR_POSITION,
+        inquiryId: out.inquiries[0]?.id ?? null,
+      })
+      .catch((err) => {
+        this.logger.error('Failed to notify consignment coordinators', err);
+      });
+    return out;
   }
 
   /** Staff creates inquiries for a selected consignor (walk-in); sets walk-in flags. */
@@ -1487,13 +1594,17 @@ export class InquiriesService {
     let fileIdx = 0;
     const refNow = new Date();
 
-    type Planned = { inquiryId: string; itemSnapshot: InquiryItemSnapshot };
+    type Planned = {
+      inquiryId: string;
+      itemSnapshot: InquiryItemSnapshot;
+      files: MulterFile[];
+    };
     const planned: Planned[] = [];
 
     for (let itemIdx = 0; itemIdx < dto.items.length; itemIdx++) {
       const row = dto.items[itemIdx];
       const inquiryId = randomUUID();
-      const images: InquiryItemSnapshot['images'] = [];
+      const itemFiles: MulterFile[] = [];
 
       for (let j = 0; j < row.imageCount; j++) {
         const file = files[fileIdx++];
@@ -1503,10 +1614,7 @@ export class InquiriesService {
             `Unsupported image type: ${file.mimetype || 'unknown'}`,
           );
         }
-        const ext = extFromMime(mime);
-        const key = `inquiries/${inquiryId}/${randomUUID()}.${ext}`;
-        await this.s3.putObject(key, file.buffer, mime);
-        images.push({ key, url: this.s3.getPublicUrl(key) });
+        itemFiles.push(file);
       }
 
       planned.push({
@@ -1514,12 +1622,12 @@ export class InquiriesService {
         itemSnapshot: {
           clientItemId: row.clientItemId,
           form: { ...row.form } as unknown as Record<string, unknown>,
-          images,
         },
+        files: itemFiles,
       });
     }
 
-    return await this.inquiriesRepo.manager.transaction(async (em) => {
+    const out = await this.inquiriesRepo.manager.transaction(async (em) => {
       await em.query(
         `SELECT pg_advisory_xact_lock(hashtext($1::text)::bigint)`,
         [utcDayLockKey(refNow)],
@@ -1556,6 +1664,23 @@ export class InquiriesService {
 
       return { inquiries: results };
     });
+
+    for (const row of planned) {
+      if (row.files.length === 0) continue;
+      await this.media.appendFiles(
+        MediaOwnerType.INQUIRY,
+        row.inquiryId,
+        MediaPurpose.ITEM_PHOTO,
+        row.files,
+        (_i, file) => {
+          const mime = file.mimetype.toLowerCase();
+          return `inquiries/${row.inquiryId}/${randomUUID()}.${extFromMime(mime)}`;
+        },
+        { uploadedByUserId: user.userId, createdById: user.userId },
+      );
+    }
+
+    return out;
   }
 
   private static readonly terminalInquiryStatuses = new Set<InquiryStatus>([
@@ -1622,6 +1747,7 @@ export class InquiriesService {
     }
 
     const before = cloneInquiryForAudit(r);
+    const beforeMedia = await this.inquiryMediaAudit(id);
     r.offerTransactionType = dto.transactionType;
     r.offerPrice = dto.offerPrice.toFixed(2);
     /** Stay in post–auth renegotiation lane when the coordinator revises the offer. */
@@ -1630,13 +1756,26 @@ export class InquiriesService {
     }
     r.preferredPaymentMethod = null;
     r.preferredPaymentBranch = null;
-    r.offerSignatureKey = null;
+    await this.media.deleteByOwner(
+      MediaOwnerType.INQUIRY,
+      id,
+      MediaPurpose.SIGNATURE,
+    );
     await this.inquiriesRepo.save(r);
     const label = await this.inquiryAudit.staffActorLabel(user.userId);
-    await this.inquiryAudit.recordDiff(id, before, r, {
-      userId: user.userId,
-      label,
-    });
+    const afterMedia = await this.inquiryMediaAudit(id);
+    await this.inquiryAudit.recordDiff(
+      id,
+      before,
+      r,
+      {
+        userId: user.userId,
+        label,
+      },
+      undefined,
+      beforeMedia,
+      afterMedia,
+    );
     this.notifyConsignorOfferEmail(id, r.consignor);
     return this.findOneForStaff(id);
   }
@@ -1663,17 +1802,31 @@ export class InquiriesService {
     }
 
     const before = cloneInquiryForAudit(r);
+    const beforeMedia = await this.inquiryMediaAudit(id);
     r.offerPrice = dto.offerPrice.toFixed(2);
     r.status = InquiryStatus.AUTHENTICATED_NEW_OFFER;
     r.preferredPaymentMethod = null;
     r.preferredPaymentBranch = null;
-    r.offerSignatureKey = null;
+    await this.media.deleteByOwner(
+      MediaOwnerType.INQUIRY,
+      id,
+      MediaPurpose.SIGNATURE,
+    );
     await this.inquiriesRepo.save(r);
     const label = await this.inquiryAudit.staffActorLabel(user.userId);
-    await this.inquiryAudit.recordDiff(id, before, r, {
-      userId: user.userId,
-      label,
-    });
+    const afterMedia = await this.inquiryMediaAudit(id);
+    await this.inquiryAudit.recordDiff(
+      id,
+      before,
+      r,
+      {
+        userId: user.userId,
+        label,
+      },
+      undefined,
+      beforeMedia,
+      afterMedia,
+    );
     this.notifyConsignorOfferEmail(id, r.consignor);
     return this.findOneForStaff(id);
   }
@@ -1704,7 +1857,14 @@ export class InquiriesService {
     }
 
     const key = `inquiries/${id}/repricing-proof/${randomUUID()}.${extFromMime(mime)}`;
-    await this.s3.putObject(key, proof.buffer, mime);
+    await this.media.replaceSingle(
+      MediaOwnerType.INQUIRY,
+      id,
+      MediaPurpose.REPRICING_PROOF,
+      proof,
+      key,
+      { uploadedByUserId: user.userId },
+    );
     const label = await this.inquiryAudit.staffActorLabel(user.userId);
 
     await this.inquiriesRepo.manager.transaction(async (em) => {
@@ -1734,7 +1894,6 @@ export class InquiriesService {
         r.originalOfferPrice = String(r.offerPrice);
       }
       r.offerPrice = parsedOfferPrice.toFixed(2);
-      r.repricingProofKey = key;
       r.updatedById = user.userId;
       await em.save(r);
 
@@ -1976,29 +2135,32 @@ export class InquiriesService {
         `At most ${MAX_AUTH_RETURN_PHOTOS} issue photos are allowed`,
       );
     }
-    const keys: string[] = [];
     for (const raw of body.photosDataUrls) {
       const s = String(raw).trim();
       if (s === '') continue;
-      const parsed = parseImageDataUrl(s);
-      if (!parsed) {
+      if (!parseImageDataUrl(s)) {
         throw new BadRequestException(
           'Each issue photo must be a valid image data URL',
         );
       }
-      const ext = extFromMime(parsed.mime);
-      const key = `inquiries/${inquiry.id}/third-party-auth-request/${randomUUID()}.${ext}`;
-      await this.s3.putObject(key, parsed.buffer, parsed.mime);
-      keys.push(key);
     }
-    if (keys.length === 0) {
+    const saved = await this.media.replaceAllFromDataUrls(
+      MediaOwnerType.INQUIRY,
+      inquiry.id,
+      MediaPurpose.AUTH_RETURN,
+      body.photosDataUrls,
+      (_index, mime) =>
+        `inquiries/${inquiry.id}/third-party-auth-request/${randomUUID()}.${extFromMime(mime)}`,
+      parseImageDataUrl,
+      { metadata: { context: 'third_party_request' } },
+    );
+    if (saved.length === 0) {
       throw new BadRequestException(
         'At least one valid issue photo is required.',
       );
     }
     inquiry.priceRangeMin = null;
     inquiry.priceRangeMax = null;
-    inquiry.returnPhotos = keys;
     inquiry.returnReasons = null;
   }
 
@@ -2025,28 +2187,31 @@ export class InquiriesService {
         `At most ${MAX_AUTH_RETURN_PHOTOS} return photos are allowed`,
       );
     }
-    const keys: string[] = [];
     for (const raw of body.photosDataUrls) {
       const s = String(raw).trim();
       if (s === '') continue;
-      const parsed = parseImageDataUrl(s);
-      if (!parsed) {
+      if (!parseImageDataUrl(s)) {
         throw new BadRequestException(
           'Each return photo must be a valid image data URL',
         );
       }
-      const ext = extFromMime(parsed.mime);
-      const key = `inquiries/${inquiryId}/auth-return/${randomUUID()}.${ext}`;
-      await this.s3.putObject(key, parsed.buffer, parsed.mime);
-      keys.push(key);
     }
-    if (keys.length === 0) {
+    const saved = await this.media.replaceAllFromDataUrls(
+      MediaOwnerType.INQUIRY,
+      inquiryId,
+      MediaPurpose.AUTH_RETURN,
+      body.photosDataUrls,
+      (_index, mime) =>
+        `inquiries/${inquiryId}/auth-return/${randomUUID()}.${extFromMime(mime)}`,
+      parseImageDataUrl,
+      { metadata: { context: 'coordinator_return' } },
+    );
+    if (saved.length === 0) {
       throw new BadRequestException(
         'At least one valid issue photo is required.',
       );
     }
     inquiry.returnReasons = body.returnReasons;
-    inquiry.returnPhotos = keys.length > 0 ? keys : null;
     inquiry.priceRangeMin = body.priceRangeMin;
     inquiry.priceRangeMax = body.priceRangeMax;
     inquiry.status = InquiryStatus.AUTHENTICATED_RETURNED;

@@ -101,7 +101,7 @@ export function computeRemainingBalance(
 export function computeInstallmentViews(
   rows: OrderInstallment[],
   paymentStartDate: string | null,
-  getProofUrl: (key: string) => string,
+  getProofUrl: (row: OrderInstallment) => string | null,
 ): OrderInstallmentView[] {
   const sorted = [...rows].sort(
     (a, b) => a.installmentNumber - b.installmentNumber,
@@ -129,7 +129,7 @@ export function computeInstallmentViews(
       scheduledAmount: row.scheduledAmount,
       amountDue: formatMoney(amountDue),
       amountPaid: row.amountPaid,
-      proofUrl: row.proofKey ? getProofUrl(row.proofKey) : null,
+      proofUrl: getProofUrl(row),
       dueDate,
     };
   });

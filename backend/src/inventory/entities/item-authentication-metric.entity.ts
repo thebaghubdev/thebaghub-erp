@@ -32,12 +32,6 @@ export class ItemAuthenticationMetric {
   @Column({ type: 'text', nullable: true })
   notes: string | null;
 
-  /**
-   * Serialized photo payloads (e.g. data URLs or S3 keys); stored as JSON array.
-   */
-  @Column({ type: 'jsonb', nullable: true })
-  photos: string[] | null;
-
   @Column({ name: 'metric_status', type: 'varchar', length: 32, nullable: true })
   metricStatus: string | null;
 }

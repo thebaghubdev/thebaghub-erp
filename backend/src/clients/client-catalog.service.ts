@@ -6,9 +6,12 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { JwtUser } from '../auth/jwt-user';
+import { MediaOwnerType } from '../enums/media-owner-type.enum';
+import { MediaPurpose } from '../enums/media-purpose.enum';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
 import { ItemAuthentication } from '../inventory/entities/item-authentication.entity';
 import { Waitlist } from '../orders/entities/waitlist.entity';
+import { MediaService } from '../media/media.service';
 import { Client } from './entities/client.entity';
 
 const AVAILABLE_FOR_PURCHASE_STATUS = 'Available For Purchase';
@@ -156,7 +159,23 @@ export class ClientCatalogService {
     private readonly clientsRepo: Repository<Client>,
     @InjectRepository(Waitlist)
     private readonly waitlistsRepo: Repository<Waitlist>,
+    private readonly media: MediaService,
   ) {}
+
+  private async loadPostingPhotosSnapshot(
+    postingId: string,
+  ): Promise<Array<Record<string, unknown>>> {
+    const rows = await this.media.findByOwner(
+      MediaOwnerType.ITEM_POSTING,
+      postingId,
+      { purpose: MediaPurpose.POSTING_SELECTION, orderBySort: true },
+    );
+    return this.media.toKeyUrlPositionList(rows).map(({ key, url, position }) => ({
+      key,
+      url,
+      position,
+    }));
+  }
 
   async findAvailableItems(user: JwtUser): Promise<ClientCatalogItem[]> {
     const client = await this.clientsRepo.findOne({
@@ -181,39 +200,41 @@ export class ClientCatalogService {
       }
     }
 
-    return rows.map((item) => {
-      const form = item.itemSnapshot?.form as Record<string, unknown> | undefined;
-      const posting = item.itemPosting;
-      const photos = Array.isArray(posting?.selectedPhotosSnapshot)
-        ? posting.selectedPhotosSnapshot
-        : [];
-      return {
-        id: item.id,
-        sku: item.sku,
-        itemLabel: itemLabelFromSnapshot(item),
-        brand: snapshotFormString(form, 'brand'),
-        category: snapshotFormString(form, 'category'),
-        productName: posting?.productName?.trim() || itemLabelFromSnapshot(item),
-        price:
-          item.tbhSellingPrice != null &&
-          String(item.tbhSellingPrice).trim() !== ''
-            ? String(item.tbhSellingPrice)
-            : null,
-        priceComparison:
-          posting?.priceComparison != null &&
-          String(posting.priceComparison).trim() !== ''
-            ? String(posting.priceComparison)
-            : null,
-        productDescription:
-          posting?.productDescription != null &&
-          String(posting.productDescription).trim() !== ''
-            ? String(posting.productDescription).trim()
-            : null,
-        imageUrl: firstPhotoUrl(photos),
-        status: clientVisibleStatus(item.status),
-        isOwnConsignedItem: item.consignorId === client.id,
-      };
-    });
+    return Promise.all(
+      rows.map(async (item) => {
+        const form = item.itemSnapshot?.form as Record<string, unknown> | undefined;
+        const posting = item.itemPosting;
+        const photos = posting
+          ? await this.loadPostingPhotosSnapshot(posting.id)
+          : [];
+        return {
+          id: item.id,
+          sku: item.sku,
+          itemLabel: itemLabelFromSnapshot(item),
+          brand: snapshotFormString(form, 'brand'),
+          category: snapshotFormString(form, 'category'),
+          productName: posting?.productName?.trim() || itemLabelFromSnapshot(item),
+          price:
+            item.tbhSellingPrice != null &&
+            String(item.tbhSellingPrice).trim() !== ''
+              ? String(item.tbhSellingPrice)
+              : null,
+          priceComparison:
+            posting?.priceComparison != null &&
+            String(posting.priceComparison).trim() !== ''
+              ? String(posting.priceComparison)
+              : null,
+          productDescription:
+            posting?.productDescription != null &&
+            String(posting.productDescription).trim() !== ''
+              ? String(posting.productDescription).trim()
+              : null,
+          imageUrl: firstPhotoUrl(photos),
+          status: clientVisibleStatus(item.status),
+          isOwnConsignedItem: item.consignorId === client.id,
+        };
+      }),
+    );
   }
 
   async findAvailableItemDetail(
@@ -241,8 +262,8 @@ export class ClientCatalogService {
 
     const form = item.itemSnapshot?.form as Record<string, unknown> | undefined;
     const posting = item.itemPosting;
-    const photos = Array.isArray(posting?.selectedPhotosSnapshot)
-      ? posting.selectedPhotosSnapshot
+    const photos = posting
+      ? await this.loadPostingPhotosSnapshot(posting.id)
       : [];
     const itemLabel = itemLabelFromSnapshot(item);
     return {
