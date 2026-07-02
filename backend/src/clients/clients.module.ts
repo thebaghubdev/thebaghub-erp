@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
+import { ItemAuthentication } from '../inventory/entities/item-authentication.entity';
 import { ItemPosting } from '../inventory/entities/item-posting.entity';
 import { Waitlist } from '../orders/entities/waitlist.entity';
 import { ClientCatalogController } from './client-catalog.controller';
@@ -12,7 +13,7 @@ import { Client } from './entities/client.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Client, InventoryItem, ItemPosting, Waitlist]),
+    TypeOrmModule.forFeature([Client, InventoryItem, ItemAuthentication, ItemPosting, Waitlist]),
     AuthModule,
   ],
   controllers: [ClientProfileController, ClientCatalogController],

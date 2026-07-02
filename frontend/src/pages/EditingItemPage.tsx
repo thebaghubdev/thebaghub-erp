@@ -63,6 +63,15 @@ type InventoryDetailForStaff = {
     clientItemId: string;
     form: Record<string, unknown>;
   };
+  authenticationDetails: {
+    dimensions: string | null;
+    rating: string | null;
+    marketPrice: string | null;
+    retailPrice: string | null;
+    marketResearchNotes: string | null;
+    marketResearchLink: string | null;
+    authenticatorNotes: string | null;
+  } | null;
   itemPosting: {
     id: string;
     postingDate: string | null;
@@ -99,14 +108,17 @@ function buildProductName(form: Record<string, unknown>): string {
   return [str(form.brand), str(form.itemModel)].filter(Boolean).join(" ");
 }
 
-function buildPostDescriptionHtml(form: Record<string, unknown>): string {
+function buildPostDescriptionHtml(
+  form: Record<string, unknown>,
+  auth: InventoryDetailForStaff["authenticationDetails"],
+): string {
   const title = buildProductName(form) || "—";
 
   return [
     `<p>${escapeHtml(title)}</p>`,
-    `<p>Condition: ${displayValue(form.rating)}<br>Inclusions: ${displayValue(
+    `<p>Condition: ${displayValue(auth?.rating)}<br>Inclusions: ${displayValue(
       form.inclusions,
-    )}<br>Dimensions: ${displayValue(form.dimensions)}</p>`,
+    )}<br>Dimensions: ${displayValue(auth?.dimensions)}</p>`,
     "<p>We offer layaway installments or use your BDO credit card for up to 12 months installment — Just ask us how!</p>",
     "<p>Disclaimer: The Bag Hub is neither affiliated nor related with any of the brands posted in our page/account. All trademarks and brand names are sole properties of their respective owners.</p>",
   ].join("");
@@ -280,7 +292,10 @@ export function EditingItemPage() {
         setTagsSelected([]);
         setPriceComparison("");
         setPostDescription(
-          buildPostDescriptionHtml(detailJson.itemSnapshot.form),
+          buildPostDescriptionHtml(
+            detailJson.itemSnapshot.form,
+            detailJson.authenticationDetails,
+          ),
         );
       }
 
@@ -488,6 +503,7 @@ export function EditingItemPage() {
   }
 
   const form = detail.itemSnapshot.form;
+  const auth = detail.authenticationDetails;
   const brand = str(form.brand);
   const itemModel = str(form.itemModel);
   const brandModelSubtitle =
@@ -563,13 +579,13 @@ export function EditingItemPage() {
               </div>
               <div>
                 <dt className="text-slate-500 dark:text-slate-400">Rating</dt>
-                <dd>{str(form.rating) || "—"}</dd>
+                <dd>{str(auth?.rating) || "—"}</dd>
               </div>
               <div>
                 <dt className="text-slate-500 dark:text-slate-400">
                   Dimensions
                 </dt>
-                <dd>{str(form.dimensions) || "—"}</dd>
+                <dd>{str(auth?.dimensions) || "—"}</dd>
               </div>
               <div className="sm:col-span-2">
                 <dt className="text-slate-500 dark:text-slate-400">
@@ -584,7 +600,7 @@ export function EditingItemPage() {
                   Market price
                 </dt>
                 <dd className="tabular-nums">
-                  {formatPhpDisplay(str(form.marketPrice))}
+                  {formatPhpDisplay(str(auth?.marketPrice))}
                 </dd>
               </div>
               <div>
@@ -592,7 +608,7 @@ export function EditingItemPage() {
                   Retail price
                 </dt>
                 <dd className="tabular-nums">
-                  {formatPhpDisplay(str(form.retailPrice))}
+                  {formatPhpDisplay(str(auth?.retailPrice))}
                 </dd>
               </div>
               <div>

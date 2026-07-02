@@ -7,6 +7,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { JwtUser } from '../auth/jwt-user';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
+import { ItemAuthentication } from '../inventory/entities/item-authentication.entity';
 import { Waitlist } from '../orders/entities/waitlist.entity';
 import { Client } from './entities/client.entity';
 
@@ -123,11 +124,34 @@ function photosFromSnapshot(
     });
 }
 
+function itemDetailsFromSnapshotAndAuth(
+  form: Record<string, unknown> | undefined,
+  auth: ItemAuthentication | null | undefined,
+): Record<string, unknown> {
+  const details: Record<string, unknown> = { ...(form ?? {}) };
+  if (auth?.rating?.trim()) details.rating = auth.rating.trim();
+  if (auth?.dimensions?.trim()) details.dimensions = auth.dimensions.trim();
+  if (auth?.marketPrice?.trim()) details.marketPrice = auth.marketPrice.trim();
+  if (auth?.retailPrice?.trim()) details.retailPrice = auth.retailPrice.trim();
+  if (auth?.marketResearchNotes?.trim()) {
+    details.marketResearchNotes = auth.marketResearchNotes.trim();
+  }
+  if (auth?.marketResearchLink?.trim()) {
+    details.marketResearchLink = auth.marketResearchLink.trim();
+  }
+  if (auth?.authenticatorNotes?.trim()) {
+    details.authenticatorNotes = auth.authenticatorNotes.trim();
+  }
+  return details;
+}
+
 @Injectable()
 export class ClientCatalogService {
   constructor(
     @InjectRepository(InventoryItem)
     private readonly inventoryRepo: Repository<InventoryItem>,
+    @InjectRepository(ItemAuthentication)
+    private readonly itemAuthRepo: Repository<ItemAuthentication>,
     @InjectRepository(Client)
     private readonly clientsRepo: Repository<Client>,
     @InjectRepository(Waitlist)
@@ -147,6 +171,15 @@ export class ClientCatalogService {
       relations: { itemPosting: true },
       order: { updatedAt: 'DESC' },
     });
+    const authByItemId = new Map<string, ItemAuthentication>();
+    if (rows.length > 0) {
+      const auths = await this.itemAuthRepo.find({
+        where: { inventoryItemId: In(rows.map((row) => row.id)) },
+      });
+      for (const auth of auths) {
+        authByItemId.set(auth.inventoryItemId, auth);
+      }
+    }
 
     return rows.map((item) => {
       const form = item.itemSnapshot?.form as Record<string, unknown> | undefined;
@@ -202,6 +235,10 @@ export class ClientCatalogService {
       throw new NotFoundException('Catalog item not found');
     }
 
+    const auth = await this.itemAuthRepo.findOne({
+      where: { inventoryItemId: item.id },
+    });
+
     const form = item.itemSnapshot?.form as Record<string, unknown> | undefined;
     const posting = item.itemPosting;
     const photos = Array.isArray(posting?.selectedPhotosSnapshot)
@@ -239,7 +276,7 @@ export class ClientCatalogService {
       collections: posting?.collections ?? [],
       tags: posting?.tags ?? [],
       photos: photosFromSnapshot(photos),
-      itemDetails: { ...(form ?? {}) },
+      itemDetails: itemDetailsFromSnapshotAndAuth(form, auth),
       isOwnConsignedItem: item.consignorId === client.id,
     };
   }

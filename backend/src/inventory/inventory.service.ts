@@ -31,6 +31,7 @@ import { CreateItemPhotoshootsDto } from './dto/create-item-photoshoots.dto';
 import { BatchAssignAuthenticatorDto } from './dto/batch-assign-authenticator.dto';
 import type { MulterFile } from '../inquiries/multer-file.type';
 import { S3StorageService } from '../inquiries/s3-storage.service';
+import { ItemAuthenticationDetailsDto } from './dto/item-authentication-details.dto';
 import { ItemAuthenticationSnapshotFormDto } from './dto/item-authentication-snapshot-form.dto';
 import { SaveItemAuthenticationMetricsDto } from './dto/save-item-authentication-metrics.dto';
 import { ForThirdPartyAuthenticationDto } from './dto/for-third-party-authentication.dto';
@@ -114,6 +115,16 @@ export type ItemPostingCalendarRow = {
   tags: string[];
 };
 
+export type ItemAuthenticationDetailsView = {
+  dimensions: string | null;
+  rating: string | null;
+  marketPrice: string | null;
+  retailPrice: string | null;
+  marketResearchNotes: string | null;
+  marketResearchLink: string | null;
+  authenticatorNotes: string | null;
+};
+
 export type InventoryListRow = {
   id: string;
   sku: string;
@@ -167,6 +178,8 @@ export type InventoryDetailForStaff = {
   } | null;
   /** Staff-facing notes for consignor during third-party reauthentication handoff. */
   reauthenticationNotes: string | null;
+  /** Authentication detail fields from `item_authentication`. */
+  authenticationDetails: ItemAuthenticationDetailsView | null;
   /** Staff offer on linked inquiry (`inquiries.offer_price`), if any. */
   inquiryOfferPrice: string | null;
   /** TBH listed selling price (`inventory_items.tbh_selling_price`). */
@@ -250,6 +263,100 @@ function priceFieldFromSnapshot(
   if (v == null) return null;
   const s = String(v).trim();
   return s.length > 0 ? s : null;
+}
+
+function optionalMoneyString(raw: string | null | undefined): string | null {
+  if (raw == null) return null;
+  const s = String(raw).trim();
+  return s.length > 0 ? s : null;
+}
+
+function parseOptionalMoney(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (trimmed === '') return null;
+  if (!/^\d+(\.\d{1,2})?$/.test(trimmed)) return null;
+  const value = Number.parseFloat(trimmed);
+  return Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+function mapAuthenticationDetailsView(
+  auth: ItemAuthentication | null | undefined,
+): ItemAuthenticationDetailsView | null {
+  if (!auth) return null;
+  return {
+    dimensions: normalizeOptionalText(auth.dimensions),
+    rating: normalizeOptionalText(auth.rating),
+    marketPrice: optionalMoneyString(auth.marketPrice),
+    retailPrice: optionalMoneyString(auth.retailPrice),
+    marketResearchNotes: normalizeOptionalText(auth.marketResearchNotes),
+    marketResearchLink: normalizeOptionalText(auth.marketResearchLink),
+    authenticatorNotes: normalizeOptionalText(auth.authenticatorNotes),
+  };
+}
+
+function authPriceField(
+  auth: ItemAuthentication | null | undefined,
+  snapshot: InquiryItemSnapshot | null | undefined,
+  key: 'marketPrice' | 'retailPrice',
+): string | null {
+  const fromAuth =
+    key === 'marketPrice'
+      ? optionalMoneyString(auth?.marketPrice)
+      : optionalMoneyString(auth?.retailPrice);
+  if (fromAuth != null) return fromAuth;
+  return priceFieldFromSnapshot(snapshot, key);
+}
+
+function applyAuthenticationDetailsToEntity(
+  auth: ItemAuthentication,
+  dto: ItemAuthenticationDetailsDto,
+): void {
+  const setText = (
+    dtoKey: keyof ItemAuthenticationDetailsDto,
+    entityKey:
+      | 'dimensions'
+      | 'rating'
+      | 'marketResearchNotes'
+      | 'marketResearchLink'
+      | 'authenticatorNotes',
+  ) => {
+    const raw = dto[dtoKey];
+    if (raw === undefined) return;
+    const trimmed = String(raw).trim();
+    auth[entityKey] = trimmed === '' ? null : trimmed;
+  };
+
+  setText('dimensions', 'dimensions');
+  setText('rating', 'rating');
+  setText('marketResearchNotes', 'marketResearchNotes');
+  setText('marketResearchLink', 'marketResearchLink');
+  setText('authenticatorNotes', 'authenticatorNotes');
+
+  if (dto.marketPrice !== undefined) {
+    const trimmed = dto.marketPrice.trim();
+    if (trimmed === '') {
+      auth.marketPrice = null;
+    } else {
+      const parsed = parseOptionalMoney(trimmed);
+      if (parsed == null) {
+        throw new BadRequestException('Invalid market price.');
+      }
+      auth.marketPrice = parsed.toFixed(2);
+    }
+  }
+
+  if (dto.retailPrice !== undefined) {
+    const trimmed = dto.retailPrice.trim();
+    if (trimmed === '') {
+      auth.retailPrice = null;
+    } else {
+      const parsed = parseOptionalMoney(trimmed);
+      if (parsed == null) {
+        throw new BadRequestException('Invalid retail price.');
+      }
+      auth.retailPrice = parsed.toFixed(2);
+    }
+  }
 }
 
 function normalizedOfferPriceString(
@@ -525,13 +632,6 @@ function mergeItemAuthenticationFormIntoSnapshot(
   set('color');
   set('material');
   set('inclusions');
-  set('dimensions');
-  set('rating');
-  set('marketPrice');
-  set('retailPrice');
-  set('marketResearchNotes');
-  set('marketResearchLink');
-  set('authenticatorNotes');
   item.itemSnapshot = {
     clientItemId: base.clientItemId,
     images: Array.isArray(base.images) ? [...base.images] : [],
@@ -785,12 +885,24 @@ export class InventoryService {
         await em.save(inv);
       }
 
-      const itemAuthId = auth!.id;
-      auth.thirdPartyAuthenticationData = normalizeThirdPartyAuthenticationData(
+      const authRow = await em.findOne(ItemAuthentication, {
+        where: { id: auth!.id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!authRow) {
+        throw new NotFoundException('Item authentication record not found');
+      }
+
+      if (dto.authenticationDetails) {
+        applyAuthenticationDetailsToEntity(authRow, dto.authenticationDetails);
+      }
+      authRow.thirdPartyAuthenticationData = normalizeThirdPartyAuthenticationData(
         dto.thirdPartyAuthentication,
       );
-      auth.updatedById = actor.userId;
-      await em.save(auth);
+      authRow.updatedById = actor.userId;
+      await em.save(authRow);
+
+      const itemAuthId = authRow.id;
       for (const row of dto.rows) {
         const notes =
           row.notes == null || String(row.notes).trim() === ''
@@ -1225,8 +1337,8 @@ export class InventoryService {
         currentBranch: r.currentBranch,
         itemLabel: itemLabelFromSnapshot(r.itemSnapshot),
         inclusions: inclusionsFromSnapshot(r.itemSnapshot),
-        marketPrice: priceFieldFromSnapshot(r.itemSnapshot, 'marketPrice'),
-        retailPrice: priceFieldFromSnapshot(r.itemSnapshot, 'retailPrice'),
+        marketPrice: authPriceField(auth, r.itemSnapshot, 'marketPrice'),
+        retailPrice: authPriceField(auth, r.itemSnapshot, 'retailPrice'),
         consignorPrice: normalizedOfferPriceString(r.inquiry?.offerPrice),
         tbhSellingPrice:
           r.tbhSellingPrice != null &&
@@ -1446,6 +1558,7 @@ export class InventoryService {
         String(auth.reauthenticationNotes).trim() !== ''
           ? String(auth.reauthenticationNotes).trim()
           : null,
+      authenticationDetails: mapAuthenticationDetailsView(auth),
       inquiryOfferPrice:
         r.inquiry?.offerPrice != null &&
         String(r.inquiry.offerPrice).trim() !== ''

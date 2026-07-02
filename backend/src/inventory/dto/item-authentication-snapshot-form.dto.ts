@@ -1,7 +1,7 @@
 import { IsOptional, IsString, MaxLength } from 'class-validator';
 
 /**
- * Fields from the item authentication UI merged into `inventory_items.item_snapshot.form`.
+ * Item identity fields from the authentication UI merged into `inventory_items.item_snapshot.form`.
  */
 export class ItemAuthenticationSnapshotFormDto {
   @IsOptional()
@@ -38,39 +38,4 @@ export class ItemAuthenticationSnapshotFormDto {
   @IsString()
   @MaxLength(8000)
   inclusions?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(512)
-  dimensions?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(128)
-  rating?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(32)
-  marketPrice?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(32)
-  retailPrice?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(8000)
-  marketResearchNotes?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(2048)
-  marketResearchLink?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(8000)
-  authenticatorNotes?: string;
 }

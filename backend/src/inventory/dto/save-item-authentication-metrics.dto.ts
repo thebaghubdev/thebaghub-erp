@@ -8,6 +8,7 @@ import {
   IsUUID,
   ValidateNested,
 } from 'class-validator';
+import { ItemAuthenticationDetailsDto } from './item-authentication-details.dto';
 import { ItemAuthenticationSnapshotFormDto } from './item-authentication-snapshot-form.dto';
 
 export class ItemAuthenticationMetricEntryDto {
@@ -40,6 +41,12 @@ export class SaveItemAuthenticationMetricsDto {
   @ValidateNested()
   @Type(() => ItemAuthenticationSnapshotFormDto)
   itemSnapshotForm?: ItemAuthenticationSnapshotFormDto;
+
+  /** When set, persisted on the `item_authentication` row for this item. */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ItemAuthenticationDetailsDto)
+  authenticationDetails?: ItemAuthenticationDetailsDto;
 
   @IsOptional()
   @IsObject()

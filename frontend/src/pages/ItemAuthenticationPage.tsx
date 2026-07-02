@@ -85,6 +85,15 @@ type ItemAuthenticationPayload = {
   } | null;
   /** Staff offer on linked inquiry; null when missing or no inquiry. */
   inquiryOfferPrice: string | null;
+  authenticationDetails: {
+    dimensions: string | null;
+    rating: string | null;
+    marketPrice: string | null;
+    retailPrice: string | null;
+    marketResearchNotes: string | null;
+    marketResearchLink: string | null;
+    authenticatorNotes: string | null;
+  } | null;
   itemSnapshot: {
     form: Record<string, unknown>;
   };
@@ -165,8 +174,10 @@ function authenticationDetailsAreComplete(p: {
   );
 }
 
-/** Snapshot form fields persisted on `inventory_items.item_snapshot.form`. */
-function serializeAuthFormFromApiForm(f: Record<string, unknown>): string {
+/** Item + authentication detail fields as loaded from the API. */
+function serializeAuthStateFromDetail(detail: ItemAuthenticationPayload): string {
+  const f = detail.itemSnapshot.form;
+  const a = detail.authenticationDetails;
   return JSON.stringify({
     itemModel: str(f.itemModel),
     brand: str(f.brand),
@@ -175,13 +186,13 @@ function serializeAuthFormFromApiForm(f: Record<string, unknown>): string {
     color: str(f.color),
     material: str(f.material),
     inclusions: str(f.inclusions),
-    dimensions: str(f.dimensions),
-    rating: str(f.rating),
-    marketPrice: str(f.marketPrice),
-    retailPrice: str(f.retailPrice),
-    marketResearchNotes: str(f.marketResearchNotes),
-    marketResearchLink: str(f.marketResearchLink),
-    authenticatorNotes: str(f.authenticatorNotes),
+    dimensions: str(a?.dimensions),
+    rating: str(a?.rating),
+    marketPrice: str(a?.marketPrice),
+    retailPrice: str(a?.retailPrice),
+    marketResearchNotes: str(a?.marketResearchNotes),
+    marketResearchLink: str(a?.marketResearchLink),
+    authenticatorNotes: str(a?.authenticatorNotes),
   });
 }
 
@@ -428,6 +439,7 @@ export function ItemAuthenticationPage() {
   useLayoutEffect(() => {
     if (!detail) return;
     const f = detail.itemSnapshot.form;
+    const a = detail.authenticationDetails;
     setItemFormModel(str(f.itemModel));
     setItemFormBrand(str(f.brand));
     setItemFormCategory(str(f.category));
@@ -435,13 +447,13 @@ export function ItemAuthenticationPage() {
     setItemFormColor(str(f.color));
     setItemFormMaterial(str(f.material));
     setItemFormInclusions(str(f.inclusions));
-    setDimensions(str(f.dimensions));
-    setRating(str(f.rating));
-    setMarketPrice(str(f.marketPrice));
-    setRetailPrice(str(f.retailPrice));
-    setMarketResearchNotes(str(f.marketResearchNotes));
-    setResearchSourceLink(str(f.marketResearchLink));
-    setNotes(str(f.authenticatorNotes));
+    setDimensions(str(a?.dimensions));
+    setRating(str(a?.rating));
+    setMarketPrice(str(a?.marketPrice));
+    setRetailPrice(str(a?.retailPrice));
+    setMarketResearchNotes(str(a?.marketResearchNotes));
+    setResearchSourceLink(str(a?.marketResearchLink));
+    setNotes(str(a?.authenticatorNotes));
     setThirdPartyAuthenticator(
       detail.thirdPartyAuthentication?.selectedAuthenticator ?? "",
     );
@@ -507,7 +519,7 @@ export function ItemAuthenticationPage() {
 
   const authFormDirty = useMemo(() => {
     if (!canEditMetrics || !detail) return false;
-    const baseline = serializeAuthFormFromApiForm(detail.itemSnapshot.form);
+    const baseline = serializeAuthStateFromDetail(detail);
     const current = JSON.stringify({
       itemModel: itemFormModel,
       brand: itemFormBrand,
@@ -1117,6 +1129,8 @@ export function ItemAuthenticationPage() {
         color: itemFormColor,
         material: itemFormMaterial,
         inclusions: itemFormInclusions,
+      };
+      const authenticationDetails = {
         dimensions,
         rating,
         marketPrice,
@@ -1140,6 +1154,7 @@ export function ItemAuthenticationPage() {
           body: JSON.stringify({
             rows: payloadRows,
             itemSnapshotForm,
+            authenticationDetails,
             thirdPartyAuthentication: isForThirdPartyAuthenticationStatus(
               detail.authenticationStatus,
             )
