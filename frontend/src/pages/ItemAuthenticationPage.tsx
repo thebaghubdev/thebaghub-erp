@@ -719,7 +719,7 @@ export function ItemAuthenticationPage() {
       const hasCertLink = thirdPartyCertificateLink.trim() !== "";
       if (!hasAuthenticator || !hasCertLink) {
         setApproveGateMessage(
-          "Before approving, select a third-party authenticator (LegitGrails or Entrupy) and enter the certificate link in Third-party authentication. Save changes if you have not saved yet.",
+          "Before approving, select a third-party authenticator (LegitGrails or Entrupy) and enter the certificate link in Third-party authentication.",
         );
         return;
       }
@@ -746,11 +746,151 @@ export function ItemAuthenticationPage() {
     thirdPartyCertificateLink,
   ]);
 
+  const persistAuthenticationChanges = useCallback(async (): Promise<void> => {
+    if (!token || !id || !detail) {
+      throw new Error("Cannot save: item not loaded.");
+    }
+    if (!canEditMetrics) {
+      throw new Error(
+        "You cannot save changes until this item is assigned to you as the authenticator.",
+      );
+    }
+
+    const normalizedMarketPrice = (() => {
+      const n = parsePhpStringToNumber(marketPrice);
+      return n != null && n >= 0 ? n.toFixed(2) : marketPrice.trim();
+    })();
+    const normalizedRetailPrice = (() => {
+      const n = parsePhpStringToNumber(retailPrice);
+      return n != null && n >= 0 ? n.toFixed(2) : retailPrice.trim();
+    })();
+
+    const rows = await Promise.all(
+      filteredMetrics.map(async (m) => {
+        const d = draftByMetricId[m.id];
+        if (!d) return null;
+        const extra = d.files.length ? await filesToDataUrls(d.files) : [];
+        const photosMerged = [...d.photos, ...extra];
+        return {
+          authenticationMetricId: m.id,
+          notes: d.notes.trim() === "" ? null : d.notes.trim(),
+          metricStatus: d.metricStatus,
+          photos: photosMerged.length > 0 ? photosMerged : null,
+        };
+      }),
+    );
+    const payloadRows = rows.filter(
+      (r): r is NonNullable<(typeof rows)[number]> => r != null,
+    );
+    const itemSnapshotForm = {
+      itemModel: itemFormModel,
+      brand: itemFormBrand,
+      category: itemFormCategory,
+      serialNumber: itemFormSerial,
+      color: itemFormColor,
+      material: itemFormMaterial,
+      inclusions: itemFormInclusions,
+    };
+    const authenticationDetails = {
+      dimensions,
+      rating,
+      marketPrice: normalizedMarketPrice,
+      retailPrice: normalizedRetailPrice,
+      marketResearchNotes,
+      marketResearchLink: researchSourceLink,
+      authenticatorNotes: notes,
+    };
+    const thirdPartyExtraPhotos = thirdPartyCertificateFiles.length
+      ? await filesToDataUrls(thirdPartyCertificateFiles)
+      : [];
+    const thirdPartyCertificatePhotosMerged = [
+      ...thirdPartyCertificatePhotos,
+      ...thirdPartyExtraPhotos,
+    ];
+
+    const res = await apiFetch(
+      `/api/inventory/${id}/item-authentication-metrics`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          rows: payloadRows,
+          itemSnapshotForm,
+          authenticationDetails,
+          thirdPartyAuthentication: isForThirdPartyAuthenticationStatus(
+            detail.authenticationStatus,
+          )
+            ? {
+                selectedAuthenticator:
+                  thirdPartyAuthenticator === ""
+                    ? null
+                    : thirdPartyAuthenticator,
+                certificateLink:
+                  thirdPartyCertificateLink.trim() === ""
+                    ? null
+                    : thirdPartyCertificateLink.trim(),
+                certificatePhotos:
+                  thirdPartyCertificatePhotosMerged.length > 0
+                    ? thirdPartyCertificatePhotosMerged
+                    : null,
+                notes:
+                  thirdPartyCertificateNotes.trim() === ""
+                    ? null
+                    : thirdPartyCertificateNotes.trim(),
+              }
+            : null,
+        }),
+      },
+      token,
+    );
+    if (!res.ok) {
+      throw new Error(await readApiErrorMessage(res));
+    }
+
+    const refreshed = await apiFetch(
+      `/api/inventory/${id}/item-authentication-metrics`,
+      {},
+      token,
+    );
+    if (refreshed.ok) {
+      const data = (await refreshed.json()) as MetricEntryApi[];
+      setMetricEntries(Array.isArray(data) ? data : []);
+    }
+    await load();
+  }, [
+    token,
+    id,
+    detail,
+    canEditMetrics,
+    filteredMetrics,
+    draftByMetricId,
+    itemFormModel,
+    itemFormBrand,
+    itemFormCategory,
+    itemFormSerial,
+    itemFormColor,
+    itemFormMaterial,
+    itemFormInclusions,
+    dimensions,
+    rating,
+    marketPrice,
+    retailPrice,
+    marketResearchNotes,
+    researchSourceLink,
+    notes,
+    thirdPartyAuthenticator,
+    thirdPartyCertificateLink,
+    thirdPartyCertificateNotes,
+    thirdPartyCertificatePhotos,
+    thirdPartyCertificateFiles,
+    load,
+  ]);
+
   const confirmApproveAuthentication = useCallback(async () => {
     if (!token || !id) return;
     setApproveModalError(null);
     setApproveBusy(true);
     try {
+      await persistAuthenticationChanges();
       const res = await apiFetch(
         `/api/inventory/${id}/approve-authentication`,
         { method: "POST" },
@@ -768,7 +908,7 @@ export function ItemAuthenticationPage() {
     } finally {
       setApproveBusy(false);
     }
-  }, [token, id, load]);
+  }, [token, id, load, persistAuthenticationChanges]);
 
   const submitForThirdPartyAuthentication = useCallback(async () => {
     if (!token || !id) return;
@@ -1100,141 +1240,16 @@ export function ItemAuthenticationPage() {
   }, []);
 
   const saveChanges = useCallback(async () => {
-    if (!token || !id || !detail || !canEditMetrics) return;
     setSaveBusy(true);
     setSaveError(null);
     try {
-      const rows = await Promise.all(
-        filteredMetrics.map(async (m) => {
-          const d = draftByMetricId[m.id];
-          if (!d) return null;
-          const extra = d.files.length ? await filesToDataUrls(d.files) : [];
-          const photosMerged = [...d.photos, ...extra];
-          return {
-            authenticationMetricId: m.id,
-            notes: d.notes.trim() === "" ? null : d.notes.trim(),
-            metricStatus: d.metricStatus,
-            photos: photosMerged.length > 0 ? photosMerged : null,
-          };
-        }),
-      );
-      const payloadRows = rows.filter(
-        (r): r is NonNullable<(typeof rows)[number]> => r != null,
-      );
-      const itemSnapshotForm = {
-        itemModel: itemFormModel,
-        brand: itemFormBrand,
-        category: itemFormCategory,
-        serialNumber: itemFormSerial,
-        color: itemFormColor,
-        material: itemFormMaterial,
-        inclusions: itemFormInclusions,
-      };
-      const authenticationDetails = {
-        dimensions,
-        rating,
-        marketPrice,
-        retailPrice,
-        marketResearchNotes,
-        marketResearchLink: researchSourceLink,
-        authenticatorNotes: notes,
-      };
-      const thirdPartyExtraPhotos = thirdPartyCertificateFiles.length
-        ? await filesToDataUrls(thirdPartyCertificateFiles)
-        : [];
-      const thirdPartyCertificatePhotosMerged = [
-        ...thirdPartyCertificatePhotos,
-        ...thirdPartyExtraPhotos,
-      ];
-
-      const res = await apiFetch(
-        `/api/inventory/${id}/item-authentication-metrics`,
-        {
-          method: "POST",
-          body: JSON.stringify({
-            rows: payloadRows,
-            itemSnapshotForm,
-            authenticationDetails,
-            thirdPartyAuthentication: isForThirdPartyAuthenticationStatus(
-              detail.authenticationStatus,
-            )
-              ? {
-                  selectedAuthenticator:
-                    thirdPartyAuthenticator === ""
-                      ? null
-                      : thirdPartyAuthenticator,
-                  certificateLink:
-                    thirdPartyCertificateLink.trim() === ""
-                      ? null
-                      : thirdPartyCertificateLink.trim(),
-                  certificatePhotos:
-                    thirdPartyCertificatePhotosMerged.length > 0
-                      ? thirdPartyCertificatePhotosMerged
-                      : null,
-                  notes:
-                    thirdPartyCertificateNotes.trim() === ""
-                      ? null
-                      : thirdPartyCertificateNotes.trim(),
-                }
-              : null,
-          }),
-        },
-        token,
-      );
-      if (!res.ok) {
-        let msg = `Request failed (${res.status})`;
-        try {
-          const j = (await res.json()) as { message?: string | string[] };
-          if (Array.isArray(j.message)) msg = j.message.join("; ");
-          else if (typeof j.message === "string") msg = j.message;
-        } catch {
-          /* ignore */
-        }
-        throw new Error(msg);
-      }
-      const refreshed = await apiFetch(
-        `/api/inventory/${id}/item-authentication-metrics`,
-        {},
-        token,
-      );
-      if (refreshed.ok) {
-        const data = (await refreshed.json()) as MetricEntryApi[];
-        setMetricEntries(Array.isArray(data) ? data : []);
-      }
-      await load();
+      await persistAuthenticationChanges();
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : "Could not save changes");
     } finally {
       setSaveBusy(false);
     }
-  }, [
-    token,
-    id,
-    canEditMetrics,
-    detail,
-    filteredMetrics,
-    draftByMetricId,
-    itemFormModel,
-    itemFormBrand,
-    itemFormCategory,
-    itemFormSerial,
-    itemFormColor,
-    itemFormMaterial,
-    itemFormInclusions,
-    dimensions,
-    rating,
-    marketPrice,
-    retailPrice,
-    marketResearchNotes,
-    researchSourceLink,
-    notes,
-    thirdPartyAuthenticator,
-    thirdPartyCertificateLink,
-    thirdPartyCertificateNotes,
-    thirdPartyCertificatePhotos,
-    thirdPartyCertificateFiles,
-    load,
-  ]);
+  }, [persistAuthenticationChanges]);
 
   if (loading) {
     return (
@@ -1585,7 +1600,7 @@ export function ItemAuthenticationPage() {
                       onClick={() => void confirmApproveAuthentication()}
                       className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50 dark:bg-emerald-600 dark:hover:bg-emerald-500"
                     >
-                      {approveBusy ? "Approving…" : "Confirm approval"}
+                      {approveBusy ? "Saving & approving…" : "Confirm approval"}
                     </button>
                   </div>
                 </div>

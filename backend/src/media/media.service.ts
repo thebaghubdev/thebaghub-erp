@@ -541,4 +541,90 @@ export class MediaService {
     }
     return saved;
   }
+
+  /** Replace owner media from mixed payloads: data URLs (upload), HTTPS URLs, or storage keys (reference). */
+  async syncPhotoPayload(
+    ownerType: MediaOwnerType,
+    ownerId: string,
+    purpose: MediaPurpose,
+    payloads: string[],
+    options: {
+      keyForNewUpload: (index: number, mime: string) => string;
+      parseDataUrl: (dataUrl: string) => { buffer: Buffer; mime: string } | null;
+      uploadedByUserId?: string | null;
+      createdById?: string | null;
+      metadata?: Record<string, unknown> | null;
+    },
+  ): Promise<Media[]> {
+    await this.deleteByOwner(
+      ownerType,
+      ownerId,
+      purpose,
+      options.metadata ?? undefined,
+    );
+
+    const saved: Media[] = [];
+    let sortOrder = 0;
+
+    for (const raw of payloads) {
+      const trimmed = String(raw).trim();
+      if (trimmed === '') continue;
+
+      if (trimmed.startsWith('data:')) {
+        const parsed = options.parseDataUrl(trimmed);
+        if (!parsed) continue;
+        saved.push(
+          await this.uploadDataUrl(
+            options.keyForNewUpload(sortOrder, parsed.mime),
+            {
+              ownerType,
+              ownerId,
+              purpose,
+              sortOrder,
+              uploadedByUserId: options.uploadedByUserId ?? null,
+              createdById: options.createdById ?? null,
+              metadata: options.metadata ?? null,
+            },
+            parsed,
+          ),
+        );
+        sortOrder += 1;
+        continue;
+      }
+
+      let storageKey: string | null = null;
+      if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+        try {
+          const url = new URL(trimmed);
+          storageKey = decodeURIComponent(url.pathname.replace(/^\//, ''));
+        } catch {
+          storageKey = null;
+        }
+      } else {
+        storageKey = trimmed;
+      }
+
+      if (!storageKey) continue;
+
+      const existing = await this.findByStorageKey(storageKey);
+      saved.push(
+        await this.create({
+          storageKey,
+          contentType: existing?.contentType ?? 'image/jpeg',
+          byteSize: existing?.byteSize != null ? Number(existing.byteSize) : null,
+          originalFilename: existing?.originalFilename ?? null,
+          ownerType,
+          ownerId,
+          purpose,
+          sortOrder,
+          uploadedByUserId: options.uploadedByUserId ?? null,
+          createdById: options.createdById ?? null,
+          metadata: options.metadata ?? null,
+        }),
+      );
+      sortOrder += 1;
+    }
+
+    return saved;
+  }
 }

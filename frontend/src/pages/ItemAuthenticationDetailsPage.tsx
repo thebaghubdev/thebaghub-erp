@@ -5,6 +5,7 @@ import { InventoryStatusBadge } from "../components/InventoryStatusBadge";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
+import { formatPhpDisplay } from "../lib/format-php";
 
 type InventoryAuthenticationDetail = {
   id: string;
@@ -13,6 +14,18 @@ type InventoryAuthenticationDetail = {
   status: string;
   assignedToName: string | null;
   authenticationStatus: string;
+  itemSnapshot: {
+    form: Record<string, unknown>;
+  };
+  authenticationDetails: {
+    dimensions: string | null;
+    rating: string | null;
+    marketPrice: string | null;
+    retailPrice: string | null;
+    marketResearchNotes: string | null;
+    marketResearchLink: string | null;
+    authenticatorNotes: string | null;
+  } | null;
   thirdPartyAuthentication: {
     selectedAuthenticator: "LegitGrails" | "Entrupy" | null;
     certificateLink: string | null;
@@ -76,6 +89,19 @@ const cardClass =
 
 const btnGhost =
   "inline-flex shrink-0 items-center justify-center rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5 text-sm font-medium text-violet-900 transition-colors hover:bg-violet-100 focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500 dark:border-violet-800 dark:bg-violet-950/60 dark:text-violet-100 dark:hover:bg-violet-900/80";
+
+function formField(form: Record<string, unknown>, key: string): string {
+  const v = form[key];
+  if (v == null) return "—";
+  const s = String(v).trim();
+  return s === "" ? "—" : s;
+}
+
+function authDetailValue(value: string | null | undefined): string {
+  if (value == null) return "—";
+  const s = value.trim();
+  return s === "" ? "—" : s;
+}
 
 export function ItemAuthenticationDetailsPage() {
   const { id } = useParams<{ id: string }>();
@@ -235,6 +261,97 @@ export function ItemAuthenticationDetailsPage() {
           incomplete until the authenticator finishes.
         </p>
       ) : null}
+
+      <div className={cardClass}>
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
+          Authentication details
+        </h2>
+        <dl className="mt-4 grid grid-cols-1 gap-x-8 gap-y-4 text-sm text-slate-800 dark:text-slate-200 sm:grid-cols-2">
+          <div>
+            <dt className="text-slate-500 dark:text-slate-400">Brand</dt>
+            <dd>{formField(detail.itemSnapshot.form, "brand")}</dd>
+          </div>
+          <div>
+            <dt className="text-slate-500 dark:text-slate-400">Model</dt>
+            <dd>{formField(detail.itemSnapshot.form, "itemModel")}</dd>
+          </div>
+          <div>
+            <dt className="text-slate-500 dark:text-slate-400">Category</dt>
+            <dd>{formField(detail.itemSnapshot.form, "category")}</dd>
+          </div>
+          <div>
+            <dt className="text-slate-500 dark:text-slate-400">Serial number</dt>
+            <dd>{formField(detail.itemSnapshot.form, "serialNumber")}</dd>
+          </div>
+          <div>
+            <dt className="text-slate-500 dark:text-slate-400">Color</dt>
+            <dd>{formField(detail.itemSnapshot.form, "color")}</dd>
+          </div>
+          <div>
+            <dt className="text-slate-500 dark:text-slate-400">Material</dt>
+            <dd>{formField(detail.itemSnapshot.form, "material")}</dd>
+          </div>
+          <div className="sm:col-span-2">
+            <dt className="text-slate-500 dark:text-slate-400">Inclusions</dt>
+            <dd>{formField(detail.itemSnapshot.form, "inclusions")}</dd>
+          </div>
+          <div>
+            <dt className="text-slate-500 dark:text-slate-400">Dimensions</dt>
+            <dd>{authDetailValue(detail.authenticationDetails?.dimensions)}</dd>
+          </div>
+          <div>
+            <dt className="text-slate-500 dark:text-slate-400">Rating</dt>
+            <dd>{authDetailValue(detail.authenticationDetails?.rating)}</dd>
+          </div>
+          <div>
+            <dt className="text-slate-500 dark:text-slate-400">Market price</dt>
+            <dd>
+              {formatPhpDisplay(detail.authenticationDetails?.marketPrice)}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-slate-500 dark:text-slate-400">Retail price</dt>
+            <dd>
+              {formatPhpDisplay(detail.authenticationDetails?.retailPrice)}
+            </dd>
+          </div>
+          <div className="sm:col-span-2">
+            <dt className="text-slate-500 dark:text-slate-400">
+              Market research notes
+            </dt>
+            <dd className="whitespace-pre-wrap">
+              {authDetailValue(detail.authenticationDetails?.marketResearchNotes)}
+            </dd>
+          </div>
+          <div className="sm:col-span-2">
+            <dt className="text-slate-500 dark:text-slate-400">
+              Market research link
+            </dt>
+            <dd className="break-all">
+              {detail.authenticationDetails?.marketResearchLink?.trim() ? (
+                <a
+                  href={detail.authenticationDetails.marketResearchLink.trim()}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className="text-violet-700 underline hover:text-violet-900 dark:text-violet-300 dark:hover:text-violet-100"
+                >
+                  {detail.authenticationDetails.marketResearchLink.trim()}
+                </a>
+              ) : (
+                "—"
+              )}
+            </dd>
+          </div>
+          <div className="sm:col-span-2">
+            <dt className="text-slate-500 dark:text-slate-400">
+              Authenticator notes
+            </dt>
+            <dd className="whitespace-pre-wrap">
+              {authDetailValue(detail.authenticationDetails?.authenticatorNotes)}
+            </dd>
+          </div>
+        </dl>
+      </div>
 
       {(hasThirdPartyStored || reauthNotes) && (
         <div className={cardClass}>

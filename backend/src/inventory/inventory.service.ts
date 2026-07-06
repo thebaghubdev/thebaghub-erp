@@ -280,7 +280,10 @@ function optionalMoneyString(raw: string | null | undefined): string | null {
 }
 
 function parseOptionalMoney(raw: string): number | null {
-  const trimmed = raw.trim();
+  const trimmed = raw
+    .trim()
+    .replace(/,/g, '')
+    .replace(/^\u20b1\s?/i, '');
   if (trimmed === '') return null;
   if (!/^\d+(\.\d{1,2})?$/.test(trimmed)) return null;
   const value = Number.parseFloat(trimmed);
@@ -944,6 +947,14 @@ export class InventoryService {
     const auth = await this.enforceAuthenticatorAccess(inventoryItemId, actor, {
       createIfMissing: true,
     });
+
+    type MetricPhotoSync = {
+      metricRowId: string;
+      photos: string[];
+    };
+    const metricPhotoSyncs: MetricPhotoSync[] = [];
+    let certificatePhotosToSync: string[] | null = null;
+
     await this.itemAuthMetricRepo.manager.transaction(async (em) => {
       if (dto.itemSnapshotForm) {
         const inv = await em.findOne(InventoryItem, {
@@ -968,32 +979,22 @@ export class InventoryService {
       if (dto.authenticationDetails) {
         applyAuthenticationDetailsToEntity(authRow, dto.authenticationDetails);
       }
-      authRow.thirdPartyAuthenticationData = normalizeThirdPartyAuthenticationDataForSave(
-        dto.thirdPartyAuthentication,
-      );
+      if (dto.thirdPartyAuthentication !== undefined) {
+        authRow.thirdPartyAuthenticationData =
+          normalizeThirdPartyAuthenticationDataForSave(
+            dto.thirdPartyAuthentication,
+          );
+      }
       authRow.updatedById = actor.userId;
       await em.save(authRow);
 
       if (dto.thirdPartyAuthentication?.certificatePhotos !== undefined) {
-        const certificatePhotos =
+        certificatePhotosToSync =
           dto.thirdPartyAuthentication.certificatePhotos === null
             ? []
             : Array.isArray(dto.thirdPartyAuthentication.certificatePhotos)
               ? dto.thirdPartyAuthentication.certificatePhotos
               : [];
-        await this.media.replaceAllFromDataUrls(
-          MediaOwnerType.INVENTORY_ITEM,
-          inventoryItemId,
-          MediaPurpose.CERTIFICATE,
-          certificatePhotos,
-          (index, mime) =>
-            `inventory-items/${inventoryItemId}/certificate/${index}-${randomUUID()}.${authMetricExtFromMime(mime)}`,
-          parseImageDataUrl,
-          {
-            uploadedByUserId: actor.userId,
-            createdById: actor.userId,
-          },
-        );
       }
 
       const itemAuthId = authRow.id;
@@ -1022,28 +1023,51 @@ export class InventoryService {
         await em.save(existing);
 
         if (row.photos !== undefined) {
-          const photoDataUrls =
-            row.photos === null
-              ? []
-              : Array.isArray(row.photos)
-                ? row.photos
-                : [];
-          await this.media.replaceAllFromDataUrls(
-            MediaOwnerType.ITEM_AUTHENTICATION_METRIC,
-            existing.id,
-            MediaPurpose.AUTH_METRIC,
-            photoDataUrls,
-            (index, mime) =>
-              `item-authentication-metrics/${existing!.id}/${index}-${randomUUID()}.${authMetricExtFromMime(mime)}`,
-            parseImageDataUrl,
-            {
-              uploadedByUserId: actor.userId,
-              createdById: actor.userId,
-            },
-          );
+          metricPhotoSyncs.push({
+            metricRowId: existing.id,
+            photos:
+              row.photos === null
+                ? []
+                : Array.isArray(row.photos)
+                  ? row.photos
+                  : [],
+          });
         }
       }
     });
+
+    if (certificatePhotosToSync !== null) {
+      await this.media.syncPhotoPayload(
+        MediaOwnerType.INVENTORY_ITEM,
+        inventoryItemId,
+        MediaPurpose.CERTIFICATE,
+        certificatePhotosToSync,
+        {
+          keyForNewUpload: (index, mime) =>
+            `inventory-items/${inventoryItemId}/certificate/${index}-${randomUUID()}.${authMetricExtFromMime(mime)}`,
+          parseDataUrl: parseImageDataUrl,
+          uploadedByUserId: actor.userId,
+          createdById: actor.userId,
+        },
+      );
+    }
+
+    for (const sync of metricPhotoSyncs) {
+      await this.media.syncPhotoPayload(
+        MediaOwnerType.ITEM_AUTHENTICATION_METRIC,
+        sync.metricRowId,
+        MediaPurpose.AUTH_METRIC,
+        sync.photos,
+        {
+          keyForNewUpload: (index, mime) =>
+            `item-authentication-metrics/${sync.metricRowId}/${index}-${randomUUID()}.${authMetricExtFromMime(mime)}`,
+          parseDataUrl: parseImageDataUrl,
+          uploadedByUserId: actor.userId,
+          createdById: actor.userId,
+        },
+      );
+    }
+
     return { saved: dto.rows.length };
   }
 
