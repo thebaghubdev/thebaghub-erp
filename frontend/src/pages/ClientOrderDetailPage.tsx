@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { FullPaymentProofUpload } from "../components/FullPaymentProofUpload";
 import { OrderInstallmentSchedule } from "../components/OrderInstallmentSchedule";
 import { OrderStatusBadge } from "../components/OrderStatusBadge";
@@ -38,6 +39,20 @@ type ClientOrderDetail = {
 
 const cardClass = "rounded-2xl border border-slate-200 bg-white p-4 shadow-sm";
 
+const actionBtnClassName =
+  "rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50";
+
+async function readApiErrorMessage(res: Response): Promise<string> {
+  try {
+    const j = (await res.json()) as { message?: string | string[] };
+    if (Array.isArray(j.message)) return j.message.join("; ");
+    if (typeof j.message === "string") return j.message;
+  } catch {
+    /* ignore */
+  }
+  return `Request failed (${res.status})`;
+}
+
 function DetailField({
   label,
   children,
@@ -59,6 +74,11 @@ export function ClientOrderDetailPage() {
   const [detail, setDetail] = useState<ClientOrderDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [itemReceivedConfirmOpen, setItemReceivedConfirmOpen] = useState(false);
+  const [itemReceivedBusy, setItemReceivedBusy] = useState(false);
+  const [itemReceivedError, setItemReceivedError] = useState<string | null>(
+    null,
+  );
 
   const load = useCallback(async () => {
     if (!id || !token) return;
@@ -87,6 +107,29 @@ export function ClientOrderDetailPage() {
     void load();
   }, [load]);
 
+  const confirmItemReceived = useCallback(async () => {
+    if (!id || !token) return;
+    setItemReceivedError(null);
+    setItemReceivedBusy(true);
+    try {
+      const res = await apiFetch(
+        `/api/client/orders/${id}/item-received`,
+        { method: "POST" },
+        token,
+      );
+      if (!res.ok) throw new Error(await readApiErrorMessage(res));
+      const data = (await res.json()) as ClientOrderDetail;
+      setDetail(data);
+      setItemReceivedConfirmOpen(false);
+    } catch (e) {
+      setItemReceivedError(
+        e instanceof Error ? e.message : "Could not mark item as received",
+      );
+    } finally {
+      setItemReceivedBusy(false);
+    }
+  }, [id, token]);
+
   if (loading) {
     return <p className="text-sm text-slate-600">Loading order…</p>;
   }
@@ -109,21 +152,25 @@ export function ClientOrderDetailPage() {
 
   const isPaidOrder = detail.status === "Paid";
   const isOutForDeliveryOrder = detail.status === "Out for delivery";
+  const isItemReceivedOrder = detail.status === "Item Received";
+  const isPostPaymentOrder =
+    isPaidOrder || isOutForDeliveryOrder || isItemReceivedOrder;
   const showReservationPaymentProofs =
     detail.paymentType === "full_payment" &&
     (detail.status === "Reservation" ||
-      ((isPaidOrder || isOutForDeliveryOrder) &&
+      ((isPaidOrder || isOutForDeliveryOrder || isItemReceivedOrder) &&
         detail.reservationPaymentProofUrl != null));
   const showFullPaymentProof =
     detail.paymentType === "full_payment" &&
     (detail.status === "For Payment" ||
-      ((isPaidOrder || isOutForDeliveryOrder) &&
+      ((isPaidOrder || isOutForDeliveryOrder || isItemReceivedOrder) &&
         detail.reservationPaymentProofUrl == null));
   const showLayawaySchedule =
     detail.paymentType === "layaway" &&
     (detail.status === "For Payment" ||
       isPaidOrder ||
-      isOutForDeliveryOrder) &&
+      isOutForDeliveryOrder ||
+      isItemReceivedOrder) &&
     detail.installments.length > 0;
 
   return (
@@ -225,7 +272,7 @@ export function ClientOrderDetailPage() {
               proofUrl={detail.reservationPaymentProofUrl}
               title="Reservation fee proof of payment"
               uploadLabel="Upload reservation proof"
-              readOnly={isPaidOrder || isOutForDeliveryOrder}
+              readOnly={isPostPaymentOrder}
               onUpdated={setDetail}
             />
             <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
@@ -243,7 +290,7 @@ export function ClientOrderDetailPage() {
                 proofUrl={detail.fullPaymentProofUrl}
                 title="Remaining balance proof of payment"
                 uploadLabel="Upload remaining balance proof"
-                readOnly={isPaidOrder || isOutForDeliveryOrder}
+                readOnly={isPostPaymentOrder}
                 onUpdated={setDetail}
               />
             </div>
@@ -266,11 +313,30 @@ export function ClientOrderDetailPage() {
                 ? "Upload remaining balance proof"
                 : "Upload proof of payment"
             }
-            readOnly={isPaidOrder || isOutForDeliveryOrder}
+            readOnly={isPostPaymentOrder}
             onUpdated={setDetail}
           />
         ) : null}
       </div>
+
+      {isOutForDeliveryOrder ? (
+        <div className={cardClass}>
+          <h2 className="text-sm font-semibold text-slate-900">Order actions</h2>
+          <div className="mt-4">
+            <button
+              type="button"
+              className={actionBtnClassName}
+              disabled={itemReceivedBusy}
+              onClick={() => {
+                setItemReceivedError(null);
+                setItemReceivedConfirmOpen(true);
+              }}
+            >
+              Item Received
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {showLayawaySchedule ? (
         <OrderInstallmentSchedule
@@ -279,7 +345,7 @@ export function ClientOrderDetailPage() {
           layawayPrice={detail.layawayPrice}
           installments={detail.installments}
           mode="client"
-          readOnly={isPaidOrder || isOutForDeliveryOrder}
+          readOnly={isPostPaymentOrder}
           onUpdated={(installments) =>
             setDetail((prev) => (prev ? { ...prev, installments } : prev))
           }
@@ -314,6 +380,22 @@ export function ClientOrderDetailPage() {
           <p className="mt-4 text-sm text-slate-600">—</p>
         )}
       </div>
+
+      <ConfirmDialog
+        open={itemReceivedConfirmOpen}
+        title="Confirm item received?"
+        description="This will mark your order as Item Received. The inventory item will be recorded as Sold under warranty."
+        confirmLabel="Item Received"
+        cancelLabel="Cancel"
+        busy={itemReceivedBusy}
+        errorMessage={itemReceivedError}
+        onCancel={() => {
+          if (itemReceivedBusy) return;
+          setItemReceivedError(null);
+          setItemReceivedConfirmOpen(false);
+        }}
+        onConfirm={confirmItemReceived}
+      />
     </div>
   );
 }

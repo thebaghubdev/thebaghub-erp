@@ -11,6 +11,8 @@ const BY_STATUS: Record<string, string> = {
   "available for purchase": "text-green-800 dark:text-green-300",
   "reserved - layaway": "text-blue-800 dark:text-blue-300",
   "out for delivery": "text-sky-800 dark:text-sky-300",
+  "sold under warranty": "text-emerald-800 dark:text-emerald-300",
+  "sold final": "text-zinc-700 dark:text-zinc-300",
   "for contract renewal": "text-cyan-800 dark:text-cyan-300",
   "authenticated: requested for reauthentication": "text-sky-800 dark:text-sky-300",
   "authenticated: for 3rd party authentication":

@@ -82,6 +82,14 @@ export class OrdersController {
     return this.ordersService.markPaidForStaff(req.user, id);
   }
 
+  @Post(':id/item-received')
+  markItemReceived(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.ordersService.markItemReceivedForStaff(req.user, id);
+  }
+
   @Post(':id/out-for-delivery')
   @UseInterceptors(
     FileInterceptor('proof', {

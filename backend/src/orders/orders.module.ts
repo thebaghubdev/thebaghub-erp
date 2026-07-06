@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Client } from '../clients/entities/client.entity';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
+import { ItemAuthentication } from '../inventory/entities/item-authentication.entity';
 import { InquiriesModule } from '../inquiries/inquiries.module';
 import { MailModule } from '../mail/mail.module';
 import { MediaModule } from '../media/media.module';
@@ -24,6 +25,7 @@ import { OrdersService } from './orders.service';
       Waitlist,
       Client,
       InventoryItem,
+      ItemAuthentication,
     ]),
   ],
   controllers: [ClientOrdersController, OrdersController],

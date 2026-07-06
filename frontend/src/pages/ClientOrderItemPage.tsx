@@ -12,6 +12,7 @@ import { useClientAuth } from "../context/client-auth";
 import { TermsScrollAgreeModal } from "../components/TermsScrollAgreeModal";
 import { OfferSignatureField } from "../components/OfferSignatureField";
 import { apiFetch } from "../lib/api";
+import { getLayawayEligibility } from "../lib/layaway-eligibility";
 import {
   calculateLayawayPricing,
   clampLayawayMonths,
@@ -328,6 +329,27 @@ export function ClientOrderItemPage() {
     [item],
   );
 
+  const layawayEligibility = useMemo(() => {
+    if (!item) return { allowed: true, reasons: [] as string[] };
+    const rating =
+      typeof item.itemDetails.rating === "string"
+        ? item.itemDetails.rating
+        : item.itemDetails.rating == null
+          ? null
+          : String(item.itemDetails.rating);
+    return getLayawayEligibility(rating, item.category);
+  }, [item]);
+
+  useEffect(() => {
+    if (!layawayEligibility.allowed && paymentType === "layaway") {
+      setPaymentType("full_payment");
+      setLayawayTermsAccepted(false);
+      setLayawayTermsModalOpen(false);
+      setOrderSignatureFile(null);
+      setSignatureFieldKey((k) => k + 1);
+    }
+  }, [layawayEligibility.allowed, paymentType]);
+
   const layawayMonthsNumber = useMemo(() => {
     const n = Number.parseInt(layawayMonths, 10);
     return Number.isFinite(n) ? n : null;
@@ -441,6 +463,7 @@ export function ClientOrderItemPage() {
             value={paymentType}
             onChange={(e) => {
               const next = e.target.value as PaymentType;
+              if (next === "layaway" && !layawayEligibility.allowed) return;
               setPaymentType(next);
               setOrderSignatureFile(null);
               setSignatureFieldKey((k) => k + 1);
@@ -452,11 +475,22 @@ export function ClientOrderItemPage() {
             className={selectFieldClassName}
           >
             {paymentTypeOptions.map((option) => (
-              <option key={option.value} value={option.value}>
+              <option
+                key={option.value}
+                value={option.value}
+                disabled={
+                  option.value === "layaway" && !layawayEligibility.allowed
+                }
+              >
                 {option.label}
               </option>
             ))}
           </select>
+          {!layawayEligibility.allowed ? (
+            <p className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+              {layawayEligibility.reasons.join(" ")}
+            </p>
+          ) : null}
         </label>
 
         {paymentType === "layaway" ? (

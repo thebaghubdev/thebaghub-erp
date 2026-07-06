@@ -15,6 +15,7 @@ import { ItemPosting } from './entities/item-posting.entity';
 import { ItemPhotoshoot } from './entities/item-photoshoot.entity';
 import { InventoryController } from './inventory.controller';
 import { InventoryService } from './inventory.service';
+import { SoldWarrantyFinalizeCron } from './sold-warranty-finalize.cron';
 
 @Module({
   imports: [
@@ -35,7 +36,7 @@ import { InventoryService } from './inventory.service';
     ]),
   ],
   controllers: [InventoryController],
-  providers: [InventoryService],
+  providers: [InventoryService, SoldWarrantyFinalizeCron],
   exports: [InventoryService, TypeOrmModule],
 })
 export class InventoryModule {}

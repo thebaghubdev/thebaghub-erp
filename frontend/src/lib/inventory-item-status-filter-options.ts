@@ -15,6 +15,8 @@ export const INVENTORY_ITEM_STATUS_FILTER_OPTIONS: {
   { value: "Available For Purchase", label: "Available For Purchase" },
   { value: "Reserved - Layaway", label: "Reserved - Layaway" },
   { value: "Out for delivery", label: "Out for delivery" },
+  { value: "Sold under warranty", label: "Sold under warranty" },
+  { value: "Sold final", label: "Sold final" },
   { value: "For Contract Renewal", label: "For Contract Renewal" },
   {
     value: "Authenticated: Requested for Reauthentication",

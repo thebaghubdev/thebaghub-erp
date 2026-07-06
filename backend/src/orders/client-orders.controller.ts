@@ -88,6 +88,14 @@ export class ClientOrdersController {
     );
   }
 
+  @Post(':id/item-received')
+  markItemReceived(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.ordersService.markItemReceivedForClient(req.user, id);
+  }
+
   @Post(':id/full-payment-proof')
   @UseInterceptors(
     FileInterceptor('proof', {

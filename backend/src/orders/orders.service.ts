@@ -13,6 +13,7 @@ import { DataSource, Repository } from 'typeorm';
 import { JwtUser } from '../auth/jwt-user';
 import { Client } from '../clients/entities/client.entity';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
+import { ItemAuthentication } from '../inventory/entities/item-authentication.entity';
 import type { MulterFile } from '../inquiries/multer-file.type';
 import { MediaOwnerType } from '../enums/media-owner-type.enum';
 import { MediaPurpose } from '../enums/media-purpose.enum';
@@ -28,6 +29,10 @@ import { UpdateLayawayTermsDto } from './dto/update-layaway-terms.dto';
 import { OrderInstallment } from './entities/order-installment.entity';
 import { Order } from './entities/order.entity';
 import { Waitlist } from './entities/waitlist.entity';
+import {
+  categoryFromItemSnapshot,
+  getLayawayEligibility,
+} from './layaway-eligibility.util';
 import { calculateLayawayPricing } from './layaway-pricing.util';
 import {
   buildScheduledAmounts,
@@ -43,6 +48,7 @@ import {
   INVENTORY_STATUS_AVAILABLE_FOR_PURCHASE,
   INVENTORY_STATUS_ON_HOLD,
   INVENTORY_STATUS_OUT_FOR_DELIVERY,
+  INVENTORY_STATUS_SOLD_UNDER_WARRANTY,
   INVENTORY_STATUS_RESERVED_LAYAWAY,
   LAYAWAY_HOLDING_HOURS,
   ORDER_STATUS_CANCELLED,
@@ -50,6 +56,7 @@ import {
   ORDER_STATUS_EXPIRED,
   ORDER_STATUS_FOR_LAYAWAY_APPROVAL,
   ORDER_STATUS_FOR_PAYMENT,
+  ORDER_STATUS_ITEM_RECEIVED,
   ORDER_STATUS_OUT_FOR_DELIVERY,
   ORDER_STATUS_PAID,
   ORDER_STATUS_RESERVATION,
@@ -307,6 +314,8 @@ export class OrdersService {
     private readonly clientsRepo: Repository<Client>,
     @InjectRepository(InventoryItem)
     private readonly inventoryRepo: Repository<InventoryItem>,
+    @InjectRepository(ItemAuthentication)
+    private readonly itemAuthRepo: Repository<ItemAuthentication>,
     private readonly dataSource: DataSource,
     private readonly media: MediaService,
     private readonly mail: MailService,
@@ -320,7 +329,8 @@ export class OrdersService {
       order.paymentType !== PAYMENT_TYPE_LAYAWAY ||
       (order.status !== ORDER_STATUS_FOR_PAYMENT &&
         order.status !== ORDER_STATUS_PAID &&
-        order.status !== ORDER_STATUS_OUT_FOR_DELIVERY) ||
+        order.status !== ORDER_STATUS_OUT_FOR_DELIVERY &&
+        order.status !== ORDER_STATUS_ITEM_RECEIVED) ||
       order.layawayMonths == null ||
       order.layawayMonths <= 0
     ) {
@@ -1237,6 +1247,74 @@ export class OrdersService {
     return this.findOneForStaff(id);
   }
 
+  async markItemReceivedForStaff(
+    user: JwtUser,
+    orderId: string,
+  ): Promise<StaffOrderDetail> {
+    await this.markItemReceivedInternal(user, orderId, null);
+    return this.findOneForStaff(orderId);
+  }
+
+  async markItemReceivedForClient(
+    user: JwtUser,
+    orderId: string,
+  ): Promise<ClientOrderDetail> {
+    const client = await this.clientsRepo.findOne({
+      where: { userId: user.userId },
+    });
+    if (!client) {
+      throw new NotFoundException('Client profile not found');
+    }
+
+    await this.markItemReceivedInternal(user, orderId, client.id);
+    return this.findOneForClient(user, orderId);
+  }
+
+  private async markItemReceivedInternal(
+    user: JwtUser,
+    orderId: string,
+    customerId: string | null,
+  ): Promise<void> {
+    await this.dataSource.transaction(async (em) => {
+      const order = await em.findOne(Order, {
+        where: customerId
+          ? { id: orderId, customerId }
+          : { id: orderId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!order) {
+        throw new NotFoundException('Order not found');
+      }
+      if (order.status !== ORDER_STATUS_OUT_FOR_DELIVERY) {
+        throw new BadRequestException(
+          'Only orders out for delivery can be marked as item received',
+        );
+      }
+
+      const item = await em.findOne(InventoryItem, {
+        where: { id: order.inventoryItemId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!item) {
+        throw new NotFoundException('Inventory item not found');
+      }
+      if (item.status !== INVENTORY_STATUS_OUT_FOR_DELIVERY) {
+        throw new BadRequestException(
+          'Inventory item is not out for delivery',
+        );
+      }
+
+      order.status = ORDER_STATUS_ITEM_RECEIVED;
+      order.updatedById = user.userId;
+      await em.save(order);
+
+      item.status = INVENTORY_STATUS_SOLD_UNDER_WARRANTY;
+      item.dateSold = new Date();
+      item.updatedById = user.userId;
+      await em.save(item);
+    });
+  }
+
   private async notifyWaitlistedClientsItemSold(
     recipients: Array<{ email: string; firstName: string; itemLabel: string }>,
   ): Promise<void> {
@@ -1545,6 +1623,17 @@ export class OrdersService {
     let holdingHours: number;
 
     if (dto.paymentType === PAYMENT_TYPE_LAYAWAY) {
+      const auth = await this.itemAuthRepo.findOne({
+        where: { inventoryItemId: item.id },
+      });
+      const layawayEligibility = getLayawayEligibility(
+        auth?.rating ?? null,
+        categoryFromItemSnapshot(item.itemSnapshot),
+      );
+      if (!layawayEligibility.allowed) {
+        throw new BadRequestException(layawayEligibility.reasons.join(' '));
+      }
+
       const pricing = calculateLayawayPricing(itemPrice, dto.layawayMonths!);
       if (!pricing) {
         throw new BadRequestException('Invalid layaway terms');

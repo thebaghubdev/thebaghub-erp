@@ -209,6 +209,11 @@ export function OrderDetailPage() {
   const [shippingFeeProofFile, setShippingFeeProofFile] = useState<File | null>(
     null,
   );
+  const [itemReceivedConfirmOpen, setItemReceivedConfirmOpen] = useState(false);
+  const [itemReceivedBusy, setItemReceivedBusy] = useState(false);
+  const [itemReceivedError, setItemReceivedError] = useState<string | null>(
+    null,
+  );
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -507,6 +512,29 @@ export function OrderDetailPage() {
     }
   }, [id, shippingFeeCareOf, shippingFeeProofFile, token]);
 
+  const confirmItemReceived = useCallback(async () => {
+    if (!id || !token) return;
+    setItemReceivedError(null);
+    setItemReceivedBusy(true);
+    try {
+      const res = await apiFetch(
+        `/api/orders/${id}/item-received`,
+        { method: "POST" },
+        token,
+      );
+      if (!res.ok) throw new Error(await readApiErrorMessage(res));
+      const data = (await res.json()) as OrderDetail;
+      setDetail(data);
+      setItemReceivedConfirmOpen(false);
+    } catch (e) {
+      setItemReceivedError(
+        e instanceof Error ? e.message : "Could not mark item as received",
+      );
+    } finally {
+      setItemReceivedBusy(false);
+    }
+  }, [id, token]);
+
   if (loading) {
     return (
       <div className="text-sm text-slate-600 dark:text-slate-400">Loading…</div>
@@ -538,20 +566,24 @@ export function OrderDetailPage() {
     termsBusy ||
     cancelBusy ||
     reservationCancelBusy ||
-    outForDeliveryBusy;
+    outForDeliveryBusy ||
+    itemReceivedBusy;
   const isPaidOrder = detail.status === "Paid";
   const isOutForDeliveryOrder = detail.status === "Out for delivery";
+  const isItemReceivedOrder = detail.status === "Item Received";
+  const isPostPaymentOrder =
+    isPaidOrder || isOutForDeliveryOrder || isItemReceivedOrder;
   const showReservationPaymentProofs =
     detail.paymentType === "full_payment" &&
     (detail.status === "Reservation" ||
-      (isPaidOrder && detail.reservationPaymentProofUrl != null));
+      (isPostPaymentOrder && detail.reservationPaymentProofUrl != null));
   const showFullPaymentProof =
     detail.paymentType === "full_payment" &&
     (detail.status === "For Payment" ||
-      (isPaidOrder && detail.reservationPaymentProofUrl == null));
+      (isPostPaymentOrder && detail.reservationPaymentProofUrl == null));
   const showLayawaySchedule =
     detail.paymentType === "layaway" &&
-    (detail.status === "For Payment" || isPaidOrder || isOutForDeliveryOrder) &&
+    (detail.status === "For Payment" || isPaidOrder || isOutForDeliveryOrder || isItemReceivedOrder) &&
     detail.installments.length > 0;
 
   return (
@@ -678,6 +710,27 @@ export function OrderDetailPage() {
         </div>
       ) : null}
 
+      {isOutForDeliveryOrder ? (
+        <div className={cardClass}>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
+            Order actions
+          </h2>
+          <div className="mt-4">
+            <button
+              type="button"
+              className={layawayApproveBtn}
+              disabled={anyActionBusy}
+              onClick={() => {
+                setItemReceivedError(null);
+                setItemReceivedConfirmOpen(true);
+              }}
+            >
+              Item Received
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       {showLayawaySchedule ? (
         <OrderInstallmentSchedule
           orderId={detail.id}
@@ -685,7 +738,7 @@ export function OrderDetailPage() {
           layawayPrice={detail.layawayPrice}
           installments={detail.installments}
           mode="staff"
-          readOnly={isPaidOrder || isOutForDeliveryOrder}
+          readOnly={isPostPaymentOrder}
           onUpdated={(installments) =>
             setDetail((prev) => (prev ? { ...prev, installments } : prev))
           }
@@ -816,7 +869,7 @@ export function OrderDetailPage() {
               proofUrl={detail.reservationPaymentProofUrl}
               title="Reservation fee proof of payment"
               uploadLabel="Upload reservation proof"
-              readOnly={isPaidOrder || isOutForDeliveryOrder}
+              readOnly={isPostPaymentOrder}
               onUpdated={setDetail}
             />
             <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-950/40">
@@ -834,8 +887,8 @@ export function OrderDetailPage() {
                 proofUrl={detail.fullPaymentProofUrl}
                 title="Remaining balance proof of payment"
                 uploadLabel="Upload remaining balance proof"
-                allowMarkPaid={!isPaidOrder && !isOutForDeliveryOrder}
-                readOnly={isPaidOrder || isOutForDeliveryOrder}
+                allowMarkPaid={!isPostPaymentOrder}
+                readOnly={isPostPaymentOrder}
                 confirmTitle="Mark remaining balance as paid?"
                 confirmDescription="This reservation order will be marked as paid. Make sure the uploaded remaining balance proof has been reviewed."
                 onUpdated={setDetail}
@@ -860,8 +913,8 @@ export function OrderDetailPage() {
                 ? "Upload remaining balance proof"
                 : "Upload proof of payment"
             }
-            allowMarkPaid={!isPaidOrder && !isOutForDeliveryOrder}
-            readOnly={isPaidOrder || isOutForDeliveryOrder}
+            allowMarkPaid={!isPostPaymentOrder}
+            readOnly={isPostPaymentOrder}
             onUpdated={setDetail}
           />
         ) : null}
@@ -1256,6 +1309,22 @@ export function OrderDetailPage() {
           </div>
         </div>
       ) : null}
+
+      <ConfirmDialog
+        open={itemReceivedConfirmOpen}
+        title="Confirm item received?"
+        description="This will mark the order as Item Received and update the inventory item to Sold under warranty."
+        confirmLabel="Item Received"
+        cancelLabel="Cancel"
+        busy={itemReceivedBusy}
+        errorMessage={itemReceivedError}
+        onCancel={() => {
+          if (itemReceivedBusy) return;
+          setItemReceivedError(null);
+          setItemReceivedConfirmOpen(false);
+        }}
+        onConfirm={confirmItemReceived}
+      />
     </div>
   );
 }

@@ -2,6 +2,7 @@ export const ORDER_STATUS_FOR_LAYAWAY_APPROVAL = 'For Layaway Approval';
 export const ORDER_STATUS_FOR_PAYMENT = 'For Payment';
 export const ORDER_STATUS_PAID = 'Paid';
 export const ORDER_STATUS_OUT_FOR_DELIVERY = 'Out for delivery';
+export const ORDER_STATUS_ITEM_RECEIVED = 'Item Received';
 export const ORDER_STATUS_EXPIRED = 'Expired';
 export const ORDER_STATUS_DECLINED = 'Declined';
 export const ORDER_STATUS_CANCELLED = 'Cancelled';
@@ -14,6 +15,14 @@ export const INVENTORY_STATUS_ON_HOLD = 'On Hold';
 export const INVENTORY_STATUS_RESERVED_LAYAWAY = 'Reserved - Layaway';
 export const INVENTORY_STATUS_AVAILABLE_FOR_PURCHASE = 'Available For Purchase';
 export const INVENTORY_STATUS_OUT_FOR_DELIVERY = 'Out for delivery';
+export const INVENTORY_STATUS_SOLD_UNDER_WARRANTY = 'Sold under warranty';
+export const INVENTORY_STATUS_SOLD_FINAL = 'Sold final';
+
+/** Calendar days (date-only) an item stays under warranty after sale. */
+export const SOLD_UNDER_WARRANTY_CALENDAR_DAYS = 7;
+
+/** Local timezone used for warranty calendar-day calculations and daily cron. */
+export const APP_CALENDAR_TIME_ZONE = 'Asia/Manila';
 
 export const SHIPPING_FEE_CARE_OF_TBH = 'The Bag Hub';
 export const SHIPPING_FEE_CARE_OF_CLIENT = 'Client';

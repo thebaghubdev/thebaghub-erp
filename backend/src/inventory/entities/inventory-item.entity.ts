@@ -68,6 +68,9 @@ export class InventoryItem extends AuditedEntity {
   @Column({ name: 'enable_discount', type: 'boolean', default: false })
   enableDiscount: boolean;
 
+  @Column({ name: 'date_sold', type: 'timestamptz', nullable: true })
+  dateSold: Date | null;
+
   @OneToOne(() => ItemPhotoshoot, (p) => p.inventoryItem)
   itemPhotoshoot: ItemPhotoshoot | null;
 

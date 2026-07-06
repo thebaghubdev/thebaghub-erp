@@ -27,6 +27,11 @@ import { ItemPhotoshoot } from './entities/item-photoshoot.entity';
 import { ItemPosting } from './entities/item-posting.entity';
 import { ItemAuthenticationMetric } from './entities/item-authentication-metric.entity';
 import { AuthenticationMetric } from '../authentication-metrics/entities/authentication-metric.entity';
+import {
+  INVENTORY_STATUS_SOLD_FINAL,
+  INVENTORY_STATUS_SOLD_UNDER_WARRANTY,
+} from '../orders/order-status.constants';
+import { isSoldDateEligibleForFinalStatus } from './sold-warranty.util';
 import { CreateItemPhotoshootsDto } from './dto/create-item-photoshoots.dto';
 import { BatchAssignAuthenticatorDto } from './dto/batch-assign-authenticator.dto';
 import type { MulterFile } from '../inquiries/multer-file.type';
@@ -162,6 +167,7 @@ export type InventoryDetailForStaff = {
   id: string;
   sku: string;
   dateReceived: string;
+  dateSold: string | null;
   createdAt: string;
   updatedAt: string;
   status: string;
@@ -1676,6 +1682,7 @@ export class InventoryService {
       id: r.id,
       sku: r.sku,
       dateReceived: r.dateReceived.toISOString(),
+      dateSold: r.dateSold?.toISOString() ?? null,
       createdAt: r.createdAt.toISOString(),
       updatedAt: r.updatedAt.toISOString(),
       status: r.status,
@@ -2375,5 +2382,27 @@ export class InventoryService {
       }
       return { createdIds: resultIds };
     });
+  }
+
+  async finalizeSoldUnderWarrantyItems(): Promise<number> {
+    const items = await this.inventoryRepo.find({
+      where: { status: INVENTORY_STATUS_SOLD_UNDER_WARRANTY },
+    });
+    if (items.length === 0) return 0;
+
+    const referenceDate = new Date();
+    const toFinalize = items.filter(
+      (item) =>
+        item.dateSold != null &&
+        isSoldDateEligibleForFinalStatus(item.dateSold, referenceDate),
+    );
+    if (toFinalize.length === 0) return 0;
+
+    for (const item of toFinalize) {
+      item.status = INVENTORY_STATUS_SOLD_FINAL;
+      await this.inventoryRepo.save(item);
+    }
+
+    return toFinalize.length;
   }
 }
