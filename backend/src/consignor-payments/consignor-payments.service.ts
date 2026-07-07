@@ -42,6 +42,12 @@ export type ConsignorPaymentGroupRow = {
   clientId: string;
   consignorName: string;
   consignorEmail: string;
+  preferredPaymentMethod:
+    | 'check_pickup'
+    | 'cash_pickup'
+    | 'direct_deposit'
+    | null;
+  preferredPaymentBranch: 'pasig' | 'makati' | null;
   items: ConsignorPaymentItemRow[];
 };
 
@@ -174,6 +180,8 @@ export class ConsignorPaymentsService {
             client?.email,
           ),
           consignorEmail: client?.email?.trim() ?? '',
+          preferredPaymentMethod: client?.preferredPaymentMethod ?? null,
+          preferredPaymentBranch: client?.preferredPaymentBranch ?? null,
           items,
         };
       })

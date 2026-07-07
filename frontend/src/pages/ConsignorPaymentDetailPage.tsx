@@ -6,7 +6,9 @@ import {
   consignorPaymentStatusBadgeClass,
   formatConsignorPaymentAuditDate,
 } from "../lib/consignor-payments-display";
-import { formatPhpDisplay } from "../lib/format-php";
+import { branchLabel } from "../lib/consignment-schedule-labels";
+import { formatClientPaymentMethod } from "../lib/client-payment-preference";
+import { formatPhpAmount, formatPhpDisplay, parsePhpStringToNumber } from "../lib/format-php";
 
 type ConsignorPaymentItemRow = {
   id: string;
@@ -22,6 +24,12 @@ type ConsignorPaymentGroupRow = {
   clientId: string;
   consignorName: string;
   consignorEmail: string;
+  preferredPaymentMethod:
+    | "check_pickup"
+    | "cash_pickup"
+    | "direct_deposit"
+    | null;
+  preferredPaymentBranch: "pasig" | "makati" | null;
   items: ConsignorPaymentItemRow[];
 };
 
@@ -33,7 +41,145 @@ type ConsignorPaymentDetail = {
 };
 
 const cardClass =
-  "rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900";
+  "rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900";
+
+function itemCountLabel(count: number): string {
+  return `${count} ${count === 1 ? "item" : "items"}`;
+}
+
+function groupOfferTotal(items: ConsignorPaymentItemRow[]): number {
+  return items.reduce((sum, item) => {
+    const amount =
+      item.offerPrice != null
+        ? parsePhpStringToNumber(String(item.offerPrice))
+        : null;
+    return sum + (amount ?? 0);
+  }, 0);
+}
+
+function paymentPreferenceInline(group: ConsignorPaymentGroupRow): string {
+  const method = formatClientPaymentMethod(group.preferredPaymentMethod);
+  if (
+    group.preferredPaymentMethod &&
+    group.preferredPaymentMethod !== "direct_deposit"
+  ) {
+    return `${method} · ${branchLabel(group.preferredPaymentBranch ?? "pasig")}`;
+  }
+  return method;
+}
+
+const itemListTableClass =
+  "w-full table-fixed border-collapse text-left text-sm";
+
+const itemListHeaderCellClass =
+  "pb-1.5 pr-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 last:pr-0";
+
+const itemListBodyCellClass =
+  "py-1.5 pr-3 align-top text-slate-800 dark:text-slate-200 last:pr-0";
+
+const itemListSkuCellClass =
+  "font-mono text-xs text-slate-900 dark:text-slate-100";
+
+function ConsignorPaymentGroupCard({ group }: { group: ConsignorPaymentGroupRow }) {
+  const totalAmount = groupOfferTotal(group.items);
+
+  return (
+    <details open className={`${cardClass} group/consignor overflow-hidden`}>
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-4 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/80 [&::-webkit-details-marker]:hidden">
+        <div className="min-w-0 flex-1 text-left">
+          <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+            {group.consignorName}
+            <span className="font-normal text-slate-500 dark:text-slate-400">
+              {" "}
+              · {itemCountLabel(group.items.length)} ·{" "}
+              <span className="tabular-nums">{formatPhpAmount(totalAmount)}</span>
+              {" · "}
+              {paymentPreferenceInline(group)}
+            </span>
+          </h2>
+        </div>
+        <span
+          className="shrink-0 text-slate-400 transition-transform duration-200 group-open/consignor:rotate-180 dark:text-slate-500"
+          aria-hidden
+        >
+          <svg
+            className="h-5 w-5"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
+            <path
+              d="M6 9l6 6 6-6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </span>
+      </summary>
+
+      <div className="border-t border-slate-200 px-4 pb-3 pt-2 dark:border-slate-700">
+        {group.items.length === 0 ? (
+          <p className="text-sm text-slate-600 dark:text-slate-400">
+            No items in this group.
+          </p>
+        ) : (
+          <div className="min-w-0 overflow-x-auto">
+            <table className={itemListTableClass}>
+              <colgroup>
+                <col />
+                <col className="w-[9rem] sm:w-[10rem]" />
+                <col className="w-[9rem] sm:w-[10rem]" />
+                <col className="w-[7rem] sm:w-[8rem]" />
+              </colgroup>
+              <thead>
+                <tr className="border-b border-slate-200 dark:border-slate-700">
+                  <th className={itemListHeaderCellClass}>Item</th>
+                  <th className={itemListHeaderCellClass}>Inquiry SKU</th>
+                  <th className={itemListHeaderCellClass}>Inventory SKU</th>
+                  <th className={`${itemListHeaderCellClass} text-right`}>
+                    Consignor&apos;s price
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+                {group.items.map((item) => (
+                  <tr key={item.id}>
+                    <td className={`${itemListBodyCellClass} min-w-0 truncate`}>
+                      <span className="block truncate" title={item.itemLabel}>
+                        {item.itemLabel}
+                      </span>
+                    </td>
+                    <td className={`${itemListBodyCellClass} ${itemListSkuCellClass} truncate`}>
+                      <Link
+                        to={`/portal/inquiries/${item.inquiryId}`}
+                        className="block truncate text-violet-700 hover:underline dark:text-violet-300"
+                        title={item.inquirySku}
+                      >
+                        {item.inquirySku}
+                      </Link>
+                    </td>
+                    <td
+                      className={`${itemListBodyCellClass} ${itemListSkuCellClass} truncate`}
+                      title={item.inventorySku ?? undefined}
+                    >
+                      {item.inventorySku ?? "—"}
+                    </td>
+                    <td
+                      className={`${itemListBodyCellClass} truncate text-right tabular-nums`}
+                    >
+                      {formatPhpDisplay(item.offerPrice)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </details>
+  );
+}
 
 export function ConsignorPaymentDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -125,71 +271,9 @@ export function ConsignorPaymentDetailPage() {
           No consignor groups in this batch.
         </p>
       ) : (
-        <div className="space-y-6">
+        <div className="space-y-4">
           {detail.groups.map((group) => (
-            <div key={group.id} className={cardClass}>
-              <div className="mb-3">
-                <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                  {group.consignorName}
-                </h2>
-                {group.consignorEmail ? (
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                    {group.consignorEmail}
-                  </p>
-                ) : null}
-              </div>
-
-              {group.items.length === 0 ? (
-                <p className="text-sm text-slate-600 dark:text-slate-400">
-                  No items in this group.
-                </p>
-              ) : (
-                <ul className="divide-y divide-slate-200 dark:divide-slate-700">
-                  {group.items.map((item) => (
-                    <li key={item.id} className="py-4 first:pt-0 last:pb-0">
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1">
-                          <p className="font-medium text-slate-900 dark:text-slate-100">
-                            {item.itemLabel}
-                          </p>
-                          <dl className="mt-2 grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
-                            <div>
-                              <dt className="text-slate-500 dark:text-slate-400">
-                                Inquiry SKU
-                              </dt>
-                              <dd>
-                                <Link
-                                  to={`/portal/inquiries/${item.inquiryId}`}
-                                  className="break-all font-mono text-xs text-violet-700 hover:underline dark:text-violet-300"
-                                >
-                                  {item.inquirySku}
-                                </Link>
-                              </dd>
-                            </div>
-                            <div>
-                              <dt className="text-slate-500 dark:text-slate-400">
-                                Inventory SKU
-                              </dt>
-                              <dd className="break-all font-mono text-xs text-slate-900 dark:text-slate-100">
-                                {item.inventorySku ?? "—"}
-                              </dd>
-                            </div>
-                          </dl>
-                        </div>
-                        <div className="shrink-0 text-right">
-                          <p className="text-xs text-slate-500 dark:text-slate-400">
-                            Offer price
-                          </p>
-                          <p className="mt-0.5 tabular-nums text-sm font-medium text-slate-900 dark:text-slate-100">
-                            {formatPhpDisplay(item.offerPrice)}
-                          </p>
-                        </div>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
+            <ConsignorPaymentGroupCard key={group.id} group={group} />
           ))}
         </div>
       )}
