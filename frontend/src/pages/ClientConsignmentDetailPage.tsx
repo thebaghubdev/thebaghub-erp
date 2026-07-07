@@ -21,6 +21,11 @@ import {
 } from "../lib/consignment-schedule-labels";
 import { InquiryStatusBadge } from "../components/InquiryStatusBadge";
 import { formatPhpDisplay } from "../lib/format-php";
+import {
+  formatClientPaymentMethod,
+  parseClientPaymentBranch,
+  parseClientPaymentMethod,
+} from "../lib/client-payment-preference";
 
 type TransactionType = "consignment" | "direct_purchase";
 
@@ -108,15 +113,6 @@ function isForContractRenewalStatus(status: string): boolean {
   return status.trim().toLowerCase() === "for_contract_renewal";
 }
 
-function formatClientPaymentMethod(
-  m: ClientOfferConfirmation["paymentMethod"],
-): string {
-  if (m === "check_pickup") return "Check pickup";
-  if (m === "cash_pickup") return "Cash pickup";
-  if (m === "direct_deposit") return "Direct deposit";
-  return m;
-}
-
 function formatClientBank(
   b: NonNullable<ClientOfferConfirmation["bankDetails"]>["bank"],
 ): string {
@@ -185,7 +181,7 @@ const CONSIGNMENT_TERMS_URL = "/terms/consignment.txt";
 
 export function ClientConsignmentDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { token, user } = useClientAuth();
+  const { token, user, refreshUser } = useClientAuth();
   const [detail, setDetail] = useState<ClientInquiryDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -306,13 +302,18 @@ export function ClientConsignmentDetailPage() {
 
   const openConfirmOfferModal = useCallback(() => {
     setConfirmFormError(null);
-    setPaymentMethod("check_pickup");
-    setPaymentBranch("pasig");
+    setPaymentMethod(
+      parseClientPaymentMethod(user?.client?.preferredPaymentMethod) ??
+        "check_pickup",
+    );
+    setPaymentBranch(
+      parseClientPaymentBranch(user?.client?.preferredPaymentBranch),
+    );
     setConsignmentTermsAccepted(false);
     setOfferSignatureFile(null);
     setSignatureFieldKey((k) => k + 1);
     setConfirmModalOpen(true);
-  }, []);
+  }, [user?.client?.preferredPaymentBranch, user?.client?.preferredPaymentMethod]);
 
   const openRenewalModal = useCallback(() => {
     setRenewalFormError(null);
@@ -370,6 +371,7 @@ export function ClientConsignmentDetailPage() {
         if (!res.ok) throw new Error(await readApiErrorMessage(res));
         const data = (await res.json()) as ClientInquiryDetail;
         setDetail(data);
+        await refreshUser();
         setConfirmModalOpen(false);
       } catch (err) {
         setConfirmFormError(
@@ -387,6 +389,7 @@ export function ClientConsignmentDetailPage() {
       user,
       consignmentTermsAccepted,
       offerSignatureFile,
+      refreshUser,
     ],
   );
 

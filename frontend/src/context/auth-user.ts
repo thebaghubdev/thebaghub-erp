@@ -8,6 +8,12 @@ export type ClientProfile = {
   bankAccountName: string | null
   bankCode: string | null
   bankBranch: string | null
+  preferredPaymentMethod:
+    | 'check_pickup'
+    | 'cash_pickup'
+    | 'direct_deposit'
+    | null
+  preferredPaymentBranch: 'pasig' | 'makati' | null
 }
 
 export type AuthUser = {
@@ -39,5 +45,16 @@ export function normalizeClientProfile(
     bankAccountName: raw.bankAccountName ?? null,
     bankCode: raw.bankCode ?? null,
     bankBranch: raw.bankBranch ?? null,
+    preferredPaymentMethod:
+      raw.preferredPaymentMethod === 'check_pickup' ||
+      raw.preferredPaymentMethod === 'cash_pickup' ||
+      raw.preferredPaymentMethod === 'direct_deposit'
+        ? raw.preferredPaymentMethod
+        : null,
+    preferredPaymentBranch:
+      raw.preferredPaymentBranch === 'pasig' ||
+      raw.preferredPaymentBranch === 'makati'
+        ? raw.preferredPaymentBranch
+        : null,
   }
 }

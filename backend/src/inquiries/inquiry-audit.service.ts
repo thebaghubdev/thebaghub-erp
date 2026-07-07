@@ -28,8 +28,6 @@ type AuditState = {
   offerTransactionType: string | null;
   offerPrice: string | null;
   contractRenewalRequestedPrice: string | null;
-  preferredPaymentMethod: string | null;
-  preferredPaymentBranch: string | null;
   offerSignaturePresent: boolean;
   notes: string | null;
   itemForm: Record<string, string>;
@@ -55,8 +53,6 @@ export function cloneInquiryForAudit(r: Inquiry): Inquiry {
       offerTransactionType: r.offerTransactionType,
       offerPrice: r.offerPrice,
       contractRenewalRequestedPrice: r.contractRenewalRequestedPrice,
-      preferredPaymentMethod: r.preferredPaymentMethod,
-      preferredPaymentBranch: r.preferredPaymentBranch,
       notes: r.notes,
       itemSnapshot: r.itemSnapshot,
     }),
@@ -84,8 +80,6 @@ function toAuditState(
       String(r.contractRenewalRequestedPrice).trim() !== ''
         ? String(r.contractRenewalRequestedPrice)
         : null,
-    preferredPaymentMethod: r.preferredPaymentMethod ?? null,
-    preferredPaymentBranch: r.preferredPaymentBranch ?? null,
     offerSignaturePresent: media?.offerSignaturePresent ?? false,
     notes: (() => {
       if (r.notes == null) return null;
@@ -150,16 +144,6 @@ function diffStates(
     'Contract renewal requested price',
     before.contractRenewalRequestedPrice,
     after.contractRenewalRequestedPrice,
-  );
-  push(
-    'Preferred payment method',
-    before.preferredPaymentMethod,
-    after.preferredPaymentMethod,
-  );
-  push(
-    'Preferred payment branch',
-    before.preferredPaymentBranch,
-    after.preferredPaymentBranch,
   );
   const bSig = before.offerSignaturePresent ? 'Provided' : '';
   const aSig = after.offerSignaturePresent ? 'Provided' : '';
@@ -240,8 +224,6 @@ export class InquiryAuditService {
       offerTransactionType: null,
       offerPrice: null,
       contractRenewalRequestedPrice: null,
-      preferredPaymentMethod: null,
-      preferredPaymentBranch: null,
       offerSignaturePresent: false,
       notes: null,
       itemForm: {},

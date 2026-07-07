@@ -80,28 +80,6 @@ export class Inquiry extends AuditedEntity {
   })
   contractRenewalRequestedPrice: string | null;
 
-  /** Preferred payment method after the consignor confirms the offer (column storage). */
-  @Column({
-    name: 'preferred_payment_method',
-    type: 'varchar',
-    length: 32,
-    nullable: true,
-  })
-  preferredPaymentMethod:
-    | 'check_pickup'
-    | 'cash_pickup'
-    | 'direct_deposit'
-    | null;
-
-  /** Preferred pickup branch when payment is check pickup or cash pickup. */
-  @Column({
-    name: 'preferred_payment_branch',
-    type: 'varchar',
-    length: 32,
-    nullable: true,
-  })
-  preferredPaymentBranch: 'pasig' | 'makati' | null;
-
   /** Internal staff notes (not shown to clients). */
   @Column({ type: 'text', nullable: true })
   notes: string | null;

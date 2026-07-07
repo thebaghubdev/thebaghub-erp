@@ -464,13 +464,10 @@ export class InquiriesService {
     };
   }
 
-  /** Builds API view from `preferred_payment_method` and signature media. */
+  /** Builds API view from consignor payment prefs and inquiry signature media. */
   private async mapClientOfferConfirmationForApi(
     r: Inquiry,
   ): Promise<ClientOfferConfirmationView | null> {
-    if (!r.preferredPaymentMethod) {
-      return null;
-    }
     const signatureUrl = await this.media.findFirstUrl(
       MediaOwnerType.INQUIRY,
       r.id,
@@ -480,8 +477,11 @@ export class InquiriesService {
       return null;
     }
     const consignor = r.consignor;
+    if (!consignor?.preferredPaymentMethod) {
+      return null;
+    }
     let bankDetails: ClientOfferConfirmationData['bankDetails'] = null;
-    if (r.preferredPaymentMethod === 'direct_deposit' && consignor) {
+    if (consignor.preferredPaymentMethod === 'direct_deposit') {
       const num = consignor.bankAccountNumber?.trim();
       const name = consignor.bankAccountName?.trim();
       const code = consignor.bankCode?.trim();
@@ -496,8 +496,8 @@ export class InquiriesService {
       }
     }
     return {
-      paymentMethod: r.preferredPaymentMethod,
-      paymentBranch: r.preferredPaymentBranch ?? null,
+      paymentMethod: consignor.preferredPaymentMethod,
+      paymentBranch: consignor.preferredPaymentBranch ?? null,
       bankDetails,
       signatureUrl,
     };
@@ -1172,11 +1172,11 @@ export class InquiriesService {
       client.bankCode = null;
       client.bankBranch = null;
     }
+    client.preferredPaymentMethod = dto.paymentMethod;
+    client.preferredPaymentBranch = paymentBranch;
     await this.clientsRepo.save(client);
 
     const before = cloneInquiryForAudit(r);
-    r.preferredPaymentMethod = dto.paymentMethod;
-    r.preferredPaymentBranch = paymentBranch;
 
     const isAuthenticatedNewOfferConfirm =
       r.status === InquiryStatus.AUTHENTICATED_NEW_OFFER;
@@ -1754,8 +1754,6 @@ export class InquiriesService {
     if (r.status !== InquiryStatus.AUTHENTICATED_NEW_OFFER) {
       r.status = InquiryStatus.FOR_OFFER_CONFIRMATION;
     }
-    r.preferredPaymentMethod = null;
-    r.preferredPaymentBranch = null;
     await this.media.deleteByOwner(
       MediaOwnerType.INQUIRY,
       id,
@@ -1805,8 +1803,6 @@ export class InquiriesService {
     const beforeMedia = await this.inquiryMediaAudit(id);
     r.offerPrice = dto.offerPrice.toFixed(2);
     r.status = InquiryStatus.AUTHENTICATED_NEW_OFFER;
-    r.preferredPaymentMethod = null;
-    r.preferredPaymentBranch = null;
     await this.media.deleteByOwner(
       MediaOwnerType.INQUIRY,
       id,

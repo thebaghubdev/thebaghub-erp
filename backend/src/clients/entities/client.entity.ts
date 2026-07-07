@@ -58,6 +58,28 @@ export class Client extends AuditedEntity {
   @Column({ name: 'bank_branch', type: 'varchar', length: 200, nullable: true })
   bankBranch: string | null;
 
+  /** Preferred consignor payout method (check pickup, cash pickup, or direct deposit). */
+  @Column({
+    name: 'preferred_payment_method',
+    type: 'varchar',
+    length: 32,
+    nullable: true,
+  })
+  preferredPaymentMethod:
+    | 'check_pickup'
+    | 'cash_pickup'
+    | 'direct_deposit'
+    | null;
+
+  /** Preferred pickup branch when payment method is check or cash pickup. */
+  @Column({
+    name: 'preferred_payment_branch',
+    type: 'varchar',
+    length: 32,
+    nullable: true,
+  })
+  preferredPaymentBranch: 'pasig' | 'makati' | null;
+
   /** Client draft for the multi-step consignment inquiry form (cleared when an inquiry is submitted). */
   @Column({ name: 'consignment_form_snapshot', type: 'jsonb', nullable: true })
   consignmentFormSnapshot: Record<string, unknown> | null;

@@ -333,6 +333,12 @@ export class AuthService {
         bankAccountName: string | null;
         bankCode: string | null;
         bankBranch: string | null;
+        preferredPaymentMethod:
+          | 'check_pickup'
+          | 'cash_pickup'
+          | 'direct_deposit'
+          | null;
+        preferredPaymentBranch: 'pasig' | 'makati' | null;
       } | null,
     };
 
@@ -365,6 +371,8 @@ export class AuthService {
           bankAccountName: cli.bankAccountName,
           bankCode: cli.bankCode,
           bankBranch: cli.bankBranch,
+          preferredPaymentMethod: cli.preferredPaymentMethod,
+          preferredPaymentBranch: cli.preferredPaymentBranch,
         };
       }
     }
