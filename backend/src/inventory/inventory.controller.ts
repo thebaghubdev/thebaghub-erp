@@ -267,6 +267,18 @@ export class InventoryController {
     return this.inventoryService.linkShopifyProduct(id, dto.shopifyProductId);
   }
 
+  @Post(':id/mark-sold-final')
+  @HttpCode(HttpStatus.OK)
+  markSoldFinal(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() req: { user: JwtUser },
+  ) {
+    return this.inventoryService.markSoldUnderWarrantyAsFinal(
+      id,
+      req.user.userId,
+    );
+  }
+
   @Get(':id')
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.inventoryService.findOneForStaff(id);

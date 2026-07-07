@@ -8,6 +8,7 @@ import { MediaModule } from '../media/media.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { Waitlist } from '../orders/entities/waitlist.entity';
 import { ShopifyModule } from '../shopify/shopify.module';
+import { ConsignorPaymentsModule } from '../consignor-payments/consignor-payments.module';
 import { InventoryItem } from './entities/inventory-item.entity';
 import { ItemAuthentication } from './entities/item-authentication.entity';
 import { ItemAuthenticationMetric } from './entities/item-authentication-metric.entity';
@@ -20,6 +21,7 @@ import { SoldWarrantyFinalizeCron } from './sold-warranty-finalize.cron';
 @Module({
   imports: [
     forwardRef(() => InquiriesModule),
+    ConsignorPaymentsModule,
     MediaModule,
     NotificationsModule,
     ShopifyModule,

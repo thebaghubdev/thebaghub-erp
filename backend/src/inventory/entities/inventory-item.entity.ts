@@ -71,6 +71,9 @@ export class InventoryItem extends AuditedEntity {
   @Column({ name: 'date_sold', type: 'timestamptz', nullable: true })
   dateSold: Date | null;
 
+  @Column({ name: 'date_sold_final', type: 'timestamptz', nullable: true })
+  dateSoldFinal: Date | null;
+
   @OneToOne(() => ItemPhotoshoot, (p) => p.inventoryItem)
   itemPhotoshoot: ItemPhotoshoot | null;
 

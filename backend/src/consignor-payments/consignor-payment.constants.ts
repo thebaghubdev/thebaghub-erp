@@ -1,0 +1,1 @@
+export const CONSIGNOR_PAYMENT_STATUS_PENDING = 'Pending';

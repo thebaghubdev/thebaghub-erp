@@ -32,6 +32,8 @@ import {
   INVENTORY_STATUS_SOLD_UNDER_WARRANTY,
 } from '../orders/order-status.constants';
 import { isSoldDateEligibleForFinalStatus } from './sold-warranty.util';
+import { computeConsignorPaymentAuditDate } from '../consignor-payments/consignor-payment-audit-date.util';
+import { ConsignorPaymentsService } from '../consignor-payments/consignor-payments.service';
 import { CreateItemPhotoshootsDto } from './dto/create-item-photoshoots.dto';
 import { BatchAssignAuthenticatorDto } from './dto/batch-assign-authenticator.dto';
 import type { MulterFile } from '../inquiries/multer-file.type';
@@ -674,6 +676,7 @@ export class InventoryService {
     private readonly waitlistsRepo: Repository<Waitlist>,
     @InjectRepository(Client)
     private readonly clientsRepo: Repository<Client>,
+    private readonly consignorPaymentsService: ConsignorPaymentsService,
     @Inject(forwardRef(() => InquiriesService))
     private readonly inquiriesService: InquiriesService,
     private readonly notifications: NotificationsService,
@@ -2399,10 +2402,85 @@ export class InventoryService {
     if (toFinalize.length === 0) return 0;
 
     for (const item of toFinalize) {
-      item.status = INVENTORY_STATUS_SOLD_FINAL;
-      await this.inventoryRepo.save(item);
+      await this.finalizeInventoryItemAsSoldFinal(item.id, null, referenceDate);
     }
 
     return toFinalize.length;
+  }
+
+  async markSoldUnderWarrantyAsFinal(
+    inventoryItemId: string,
+    actorUserId: string,
+  ): Promise<{ status: string }> {
+    const item = await this.inventoryRepo.findOne({
+      where: { id: inventoryItemId },
+    });
+    if (!item) {
+      throw new NotFoundException('Inventory item not found');
+    }
+    if (item.status !== INVENTORY_STATUS_SOLD_UNDER_WARRANTY) {
+      throw new BadRequestException(
+        `Only items in "${INVENTORY_STATUS_SOLD_UNDER_WARRANTY}" can be marked as sold final.`,
+      );
+    }
+
+    return this.finalizeInventoryItemAsSoldFinal(
+      inventoryItemId,
+      actorUserId,
+      new Date(),
+    );
+  }
+
+  /**
+   * Marks inventory sold final, records date_sold_final, and queues consignor
+   * payment records for consignment items with a linked inquiry.
+   */
+  private async finalizeInventoryItemAsSoldFinal(
+    inventoryItemId: string,
+    actorUserId: string | null,
+    soldFinalAt: Date,
+  ): Promise<{ status: string }> {
+    return this.inventoryRepo.manager.transaction(async (manager) => {
+      const item = await manager.findOne(InventoryItem, {
+        where: { id: inventoryItemId },
+        relations: { inquiry: true },
+      });
+      if (!item) {
+        throw new NotFoundException('Inventory item not found');
+      }
+      if (item.status !== INVENTORY_STATUS_SOLD_UNDER_WARRANTY) {
+        throw new BadRequestException(
+          `Only items in "${INVENTORY_STATUS_SOLD_UNDER_WARRANTY}" can be marked as sold final.`,
+        );
+      }
+
+      item.status = INVENTORY_STATUS_SOLD_FINAL;
+      item.dateSoldFinal = soldFinalAt;
+      if (actorUserId) {
+        item.updatedById = actorUserId;
+      }
+      await manager.save(item);
+
+      if (
+        item.inquiryId &&
+        item.transactionType === 'consignment'
+      ) {
+        const consignorClientId =
+          item.consignorId ?? item.inquiry?.consignorId ?? null;
+        if (consignorClientId) {
+          const auditDate = computeConsignorPaymentAuditDate(soldFinalAt);
+          await this.consignorPaymentsService.recordItemForSoldFinalConsignment(
+            manager,
+            {
+              inquiryId: item.inquiryId,
+              consignorClientId,
+              auditDate,
+            },
+          );
+        }
+      }
+
+      return { status: item.status };
+    });
   }
 }

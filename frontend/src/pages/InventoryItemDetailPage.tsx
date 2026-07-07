@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { InventoryStatusBadge } from "../components/InventoryStatusBadge";
 import { usePortalAuth } from "../context/portal-auth";
@@ -102,6 +103,10 @@ function isPriceViewableStatus(status: string): boolean {
   );
 }
 
+function isSoldUnderWarrantyStatus(status: string): boolean {
+  return status.trim().toLowerCase() === "sold under warranty";
+}
+
 function clientName(row: InventoryItemWaitlistClientRow): string {
   return `${row.firstName} ${row.lastName}`.trim() || row.email;
 }
@@ -136,6 +141,12 @@ export function InventoryItemDetailPage() {
   const [selectedClientId, setSelectedClientId] = useState("");
   const [addClientBusy, setAddClientBusy] = useState(false);
   const [addClientError, setAddClientError] = useState<string | null>(null);
+  const [markSoldFinalConfirmOpen, setMarkSoldFinalConfirmOpen] =
+    useState(false);
+  const [markSoldFinalBusy, setMarkSoldFinalBusy] = useState(false);
+  const [markSoldFinalError, setMarkSoldFinalError] = useState<string | null>(
+    null,
+  );
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -269,6 +280,38 @@ export function InventoryItemDetailPage() {
     }
   }, [closeAddClientModal, id, selectedClientId, token]);
 
+  const confirmMarkSoldFinal = useCallback(async () => {
+    if (!id) return;
+    setMarkSoldFinalError(null);
+    setMarkSoldFinalBusy(true);
+    try {
+      const res = await apiFetch(
+        `/api/inventory/${id}/mark-sold-final`,
+        { method: "POST" },
+        token,
+      );
+      if (!res.ok) {
+        let message = `Request failed (${res.status})`;
+        try {
+          const body = (await res.json()) as { message?: string | string[] };
+          if (typeof body.message === "string") message = body.message;
+          else if (Array.isArray(body.message)) message = body.message.join(", ");
+        } catch {
+          /* ignore */
+        }
+        throw new Error(message);
+      }
+      setMarkSoldFinalConfirmOpen(false);
+      await load();
+    } catch (e) {
+      setMarkSoldFinalError(
+        e instanceof Error ? e.message : "Failed to mark as sold final",
+      );
+    } finally {
+      setMarkSoldFinalBusy(false);
+    }
+  }, [id, load, token]);
+
   useEffect(() => {
     if (!waitlistModalOpen) return;
     const onKeyDown = (e: KeyboardEvent) => {
@@ -386,6 +429,18 @@ export function InventoryItemDetailPage() {
             >
               View inquiry
             </Link>
+          ) : null}
+          {isSoldUnderWarrantyStatus(detail.status) ? (
+            <button
+              type="button"
+              className={recordActionBtn}
+              onClick={() => {
+                setMarkSoldFinalError(null);
+                setMarkSoldFinalConfirmOpen(true);
+              }}
+            >
+              Mark as Sold Final
+            </button>
           ) : null}
         </div>
         </div>
@@ -848,6 +903,22 @@ export function InventoryItemDetailPage() {
           ) : null}
         </div>
       ) : null}
+
+      <ConfirmDialog
+        open={markSoldFinalConfirmOpen}
+        title="Mark as Sold Final?"
+        description="This will update the inventory item status from Sold under warranty to Sold final. This action cannot be undone."
+        confirmLabel="Mark as Sold Final"
+        cancelLabel="Cancel"
+        busy={markSoldFinalBusy}
+        errorMessage={markSoldFinalError}
+        onCancel={() => {
+          if (markSoldFinalBusy) return;
+          setMarkSoldFinalError(null);
+          setMarkSoldFinalConfirmOpen(false);
+        }}
+        onConfirm={confirmMarkSoldFinal}
+      />
     </div>
   );
 }

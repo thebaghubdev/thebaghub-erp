@@ -39,6 +39,8 @@ import { PostingItemPage } from './pages/PostingItemPage'
 import { PostingPage } from './pages/PostingPage'
 import { PricingPage } from './pages/PricingPage'
 import { OrderDetailPage } from './pages/OrderDetailPage'
+import { ConsignorPaymentDetailPage } from './pages/ConsignorPaymentDetailPage'
+import { ConsignorPaymentsPage } from './pages/ConsignorPaymentsPage'
 import { OrdersPage } from './pages/OrdersPage'
 import { PortalLoginPage } from './pages/PortalLoginPage'
 import { ItemCatalogPage } from './pages/ItemCatalogPage'
@@ -113,6 +115,11 @@ const router = createBrowserRouter([
           { path: 'posting', element: <PostingPage /> },
           { path: 'orders', element: <OrdersPage /> },
           { path: 'orders/:id', element: <OrderDetailPage /> },
+          { path: 'consignor-payments', element: <ConsignorPaymentsPage /> },
+          {
+            path: 'consignor-payments/:id',
+            element: <ConsignorPaymentDetailPage />,
+          },
           { path: 'settings', element: <SettingsPage /> },
           { path: 'accounts/register', element: <RegisterPage /> },
           { path: 'accounts', element: <ManageAccountsPage /> },

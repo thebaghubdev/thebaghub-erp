@@ -24,6 +24,12 @@ import {
   ConsignmentSchedule,
   ConsignmentScheduleItem,
 } from './consignment-schedules/entities/consignment-schedule.entities';
+import { ConsignorPaymentsModule } from './consignor-payments/consignor-payments.module';
+import {
+  ConsignorPayment,
+  ConsignorPaymentGroup,
+  ConsignorPaymentItem,
+} from './consignor-payments/entities/consignor-payment.entities';
 import { InventoryModule } from './inventory/inventory.module';
 import { InventoryItem } from './inventory/entities/inventory-item.entity';
 import { ItemAuthentication } from './inventory/entities/item-authentication.entity';
@@ -68,6 +74,9 @@ import { MediaModule } from './media/media.module';
           AuthenticationMetric,
           ConsignmentSchedule,
           ConsignmentScheduleItem,
+          ConsignorPayment,
+          ConsignorPaymentGroup,
+          ConsignorPaymentItem,
           InventoryItem,
           ItemAuthentication,
           ItemAuthenticationMetric,
@@ -92,6 +101,7 @@ import { MediaModule } from './media/media.module';
     SettingsModule,
     AccountsModule,
     ConsignmentSchedulesModule,
+    ConsignorPaymentsModule,
     InventoryModule,
     AuthenticationMetricsModule,
     NotificationsModule,
