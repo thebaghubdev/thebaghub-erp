@@ -7,6 +7,8 @@ import { formatPhpDisplay, formatPhpAmount } from "../lib/format-php";
 import {
   computeRemainingBalance,
   formatDueDate,
+  installmentStatusBadgeClass,
+  isInstallmentUnpaid,
   readApiErrorMessage,
   type OrderInstallmentRow,
 } from "../lib/order-installments";
@@ -16,10 +18,10 @@ type OrderInstallmentScheduleProps = {
   token: string | null;
   layawayPrice: string | null;
   installments: OrderInstallmentRow[];
+  consignorPaymentRelease?: number | null;
   mode: "staff" | "client";
   readOnly?: boolean;
   onUpdated: (installments: OrderInstallmentRow[]) => void;
-  onMarkPaid?: (detail: { status: string; installments: OrderInstallmentRow[] }) => void;
 };
 
 export function OrderInstallmentSchedule({
@@ -27,14 +29,18 @@ export function OrderInstallmentSchedule({
   token,
   layawayPrice,
   installments,
+  consignorPaymentRelease = null,
   mode,
   readOnly = false,
   onUpdated,
-  onMarkPaid,
 }: OrderInstallmentScheduleProps) {
   const [busyKey, setBusyKey] = useState<string | null>(null);
-  const [markPaidConfirmOpen, setMarkPaidConfirmOpen] = useState(false);
-  const [markPaidError, setMarkPaidError] = useState<string | null>(null);
+  const [installmentMarkPaidNumber, setInstallmentMarkPaidNumber] = useState<
+    number | null
+  >(null);
+  const [installmentMarkPaidError, setInstallmentMarkPaidError] = useState<
+    string | null
+  >(null);
   const [error, setError] = useState<string | null>(null);
   const [amountDrafts, setAmountDrafts] = useState<Record<number, string>>(
     () =>
@@ -126,40 +132,45 @@ export function OrderInstallmentSchedule({
     [apiBase, onUpdated, token],
   );
 
-  const markPaidBusy = busyKey === "mark-paid";
+  const installmentMarkPaidBusy =
+    installmentMarkPaidNumber != null &&
+    busyKey === `installment-mark-paid-${installmentMarkPaidNumber}`;
 
-  const confirmMarkPaid = useCallback(async () => {
-    if (mode !== "staff" || !token || !onMarkPaid) return;
-    setBusyKey("mark-paid");
-    setMarkPaidError(null);
+  const confirmMarkInstallmentPaid = useCallback(async () => {
+    if (
+      mode !== "staff" ||
+      !token ||
+      installmentMarkPaidNumber == null
+    ) {
+      return;
+    }
+    const key = `installment-mark-paid-${installmentMarkPaidNumber}`;
+    setBusyKey(key);
+    setInstallmentMarkPaidError(null);
     try {
       const res = await apiFetch(
-        `/api/orders/${orderId}/mark-paid`,
+        `/api/orders/${orderId}/installments/${installmentMarkPaidNumber}/mark-paid`,
         { method: "POST" },
         token,
       );
       if (!res.ok) throw new Error(await readApiErrorMessage(res));
-      const data = (await res.json()) as {
-        status: string;
-        installments: OrderInstallmentRow[];
-      };
-      onMarkPaid(data);
-      setMarkPaidConfirmOpen(false);
+      const data = (await res.json()) as { installments: OrderInstallmentRow[] };
+      onUpdated(data.installments);
+      setInstallmentMarkPaidNumber(null);
     } catch (e) {
-      setMarkPaidError(
-        e instanceof Error ? e.message : "Could not mark order as paid",
+      setInstallmentMarkPaidError(
+        e instanceof Error ? e.message : "Could not mark installment as paid",
       );
     } finally {
       setBusyKey(null);
     }
-  }, [mode, onMarkPaid, orderId, token]);
+  }, [installmentMarkPaidNumber, mode, onUpdated, orderId, token]);
 
   if (installments.length === 0) {
     return null;
   }
 
   const remainingBalance = computeRemainingBalance(installments, layawayPrice);
-  const canMarkPaid = remainingBalance === 0;
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
@@ -181,16 +192,31 @@ export function OrderInstallmentSchedule({
                 <th className="px-3 py-2.5">Scheduled amount</th>
                 <th className="px-3 py-2.5">Amount paid</th>
                 <th className="px-3 py-2.5">Proof of payment</th>
+                <th className="px-3 py-2.5">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
               {installments.map((row) => {
                 const amountBusy = busyKey === `amount-${row.installmentNumber}`;
                 const proofBusy = busyKey === `proof-${row.installmentNumber}`;
+                const showMarkInstallmentPaid =
+                  mode === "staff" &&
+                  !readOnly &&
+                  isInstallmentUnpaid(row.status);
                 return (
                   <tr key={row.installmentNumber}>
-                    <td className="px-3 py-3 font-medium text-slate-900 dark:text-slate-100">
-                      {row.installmentLabel}
+                    <td className="px-3 py-3">
+                      <div className="flex flex-col gap-1">
+                        <span className="font-medium text-slate-900 dark:text-slate-100">
+                          {row.installmentLabel}
+                        </span>
+                        {consignorPaymentRelease != null &&
+                        row.installmentNumber === consignorPaymentRelease ? (
+                          <span className="text-xs text-slate-500 dark:text-slate-400">
+                            Consignor payment release
+                          </span>
+                        ) : null}
+                      </div>
                     </td>
                     <td className="px-3 py-3 text-slate-700 dark:text-slate-300">
                       {formatDueDate(row.dueDate)}
@@ -264,6 +290,26 @@ export function OrderInstallmentSchedule({
                         ) : null}
                       </div>
                     </td>
+                    <td className="px-3 py-3">
+                      <div className="flex flex-col items-start gap-2">
+                        <span className={installmentStatusBadgeClass(row.status)}>
+                          {row.status}
+                        </span>
+                        {showMarkInstallmentPaid ? (
+                          <button
+                            type="button"
+                            disabled={installmentMarkPaidBusy}
+                            onClick={() => {
+                              setInstallmentMarkPaidError(null);
+                              setInstallmentMarkPaidNumber(row.installmentNumber);
+                            }}
+                            className="w-fit rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-800"
+                          >
+                            Mark as paid
+                          </button>
+                        ) : null}
+                      </div>
+                    </td>
                   </tr>
                 );
               })}
@@ -277,43 +323,35 @@ export function OrderInstallmentSchedule({
                   Remaining balance
                 </td>
                 <td className="px-3 py-3">
-                  <div className="flex flex-wrap items-center gap-3">
-                    <span className="tabular-nums text-sm font-semibold text-slate-900 dark:text-slate-100">
-                      {formatPhpAmount(remainingBalance)}
-                    </span>
-                    {mode === "staff" && onMarkPaid && !readOnly ? (
-                      <button
-                        type="button"
-                        disabled={!canMarkPaid || markPaidBusy}
-                        onClick={() => {
-                          setMarkPaidError(null);
-                          setMarkPaidConfirmOpen(true);
-                        }}
-                        className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white shadow-sm hover:bg-emerald-700 focus-visible:outline focus-visible:ring-2 focus-visible:ring-emerald-500 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-emerald-600 dark:hover:bg-emerald-500"
-                      >
-                        Mark as paid
-                      </button>
-                    ) : null}
-                  </div>
+                  <span className="tabular-nums text-sm font-semibold text-slate-900 dark:text-slate-100">
+                    {formatPhpAmount(remainingBalance)}
+                  </span>
                 </td>
-                <td colSpan={2} />
+                <td colSpan={3} />
               </tr>
             </tfoot>
           </table>
         </HorizontalScrollMirror>
       </div>
-      {mode === "staff" && onMarkPaid && !readOnly ? (
+      {mode === "staff" && !readOnly ? (
         <ConfirmDialog
-          open={markPaidConfirmOpen}
-          title="Mark layaway as paid?"
-          description="This order will be marked as paid. Make sure all installment payments have been recorded."
+          open={installmentMarkPaidNumber != null}
+          title="Mark installment as paid?"
+          description={
+            installmentMarkPaidNumber != null
+              ? `This will mark the ${installments.find((row) => row.installmentNumber === installmentMarkPaidNumber)?.installmentLabel ?? "installment"} payment as paid.`
+              : ""
+          }
           confirmLabel="Mark as paid"
-          busy={markPaidBusy}
-          errorMessage={markPaidError}
+          busy={installmentMarkPaidBusy}
+          errorMessage={installmentMarkPaidError}
           onCancel={() => {
-            if (!markPaidBusy) setMarkPaidConfirmOpen(false);
+            if (!installmentMarkPaidBusy) {
+              setInstallmentMarkPaidError(null);
+              setInstallmentMarkPaidNumber(null);
+            }
           }}
-          onConfirm={confirmMarkPaid}
+          onConfirm={confirmMarkInstallmentPaid}
         />
       ) : null}
     </div>

@@ -6,9 +6,25 @@ export type OrderInstallmentRow = {
   scheduledAmount: string;
   amountDue: string;
   amountPaid: string | null;
+  status: string;
   proofUrl: string | null;
   dueDate: string | null;
 };
+
+function installmentStatusBadgeClass(status: string): string {
+  const normalized = status.trim().toLowerCase();
+  if (normalized === "unpaid") {
+    return "inline-flex w-fit rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900 dark:bg-amber-950/60 dark:text-amber-200";
+  }
+  if (normalized === "paid") {
+    return "inline-flex w-fit rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-900 dark:bg-emerald-950/60 dark:text-emerald-200";
+  }
+  return "inline-flex w-fit rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-800 dark:bg-slate-800 dark:text-slate-200";
+}
+
+function isInstallmentUnpaid(status: string): boolean {
+  return status.trim().toLowerCase() === "unpaid";
+}
 
 /** Remaining balance: layaway price minus total amount paid. */
 function computeRemainingBalance(
@@ -46,4 +62,10 @@ async function readApiErrorMessage(res: Response): Promise<string> {
   return `Request failed (${res.status})`;
 }
 
-export { computeRemainingBalance, formatDueDate, readApiErrorMessage };
+export {
+  computeRemainingBalance,
+  formatDueDate,
+  installmentStatusBadgeClass,
+  isInstallmentUnpaid,
+  readApiErrorMessage,
+};

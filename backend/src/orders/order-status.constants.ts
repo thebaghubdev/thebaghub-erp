@@ -34,6 +34,9 @@ export const SHIPPING_FEE_CARE_OF_OPTIONS = [
 export const PAYMENT_TYPE_FULL = 'full_payment';
 export const PAYMENT_TYPE_LAYAWAY = 'layaway';
 
+export const ORDER_INSTALLMENT_STATUS_UNPAID = 'Unpaid';
+export const ORDER_INSTALLMENT_STATUS_PAID = 'Paid';
+
 /** Hours after order creation before the hold expires. */
 export const FULL_PAYMENT_HOLDING_HOURS = 3;
 export const LAYAWAY_HOLDING_HOURS = 12;

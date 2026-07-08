@@ -161,6 +161,19 @@ export class OrdersController {
     );
   }
 
+  @Post(':id/installments/:installmentNumber/mark-paid')
+  markInstallmentPaid(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('installmentNumber', ParseIntPipe) installmentNumber: number,
+  ) {
+    return this.ordersService.markInstallmentPaidForStaff(
+      req.user,
+      id,
+      installmentNumber,
+    );
+  }
+
   @Post(':id/installments/:installmentNumber/proof')
   @UseInterceptors(
     FileInterceptor('proof', {

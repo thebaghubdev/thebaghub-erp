@@ -2,6 +2,7 @@ import { OrderInstallment } from './entities/order-installment.entity';
 import { Order } from './entities/order.entity';
 import {
   ORDER_STATUS_FOR_PAYMENT,
+  ORDER_INSTALLMENT_STATUS_UNPAID,
   PAYMENT_TYPE_LAYAWAY,
 } from './order-status.constants';
 
@@ -11,6 +12,7 @@ export type OrderInstallmentView = {
   scheduledAmount: string;
   amountDue: string;
   amountPaid: string | null;
+  status: string;
   proofUrl: string | null;
   dueDate: string | null;
 };
@@ -129,6 +131,7 @@ export function computeInstallmentViews(
       scheduledAmount: row.scheduledAmount,
       amountDue: formatMoney(amountDue),
       amountPaid: row.amountPaid,
+      status: row.status?.trim() || ORDER_INSTALLMENT_STATUS_UNPAID,
       proofUrl: getProofUrl(row),
       dueDate,
     };

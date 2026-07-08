@@ -6,6 +6,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, In, Repository } from 'typeorm';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
+import { Order } from '../orders/entities/order.entity';
 import {
   Inquiry,
   type InquiryItemSnapshot,
@@ -56,7 +57,10 @@ export type ConsignorPaymentItemRow = {
   inquirySku: string;
   itemLabel: string;
   offerPrice: string | null;
+  inventoryItemId: string | null;
   inventorySku: string | null;
+  orderId: string | null;
+  orderNumber: number | null;
 };
 
 export type ConsignorPaymentGroupRow = {
@@ -124,6 +128,8 @@ export class ConsignorPaymentsService {
     private readonly paymentsRepo: Repository<ConsignorPayment>,
     @InjectRepository(InventoryItem)
     private readonly inventoryRepo: Repository<InventoryItem>,
+    @InjectRepository(Order)
+    private readonly ordersRepo: Repository<Order>,
     private readonly media: MediaService,
   ) {}
 
@@ -164,7 +170,14 @@ export class ConsignorPaymentsService {
       payment.groups?.flatMap((group) =>
         (group.items ?? []).map((item) => item.inquiryId),
       ) ?? [];
-    const inventoryByInquiry = new Map<string, string>();
+    const inventoryByInquiry = new Map<
+      string,
+      { id: string; sku: string }
+    >();
+    const orderByInventoryItemId = new Map<
+      string,
+      { id: string; orderNumber: number }
+    >();
     if (inquiryIds.length > 0) {
       const inventoryRows = await this.inventoryRepo.find({
         where: { inquiryId: In(inquiryIds) },
@@ -172,7 +185,24 @@ export class ConsignorPaymentsService {
       });
       for (const row of inventoryRows) {
         if (row.inquiryId) {
-          inventoryByInquiry.set(row.inquiryId, row.sku);
+          inventoryByInquiry.set(row.inquiryId, {
+            id: row.id,
+            sku: row.sku,
+          });
+        }
+      }
+
+      const inventoryItemIds = inventoryRows.map((row) => row.id);
+      if (inventoryItemIds.length > 0) {
+        const orderRows = await this.ordersRepo.find({
+          where: { inventoryItemId: In(inventoryItemIds) },
+          select: { id: true, inventoryItemId: true, orderNumber: true },
+        });
+        for (const order of orderRows) {
+          orderByInventoryItemId.set(order.inventoryItemId, {
+            id: order.id,
+            orderNumber: order.orderNumber,
+          });
         }
       }
     }
@@ -183,6 +213,10 @@ export class ConsignorPaymentsService {
         const items: ConsignorPaymentItemRow[] = (group.items ?? []).map(
           (item) => {
             const inquiry = item.inquiry;
+            const inventory = inventoryByInquiry.get(item.inquiryId);
+            const order = inventory
+              ? orderByInventoryItemId.get(inventory.id)
+              : undefined;
             return {
               id: item.id,
               inquiryId: item.inquiryId,
@@ -193,7 +227,10 @@ export class ConsignorPaymentsService {
                 String(inquiry.offerPrice).trim() !== ''
                   ? String(inquiry.offerPrice)
                   : null,
-              inventorySku: inventoryByInquiry.get(item.inquiryId) ?? null,
+              inventoryItemId: inventory?.id ?? null,
+              inventorySku: inventory?.sku ?? null,
+              orderId: order?.id ?? null,
+              orderNumber: order?.orderNumber ?? null,
             };
           },
         );

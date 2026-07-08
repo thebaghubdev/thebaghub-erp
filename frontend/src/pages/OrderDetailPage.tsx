@@ -737,17 +737,11 @@ export function OrderDetailPage() {
           token={token}
           layawayPrice={detail.layawayPrice}
           installments={detail.installments}
+          consignorPaymentRelease={detail.consignorPaymentRelease}
           mode="staff"
           readOnly={isPostPaymentOrder}
           onUpdated={(installments) =>
             setDetail((prev) => (prev ? { ...prev, installments } : prev))
-          }
-          onMarkPaid={(updated) =>
-            setDetail((prev) =>
-              prev
-                ? { ...prev, status: updated.status, installments: updated.installments }
-                : prev,
-            )
           }
         />
       ) : null}

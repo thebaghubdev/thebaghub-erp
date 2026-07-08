@@ -60,6 +60,8 @@ import {
   ORDER_STATUS_OUT_FOR_DELIVERY,
   ORDER_STATUS_PAID,
   ORDER_STATUS_RESERVATION,
+  ORDER_INSTALLMENT_STATUS_PAID,
+  ORDER_INSTALLMENT_STATUS_UNPAID,
   ORDER_NUMBER_OFFSET,
   PAYMENT_TYPE_FULL,
   PAYMENT_TYPE_LAYAWAY,
@@ -1358,6 +1360,31 @@ export class OrdersService {
 
     const row = await this.findInstallmentForOrder(orderId, installmentNumber);
     row.amountPaid = formatMoney(amount);
+    row.updatedById = user.userId;
+    await this.installmentsRepo.save(row);
+
+    return this.findOneForStaff(orderId);
+  }
+
+  async markInstallmentPaidForStaff(
+    user: JwtUser,
+    orderId: string,
+    installmentNumber: number,
+  ): Promise<StaffOrderDetail> {
+    const order = await this.ordersRepo.findOne({ where: { id: orderId } });
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+    this.assertInstallmentScheduleAccessible(order);
+    await this.ensureInstallments(order, user.userId);
+
+    const row = await this.findInstallmentForOrder(orderId, installmentNumber);
+    const currentStatus = row.status?.trim() || ORDER_INSTALLMENT_STATUS_UNPAID;
+    if (currentStatus === ORDER_INSTALLMENT_STATUS_PAID) {
+      throw new BadRequestException('Installment is already marked as paid');
+    }
+
+    row.status = ORDER_INSTALLMENT_STATUS_PAID;
     row.updatedById = user.userId;
     await this.installmentsRepo.save(row);
 

@@ -36,7 +36,10 @@ type ConsignorPaymentItemRow = {
   inquirySku: string;
   itemLabel: string;
   offerPrice: string | null;
+  inventoryItemId: string | null;
   inventorySku: string | null;
+  orderId: string | null;
+  orderNumber: number | null;
 };
 
 type ConsignorPaymentGroupRow = {
@@ -535,6 +538,7 @@ function ConsignorPaymentGroupCard({
             <table className={itemListTableClass}>
               <colgroup>
                 <col />
+                <col className="w-[6rem] sm:w-[7rem]" />
                 <col className="w-[9rem] sm:w-[10rem]" />
                 <col className="w-[9rem] sm:w-[10rem]" />
                 <col className="w-[7rem] sm:w-[8rem]" />
@@ -542,6 +546,7 @@ function ConsignorPaymentGroupCard({
               <thead>
                 <tr className="border-b border-slate-200 dark:border-slate-700">
                   <th className={itemListHeaderCellClass}>Item</th>
+                  <th className={itemListHeaderCellClass}>Order</th>
                   <th className={itemListHeaderCellClass}>Inquiry SKU</th>
                   <th className={itemListHeaderCellClass}>Inventory SKU</th>
                   <th className={`${itemListHeaderCellClass} text-right`}>
@@ -560,6 +565,21 @@ function ConsignorPaymentGroupCard({
                     <td
                       className={`${itemListBodyCellClass} ${itemListSkuCellClass} truncate`}
                     >
+                      {item.orderId != null && item.orderNumber != null ? (
+                        <Link
+                          to={`/portal/orders/${item.orderId}`}
+                          className="block truncate text-violet-700 hover:underline dark:text-violet-300"
+                          title={`Order #${item.orderNumber}`}
+                        >
+                          #{item.orderNumber}
+                        </Link>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                    <td
+                      className={`${itemListBodyCellClass} ${itemListSkuCellClass} truncate`}
+                    >
                       <Link
                         to={`/portal/inquiries/${item.inquiryId}`}
                         className="block truncate text-violet-700 hover:underline dark:text-violet-300"
@@ -572,7 +592,17 @@ function ConsignorPaymentGroupCard({
                       className={`${itemListBodyCellClass} ${itemListSkuCellClass} truncate`}
                       title={item.inventorySku ?? undefined}
                     >
-                      {item.inventorySku ?? "—"}
+                      {item.inventoryItemId != null && item.inventorySku ? (
+                        <Link
+                          to={`/portal/inventory/${item.inventoryItemId}`}
+                          className="block truncate text-violet-700 hover:underline dark:text-violet-300"
+                          title={item.inventorySku}
+                        >
+                          {item.inventorySku}
+                        </Link>
+                      ) : (
+                        "—"
+                      )}
                     </td>
                     <td
                       className={`${itemListBodyCellClass} truncate text-right tabular-nums`}

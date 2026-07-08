@@ -7,6 +7,7 @@ import {
   Unique,
 } from 'typeorm';
 import { AuditedEntity } from '../../common/entities/audited.entity';
+import { ORDER_INSTALLMENT_STATUS_UNPAID } from '../order-status.constants';
 import { Order } from './order.entity';
 
 @Entity('order_installments')
@@ -41,6 +42,13 @@ export class OrderInstallment extends AuditedEntity {
     nullable: true,
   })
   amountPaid: string | null;
+
+  @Column({
+    type: 'varchar',
+    length: 32,
+    default: ORDER_INSTALLMENT_STATUS_UNPAID,
+  })
+  status: string;
 
   @Column({ name: 'proof_uploaded_at', type: 'timestamptz', nullable: true })
   proofUploadedAt: Date | null;
