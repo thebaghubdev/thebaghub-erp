@@ -99,11 +99,30 @@ export function ClientCreateAccountPage() {
   return (
     <div className="min-h-svh bg-gradient-to-b from-violet-50 to-slate-50 px-4 py-8 pb-8">
       <div className="mx-auto w-full max-w-md rounded-2xl border border-slate-200/80 bg-white p-6 shadow-lg sm:p-8">
-        <h1 className="mb-1 text-center text-xl font-semibold text-slate-900">
-          Create account
-        </h1>
+        {success ? (
+          <>
+            <h1 className="mb-4 text-center text-xl font-semibold text-slate-900">
+              Account created
+            </h1>
+            <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+              {success}
+            </p>
+            <p className="mt-6 text-center text-sm text-slate-600">
+              <Link
+                to="/login"
+                className="font-medium text-violet-700 hover:text-violet-800"
+              >
+                Sign in
+              </Link>
+            </p>
+          </>
+        ) : (
+          <>
+            <h1 className="mb-1 text-center text-xl font-semibold text-slate-900">
+              Create account
+            </h1>
 
-        <form onSubmit={onSubmit} className="flex flex-col gap-4">
+            <form onSubmit={onSubmit} className="flex flex-col gap-4">
           <div>
             <label
               htmlFor="ca-email"
@@ -226,11 +245,6 @@ export function ClientCreateAccountPage() {
               {error}
             </p>
           )}
-          {success && (
-            <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
-              {success}
-            </p>
-          )}
 
           <button
             type="submit"
@@ -244,15 +258,17 @@ export function ClientCreateAccountPage() {
           </button>
         </form>
 
-        <p className="mt-6 text-center text-sm text-slate-600">
-          Already have an account?{" "}
-          <Link
-            to="/login"
-            className="font-medium text-violet-700 hover:text-violet-800"
-          >
-            Sign in
-          </Link>
-        </p>
+            <p className="mt-6 text-center text-sm text-slate-600">
+              Already have an account?{" "}
+              <Link
+                to="/login"
+                className="font-medium text-violet-700 hover:text-violet-800"
+              >
+                Sign in
+              </Link>
+            </p>
+          </>
+        )}
       </div>
     </div>
   );
