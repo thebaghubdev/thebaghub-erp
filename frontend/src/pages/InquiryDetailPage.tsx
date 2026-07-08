@@ -31,7 +31,6 @@ type ClientOfferConfirmation = {
     accountNumber: string;
     accountName: string;
     bank: "bdo" | "bpi" | "other";
-    branch: string;
   } | null;
   signatureUrl: string;
 };
@@ -1370,14 +1369,6 @@ export function InquiryDetailPage() {
                             detail.clientOfferConfirmation.bankDetails
                               .accountNumber
                           }
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="text-slate-500 dark:text-slate-400">
-                          Branch
-                        </dt>
-                        <dd>
-                          {detail.clientOfferConfirmation.bankDetails.branch}
                         </dd>
                       </div>
                     </>

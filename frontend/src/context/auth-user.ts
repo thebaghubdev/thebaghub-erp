@@ -7,7 +7,6 @@ export type ClientProfile = {
   bankAccountNumber: string | null
   bankAccountName: string | null
   bankCode: string | null
-  bankBranch: string | null
   preferredPaymentMethod:
     | 'check_pickup'
     | 'cash_pickup'
@@ -44,7 +43,6 @@ export function normalizeClientProfile(
     bankAccountNumber: raw.bankAccountNumber ?? null,
     bankAccountName: raw.bankAccountName ?? null,
     bankCode: raw.bankCode ?? null,
-    bankBranch: raw.bankBranch ?? null,
     preferredPaymentMethod:
       raw.preferredPaymentMethod === 'check_pickup' ||
       raw.preferredPaymentMethod === 'cash_pickup' ||

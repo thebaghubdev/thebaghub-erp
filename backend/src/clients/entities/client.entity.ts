@@ -55,9 +55,6 @@ export class Client extends AuditedEntity {
   @Column({ name: 'bank_code', type: 'varchar', length: 16, nullable: true })
   bankCode: string | null;
 
-  @Column({ name: 'bank_branch', type: 'varchar', length: 200, nullable: true })
-  bankBranch: string | null;
-
   /** Preferred consignor payout method (check pickup, cash pickup, or direct deposit). */
   @Column({
     name: 'preferred_payment_method',

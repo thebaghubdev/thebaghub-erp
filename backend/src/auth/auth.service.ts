@@ -332,7 +332,6 @@ export class AuthService {
         bankAccountNumber: string | null;
         bankAccountName: string | null;
         bankCode: string | null;
-        bankBranch: string | null;
         preferredPaymentMethod:
           | 'check_pickup'
           | 'cash_pickup'
@@ -370,7 +369,6 @@ export class AuthService {
           bankAccountNumber: cli.bankAccountNumber,
           bankAccountName: cli.bankAccountName,
           bankCode: cli.bankCode,
-          bankBranch: cli.bankBranch,
           preferredPaymentMethod: cli.preferredPaymentMethod,
           preferredPaymentBranch: cli.preferredPaymentBranch,
         };

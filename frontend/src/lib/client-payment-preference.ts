@@ -1,9 +1,22 @@
+import type { ClientProfile } from "../context/auth-user";
+
 export type ClientPaymentMethod =
   | "check_pickup"
   | "cash_pickup"
   | "direct_deposit";
 
 export type ClientPaymentBranch = "pasig" | "makati";
+
+export type ClientBankCode = "bdo" | "bpi" | "other";
+
+export type ClientBankDetails = {
+  accountNumber: string;
+  accountName: string;
+  bank: ClientBankCode;
+};
+
+export const CLIENT_PAYMENT_PREFERENCE_LOCKED_MESSAGE =
+  "Please contact our coordinators if you need to update these details.";
 
 export function formatClientPaymentMethod(
   m: ClientPaymentMethod | null | undefined,
@@ -31,4 +44,40 @@ export function parseClientPaymentBranch(
   value: string | null | undefined,
 ): ClientPaymentBranch {
   return value === "makati" ? "makati" : "pasig";
+}
+
+export function isClientPaymentPreferenceLocked(
+  client: Pick<ClientProfile, "preferredPaymentMethod"> | null | undefined,
+): boolean {
+  return parseClientPaymentMethod(client?.preferredPaymentMethod) != null;
+}
+
+export function hasCompleteClientBankDetails(
+  client: Pick<
+    ClientProfile,
+    "bankAccountNumber" | "bankAccountName" | "bankCode"
+  > | null | undefined,
+): boolean {
+  return bankDetailsFromClientProfile(client) != null;
+}
+
+export function bankDetailsFromClientProfile(
+  client: Pick<
+    ClientProfile,
+    "bankAccountNumber" | "bankAccountName" | "bankCode"
+  > | null | undefined,
+): ClientBankDetails | null {
+  if (!client) return null;
+  const bank = client.bankCode;
+  if (bank !== "bdo" && bank !== "bpi" && bank !== "other") return null;
+  const accountNumber = (client.bankAccountNumber ?? "").trim();
+  const accountName = (client.bankAccountName ?? "").trim();
+  if (!accountNumber || !accountName) return null;
+  return { bank, accountNumber, accountName };
+}
+
+export function formatClientBank(code: ClientBankCode): string {
+  if (code === "bdo") return "BDO";
+  if (code === "bpi") return "BPI";
+  return "Other";
 }

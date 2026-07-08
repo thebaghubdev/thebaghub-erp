@@ -7,7 +7,7 @@ import {
   formatConsignorPaymentAuditDate,
 } from "../lib/consignor-payments-display";
 import { branchLabel } from "../lib/consignment-schedule-labels";
-import { formatClientPaymentMethod } from "../lib/client-payment-preference";
+import { formatClientBank, formatClientPaymentMethod } from "../lib/client-payment-preference";
 import { formatPhpAmount, formatPhpDisplay, parsePhpStringToNumber } from "../lib/format-php";
 
 type ConsignorPaymentItemRow = {
@@ -30,6 +30,7 @@ type ConsignorPaymentGroupRow = {
     | "direct_deposit"
     | null;
   preferredPaymentBranch: "pasig" | "makati" | null;
+  bankCode: "bdo" | "bpi" | "other" | null;
   items: ConsignorPaymentItemRow[];
 };
 
@@ -59,13 +60,95 @@ function groupOfferTotal(items: ConsignorPaymentItemRow[]): number {
 
 function paymentPreferenceInline(group: ConsignorPaymentGroupRow): string {
   const method = formatClientPaymentMethod(group.preferredPaymentMethod);
+  if (group.preferredPaymentMethod === "direct_deposit") {
+    if (group.bankCode === "bdo" || group.bankCode === "bpi") {
+      return `${method} · ${formatClientBank(group.bankCode)}`;
+    }
+    return method;
+  }
   if (
-    group.preferredPaymentMethod &&
-    group.preferredPaymentMethod !== "direct_deposit"
+    group.preferredPaymentMethod === "check_pickup" ||
+    group.preferredPaymentMethod === "cash_pickup"
   ) {
     return `${method} · ${branchLabel(group.preferredPaymentBranch ?? "pasig")}`;
   }
   return method;
+}
+
+type PaymentMethodTotalKey =
+  | "direct_deposit:bdo"
+  | "direct_deposit:bpi"
+  | "check_pickup:pasig"
+  | "check_pickup:makati"
+  | "cash_pickup:pasig"
+  | "cash_pickup:makati";
+
+const PAYMENT_SUMMARY_CATEGORIES: Array<{
+  title: string;
+  rows: Array<{ key: PaymentMethodTotalKey; label: string }>;
+}> = [
+  {
+    title: "Check pickup",
+    rows: [
+      { key: "check_pickup:pasig", label: "Pasig" },
+      { key: "check_pickup:makati", label: "Makati" },
+    ],
+  },
+  {
+    title: "Cash pickup",
+    rows: [
+      { key: "cash_pickup:pasig", label: "Pasig" },
+      { key: "cash_pickup:makati", label: "Makati" },
+    ],
+  },
+  {
+    title: "Direct deposit",
+    rows: [
+      { key: "direct_deposit:bdo", label: "BDO" },
+      { key: "direct_deposit:bpi", label: "BPI" },
+    ],
+  },
+];
+
+function groupPaymentMethodTotalKey(
+  group: ConsignorPaymentGroupRow,
+): PaymentMethodTotalKey | null {
+  if (group.preferredPaymentMethod === "direct_deposit") {
+    if (group.bankCode === "bdo") return "direct_deposit:bdo";
+    if (group.bankCode === "bpi") return "direct_deposit:bpi";
+    return null;
+  }
+  if (
+    group.preferredPaymentMethod === "check_pickup" ||
+    group.preferredPaymentMethod === "cash_pickup"
+  ) {
+    const branch = group.preferredPaymentBranch ?? "pasig";
+    if (branch === "pasig" || branch === "makati") {
+      return `${group.preferredPaymentMethod}:${branch}` as PaymentMethodTotalKey;
+    }
+  }
+  return null;
+}
+
+function computePaymentMethodTotals(
+  groups: ConsignorPaymentGroupRow[],
+): Record<PaymentMethodTotalKey, number> {
+  const totals: Record<PaymentMethodTotalKey, number> = {
+    "direct_deposit:bdo": 0,
+    "direct_deposit:bpi": 0,
+    "check_pickup:pasig": 0,
+    "check_pickup:makati": 0,
+    "cash_pickup:pasig": 0,
+    "cash_pickup:makati": 0,
+  };
+
+  for (const group of groups) {
+    const key = groupPaymentMethodTotalKey(group);
+    if (!key) continue;
+    totals[key] += groupOfferTotal(group.items);
+  }
+
+  return totals;
 }
 
 const itemListTableClass =
@@ -79,6 +162,44 @@ const itemListBodyCellClass =
 
 const itemListSkuCellClass =
   "font-mono text-xs text-slate-900 dark:text-slate-100";
+
+function PaymentSummaryCard({
+  totals,
+}: {
+  totals: Record<PaymentMethodTotalKey, number>;
+}) {
+  return (
+    <section className={`${cardClass} p-5`}>
+      <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+        Payment summary
+      </h2>
+      <div className="mt-4 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+        {PAYMENT_SUMMARY_CATEGORIES.map((category) => (
+          <div key={category.title}>
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              {category.title}
+            </h3>
+            <dl className="mt-2 space-y-2">
+              {category.rows.map((row) => (
+                <div
+                  key={row.key}
+                  className="flex items-baseline justify-between gap-4 text-sm"
+                >
+                  <dt className="text-slate-600 dark:text-slate-400">
+                    {row.label}
+                  </dt>
+                  <dd className="font-medium tabular-nums text-slate-900 dark:text-slate-100">
+                    {formatPhpAmount(totals[row.key])}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
 
 function ConsignorPaymentGroupCard({ group }: { group: ConsignorPaymentGroupRow }) {
   const totalAmount = groupOfferTotal(group.items);
@@ -242,6 +363,8 @@ export function ConsignorPaymentDetailPage() {
     );
   }
 
+  const paymentMethodTotals = computePaymentMethodTotals(detail.groups);
+
   return (
     <div className="w-full min-w-0 space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -265,6 +388,8 @@ export function ConsignorPaymentDetailPage() {
           ← Back to consignor payments
         </Link>
       </div>
+
+      <PaymentSummaryCard totals={paymentMethodTotals} />
 
       {detail.groups.length === 0 ? (
         <p className="text-sm text-slate-600 dark:text-slate-400">

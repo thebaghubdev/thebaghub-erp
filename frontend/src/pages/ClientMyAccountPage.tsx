@@ -3,7 +3,10 @@ import { useClientAuth } from "../context/client-auth";
 import { apiFetch } from "../lib/api";
 import { branchLabel } from "../lib/consignment-schedule-labels";
 import {
+  CLIENT_PAYMENT_PREFERENCE_LOCKED_MESSAGE,
   formatClientPaymentMethod,
+  hasCompleteClientBankDetails,
+  isClientPaymentPreferenceLocked,
   parseClientPaymentBranch,
   parseClientPaymentMethod,
   type ClientPaymentMethod,
@@ -30,7 +33,6 @@ export function ClientMyAccountPage() {
   const [accountNumber, setAccountNumber] = useState("");
   const [accountName, setAccountName] = useState("");
   const [bankCode, setBankCode] = useState("");
-  const [branch, setBranch] = useState("");
   const [completeAddress, setCompleteAddress] = useState("");
   const [paymentMethod, setPaymentMethod] =
     useState<ClientPaymentMethod>("check_pickup");
@@ -57,7 +59,6 @@ export function ClientMyAccountPage() {
         ? c.bankCode
         : "",
     );
-    setBranch(c.bankBranch ?? "");
     setSaveError(null);
     setBankModalOpen(true);
   }, [c]);
@@ -121,9 +122,26 @@ export function ClientMyAccountPage() {
     return () => window.removeEventListener("keydown", onKey);
   }, [paymentModalOpen, paymentSaveBusy, closePaymentModal]);
 
+  const displayOrDash = (v: string | null | undefined) => {
+    const t = v?.trim();
+    return t ? t : "—";
+  };
+
+  const paymentLocked = isClientPaymentPreferenceLocked(c);
+
   const onSubmitBank = async (e: FormEvent) => {
     e.preventDefault();
     if (!token) return;
+    if (
+      !bankCode.trim() ||
+      !accountNumber.trim() ||
+      !accountName.trim()
+    ) {
+      setSaveError(
+        "All bank fields are required: bank, account number, and account name.",
+      );
+      return;
+    }
     setSaveError(null);
     setSaveBusy(true);
     try {
@@ -135,7 +153,6 @@ export function ClientMyAccountPage() {
             bankAccountNumber: accountNumber,
             bankAccountName: accountName,
             bankCode: bankCode.trim() === "" ? "" : bankCode,
-            bankBranch: branch,
           }),
         },
         token,
@@ -197,6 +214,15 @@ export function ClientMyAccountPage() {
   const onSubmitPayment = async (e: FormEvent) => {
     e.preventDefault();
     if (!token) return;
+    if (
+      paymentMethod === "direct_deposit" &&
+      !hasCompleteClientBankDetails(c)
+    ) {
+      setPaymentSaveError(
+        "Complete your bank details before selecting direct deposit.",
+      );
+      return;
+    }
     setPaymentSaveError(null);
     setPaymentSaveBusy(true);
     try {
@@ -231,11 +257,6 @@ export function ClientMyAccountPage() {
     } finally {
       setPaymentSaveBusy(false);
     }
-  };
-
-  const displayOrDash = (v: string | null | undefined) => {
-    const t = v?.trim();
-    return t ? t : "—";
   };
 
   return (
@@ -312,15 +333,23 @@ export function ClientMyAccountPage() {
               payouts.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={openPaymentModal}
-            disabled={!c || !token}
-            className="shrink-0 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-900 shadow-sm hover:bg-slate-50 disabled:opacity-50"
-          >
-            Edit
-          </button>
+          {!paymentLocked ? (
+            <button
+              type="button"
+              onClick={openPaymentModal}
+              disabled={!c || !token}
+              className="shrink-0 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-900 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+            >
+              Edit
+            </button>
+          ) : null}
         </div>
+
+        {paymentLocked ? (
+          <p className="mt-3 text-xs text-slate-500">
+            {CLIENT_PAYMENT_PREFERENCE_LOCKED_MESSAGE}
+          </p>
+        ) : null}
 
         <dl className="mt-4 space-y-3 text-sm">
           <div>
@@ -355,15 +384,23 @@ export function ClientMyAccountPage() {
               Saved for consignment payments with direct deposit.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={openBankModal}
-            disabled={!c || !token}
-            className="shrink-0 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-900 shadow-sm hover:bg-slate-50 disabled:opacity-50"
-          >
-            Edit
-          </button>
+          {!paymentLocked ? (
+            <button
+              type="button"
+              onClick={openBankModal}
+              disabled={!c || !token}
+              className="shrink-0 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-900 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+            >
+              Edit
+            </button>
+          ) : null}
         </div>
+
+        {paymentLocked ? (
+          <p className="mt-3 text-xs text-slate-500">
+            {CLIENT_PAYMENT_PREFERENCE_LOCKED_MESSAGE}
+          </p>
+        ) : null}
 
         <dl className="mt-4 space-y-3 text-sm">
           <div>
@@ -388,14 +425,6 @@ export function ClientMyAccountPage() {
             </dt>
             <dd className="mt-0.5 text-slate-900">
               {displayOrDash(c?.bankAccountName)}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">
-              Branch
-            </dt>
-            <dd className="mt-0.5 text-slate-900">
-              {displayOrDash(c?.bankBranch)}
             </dd>
           </div>
         </dl>
@@ -473,23 +502,6 @@ export function ClientMyAccountPage() {
                   autoComplete="name"
                   value={accountName}
                   onChange={(e) => setAccountName(e.target.value)}
-                  disabled={saveBusy}
-                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 outline-none ring-slate-400 focus:ring-2 disabled:opacity-50"
-                />
-              </div>
-              <div>
-                <label
-                  htmlFor="bank-branch-modal"
-                  className="block text-xs font-medium uppercase tracking-wide text-slate-500"
-                >
-                  Branch
-                </label>
-                <input
-                  id="bank-branch-modal"
-                  type="text"
-                  autoComplete="off"
-                  value={branch}
-                  onChange={(e) => setBranch(e.target.value)}
                   disabled={saveBusy}
                   className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 outline-none ring-slate-400 focus:ring-2 disabled:opacity-50"
                 />

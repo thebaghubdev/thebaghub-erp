@@ -26,7 +26,6 @@ export type ClientOfferConfirmationData = {
     accountNumber: string;
     accountName: string;
     bank: 'bdo' | 'bpi' | 'other';
-    branch: string;
   } | null;
 };
 

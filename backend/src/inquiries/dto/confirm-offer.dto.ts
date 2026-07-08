@@ -21,11 +21,6 @@ export class ConfirmOfferBankDetailsDto {
 
   @IsIn(['bdo', 'bpi', 'other'])
   bank: 'bdo' | 'bpi' | 'other';
-
-  @IsString()
-  @IsNotEmpty()
-  @MinLength(1)
-  branch: string;
 }
 
 export class ConfirmOfferDto {

@@ -48,6 +48,7 @@ export type ConsignorPaymentGroupRow = {
     | 'direct_deposit'
     | null;
   preferredPaymentBranch: 'pasig' | 'makati' | null;
+  bankCode: 'bdo' | 'bpi' | 'other' | null;
   items: ConsignorPaymentItemRow[];
 };
 
@@ -182,6 +183,12 @@ export class ConsignorPaymentsService {
           consignorEmail: client?.email?.trim() ?? '',
           preferredPaymentMethod: client?.preferredPaymentMethod ?? null,
           preferredPaymentBranch: client?.preferredPaymentBranch ?? null,
+          bankCode:
+            client?.bankCode === 'bdo' ||
+            client?.bankCode === 'bpi' ||
+            client?.bankCode === 'other'
+              ? (client.bankCode as 'bdo' | 'bpi' | 'other')
+              : null,
           items,
         };
       })
