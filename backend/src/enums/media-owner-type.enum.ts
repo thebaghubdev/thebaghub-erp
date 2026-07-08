@@ -8,4 +8,5 @@ export enum MediaOwnerType {
   ORDER_INSTALLMENT = 'order_installment',
   CLIENT = 'client',
   ITEM_AUTHENTICATION_METRIC = 'item_authentication_metric',
+  CONSIGNOR_PAYMENT_GROUP = 'consignor_payment_group',
 }

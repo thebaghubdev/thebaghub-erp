@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Client } from '../clients/entities/client.entity';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
 import { Inquiry } from '../inquiries/entities/inquiry.entity';
+import { MediaModule } from '../media/media.module';
 import { ConsignorPaymentsController } from './consignor-payments.controller';
 import { ConsignorPaymentsService } from './consignor-payments.service';
 import {
@@ -21,6 +22,7 @@ import {
       Inquiry,
       InventoryItem,
     ]),
+    MediaModule,
   ],
   controllers: [ConsignorPaymentsController],
   providers: [ConsignorPaymentsService],

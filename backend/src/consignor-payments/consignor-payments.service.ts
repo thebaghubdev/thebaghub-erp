@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, In, Repository } from 'typeorm';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
@@ -6,12 +10,30 @@ import {
   Inquiry,
   type InquiryItemSnapshot,
 } from '../inquiries/entities/inquiry.entity';
-import { CONSIGNOR_PAYMENT_STATUS_PENDING } from './consignor-payment.constants';
+import { UpdateConsignorPaymentGroupStatusDto } from './dto/update-consignor-payment-group-status.dto';
+import {
+  ALLOWED_CONSIGNOR_PAYMENT_IMAGE_MIMES,
+  CONSIGNOR_PAYMENT_CHECK_NUMBER_MAX_LENGTH,
+  checkPhotoStorageKey,
+  depositSlipStorageKey,
+  parseRetainedCheckPhotoKeys,
+} from './consignor-payment-image.util';
+import {
+  CONSIGNOR_PAYMENT_GROUP_STATUS_UNPAID,
+  CONSIGNOR_PAYMENT_STATUS_APPROVED,
+  CONSIGNOR_PAYMENT_STATUS_PENDING,
+} from './consignor-payment.constants';
 import {
   ConsignorPayment,
   ConsignorPaymentGroup,
   ConsignorPaymentItem,
 } from './entities/consignor-payment.entities';
+import { JwtUser } from '../auth/jwt-user';
+import { MediaOwnerType } from '../enums/media-owner-type.enum';
+import { MediaPurpose } from '../enums/media-purpose.enum';
+import { MediaService } from '../media/media.service';
+import type { MediaKeyUrl } from '../media/media.types';
+import type { MulterFile } from '../inquiries/multer-file.type';
 
 export type RecordConsignorPaymentItemParams = {
   inquiryId: string;
@@ -49,6 +71,10 @@ export type ConsignorPaymentGroupRow = {
     | null;
   preferredPaymentBranch: 'pasig' | 'makati' | null;
   bankCode: 'bdo' | 'bpi' | 'other' | null;
+  status: string;
+  checkNumber: string | null;
+  checkPhotos: MediaKeyUrl[];
+  depositSlipPhotos: MediaKeyUrl[];
   items: ConsignorPaymentItemRow[];
 };
 
@@ -98,6 +124,7 @@ export class ConsignorPaymentsService {
     private readonly paymentsRepo: Repository<ConsignorPayment>,
     @InjectRepository(InventoryItem)
     private readonly inventoryRepo: Repository<InventoryItem>,
+    private readonly media: MediaService,
   ) {}
 
   async findAllForStaff(): Promise<ConsignorPaymentListRow[]> {
@@ -150,8 +177,8 @@ export class ConsignorPaymentsService {
       }
     }
 
-    const groups: ConsignorPaymentGroupRow[] = (payment.groups ?? [])
-      .map((group) => {
+    const groups: ConsignorPaymentGroupRow[] = await Promise.all(
+      (payment.groups ?? []).map(async (group) => {
         const client = group.client;
         const items: ConsignorPaymentItemRow[] = (group.items ?? []).map(
           (item) => {
@@ -172,6 +199,17 @@ export class ConsignorPaymentsService {
         );
         items.sort((a, b) => a.inquirySku.localeCompare(b.inquirySku));
 
+        const checkPhotoRows = await this.media.findByOwner(
+          MediaOwnerType.CONSIGNOR_PAYMENT_GROUP,
+          group.id,
+          { purpose: MediaPurpose.CHECK_PHOTO, orderBySort: true },
+        );
+        const depositSlipPhotoRows = await this.media.findByOwner(
+          MediaOwnerType.CONSIGNOR_PAYMENT_GROUP,
+          group.id,
+          { purpose: MediaPurpose.DEPOSIT_SLIP_PHOTO, orderBySort: true },
+        );
+
         return {
           id: group.id,
           clientId: group.clientId,
@@ -189,10 +227,15 @@ export class ConsignorPaymentsService {
             client?.bankCode === 'other'
               ? (client.bankCode as 'bdo' | 'bpi' | 'other')
               : null,
+          status: group.status?.trim() || CONSIGNOR_PAYMENT_GROUP_STATUS_UNPAID,
+          checkNumber: group.checkNumber?.trim() || null,
+          checkPhotos: this.media.toKeyUrlList(checkPhotoRows),
+          depositSlipPhotos: this.media.toKeyUrlList(depositSlipPhotoRows),
           items,
         };
-      })
-      .sort((a, b) => a.consignorName.localeCompare(b.consignorName));
+      }),
+    );
+    groups.sort((a, b) => a.consignorName.localeCompare(b.consignorName));
 
     return {
       id: payment.id,
@@ -200,6 +243,165 @@ export class ConsignorPaymentsService {
       status: payment.status,
       groups,
     };
+  }
+
+  async approveForStaff(id: string): Promise<ConsignorPaymentDetail> {
+    const payment = await this.paymentsRepo.findOne({ where: { id } });
+    if (!payment) {
+      throw new NotFoundException('Consignor payment not found');
+    }
+    if (payment.status !== CONSIGNOR_PAYMENT_STATUS_PENDING) {
+      throw new BadRequestException(
+        'Only pending consignor payment batches can be approved',
+      );
+    }
+    payment.status = CONSIGNOR_PAYMENT_STATUS_APPROVED;
+    await this.paymentsRepo.save(payment);
+    return this.findOneForStaff(id);
+  }
+
+  async updateGroupStatusForStaff(
+    paymentId: string,
+    groupId: string,
+    dto: UpdateConsignorPaymentGroupStatusDto,
+  ): Promise<ConsignorPaymentDetail> {
+    const payment = await this.paymentsRepo.findOne({ where: { id: paymentId } });
+    if (!payment) {
+      throw new NotFoundException('Consignor payment not found');
+    }
+    if (payment.status !== CONSIGNOR_PAYMENT_STATUS_APPROVED) {
+      throw new BadRequestException(
+        'Group status can only be updated when the payment batch is approved',
+      );
+    }
+
+    const group = await this.paymentsRepo.manager.findOne(ConsignorPaymentGroup, {
+      where: { id: groupId, consignorPaymentsId: paymentId },
+    });
+    if (!group) {
+      throw new NotFoundException('Consignor payment group not found');
+    }
+
+    group.status = dto.status;
+    await this.paymentsRepo.manager.save(group);
+    return this.findOneForStaff(paymentId);
+  }
+
+  async saveCheckForStaff(
+    paymentId: string,
+    groupId: string,
+    user: JwtUser,
+    checkNumberRaw: string | undefined,
+    retainedKeysRaw: string | undefined,
+    files: MulterFile[],
+  ): Promise<ConsignorPaymentDetail> {
+    const payment = await this.paymentsRepo.findOne({ where: { id: paymentId } });
+    if (!payment) {
+      throw new NotFoundException('Consignor payment not found');
+    }
+    if (payment.status !== CONSIGNOR_PAYMENT_STATUS_APPROVED) {
+      throw new BadRequestException(
+        'Check details can only be saved when the payment batch is approved',
+      );
+    }
+
+    const group = await this.paymentsRepo.manager.findOne(ConsignorPaymentGroup, {
+      where: { id: groupId, consignorPaymentsId: paymentId },
+    });
+    if (!group) {
+      throw new NotFoundException('Consignor payment group not found');
+    }
+
+    const checkNumber = checkNumberRaw?.trim() ?? '';
+    if (!checkNumber) {
+      throw new BadRequestException('Check number is required');
+    }
+    if (checkNumber.length > CONSIGNOR_PAYMENT_CHECK_NUMBER_MAX_LENGTH) {
+      throw new BadRequestException(
+        `Check number must be at most ${CONSIGNOR_PAYMENT_CHECK_NUMBER_MAX_LENGTH} characters`,
+      );
+    }
+
+    const uploadFiles = files ?? [];
+    for (const file of uploadFiles) {
+      const mime = file.mimetype?.toLowerCase() ?? '';
+      if (!ALLOWED_CONSIGNOR_PAYMENT_IMAGE_MIMES.has(mime)) {
+        throw new BadRequestException(
+          `Unsupported image type: ${file.mimetype || 'unknown'}`,
+        );
+      }
+    }
+
+    const retainedKeys = parseRetainedCheckPhotoKeys(retainedKeysRaw);
+    if (retainedKeys.length + uploadFiles.length < 1) {
+      throw new BadRequestException('At least one check photo is required');
+    }
+
+    await this.media.replaceGallery(
+      MediaOwnerType.CONSIGNOR_PAYMENT_GROUP,
+      group.id,
+      MediaPurpose.CHECK_PHOTO,
+      retainedKeys,
+      uploadFiles,
+      (_index, file) => checkPhotoStorageKey(group.id, file),
+      { uploadedByUserId: user.userId },
+    );
+
+    group.checkNumber = checkNumber;
+    await this.paymentsRepo.manager.save(group);
+    return this.findOneForStaff(paymentId);
+  }
+
+  async saveDepositSlipForStaff(
+    paymentId: string,
+    groupId: string,
+    user: JwtUser,
+    retainedKeysRaw: string | undefined,
+    files: MulterFile[],
+  ): Promise<ConsignorPaymentDetail> {
+    const payment = await this.paymentsRepo.findOne({ where: { id: paymentId } });
+    if (!payment) {
+      throw new NotFoundException('Consignor payment not found');
+    }
+    if (payment.status !== CONSIGNOR_PAYMENT_STATUS_APPROVED) {
+      throw new BadRequestException(
+        'Deposit slip can only be saved when the payment batch is approved',
+      );
+    }
+
+    const group = await this.paymentsRepo.manager.findOne(ConsignorPaymentGroup, {
+      where: { id: groupId, consignorPaymentsId: paymentId },
+    });
+    if (!group) {
+      throw new NotFoundException('Consignor payment group not found');
+    }
+
+    const uploadFiles = files ?? [];
+    for (const file of uploadFiles) {
+      const mime = file.mimetype?.toLowerCase() ?? '';
+      if (!ALLOWED_CONSIGNOR_PAYMENT_IMAGE_MIMES.has(mime)) {
+        throw new BadRequestException(
+          `Unsupported image type: ${file.mimetype || 'unknown'}`,
+        );
+      }
+    }
+
+    const retainedKeys = parseRetainedCheckPhotoKeys(retainedKeysRaw);
+    if (retainedKeys.length + uploadFiles.length < 1) {
+      throw new BadRequestException('At least one deposit slip photo is required');
+    }
+
+    await this.media.replaceGallery(
+      MediaOwnerType.CONSIGNOR_PAYMENT_GROUP,
+      group.id,
+      MediaPurpose.DEPOSIT_SLIP_PHOTO,
+      retainedKeys,
+      uploadFiles,
+      (_index, file) => depositSlipStorageKey(group.id, file),
+      { uploadedByUserId: user.userId },
+    );
+
+    return this.findOneForStaff(paymentId);
   }
 
   async recordItemForSoldFinalConsignment(
@@ -279,6 +481,7 @@ export class ConsignorPaymentsService {
         manager.create(ConsignorPaymentGroup, {
           consignorPaymentsId,
           clientId,
+          status: CONSIGNOR_PAYMENT_GROUP_STATUS_UNPAID,
         }),
       );
     } catch {

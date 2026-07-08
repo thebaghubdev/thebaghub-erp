@@ -1,1 +1,6 @@
 export const CONSIGNOR_PAYMENT_STATUS_PENDING = 'Pending';
+export const CONSIGNOR_PAYMENT_STATUS_APPROVED = 'Approved';
+
+export const CONSIGNOR_PAYMENT_GROUP_STATUS_UNPAID = 'Unpaid';
+export const CONSIGNOR_PAYMENT_GROUP_STATUS_PAYMENT_SENT = 'Payment sent';
+export const CONSIGNOR_PAYMENT_GROUP_STATUS_UNABLE_TO_SEND = 'Unable to send';

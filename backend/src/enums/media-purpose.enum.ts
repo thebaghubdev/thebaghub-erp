@@ -10,4 +10,6 @@ export enum MediaPurpose {
   AUTH_METRIC = 'auth_metric',
   CERTIFICATE = 'certificate',
   THIRD_PARTY_PAYMENT = 'third_party_payment',
+  CHECK_PHOTO = 'check_photo',
+  DEPOSIT_SLIP_PHOTO = 'deposit_slip_photo',
 }

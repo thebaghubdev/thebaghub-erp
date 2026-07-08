@@ -53,6 +53,12 @@ export class ConsignorPaymentGroup {
   @JoinColumn({ name: 'consignor_payments_id' })
   consignorPayment: ConsignorPayment;
 
+  @Column({ type: 'varchar', length: 128, default: 'Unpaid' })
+  status: string;
+
+  @Column({ name: 'check_number', type: 'varchar', length: 64, nullable: true })
+  checkNumber: string | null;
+
   @OneToMany(() => ConsignorPaymentItem, (item) => item.consignorPaymentGroup)
   items: ConsignorPaymentItem[];
 }
