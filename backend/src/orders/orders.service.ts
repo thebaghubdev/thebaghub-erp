@@ -19,6 +19,8 @@ import { MediaOwnerType } from '../enums/media-owner-type.enum';
 import { MediaPurpose } from '../enums/media-purpose.enum';
 import { MediaService } from '../media/media.service';
 import { MailService } from '../mail/mail.service';
+import { computeConsignorPaymentAuditDate } from '../consignor-payments/consignor-payment-audit-date.util';
+import { ConsignorPaymentsService } from '../consignor-payments/consignor-payments.service';
 import { ApproveLayawayOrderDto } from './dto/approve-layaway-order.dto';
 import { CancelOrderDto } from './dto/cancel-order.dto';
 import { CreateOrderDto } from './dto/create-order.dto';
@@ -36,6 +38,7 @@ import {
 import { calculateLayawayPricing } from './layaway-pricing.util';
 import {
   buildScheduledAmounts,
+  computeAmountDueForInstallment,
   computeInstallmentViews,
   computeRemainingBalance,
   formatMoney,
@@ -322,6 +325,7 @@ export class OrdersService {
     private readonly media: MediaService,
     private readonly mail: MailService,
     private readonly config: ConfigService,
+    private readonly consignorPaymentsService: ConsignorPaymentsService,
   ) {}
 
   private async getInstallmentViewsForOrder(
@@ -1081,21 +1085,9 @@ export class OrdersService {
       throw new NotFoundException('Order not found');
     }
     if (order.paymentType === PAYMENT_TYPE_LAYAWAY) {
-      if (order.status !== ORDER_STATUS_FOR_PAYMENT) {
-        throw new BadRequestException(
-          'Only layaway orders awaiting payment can be marked as paid',
-        );
-      }
-      await this.ensureInstallments(order, user.userId);
-      const rows = await this.installmentsRepo.find({
-        where: { orderId: id },
-      });
-      const remaining = computeRemainingBalance(order.layawayPrice, rows);
-      if (remaining > 0) {
-        throw new BadRequestException(
-          'Remaining balance must be zero before marking as paid',
-        );
-      }
+      throw new BadRequestException(
+        'Layaway orders are marked as paid automatically when the last installment is marked as paid',
+      );
     } else if (order.paymentType === PAYMENT_TYPE_FULL) {
       if (
         order.status !== ORDER_STATUS_FOR_PAYMENT &&
@@ -1371,22 +1363,90 @@ export class OrdersService {
     orderId: string,
     installmentNumber: number,
   ): Promise<StaffOrderDetail> {
-    const order = await this.ordersRepo.findOne({ where: { id: orderId } });
-    if (!order) {
-      throw new NotFoundException('Order not found');
-    }
-    this.assertInstallmentScheduleAccessible(order);
-    await this.ensureInstallments(order, user.userId);
+    await this.dataSource.transaction(async (em) => {
+      const order = await em.findOne(Order, {
+        where: { id: orderId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!order) {
+        throw new NotFoundException('Order not found');
+      }
+      this.assertInstallmentScheduleAccessible(order);
+      await this.ensureInstallments(order, user.userId);
 
-    const row = await this.findInstallmentForOrder(orderId, installmentNumber);
-    const currentStatus = row.status?.trim() || ORDER_INSTALLMENT_STATUS_UNPAID;
-    if (currentStatus === ORDER_INSTALLMENT_STATUS_PAID) {
-      throw new BadRequestException('Installment is already marked as paid');
-    }
+      const rows = await em.find(OrderInstallment, {
+        where: { orderId },
+        order: { installmentNumber: 'ASC' },
+      });
+      const row = rows.find((r) => r.installmentNumber === installmentNumber);
+      if (!row) {
+        throw new NotFoundException('Installment not found');
+      }
 
-    row.status = ORDER_INSTALLMENT_STATUS_PAID;
-    row.updatedById = user.userId;
-    await this.installmentsRepo.save(row);
+      const currentStatus = row.status?.trim() || ORDER_INSTALLMENT_STATUS_UNPAID;
+      if (currentStatus === ORDER_INSTALLMENT_STATUS_PAID) {
+        throw new BadRequestException('Installment is already marked as paid');
+      }
+
+      const amountDue = computeAmountDueForInstallment(rows, installmentNumber);
+      const amountPaid = parseMoney(row.amountPaid);
+      if (Math.round(amountPaid * 100) < Math.round(amountDue * 100)) {
+        throw new BadRequestException(
+          `Amount paid must be at least ${formatMoney(amountDue)} for this installment`,
+        );
+      }
+
+      const hasProof = await this.media.hasMedia(
+        MediaOwnerType.ORDER_INSTALLMENT,
+        row.id,
+        MediaPurpose.PAYMENT_PROOF,
+      );
+      if (!hasProof) {
+        throw new BadRequestException(
+          'Upload proof of payment before marking this installment as paid',
+        );
+      }
+
+      const markedPaidAt = new Date();
+      row.status = ORDER_INSTALLMENT_STATUS_PAID;
+      row.markedPaidAt = markedPaidAt;
+      row.updatedById = user.userId;
+      await em.save(row);
+
+      if (
+        order.consignorPaymentRelease != null &&
+        installmentNumber === order.consignorPaymentRelease
+      ) {
+        const item = await em.findOne(InventoryItem, {
+          where: { id: order.inventoryItemId },
+          relations: { inquiry: true },
+        });
+        if (item?.inquiryId && item.transactionType === 'consignment') {
+          const consignorClientId =
+            item.consignorId ?? item.inquiry?.consignorId ?? null;
+          if (consignorClientId) {
+            const auditDate = computeConsignorPaymentAuditDate(markedPaidAt);
+            await this.consignorPaymentsService.recordItemForSoldFinalConsignment(
+              em,
+              {
+                inquiryId: item.inquiryId,
+                consignorClientId,
+                auditDate,
+              },
+            );
+          }
+        }
+      }
+
+      if (
+        order.layawayMonths != null &&
+        installmentNumber === order.layawayMonths
+      ) {
+        order.status = ORDER_STATUS_PAID;
+        order.updatedById = user.userId;
+        await em.save(order);
+      }
+    });
 
     return this.findOneForStaff(orderId);
   }

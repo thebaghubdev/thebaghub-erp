@@ -740,8 +740,16 @@ export function OrderDetailPage() {
           consignorPaymentRelease={detail.consignorPaymentRelease}
           mode="staff"
           readOnly={isPostPaymentOrder}
-          onUpdated={(installments) =>
-            setDetail((prev) => (prev ? { ...prev, installments } : prev))
+          onUpdated={(update) =>
+            setDetail((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    installments: update.installments,
+                    ...(update.status != null ? { status: update.status } : {}),
+                  }
+                : prev,
+            )
           }
         />
       ) : null}

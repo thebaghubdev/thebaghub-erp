@@ -88,6 +88,33 @@ export function shouldIncludeInstallmentSchedule(order: Order): boolean {
   );
 }
 
+export function computeAmountDueForInstallment(
+  rows: Pick<
+    OrderInstallment,
+    'installmentNumber' | 'scheduledAmount' | 'amountPaid'
+  >[],
+  targetInstallmentNumber: number,
+): number {
+  const sorted = [...rows].sort(
+    (a, b) => a.installmentNumber - b.installmentNumber,
+  );
+
+  let credit = 0;
+  for (const row of sorted) {
+    const scheduled = parseMoney(row.scheduledAmount);
+    const amountDue = Math.max(0, scheduled - credit);
+    credit = Math.max(0, credit - scheduled);
+    const paid = row.amountPaid != null ? parseMoney(row.amountPaid) : 0;
+    credit += paid - amountDue;
+
+    if (row.installmentNumber === targetInstallmentNumber) {
+      return amountDue;
+    }
+  }
+
+  throw new Error(`Installment ${targetInstallmentNumber} not found`);
+}
+
 export function computeRemainingBalance(
   layawayPrice: string | null | undefined,
   rows: Pick<OrderInstallment, 'amountPaid'>[],

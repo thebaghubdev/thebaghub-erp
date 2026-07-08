@@ -30,7 +30,10 @@ import { AuthenticationMetric } from '../authentication-metrics/entities/authent
 import {
   INVENTORY_STATUS_SOLD_FINAL,
   INVENTORY_STATUS_SOLD_UNDER_WARRANTY,
+  ORDER_STATUS_ITEM_RECEIVED,
+  PAYMENT_TYPE_LAYAWAY,
 } from '../orders/order-status.constants';
+import { Order } from '../orders/entities/order.entity';
 import { isSoldDateEligibleForFinalStatus } from './sold-warranty.util';
 import { computeConsignorPaymentAuditDate } from '../consignor-payments/consignor-payment-audit-date.util';
 import { ConsignorPaymentsService } from '../consignor-payments/consignor-payments.service';
@@ -2465,18 +2468,29 @@ export class InventoryService {
         item.inquiryId &&
         item.transactionType === 'consignment'
       ) {
-        const consignorClientId =
-          item.consignorId ?? item.inquiry?.consignorId ?? null;
-        if (consignorClientId) {
-          const auditDate = computeConsignorPaymentAuditDate(soldFinalAt);
-          await this.consignorPaymentsService.recordItemForSoldFinalConsignment(
-            manager,
-            {
-              inquiryId: item.inquiryId,
-              consignorClientId,
-              auditDate,
-            },
-          );
+        const saleOrder = await manager.findOne(Order, {
+          where: {
+            inventoryItemId: item.id,
+            status: ORDER_STATUS_ITEM_RECEIVED,
+          },
+        });
+        const skipConsignorPayment =
+          saleOrder?.paymentType === PAYMENT_TYPE_LAYAWAY;
+
+        if (!skipConsignorPayment) {
+          const consignorClientId =
+            item.consignorId ?? item.inquiry?.consignorId ?? null;
+          if (consignorClientId) {
+            const auditDate = computeConsignorPaymentAuditDate(soldFinalAt);
+            await this.consignorPaymentsService.recordItemForSoldFinalConsignment(
+              manager,
+              {
+                inquiryId: item.inquiryId,
+                consignorClientId,
+                auditDate,
+              },
+            );
+          }
         }
       }
 

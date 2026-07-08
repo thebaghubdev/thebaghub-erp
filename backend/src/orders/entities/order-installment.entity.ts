@@ -50,6 +50,9 @@ export class OrderInstallment extends AuditedEntity {
   })
   status: string;
 
+  @Column({ name: 'marked_paid_at', type: 'timestamptz', nullable: true })
+  markedPaidAt: Date | null;
+
   @Column({ name: 'proof_uploaded_at', type: 'timestamptz', nullable: true })
   proofUploadedAt: Date | null;
 

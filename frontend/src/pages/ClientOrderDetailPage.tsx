@@ -346,8 +346,10 @@ export function ClientOrderDetailPage() {
           installments={detail.installments}
           mode="client"
           readOnly={isPostPaymentOrder}
-          onUpdated={(installments) =>
-            setDetail((prev) => (prev ? { ...prev, installments } : prev))
+          onUpdated={(update) =>
+            setDetail((prev) =>
+              prev ? { ...prev, installments: update.installments } : prev,
+            )
           }
         />
       ) : null}

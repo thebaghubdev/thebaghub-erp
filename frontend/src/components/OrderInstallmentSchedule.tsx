@@ -13,6 +13,11 @@ import {
   type OrderInstallmentRow,
 } from "../lib/order-installments";
 
+type OrderInstallmentScheduleUpdate = {
+  installments: OrderInstallmentRow[];
+  status?: string;
+};
+
 type OrderInstallmentScheduleProps = {
   orderId: string;
   token: string | null;
@@ -21,7 +26,7 @@ type OrderInstallmentScheduleProps = {
   consignorPaymentRelease?: number | null;
   mode: "staff" | "client";
   readOnly?: boolean;
-  onUpdated: (installments: OrderInstallmentRow[]) => void;
+  onUpdated: (update: OrderInstallmentScheduleUpdate) => void;
 };
 
 export function OrderInstallmentSchedule({
@@ -83,8 +88,8 @@ export function OrderInstallmentSchedule({
           token,
         );
         if (!res.ok) throw new Error(await readApiErrorMessage(res));
-        const data = (await res.json()) as { installments: OrderInstallmentRow[] };
-        onUpdated(data.installments);
+        const data = (await res.json()) as OrderInstallmentScheduleUpdate;
+        onUpdated(data);
         setAmountDrafts(
           Object.fromEntries(
             data.installments.map((row) => [
@@ -119,8 +124,8 @@ export function OrderInstallmentSchedule({
           token,
         );
         if (!res.ok) throw new Error(await readApiErrorMessage(res));
-        const data = (await res.json()) as { installments: OrderInstallmentRow[] };
-        onUpdated(data.installments);
+        const data = (await res.json()) as OrderInstallmentScheduleUpdate;
+        onUpdated(data);
       } catch (e) {
         setError(
           e instanceof Error ? e.message : "Could not upload proof of payment",
@@ -154,8 +159,8 @@ export function OrderInstallmentSchedule({
         token,
       );
       if (!res.ok) throw new Error(await readApiErrorMessage(res));
-      const data = (await res.json()) as { installments: OrderInstallmentRow[] };
-      onUpdated(data.installments);
+      const data = (await res.json()) as OrderInstallmentScheduleUpdate;
+      onUpdated(data);
       setInstallmentMarkPaidNumber(null);
     } catch (e) {
       setInstallmentMarkPaidError(
@@ -199,10 +204,14 @@ export function OrderInstallmentSchedule({
               {installments.map((row) => {
                 const amountBusy = busyKey === `amount-${row.installmentNumber}`;
                 const proofBusy = busyKey === `proof-${row.installmentNumber}`;
+                const isPaid = !isInstallmentUnpaid(row.status);
                 const showMarkInstallmentPaid =
                   mode === "staff" &&
                   !readOnly &&
-                  isInstallmentUnpaid(row.status);
+                  !isPaid;
+                const showAmountPaidEditor =
+                  mode === "staff" && !readOnly && !isPaid;
+                const showProofUpload = !readOnly && !isPaid;
                 return (
                   <tr key={row.installmentNumber}>
                     <td className="px-3 py-3">
@@ -225,7 +234,7 @@ export function OrderInstallmentSchedule({
                       {formatPhpDisplay(row.scheduledAmount)}
                     </td>
                     <td className="px-3 py-3">
-                      {mode === "staff" && !readOnly ? (
+                      {showAmountPaidEditor ? (
                         <div className="flex min-w-[10rem] flex-col gap-2">
                           <PhpPriceInput
                             id={`installment-amount-${row.installmentNumber}`}
@@ -270,7 +279,7 @@ export function OrderInstallmentSchedule({
                         ) : (
                           <span className="text-sm text-slate-500">—</span>
                         )}
-                        {!readOnly ? (
+                        {!showProofUpload ? null : (
                           <label className="inline-flex cursor-pointer items-center">
                             <input
                               type="file"
@@ -287,7 +296,7 @@ export function OrderInstallmentSchedule({
                               {proofBusy ? "Uploading…" : "Upload proof"}
                             </span>
                           </label>
-                        ) : null}
+                        )}
                       </div>
                     </td>
                     <td className="px-3 py-3">
@@ -339,7 +348,19 @@ export function OrderInstallmentSchedule({
           title="Mark installment as paid?"
           description={
             installmentMarkPaidNumber != null
-              ? `This will mark the ${installments.find((row) => row.installmentNumber === installmentMarkPaidNumber)?.installmentLabel ?? "installment"} payment as paid.`
+              ? (() => {
+                  const label =
+                    installments.find(
+                      (row) => row.installmentNumber === installmentMarkPaidNumber,
+                    )?.installmentLabel ?? "installment";
+                  const isConsignorRelease =
+                    consignorPaymentRelease != null &&
+                    installmentMarkPaidNumber === consignorPaymentRelease;
+                  if (isConsignorRelease) {
+                    return `This will mark the ${label} payment as paid and add this item to the consignor payments report. Make sure the uploaded proof of payment has been reviewed.`;
+                  }
+                  return `This will mark the ${label} payment as paid. Make sure the uploaded proof of payment has been reviewed.`;
+                })()
               : ""
           }
           confirmLabel="Mark as paid"

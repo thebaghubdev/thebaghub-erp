@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Client } from '../clients/entities/client.entity';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
 import { ItemAuthentication } from '../inventory/entities/item-authentication.entity';
+import { ConsignorPaymentsModule } from '../consignor-payments/consignor-payments.module';
 import { InquiriesModule } from '../inquiries/inquiries.module';
 import { MailModule } from '../mail/mail.module';
 import { MediaModule } from '../media/media.module';
@@ -16,6 +17,7 @@ import { OrdersService } from './orders.service';
 
 @Module({
   imports: [
+    ConsignorPaymentsModule,
     InquiriesModule,
     MailModule,
     MediaModule,
