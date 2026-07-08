@@ -7,8 +7,15 @@ import {
   formatConsignorPaymentAuditDate,
 } from "../lib/consignor-payments-display";
 import { branchLabel } from "../lib/consignment-schedule-labels";
-import { formatClientBank, formatClientPaymentMethod } from "../lib/client-payment-preference";
-import { formatPhpAmount, formatPhpDisplay, parsePhpStringToNumber } from "../lib/format-php";
+import {
+  formatClientBank,
+  formatClientPaymentMethod,
+} from "../lib/client-payment-preference";
+import {
+  formatPhpAmount,
+  formatPhpDisplay,
+  parsePhpStringToNumber,
+} from "../lib/format-php";
 
 type ConsignorPaymentItemRow = {
   id: string;
@@ -201,7 +208,11 @@ function PaymentSummaryCard({
   );
 }
 
-function ConsignorPaymentGroupCard({ group }: { group: ConsignorPaymentGroupRow }) {
+function ConsignorPaymentGroupCard({
+  group,
+}: {
+  group: ConsignorPaymentGroupRow;
+}) {
   const totalAmount = groupOfferTotal(group.items);
 
   return (
@@ -213,7 +224,9 @@ function ConsignorPaymentGroupCard({ group }: { group: ConsignorPaymentGroupRow 
             <span className="font-normal text-slate-500 dark:text-slate-400">
               {" "}
               · {itemCountLabel(group.items.length)} ·{" "}
-              <span className="tabular-nums">{formatPhpAmount(totalAmount)}</span>
+              <span className="tabular-nums">
+                {formatPhpAmount(totalAmount)}
+              </span>
               {" · "}
               {paymentPreferenceInline(group)}
             </span>
@@ -271,7 +284,9 @@ function ConsignorPaymentGroupCard({ group }: { group: ConsignorPaymentGroupRow 
                         {item.itemLabel}
                       </span>
                     </td>
-                    <td className={`${itemListBodyCellClass} ${itemListSkuCellClass} truncate`}>
+                    <td
+                      className={`${itemListBodyCellClass} ${itemListSkuCellClass} truncate`}
+                    >
                       <Link
                         to={`/portal/inquiries/${item.inquiryId}`}
                         className="block truncate text-violet-700 hover:underline dark:text-violet-300"
