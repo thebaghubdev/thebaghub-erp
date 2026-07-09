@@ -17,6 +17,7 @@ export const INVENTORY_ITEM_STATUS_FILTER_OPTIONS: {
   { value: "Out for delivery", label: "Out for delivery" },
   { value: "Sold under warranty", label: "Sold under warranty" },
   { value: "Sold final", label: "Sold final" },
+  { value: "Paid to consignor", label: "Paid to consignor" },
   { value: "For Contract Renewal", label: "For Contract Renewal" },
   {
     value: "Authenticated: Requested for Reauthentication",

@@ -1,6 +1,7 @@
-import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Readable } from 'node:stream';
 
 @Injectable()
 export class S3StorageService {
@@ -39,4 +40,43 @@ export class S3StorageService {
       }),
     );
   }
+
+  async getObject(
+    key: string,
+  ): Promise<{ buffer: Buffer; contentType: string }> {
+    const result = await this.client.send(
+      new GetObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+      }),
+    );
+    const buffer = await bodyToBuffer(result.Body);
+    return {
+      buffer,
+      contentType: result.ContentType?.trim() || 'application/octet-stream',
+    };
+  }
+}
+
+async function bodyToBuffer(body: unknown): Promise<Buffer> {
+  if (body == null) {
+    throw new Error('S3 object body is empty');
+  }
+  if (Buffer.isBuffer(body)) {
+    return body;
+  }
+  if (body instanceof Uint8Array) {
+    return Buffer.from(body);
+  }
+  if (typeof body === 'string') {
+    return Buffer.from(body);
+  }
+  if (body instanceof Readable) {
+    const chunks: Buffer[] = [];
+    for await (const chunk of body) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    }
+    return Buffer.concat(chunks);
+  }
+  throw new Error('Unsupported S3 object body type');
 }

@@ -17,6 +17,7 @@ const BY_STATUS: Record<string, string> = {
   authenticated_requested_for_reauthentication:
     "text-sky-800 dark:text-sky-300",
   authenticated_for_3rd_party: "text-indigo-800 dark:text-indigo-300",
+  paid_to_consignor: "text-emerald-800 dark:text-emerald-300",
   declined: "text-red-800 dark:text-red-300",
   cancelled: "text-zinc-600 dark:text-zinc-400",
 };

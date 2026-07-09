@@ -267,6 +267,7 @@ function ConsignorPaymentGroupHeaderActions({
   const [actionsOpen, setActionsOpen] = useState(false);
   const [checkModalOpen, setCheckModalOpen] = useState(false);
   const [depositSlipModalOpen, setDepositSlipModalOpen] = useState(false);
+  const [paymentSentConfirmOpen, setPaymentSentConfirmOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -308,6 +309,7 @@ function ConsignorPaymentGroupHeaderActions({
       const data = (await res.json()) as ConsignorPaymentDetail;
       onDetailUpdated(data);
       setActionsOpen(false);
+      setPaymentSentConfirmOpen(false);
     } catch (e) {
       onError(
         e instanceof Error ? e.message : "Could not update consignor status",
@@ -398,7 +400,7 @@ function ConsignorPaymentGroupHeaderActions({
                 className="flex w-full items-center px-3 py-2 text-left text-sm text-emerald-800 hover:bg-emerald-50 disabled:opacity-50 dark:text-emerald-300 dark:hover:bg-emerald-950/40"
                 onClick={(e) => {
                   stopSummaryToggle(e);
-                  void updateGroupStatus(GROUP_STATUS_PAYMENT_SENT);
+                  setPaymentSentConfirmOpen(true);
                 }}
               >
                 Payment sent
@@ -448,6 +450,19 @@ function ConsignorPaymentGroupHeaderActions({
           onDetailUpdated(detail as ConsignorPaymentDetail)
         }
         onError={onError}
+      />
+      <ConfirmDialog
+        open={paymentSentConfirmOpen}
+        title="Mark payment as sent?"
+        description={`This will mark ${group.consignorName}'s payment as sent, update related inquiry and inventory statuses to Paid to consignor, and email the consignor with the item list and deposit slip if available.`}
+        confirmLabel="Payment sent"
+        cancelLabel="Cancel"
+        busy={busy}
+        onCancel={() => {
+          if (busy) return;
+          setPaymentSentConfirmOpen(false);
+        }}
+        onConfirm={() => void updateGroupStatus(GROUP_STATUS_PAYMENT_SENT)}
       />
     </>
   );

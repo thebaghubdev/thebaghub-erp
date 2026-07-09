@@ -1,12 +1,16 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, In, Repository } from 'typeorm';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
 import { Order } from '../orders/entities/order.entity';
+import { INVENTORY_STATUS_PAID_TO_CONSIGNOR } from '../orders/order-status.constants';
+import { InquiryStatus } from '../enums/inquiry-status.enum';
+import { MailService } from '../mail/mail.service';
 import {
   Inquiry,
   type InquiryItemSnapshot,
@@ -20,6 +24,7 @@ import {
   parseRetainedCheckPhotoKeys,
 } from './consignor-payment-image.util';
 import {
+  CONSIGNOR_PAYMENT_GROUP_STATUS_PAYMENT_SENT,
   CONSIGNOR_PAYMENT_GROUP_STATUS_UNPAID,
   CONSIGNOR_PAYMENT_STATUS_APPROVED,
   CONSIGNOR_PAYMENT_STATUS_PENDING,
@@ -33,6 +38,7 @@ import { JwtUser } from '../auth/jwt-user';
 import { MediaOwnerType } from '../enums/media-owner-type.enum';
 import { MediaPurpose } from '../enums/media-purpose.enum';
 import { MediaService } from '../media/media.service';
+import { S3StorageService } from '../media/s3-storage.service';
 import type { MediaKeyUrl } from '../media/media.types';
 import type { MulterFile } from '../inquiries/multer-file.type';
 
@@ -102,14 +108,33 @@ function formatPgDate(value: Date | string): string {
 function itemLabelFromSnapshot(
   snapshot: InquiryItemSnapshot | null | undefined,
 ): string {
-  if (!snapshot?.form) return 'Item';
+  return brandModelFromSnapshot(snapshot) || 'Item';
+}
+
+function brandModelFromSnapshot(
+  snapshot: InquiryItemSnapshot | null | undefined,
+): string {
+  if (!snapshot?.form) return '';
   const form = snapshot.form as { brand?: string; itemModel?: string };
   const brand = (form.brand ?? '').trim();
   const model = (form.itemModel ?? '').trim();
-  if (!brand && !model) return 'Item';
+  if (!brand && !model) return '';
   if (!brand) return model;
   if (!model) return brand;
-  return `${brand} — ${model}`;
+  return `${brand} - ${model}`;
+}
+
+function parseOfferPrice(raw: string | null | undefined): number {
+  if (raw == null || String(raw).trim() === '') return 0;
+  const n = Number.parseFloat(String(raw));
+  return Number.isFinite(n) ? n : 0;
+}
+
+function formatPhpAmount(value: number): string {
+  return `₱${value.toLocaleString('en-PH', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
 }
 
 function clientDisplayName(
@@ -123,6 +148,8 @@ function clientDisplayName(
 
 @Injectable()
 export class ConsignorPaymentsService {
+  private readonly logger = new Logger(ConsignorPaymentsService.name);
+
   constructor(
     @InjectRepository(ConsignorPayment)
     private readonly paymentsRepo: Repository<ConsignorPayment>,
@@ -131,6 +158,8 @@ export class ConsignorPaymentsService {
     @InjectRepository(Order)
     private readonly ordersRepo: Repository<Order>,
     private readonly media: MediaService,
+    private readonly s3: S3StorageService,
+    private readonly mail: MailService,
   ) {}
 
   async findAllForStaff(): Promise<ConsignorPaymentListRow[]> {
@@ -319,9 +348,149 @@ export class ConsignorPaymentsService {
       throw new NotFoundException('Consignor payment group not found');
     }
 
-    group.status = dto.status;
-    await this.paymentsRepo.manager.save(group);
+    const wasAlreadyPaymentSent =
+      group.status?.trim() === CONSIGNOR_PAYMENT_GROUP_STATUS_PAYMENT_SENT;
+    const markingPaymentSent =
+      dto.status === CONSIGNOR_PAYMENT_GROUP_STATUS_PAYMENT_SENT &&
+      !wasAlreadyPaymentSent;
+
+    if (markingPaymentSent) {
+      let emailPayload: {
+        to: string;
+        firstName: string;
+        items: Array<{ brandModel: string; priceLabel: string }>;
+        totalAmountLabel: string;
+        depositSlipStorageKeys: string[];
+      } | null = null;
+
+      await this.paymentsRepo.manager.transaction(async (em) => {
+        const fullGroup = await em.findOne(ConsignorPaymentGroup, {
+          where: { id: groupId, consignorPaymentsId: paymentId },
+          relations: { client: true, items: { inquiry: true } },
+        });
+        if (!fullGroup) {
+          throw new NotFoundException('Consignor payment group not found');
+        }
+
+        fullGroup.status = dto.status;
+        await em.save(fullGroup);
+
+        const inquiryIds = (fullGroup.items ?? []).map((item) => item.inquiryId);
+        if (inquiryIds.length > 0) {
+          await em.update(
+            Inquiry,
+            { id: In(inquiryIds) },
+            { status: InquiryStatus.PAID_TO_CONSIGNOR },
+          );
+          await em.update(
+            InventoryItem,
+            { inquiryId: In(inquiryIds) },
+            { status: INVENTORY_STATUS_PAID_TO_CONSIGNOR },
+          );
+        }
+
+        const depositSlipRows = await this.media.findByOwner(
+          MediaOwnerType.CONSIGNOR_PAYMENT_GROUP,
+          fullGroup.id,
+          { purpose: MediaPurpose.DEPOSIT_SLIP_PHOTO, orderBySort: true },
+        );
+
+        const items = (fullGroup.items ?? []).map((item) => {
+          const inquiry = item.inquiry;
+          const price = parseOfferPrice(
+            inquiry?.offerPrice != null ? String(inquiry.offerPrice) : null,
+          );
+          return {
+            brandModel:
+              brandModelFromSnapshot(inquiry?.itemSnapshot) || 'Item',
+            priceLabel: formatPhpAmount(price),
+          };
+        });
+        const totalAmount = (fullGroup.items ?? []).reduce(
+          (sum, item) =>
+            sum +
+            parseOfferPrice(
+              item.inquiry?.offerPrice != null
+                ? String(item.inquiry.offerPrice)
+                : null,
+            ),
+          0,
+        );
+
+        const client = fullGroup.client;
+        const email = client?.email?.trim() ?? '';
+        if (email) {
+          emailPayload = {
+            to: email,
+            firstName: client?.firstName?.trim() || 'there',
+            items,
+            totalAmountLabel: formatPhpAmount(totalAmount),
+            depositSlipStorageKeys: depositSlipRows.map((row) => row.storageKey),
+          };
+        }
+      });
+
+      if (emailPayload) {
+        void this.sendConsignorPaymentSentEmail(emailPayload).catch((err) => {
+          this.logger.error(
+            `Failed to send consignor payment notice for group ${groupId}`,
+            err instanceof Error ? err.stack : String(err),
+          );
+        });
+      }
+    } else {
+      group.status = dto.status;
+      await this.paymentsRepo.manager.save(group);
+    }
+
     return this.findOneForStaff(paymentId);
+  }
+
+  private async sendConsignorPaymentSentEmail(params: {
+    to: string;
+    firstName: string;
+    items: Array<{ brandModel: string; priceLabel: string }>;
+    totalAmountLabel: string;
+    depositSlipStorageKeys: string[];
+  }): Promise<void> {
+    if (!this.mail.isConfigured()) {
+      this.logger.debug(
+        'MAIL_* not configured; skipping consignor payment sent email',
+      );
+      return;
+    }
+
+    const attachments: Array<{
+      filename: string;
+      content: Buffer;
+      contentType: string;
+    }> = [];
+    for (const [index, storageKey] of params.depositSlipStorageKeys.entries()) {
+      try {
+        const object = await this.s3.getObject(storageKey);
+        const ext = storageKey.includes('.')
+          ? storageKey.slice(storageKey.lastIndexOf('.'))
+          : '';
+        attachments.push({
+          filename: `deposit-slip-${index + 1}${ext}`,
+          content: object.buffer,
+          contentType: object.contentType,
+        });
+      } catch (err) {
+        this.logger.warn(
+          `Could not attach deposit slip ${storageKey} for consignor payment email`,
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
+
+    await this.mail.sendConsignorPaymentSentNotice({
+      to: params.to,
+      firstName: params.firstName,
+      items: params.items,
+      totalAmountLabel: params.totalAmountLabel,
+      attachments,
+    });
   }
 
   async saveCheckForStaff(

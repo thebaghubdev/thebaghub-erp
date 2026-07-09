@@ -27,6 +27,8 @@ export enum InquiryStatus {
   FOR_CONTRACT_RENEWAL = 'for_contract_renewal',
   /** Renewed/repriced posted item is waiting for selling price update. */
   FOR_REPRICING = 'for_repricing',
+  /** Consignor payment has been sent for a sold consignment item. */
+  PAID_TO_CONSIGNOR = 'paid_to_consignor',
   DECLINED = 'declined',
   CANCELLED = 'cancelled',
 }

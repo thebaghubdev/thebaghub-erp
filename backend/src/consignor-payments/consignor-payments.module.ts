@@ -5,6 +5,7 @@ import { InventoryItem } from '../inventory/entities/inventory-item.entity';
 import { Inquiry } from '../inquiries/entities/inquiry.entity';
 import { Order } from '../orders/entities/order.entity';
 import { MediaModule } from '../media/media.module';
+import { MailModule } from '../mail/mail.module';
 import { ConsignorPaymentsController } from './consignor-payments.controller';
 import { ConsignorPaymentsService } from './consignor-payments.service';
 import {
@@ -25,6 +26,7 @@ import {
       Order,
     ]),
     MediaModule,
+    MailModule,
   ],
   controllers: [ConsignorPaymentsController],
   providers: [ConsignorPaymentsService],

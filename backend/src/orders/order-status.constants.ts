@@ -17,6 +17,7 @@ export const INVENTORY_STATUS_AVAILABLE_FOR_PURCHASE = 'Available For Purchase';
 export const INVENTORY_STATUS_OUT_FOR_DELIVERY = 'Out for delivery';
 export const INVENTORY_STATUS_SOLD_UNDER_WARRANTY = 'Sold under warranty';
 export const INVENTORY_STATUS_SOLD_FINAL = 'Sold final';
+export const INVENTORY_STATUS_PAID_TO_CONSIGNOR = 'Paid to consignor';
 
 /** Calendar days (date-only) an item stays under warranty after sale. */
 export const SOLD_UNDER_WARRANTY_CALENDAR_DAYS = 7;

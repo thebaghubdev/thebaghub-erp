@@ -203,6 +203,78 @@ Thank you for your interest in The Bag Hub.`;
     });
     this.logger.log(`Sent waitlist sold notice to ${params.to}`);
   }
+
+  async sendConsignorPaymentSentNotice(params: {
+    to: string;
+    firstName: string;
+    items: Array<{ brandModel: string; priceLabel: string }>;
+    totalAmountLabel: string;
+    attachments: Array<{
+      filename: string;
+      content: Buffer;
+      contentType: string;
+    }>;
+  }): Promise<void> {
+    const fromName =
+      this.config.get<string>('MAIL_FROM_NAME', '')?.trim() || 'The Bag Hub';
+    const fromAddr = this.config.get<string>('MAIL_FROM', '')?.trim();
+    if (!fromAddr) {
+      throw new Error('MAIL_FROM is not set.');
+    }
+    const from = `${fromName} <${fromAddr}>`;
+    const subject = 'Your consignor payment has been sent — The Bag Hub';
+
+    const itemLinesText = params.items
+      .map((item) => `- ${item.brandModel}, ${item.priceLabel}`)
+      .join('\n');
+    const itemLinesHtml = params.items
+      .map(
+        (item) =>
+          `<li>${escapeHtml(item.brandModel)}, ${escapeHtml(item.priceLabel)}</li>`,
+      )
+      .join('');
+
+    const depositSlipNote =
+      params.attachments.length > 0
+        ? '\n\nThe deposit slip is attached to this email.'
+        : '';
+
+    const text = `Hi ${params.firstName},
+
+We have sent your consignor payment for the following items:
+
+${itemLinesText}
+
+Total amount: ${params.totalAmountLabel}${depositSlipNote}
+
+Thank you for consigning with The Bag Hub.`;
+
+    const depositSlipHtml =
+      params.attachments.length > 0
+        ? '<p>The deposit slip is attached to this email.</p>'
+        : '';
+
+    const html = `<p>Hi ${escapeHtml(params.firstName)},</p>
+<p>We have sent your consignor payment for the following items:</p>
+<ul>${itemLinesHtml}</ul>
+<p><strong>Total amount:</strong> ${escapeHtml(params.totalAmountLabel)}</p>
+${depositSlipHtml}
+<p style="color:#64748b;font-size:12px">Thank you for consigning with The Bag Hub.</p>`;
+
+    await this.getTransporter().sendMail({
+      from,
+      to: params.to,
+      subject,
+      text,
+      html,
+      attachments: params.attachments.map((file) => ({
+        filename: file.filename,
+        content: file.content,
+        contentType: file.contentType,
+      })),
+    });
+    this.logger.log(`Sent consignor payment notice to ${params.to}`);
+  }
 }
 
 function escapeHtml(s: string): string {
