@@ -121,14 +121,14 @@ function nextMonthFirstTuesday(afterDateOnly: string): string {
 }
 
 /**
- * Consignor payment audit date for an item marked sold final.
- * Always a Tuesday in Asia/Manila calendar terms.
+ * Consignor payment audit date from the item sold date (Item Received /
+ * sold under warranty). Always a Tuesday in Asia/Manila calendar terms.
  */
 export function computeConsignorPaymentAuditDate(
-  soldFinalAt: Date,
+  soldAt: Date,
   timeZone = APP_CALENDAR_TIME_ZONE,
 ): string {
-  const soldDateOnly = calendarDateStringInTimeZone(soldFinalAt, timeZone);
+  const soldDateOnly = calendarDateStringInTimeZone(soldAt, timeZone);
   const { year, month } = parseDateOnly(soldDateOnly);
   const tuesdays = listTuesdaysInMonth(year, month);
   if (tuesdays.length === 0) {

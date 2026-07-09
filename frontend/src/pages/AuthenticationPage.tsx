@@ -763,7 +763,7 @@ export function AuthenticationPage() {
             columns={authQueueColumns}
             tableId="portal.authentication.queue"
             isLoading={loading}
-            emptyMessage="No items in For Authentication, For Photoshoot, Authenticated: Requested for Reauthentication, Authenticated: For 3rd party authentication, or Authenticated: For renegotiation (Approved authentication status is omitted)."
+            emptyMessage="No items to be displayed."
             hideEmptyState={!!error}
             searchPlaceholder="Search items…"
             statusFilterOptions={INVENTORY_ITEM_STATUS_FILTER_OPTIONS}
@@ -999,7 +999,10 @@ export function AuthenticationPage() {
                       ) : null}
                       <div className="space-y-4">
                         <div>
-                          <label className={formLabelClass} htmlFor="am-category">
+                          <label
+                            className={formLabelClass}
+                            htmlFor="am-category"
+                          >
                             Category
                           </label>
                           <select
@@ -1016,7 +1019,9 @@ export function AuthenticationPage() {
                             }
                           >
                             {itemCategories.length === 0 ? (
-                              <option value="">No categories — check settings</option>
+                              <option value="">
+                                No categories — check settings
+                              </option>
                             ) : (
                               itemCategories.map((c) => (
                                 <option key={c} value={c}>

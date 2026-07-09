@@ -1287,6 +1287,7 @@ export class OrdersService {
 
       const item = await em.findOne(InventoryItem, {
         where: { id: order.inventoryItemId },
+        relations: { inquiry: true },
         lock: { mode: 'pessimistic_write' },
       });
       if (!item) {
@@ -1302,10 +1303,31 @@ export class OrdersService {
       order.updatedById = user.userId;
       await em.save(order);
 
+      const dateSoldAt = new Date();
       item.status = INVENTORY_STATUS_SOLD_UNDER_WARRANTY;
-      item.dateSold = new Date();
+      item.dateSold = dateSoldAt;
       item.updatedById = user.userId;
       await em.save(item);
+
+      if (
+        item.inquiryId &&
+        item.transactionType === 'consignment' &&
+        order.paymentType !== PAYMENT_TYPE_LAYAWAY
+      ) {
+        const consignorClientId =
+          item.consignorId ?? item.inquiry?.consignorId ?? null;
+        if (consignorClientId) {
+          const auditDate = computeConsignorPaymentAuditDate(dateSoldAt);
+          await this.consignorPaymentsService.recordItemForSoldFinalConsignment(
+            em,
+            {
+              inquiryId: item.inquiryId,
+              consignorClientId,
+              auditDate,
+            },
+          );
+        }
+      }
     });
   }
 

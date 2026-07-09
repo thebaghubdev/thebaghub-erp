@@ -30,13 +30,8 @@ import { AuthenticationMetric } from '../authentication-metrics/entities/authent
 import {
   INVENTORY_STATUS_SOLD_FINAL,
   INVENTORY_STATUS_SOLD_UNDER_WARRANTY,
-  ORDER_STATUS_ITEM_RECEIVED,
-  PAYMENT_TYPE_LAYAWAY,
 } from '../orders/order-status.constants';
-import { Order } from '../orders/entities/order.entity';
 import { isSoldDateEligibleForFinalStatus } from './sold-warranty.util';
-import { computeConsignorPaymentAuditDate } from '../consignor-payments/consignor-payment-audit-date.util';
-import { ConsignorPaymentsService } from '../consignor-payments/consignor-payments.service';
 import { CreateItemPhotoshootsDto } from './dto/create-item-photoshoots.dto';
 import { BatchAssignAuthenticatorDto } from './dto/batch-assign-authenticator.dto';
 import type { MulterFile } from '../inquiries/multer-file.type';
@@ -679,7 +674,6 @@ export class InventoryService {
     private readonly waitlistsRepo: Repository<Waitlist>,
     @InjectRepository(Client)
     private readonly clientsRepo: Repository<Client>,
-    private readonly consignorPaymentsService: ConsignorPaymentsService,
     @Inject(forwardRef(() => InquiriesService))
     private readonly inquiriesService: InquiriesService,
     private readonly notifications: NotificationsService,
@@ -2434,10 +2428,7 @@ export class InventoryService {
     );
   }
 
-  /**
-   * Marks inventory sold final, records date_sold_final, and queues consignor
-   * payment records for consignment items with a linked inquiry.
-   */
+  /** Marks inventory sold final and records date_sold_final. */
   private async finalizeInventoryItemAsSoldFinal(
     inventoryItemId: string,
     actorUserId: string | null,
@@ -2446,7 +2437,6 @@ export class InventoryService {
     return this.inventoryRepo.manager.transaction(async (manager) => {
       const item = await manager.findOne(InventoryItem, {
         where: { id: inventoryItemId },
-        relations: { inquiry: true },
       });
       if (!item) {
         throw new NotFoundException('Inventory item not found');
@@ -2463,36 +2453,6 @@ export class InventoryService {
         item.updatedById = actorUserId;
       }
       await manager.save(item);
-
-      if (
-        item.inquiryId &&
-        item.transactionType === 'consignment'
-      ) {
-        const saleOrder = await manager.findOne(Order, {
-          where: {
-            inventoryItemId: item.id,
-            status: ORDER_STATUS_ITEM_RECEIVED,
-          },
-        });
-        const skipConsignorPayment =
-          saleOrder?.paymentType === PAYMENT_TYPE_LAYAWAY;
-
-        if (!skipConsignorPayment) {
-          const consignorClientId =
-            item.consignorId ?? item.inquiry?.consignorId ?? null;
-          if (consignorClientId) {
-            const auditDate = computeConsignorPaymentAuditDate(soldFinalAt);
-            await this.consignorPaymentsService.recordItemForSoldFinalConsignment(
-              manager,
-              {
-                inquiryId: item.inquiryId,
-                consignorClientId,
-                auditDate,
-              },
-            );
-          }
-        }
-      }
 
       return { status: item.status };
     });
