@@ -7,11 +7,12 @@ import {
   Patch,
   Post,
   Req,
+  UploadedFile,
   UploadedFiles,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
-import { FilesInterceptor } from '@nestjs/platform-express';
+import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { JwtUser } from '../auth/jwt-user';
 import { StaffOnlyGuard } from '../auth/staff-only.guard';
 import { CONSIGNOR_PAYMENT_CHECK_PHOTO_MAX_BYTES } from './consignor-payment-image.util';
@@ -97,6 +98,28 @@ export class ConsignorPaymentsController {
       req.user,
       retainedKeys,
       files ?? [],
+    );
+  }
+
+  @Post(':id/groups/:groupId/unable-to-send')
+  @UseInterceptors(
+    FileInterceptor('photo', {
+      limits: { fileSize: CONSIGNOR_PAYMENT_CHECK_PHOTO_MAX_BYTES },
+    }),
+  )
+  markUnableToSend(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('groupId', ParseUUIDPipe) groupId: string,
+    @Body('reason') reason: string,
+    @UploadedFile() photo: MulterFile | undefined,
+  ) {
+    return this.consignorPaymentsService.markGroupUnableToSendForStaff(
+      id,
+      groupId,
+      req.user,
+      reason,
+      photo,
     );
   }
 }

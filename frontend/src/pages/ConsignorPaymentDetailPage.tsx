@@ -10,6 +10,7 @@ import { Link, useParams } from "react-router-dom";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { ConsignorPaymentCheckModal } from "../components/ConsignorPaymentCheckModal";
 import { ConsignorPaymentDepositSlipModal } from "../components/ConsignorPaymentDepositSlipModal";
+import { ConsignorPaymentUnableToSendModal } from "../components/ConsignorPaymentUnableToSendModal";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
 import {
@@ -78,7 +79,6 @@ const groupActionBtnClass =
   "inline-flex shrink-0 items-center rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800";
 
 const GROUP_STATUS_PAYMENT_SENT = "Payment sent";
-const GROUP_STATUS_UNABLE_TO_SEND = "Unable to send";
 
 async function readApiErrorMessage(res: Response): Promise<string> {
   try {
@@ -268,6 +268,7 @@ function ConsignorPaymentGroupHeaderActions({
   const [checkModalOpen, setCheckModalOpen] = useState(false);
   const [depositSlipModalOpen, setDepositSlipModalOpen] = useState(false);
   const [paymentSentConfirmOpen, setPaymentSentConfirmOpen] = useState(false);
+  const [unableToSendModalOpen, setUnableToSendModalOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -414,7 +415,7 @@ function ConsignorPaymentGroupHeaderActions({
                 className="flex w-full items-center px-3 py-2 text-left text-sm text-red-800 hover:bg-red-50 disabled:opacity-50 dark:text-red-300 dark:hover:bg-red-950/40"
                 onClick={(e) => {
                   stopSummaryToggle(e);
-                  void updateGroupStatus(GROUP_STATUS_UNABLE_TO_SEND);
+                  setUnableToSendModalOpen(true);
                 }}
               >
                 Unable to send
@@ -449,6 +450,22 @@ function ConsignorPaymentGroupHeaderActions({
         onSaved={(detail) =>
           onDetailUpdated(detail as ConsignorPaymentDetail)
         }
+        onError={onError}
+      />
+      <ConsignorPaymentUnableToSendModal
+        open={unableToSendModalOpen}
+        paymentId={paymentId}
+        groupId={group.id}
+        consignorName={group.consignorName}
+        token={token}
+        onClose={() => {
+          if (!busy) setUnableToSendModalOpen(false);
+        }}
+        onSaved={(detail) => {
+          onDetailUpdated(detail as ConsignorPaymentDetail);
+          setActionsOpen(false);
+          setUnableToSendModalOpen(false);
+        }}
         onError={onError}
       />
       <ConfirmDialog

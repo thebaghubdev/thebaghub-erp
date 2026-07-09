@@ -49,6 +49,14 @@ export function depositSlipStorageKey(
   return `consignor-payments/groups/${groupId}/deposit-slip/${randomUUID()}.${extFromConsignorPaymentImageMime(mime)}`;
 }
 
+export function unableToSendPhotoStorageKey(
+  groupId: string,
+  file: UploadFileInput,
+): string {
+  const mime = file.mimetype?.toLowerCase() ?? '';
+  return `consignor-payments/groups/${groupId}/unable-to-send/${randomUUID()}.${extFromConsignorPaymentImageMime(mime)}`;
+}
+
 export function parseRetainedCheckPhotoKeys(raw: string | undefined): string[] {
   if (raw == null || raw.trim() === '') return [];
   try {

@@ -11,6 +11,8 @@ import { Order } from '../orders/entities/order.entity';
 import { INVENTORY_STATUS_PAID_TO_CONSIGNOR } from '../orders/order-status.constants';
 import { InquiryStatus } from '../enums/inquiry-status.enum';
 import { MailService } from '../mail/mail.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { CONSIGNMENT_COORDINATOR_POSITION } from '../notifications/notification.constants';
 import {
   Inquiry,
   type InquiryItemSnapshot,
@@ -22,10 +24,12 @@ import {
   checkPhotoStorageKey,
   depositSlipStorageKey,
   parseRetainedCheckPhotoKeys,
+  unableToSendPhotoStorageKey,
 } from './consignor-payment-image.util';
 import {
   CONSIGNOR_PAYMENT_GROUP_STATUS_PAYMENT_SENT,
   CONSIGNOR_PAYMENT_GROUP_STATUS_UNPAID,
+  CONSIGNOR_PAYMENT_GROUP_STATUS_UNABLE_TO_SEND,
   CONSIGNOR_PAYMENT_STATUS_APPROVED,
   CONSIGNOR_PAYMENT_STATUS_PENDING,
 } from './consignor-payment.constants';
@@ -160,6 +164,7 @@ export class ConsignorPaymentsService {
     private readonly media: MediaService,
     private readonly s3: S3StorageService,
     private readonly mail: MailService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async findAllForStaff(): Promise<ConsignorPaymentListRow[]> {
@@ -489,6 +494,183 @@ export class ConsignorPaymentsService {
       firstName: params.firstName,
       items: params.items,
       totalAmountLabel: params.totalAmountLabel,
+      attachments,
+    });
+  }
+
+  async markGroupUnableToSendForStaff(
+    paymentId: string,
+    groupId: string,
+    user: JwtUser,
+    reasonRaw: string | undefined,
+    photoFile: MulterFile | undefined,
+  ): Promise<ConsignorPaymentDetail> {
+    const payment = await this.paymentsRepo.findOne({ where: { id: paymentId } });
+    if (!payment) {
+      throw new NotFoundException('Consignor payment not found');
+    }
+    if (payment.status !== CONSIGNOR_PAYMENT_STATUS_APPROVED) {
+      throw new BadRequestException(
+        'Group status can only be updated when the payment batch is approved',
+      );
+    }
+
+    const reason = reasonRaw?.trim() ?? '';
+    if (!reason) {
+      throw new BadRequestException('Reason is required');
+    }
+
+    const group = await this.paymentsRepo.manager.findOne(ConsignorPaymentGroup, {
+      where: { id: groupId, consignorPaymentsId: paymentId },
+    });
+    if (!group) {
+      throw new NotFoundException('Consignor payment group not found');
+    }
+    if (group.status?.trim() === CONSIGNOR_PAYMENT_GROUP_STATUS_UNABLE_TO_SEND) {
+      throw new BadRequestException(
+        'This consignor payment group is already marked as unable to send',
+      );
+    }
+
+    if (photoFile?.buffer?.length) {
+      const mime = photoFile.mimetype?.toLowerCase() ?? '';
+      if (!ALLOWED_CONSIGNOR_PAYMENT_IMAGE_MIMES.has(mime)) {
+        throw new BadRequestException(
+          `Unsupported image type: ${photoFile.mimetype || 'unknown'}`,
+        );
+      }
+    }
+
+    let notifyPayload: {
+      consignorName: string;
+      consignorEmail: string;
+      firstName: string;
+      auditDateLabel: string;
+      reason: string;
+      inquiryId: string | null;
+      photoStorageKey: string | null;
+    } | null = null;
+
+    await this.paymentsRepo.manager.transaction(async (em) => {
+      const fullGroup = await em.findOne(ConsignorPaymentGroup, {
+        where: { id: groupId, consignorPaymentsId: paymentId },
+        relations: { client: true, items: { inquiry: true } },
+      });
+      if (!fullGroup) {
+        throw new NotFoundException('Consignor payment group not found');
+      }
+
+      fullGroup.status = CONSIGNOR_PAYMENT_GROUP_STATUS_UNABLE_TO_SEND;
+      fullGroup.unableToSendReason = reason;
+      await em.save(fullGroup);
+
+      let photoStorageKey: string | null = null;
+      if (photoFile?.buffer?.length) {
+        const saved = await this.media.replaceSingle(
+          MediaOwnerType.CONSIGNOR_PAYMENT_GROUP,
+          fullGroup.id,
+          MediaPurpose.UNABLE_TO_SEND_PHOTO,
+          photoFile,
+          unableToSendPhotoStorageKey(fullGroup.id, photoFile),
+          { uploadedByUserId: user.userId, createdById: user.userId },
+        );
+        photoStorageKey = saved.storageKey;
+      }
+
+      const client = fullGroup.client;
+      const email = client?.email?.trim() ?? '';
+      const firstInquiryId = fullGroup.items?.[0]?.inquiryId ?? null;
+      notifyPayload = {
+        consignorName: clientDisplayName(
+          client?.firstName,
+          client?.lastName,
+          client?.email,
+        ),
+        consignorEmail: email,
+        firstName: client?.firstName?.trim() || 'there',
+        auditDateLabel: formatPgDate(payment.auditDate),
+        reason,
+        inquiryId: firstInquiryId,
+        photoStorageKey,
+      };
+    });
+
+    if (notifyPayload) {
+      void this.notifyUnableToSendConsignorAndCoordinators(notifyPayload).catch(
+        (err) => {
+          this.logger.error(
+            `Failed to notify consignor/coordinators for unable-to-send group ${groupId}`,
+            err instanceof Error ? err.stack : String(err),
+          );
+        },
+      );
+    }
+
+    return this.findOneForStaff(paymentId);
+  }
+
+  private async notifyUnableToSendConsignorAndCoordinators(params: {
+    consignorName: string;
+    consignorEmail: string;
+    firstName: string;
+    auditDateLabel: string;
+    reason: string;
+    inquiryId: string | null;
+    photoStorageKey: string | null;
+  }): Promise<void> {
+    const coordinatorMessage = `Consignor payment could not be sent to ${params.consignorName} (audit ${params.auditDateLabel}): ${params.reason}`;
+    void this.notifications
+      .notify({
+        message: coordinatorMessage,
+        receiverRole: CONSIGNMENT_COORDINATOR_POSITION,
+        inquiryId: params.inquiryId,
+      })
+      .catch((err) => {
+        this.logger.error(
+          'Failed to notify coordinators of unable-to-send consignor payment',
+          err instanceof Error ? err.stack : String(err),
+        );
+      });
+
+    if (!params.consignorEmail) {
+      return;
+    }
+    if (!this.mail.isConfigured()) {
+      this.logger.debug(
+        'MAIL_* not configured; skipping unable-to-send consignor email',
+      );
+      return;
+    }
+
+    const attachments: Array<{
+      filename: string;
+      content: Buffer;
+      contentType: string;
+    }> = [];
+    if (params.photoStorageKey) {
+      try {
+        const object = await this.s3.getObject(params.photoStorageKey);
+        const ext = params.photoStorageKey.includes('.')
+          ? params.photoStorageKey.slice(params.photoStorageKey.lastIndexOf('.'))
+          : '';
+        attachments.push({
+          filename: `unable-to-send${ext}`,
+          content: object.buffer,
+          contentType: object.contentType,
+        });
+      } catch (err) {
+        this.logger.warn(
+          `Could not attach unable-to-send photo ${params.photoStorageKey}`,
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
+
+    await this.mail.sendConsignorPaymentUnableToSendNotice({
+      to: params.consignorEmail,
+      firstName: params.firstName,
+      auditDateLabel: params.auditDateLabel,
+      reason: params.reason,
       attachments,
     });
   }

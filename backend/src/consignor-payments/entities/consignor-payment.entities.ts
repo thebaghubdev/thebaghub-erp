@@ -59,6 +59,9 @@ export class ConsignorPaymentGroup {
   @Column({ name: 'check_number', type: 'varchar', length: 64, nullable: true })
   checkNumber: string | null;
 
+  @Column({ name: 'unable_to_send_reason', type: 'text', nullable: true })
+  unableToSendReason: string | null;
+
   @OneToMany(() => ConsignorPaymentItem, (item) => item.consignorPaymentGroup)
   items: ConsignorPaymentItem[];
 }

@@ -275,6 +275,69 @@ ${depositSlipHtml}
     });
     this.logger.log(`Sent consignor payment notice to ${params.to}`);
   }
+
+  async sendConsignorPaymentUnableToSendNotice(params: {
+    to: string;
+    firstName: string;
+    auditDateLabel: string;
+    reason: string;
+    attachments: Array<{
+      filename: string;
+      content: Buffer;
+      contentType: string;
+    }>;
+  }): Promise<void> {
+    const fromName =
+      this.config.get<string>('MAIL_FROM_NAME', '')?.trim() || 'The Bag Hub';
+    const fromAddr = this.config.get<string>('MAIL_FROM', '')?.trim();
+    if (!fromAddr) {
+      throw new Error('MAIL_FROM is not set.');
+    }
+    const from = `${fromName} <${fromAddr}>`;
+    const subject = 'Update on your consignor payment — The Bag Hub';
+
+    const attachmentNote =
+      params.attachments.length > 0
+        ? '\n\nA supporting image is attached to this email.'
+        : '';
+
+    const text = `Hi ${params.firstName},
+
+We were unable to send your consignor payment for the ${params.auditDateLabel} payment batch.
+
+Reason:
+${params.reason}${attachmentNote}
+
+Please contact our coordinators if you have questions or need assistance.
+
+Thank you for consigning with The Bag Hub.`;
+
+    const attachmentHtml =
+      params.attachments.length > 0
+        ? '<p>A supporting image is attached to this email.</p>'
+        : '';
+
+    const html = `<p>Hi ${escapeHtml(params.firstName)},</p>
+<p>We were unable to send your consignor payment for the <strong>${escapeHtml(params.auditDateLabel)}</strong> payment batch.</p>
+<p><strong>Reason:</strong></p>
+<p>${escapeHtml(params.reason).replace(/\n/g, '<br />')}</p>
+${attachmentHtml}
+<p style="color:#64748b;font-size:12px">Please contact our coordinators if you have questions or need assistance.</p>`;
+
+    await this.getTransporter().sendMail({
+      from,
+      to: params.to,
+      subject,
+      text,
+      html,
+      attachments: params.attachments.map((file) => ({
+        filename: file.filename,
+        content: file.content,
+        contentType: file.contentType,
+      })),
+    });
+    this.logger.log(`Sent unable-to-send consignor payment notice to ${params.to}`);
+  }
 }
 
 function escapeHtml(s: string): string {
