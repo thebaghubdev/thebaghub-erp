@@ -34,6 +34,21 @@ export type ClientAccountRow = {
   createdAt: string;
 };
 
+export type ClientAccountDetail = ClientAccountRow & {
+  completeAddress: string | null;
+  bankAccountNumber: string | null;
+  bankAccountName: string | null;
+  bankCode: string | null;
+  preferredPaymentMethod:
+    | 'check_pickup'
+    | 'cash_pickup'
+    | 'direct_deposit'
+    | null;
+  preferredPaymentBranch: 'pasig' | 'makati' | null;
+  emailVerifiedAt: string | null;
+  updatedAt: string;
+};
+
 @Injectable()
 export class AccountsService {
   constructor(
@@ -75,7 +90,22 @@ export class AccountsService {
       relations: ['user'],
       order: { createdAt: 'DESC' },
     });
-    return rows.map((c) => ({
+    return rows.map((c) => this.mapClientRow(c));
+  }
+
+  async findClientById(clientId: string): Promise<ClientAccountDetail> {
+    const client = await this.clientsRepo.findOne({
+      where: { id: clientId },
+      relations: ['user'],
+    });
+    if (!client) {
+      throw new NotFoundException('Client not found');
+    }
+    return this.mapClientDetail(client);
+  }
+
+  private mapClientRow(c: Client): ClientAccountRow {
+    return {
       id: c.id,
       userId: c.userId,
       username: c.user.username,
@@ -84,7 +114,21 @@ export class AccountsService {
       email: c.email,
       contactNumber: c.contactNumber,
       createdAt: c.createdAt.toISOString(),
-    }));
+    };
+  }
+
+  private mapClientDetail(c: Client): ClientAccountDetail {
+    return {
+      ...this.mapClientRow(c),
+      completeAddress: c.completeAddress,
+      bankAccountNumber: c.bankAccountNumber,
+      bankAccountName: c.bankAccountName,
+      bankCode: c.bankCode,
+      preferredPaymentMethod: c.preferredPaymentMethod,
+      preferredPaymentBranch: c.preferredPaymentBranch,
+      emailVerifiedAt: c.user.emailVerifiedAt?.toISOString() ?? null,
+      updatedAt: c.updatedAt.toISOString(),
+    };
   }
 
   async updateEmployee(

@@ -12,8 +12,9 @@ const pathLabels: Record<string, string> = {
   "/portal/orders": "Orders",
   "/portal/consignor-payments": "Consignor Payments",
   "/portal/settings": "Settings",
-  "/portal/accounts": "Manage Accounts",
-  "/portal/accounts/register": "Register",
+  "/portal/employees": "Employees",
+  "/portal/employees/register": "Register",
+  "/portal/clients": "Clients",
 };
 
 type Crumb = { label: string; to: string; current: boolean };
@@ -22,20 +23,34 @@ function crumbsForPath(pathname: string): Crumb[] {
   const normalized = pathname === "" ? "/" : pathname;
   const out: Crumb[] = [];
 
-  if (normalized === "/portal/accounts/register") {
+  if (normalized === "/portal/employees/register") {
     out.push(
       {
-        label: pathLabels["/portal/accounts"] ?? "Manage Accounts",
-        to: "/portal/accounts",
+        label: pathLabels["/portal/employees"] ?? "Employees",
+        to: "/portal/employees",
         current: false,
       },
       {
-        label: pathLabels["/portal/accounts/register"] ?? "Register",
+        label: pathLabels["/portal/employees/register"] ?? "Register",
         to: normalized,
         current: true,
       },
     );
     return out;
+  }
+
+  if (
+    /^\/portal\/clients\/[^/]+$/.test(normalized) &&
+    normalized !== "/portal/clients"
+  ) {
+    return [
+      {
+        label: pathLabels["/portal/clients"] ?? "Clients",
+        to: "/portal/clients",
+        current: false,
+      },
+      { label: "Client details", to: normalized, current: true },
+    ];
   }
 
   const label = pathLabels[normalized];

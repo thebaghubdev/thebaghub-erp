@@ -30,7 +30,9 @@ import { AuthenticationPage } from './pages/AuthenticationPage'
 import { ItemAuthenticationPage } from './pages/ItemAuthenticationPage'
 import { ConsignmentSchedulingPage } from './pages/ConsignmentSchedulingPage'
 import { InquiryPage } from './pages/InquiryPage'
-import { ManageAccountsPage } from './pages/ManageAccountsPage'
+import { EmployeesPage } from './pages/EmployeesPage'
+import { ClientsPage } from './pages/ClientsPage'
+import { ClientAccountDetailPage } from './pages/ClientAccountDetailPage'
 import { PhotoshootItemPage } from './pages/PhotoshootItemPage'
 import { PhotoshootPage } from './pages/PhotoshootPage'
 import { EditingItemPage } from './pages/EditingItemPage'
@@ -121,8 +123,10 @@ const router = createBrowserRouter([
             element: <ConsignorPaymentDetailPage />,
           },
           { path: 'settings', element: <SettingsPage /> },
-          { path: 'accounts/register', element: <RegisterPage /> },
-          { path: 'accounts', element: <ManageAccountsPage /> },
+          { path: 'employees/register', element: <RegisterPage /> },
+          { path: 'employees', element: <EmployeesPage /> },
+          { path: 'clients/:clientId', element: <ClientAccountDetailPage /> },
+          { path: 'clients', element: <ClientsPage /> },
           { path: '*', element: <Navigate to="/portal/inquiries" replace /> },
         ],
       },

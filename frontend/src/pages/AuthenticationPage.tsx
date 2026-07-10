@@ -840,7 +840,7 @@ export function AuthenticationPage() {
                     {!authenticatorsLoading && authenticators.length === 0 ? (
                       <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
                         No employees with the Authenticator position. Set
-                        position to Authenticator in Manage Accounts.
+                        position to Authenticator in Employees.
                       </p>
                     ) : null}
                     {assignError ? (

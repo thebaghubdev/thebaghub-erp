@@ -27,6 +27,11 @@ export class AccountsController {
     return this.accountsService.findAllClients();
   }
 
+  @Get('clients/:id')
+  findClient(@Param('id') id: string) {
+    return this.accountsService.findClientById(id);
+  }
+
   @Patch('employees/:id')
   updateEmployee(
     @Param('id') id: string,

@@ -104,12 +104,20 @@ export function Sidenav() {
           Consignor Payments
         </NavLink>
         <NavLink
-          to="/portal/accounts"
+          to="/portal/employees"
           className={({ isActive }) =>
             [linkClass, isActive ? activeClass : ""].join(" ")
           }
         >
-          Manage Accounts
+          Employees
+        </NavLink>
+        <NavLink
+          to="/portal/clients"
+          className={({ isActive }) =>
+            [linkClass, isActive ? activeClass : ""].join(" ")
+          }
+        >
+          Clients
         </NavLink>
       </nav>
       <div className="border-t border-slate-200 p-2 dark:border-slate-800">
