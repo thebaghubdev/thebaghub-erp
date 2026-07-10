@@ -13,6 +13,7 @@ import { DataSource, Repository } from 'typeorm';
 import { JwtUser } from '../auth/jwt-user';
 import { Client } from '../clients/entities/client.entity';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
+import { Inquiry } from '../inquiries/entities/inquiry.entity';
 import { ItemAuthentication } from '../inventory/entities/item-authentication.entity';
 import type { MulterFile } from '../inquiries/multer-file.type';
 import { MediaOwnerType } from '../enums/media-owner-type.enum';
@@ -1287,7 +1288,6 @@ export class OrdersService {
 
       const item = await em.findOne(InventoryItem, {
         where: { id: order.inventoryItemId },
-        relations: { inquiry: true },
         lock: { mode: 'pessimistic_write' },
       });
       if (!item) {
@@ -1314,8 +1314,13 @@ export class OrdersService {
         item.transactionType === 'consignment' &&
         order.paymentType !== PAYMENT_TYPE_LAYAWAY
       ) {
-        const consignorClientId =
-          item.consignorId ?? item.inquiry?.consignorId ?? null;
+        let consignorClientId = item.consignorId;
+        if (!consignorClientId) {
+          const inquiry = await em.findOne(Inquiry, {
+            where: { id: item.inquiryId },
+          });
+          consignorClientId = inquiry?.consignorId ?? null;
+        }
         if (consignorClientId) {
           const auditDate = computeConsignorPaymentAuditDate(dateSoldAt);
           await this.consignorPaymentsService.recordItemForSoldFinalConsignment(
