@@ -81,3 +81,33 @@ export function formatClientBank(code: ClientBankCode): string {
   if (code === "bpi") return "BPI";
   return "Other";
 }
+
+export type ClientVipStatus = "Regular" | "Gold" | "Diamond";
+
+export const CLIENT_VIP_STATUS_OPTIONS: ClientVipStatus[] = [
+  "Regular",
+  "Gold",
+  "Diamond",
+];
+
+export function formatClientVipStatus(
+  status: ClientVipStatus | null | undefined,
+): string {
+  if (status === "Gold" || status === "Diamond") return status;
+  return "Regular";
+}
+
+const VIP_STATUS_BADGE_CLASS: Record<ClientVipStatus, string> = {
+  Regular:
+    "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
+  Gold: "bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-200",
+  Diamond:
+    "bg-violet-100 text-violet-800 dark:bg-violet-950/50 dark:text-violet-200",
+};
+
+export function clientVipStatusBadgeClassName(
+  status: ClientVipStatus | null | undefined,
+): string {
+  const label = formatClientVipStatus(status);
+  return VIP_STATUS_BADGE_CLASS[label];
+}

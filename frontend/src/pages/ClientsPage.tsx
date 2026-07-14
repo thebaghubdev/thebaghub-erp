@@ -4,6 +4,8 @@ import { HorizontalScrollMirror } from '../components/HorizontalScrollMirror'
 import { TablePaginationBar } from '../components/TablePaginationBar'
 import { usePortalAuth } from '../context/portal-auth'
 import { apiFetch } from '../lib/api'
+import { formatClientVipStatus, clientVipStatusBadgeClassName } from '../lib/client-payment-preference'
+import { formatPhpDisplay } from '../lib/format-php'
 import { useClientPagination } from '../hooks/useClientPagination'
 
 type ClientRow = {
@@ -14,6 +16,9 @@ type ClientRow = {
   lastName: string
   email: string
   contactNumber: string
+  vipStatus: 'Regular' | 'Gold' | 'Diamond'
+  totalConsignments: number
+  totalPurchases: number
   createdAt: string
 }
 
@@ -84,6 +89,15 @@ export function ClientsPage() {
                 <th scope="col" className="max-w-[10rem] min-w-0 px-4 py-3">
                   Contact
                 </th>
+                <th scope="col" className="max-w-[8rem] min-w-0 px-4 py-3">
+                  VIP
+                </th>
+                <th scope="col" className="max-w-[10rem] min-w-0 px-4 py-3">
+                  Consignments
+                </th>
+                <th scope="col" className="max-w-[10rem] min-w-0 px-4 py-3">
+                  Purchases
+                </th>
                 <th scope="col" className="max-w-[10rem] min-w-0 px-4 py-3">
                   Created
                 </th>
@@ -93,7 +107,7 @@ export function ClientsPage() {
               {loading && clients.length === 0 && (
                 <tr>
                   <td
-                    colSpan={5}
+                    colSpan={8}
                     className="px-4 py-8 text-center text-slate-500"
                   >
                     Loading…
@@ -103,7 +117,7 @@ export function ClientsPage() {
               {!loading && clients.length === 0 && !error && (
                 <tr>
                   <td
-                    colSpan={5}
+                    colSpan={8}
                     className="px-4 py-8 text-center text-slate-500"
                   >
                     No client accounts yet.
@@ -136,6 +150,19 @@ export function ClientsPage() {
                   </td>
                   <td className="max-w-[10rem] min-w-0 truncate px-4 py-3 text-slate-600 dark:text-slate-400">
                     {row.contactNumber}
+                  </td>
+                  <td className="max-w-[8rem] min-w-0 px-4 py-3">
+                    <span
+                      className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${clientVipStatusBadgeClassName(row.vipStatus)}`}
+                    >
+                      {formatClientVipStatus(row.vipStatus)}
+                    </span>
+                  </td>
+                  <td className="max-w-[10rem] min-w-0 truncate px-4 py-3 text-slate-600 dark:text-slate-400">
+                    {formatPhpDisplay(row.totalConsignments)}
+                  </td>
+                  <td className="max-w-[10rem] min-w-0 truncate px-4 py-3 text-slate-600 dark:text-slate-400">
+                    {formatPhpDisplay(row.totalPurchases)}
                   </td>
                   <td className="max-w-[10rem] min-w-0 truncate px-4 py-3 text-slate-600 dark:text-slate-400">
                     {new Date(row.createdAt).toLocaleString()}

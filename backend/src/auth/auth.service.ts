@@ -11,6 +11,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { Repository } from 'typeorm';
+import { CLIENT_VIP_STATUS_REGULAR } from '../clients/client-vip-status.util';
 import { Client } from '../clients/entities/client.entity';
 import { Employee } from '../employees/entities/employee.entity';
 import { UserType } from '../enums/user-type.enum';
@@ -105,6 +106,7 @@ export class AuthService {
         email: dto.email.trim().toLowerCase(),
         contactNumber: dto.contactNumber.trim(),
         completeAddress,
+        vipStatus: CLIENT_VIP_STATUS_REGULAR,
         createdById: null,
         updatedById: null,
       });

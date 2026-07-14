@@ -80,4 +80,22 @@ export class Client extends AuditedEntity {
   /** Client draft for the multi-step consignment inquiry form (cleared when an inquiry is submitted). */
   @Column({ name: 'consignment_form_snapshot', type: 'jsonb', nullable: true })
   consignmentFormSnapshot: Record<string, unknown> | null;
+
+  /** VIP tier derived from cumulative purchases and consignments. */
+  @Column({
+    name: 'vip_status',
+    type: 'varchar',
+    length: 16,
+    nullable: true,
+    default: 'Regular',
+  })
+  vipStatus: 'Regular' | 'Gold' | 'Diamond' | null;
+
+  /** Cumulative consignment value in whole PHP pesos. */
+  @Column({ name: 'total_consignments', type: 'int', default: 0 })
+  totalConsignments: number;
+
+  /** Cumulative purchase value in whole PHP pesos. */
+  @Column({ name: 'total_purchases', type: 'int', default: 0 })
+  totalPurchases: number;
 }

@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
 import { Repository } from 'typeorm';
 import { AuthenticationMetric } from '../authentication-metrics/entities/authentication-metric.entity';
+import { Client } from '../clients/entities/client.entity';
 import { Employee } from '../employees/entities/employee.entity';
 import { UserType } from '../enums/user-type.enum';
 import {
@@ -40,12 +41,30 @@ export class SeedService implements OnModuleInit {
     private readonly settingsRepo: Repository<Setting>,
     @InjectRepository(AuthenticationMetric)
     private readonly authenticationMetricsRepo: Repository<AuthenticationMetric>,
+    @InjectRepository(Client)
+    private readonly clientsRepo: Repository<Client>,
   ) {}
 
   async onModuleInit() {
+    await this.ensureClientVipStatusBackfill();
     await this.ensureAdministrator();
     await this.ensureConsignmentFormSettings();
     await this.ensureAuthenticationMetrics();
+  }
+
+  private async ensureClientVipStatusBackfill() {
+    await this.clientsRepo
+      .createQueryBuilder()
+      .update(Client)
+      .set({ vipStatus: 'Regular' })
+      .where('vip_status IS NULL')
+      .execute();
+    await this.clientsRepo.query(
+      `UPDATE clients SET vip_status = 'Gold' WHERE vip_status = 'gold'`,
+    );
+    await this.clientsRepo.query(
+      `UPDATE clients SET vip_status = 'Diamond' WHERE vip_status = 'diamond'`,
+    );
   }
 
   private async ensureAdministrator() {

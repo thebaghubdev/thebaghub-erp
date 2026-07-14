@@ -11,6 +11,7 @@ import { StaffOnlyGuard } from '../auth/staff-only.guard';
 import { JwtUser } from '../auth/jwt-user';
 import { AccountsService } from './accounts.service';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
+import { UpdateClientVipStatusDto } from './dto/update-client-vip-status.dto';
 
 @Controller('accounts')
 @UseGuards(StaffOnlyGuard)
@@ -30,6 +31,19 @@ export class AccountsController {
   @Get('clients/:id')
   findClient(@Param('id') id: string) {
     return this.accountsService.findClientById(id);
+  }
+
+  @Patch('clients/:id/vip-status')
+  updateClientVipStatus(
+    @Param('id') id: string,
+    @Body() dto: UpdateClientVipStatusDto,
+    @Req() req: { user: JwtUser },
+  ) {
+    return this.accountsService.updateClientVipStatus(
+      id,
+      dto.vipStatus,
+      req.user.userId,
+    );
   }
 
   @Patch('employees/:id')

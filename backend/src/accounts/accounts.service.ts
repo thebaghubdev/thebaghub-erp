@@ -6,6 +6,8 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Client } from '../clients/entities/client.entity';
+import { normalizeClientVipStatus } from '../clients/client-vip-status.util';
+import type { ClientVipStatus } from '../clients/client-vip-status.util';
 import { Employee } from '../employees/entities/employee.entity';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
 
@@ -31,6 +33,9 @@ export type ClientAccountRow = {
   lastName: string;
   email: string;
   contactNumber: string;
+  vipStatus: 'Regular' | 'Gold' | 'Diamond';
+  totalConsignments: number;
+  totalPurchases: number;
   createdAt: string;
 };
 
@@ -113,6 +118,9 @@ export class AccountsService {
       lastName: c.lastName,
       email: c.email,
       contactNumber: c.contactNumber,
+      vipStatus: normalizeClientVipStatus(c.vipStatus),
+      totalConsignments: c.totalConsignments,
+      totalPurchases: c.totalPurchases,
       createdAt: c.createdAt.toISOString(),
     };
   }
@@ -129,6 +137,30 @@ export class AccountsService {
       emailVerifiedAt: c.user.emailVerifiedAt?.toISOString() ?? null,
       updatedAt: c.updatedAt.toISOString(),
     };
+  }
+
+  async updateClientVipStatus(
+    clientId: string,
+    vipStatus: ClientVipStatus,
+    actorUserId: string,
+  ): Promise<ClientAccountDetail> {
+    const client = await this.clientsRepo.findOne({
+      where: { id: clientId },
+      relations: ['user'],
+    });
+    if (!client) {
+      throw new NotFoundException('Client not found');
+    }
+
+    client.vipStatus = vipStatus;
+    client.updatedById = actorUserId;
+    await this.clientsRepo.save(client);
+
+    const refreshed = await this.clientsRepo.findOneOrFail({
+      where: { id: clientId },
+      relations: ['user'],
+    });
+    return this.mapClientDetail(refreshed);
   }
 
   async updateEmployee(
