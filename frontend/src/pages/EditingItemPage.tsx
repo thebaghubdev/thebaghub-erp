@@ -59,6 +59,7 @@ type InventoryDetailForStaff = {
   consignorPhone: string | null;
   inquiryOfferPrice: string | null;
   tbhSellingPrice: string | null;
+  enableDiscount: boolean;
   itemSnapshot: {
     clientItemId: string;
     form: Record<string, unknown>;
@@ -108,17 +109,59 @@ function buildProductName(form: Record<string, unknown>): string {
   return [str(form.brand), str(form.itemModel)].filter(Boolean).join(" ");
 }
 
+const VIP_DISCOUNT_NOTICE = "Item not subject to VIP Discount";
+
+function normalizeVipNoticeGap(html: string): string {
+  const escaped = VIP_DISCOUNT_NOTICE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return html.replace(
+    new RegExp(`(${escaped})<br>\\s*<br>\\s*(Condition\\s*:)`, "gi"),
+    "$1<br>$2",
+  );
+}
+
+function applyVipDiscountNoticeToDescription(
+  html: string,
+  enableDiscount: boolean,
+): string {
+  if (enableDiscount || !html.trim()) return html;
+  if (html.includes(VIP_DISCOUNT_NOTICE)) {
+    return normalizeVipNoticeGap(html);
+  }
+  const paragraphPattern = /<p(\s[^>]*)?>\s*Condition\s*:/i;
+  const match = paragraphPattern.exec(html);
+  if (match) {
+    return normalizeVipNoticeGap(
+      html.replace(
+        paragraphPattern,
+        `<p${match[1] ?? ""}>${VIP_DISCOUNT_NOTICE}<br>Condition:`,
+      ),
+    );
+  }
+  const matchInline = /Condition\s*:/i.exec(html);
+  if (!matchInline || matchInline.index == null) return html;
+  return normalizeVipNoticeGap(
+    html.slice(0, matchInline.index) +
+      `${VIP_DISCOUNT_NOTICE}<br>` +
+      html.slice(matchInline.index),
+  );
+}
+
 function buildPostDescriptionHtml(
   form: Record<string, unknown>,
   auth: InventoryDetailForStaff["authenticationDetails"],
+  enableDiscount: boolean,
 ): string {
   const title = buildProductName(form) || "—";
+  const conditionLines = [
+    ...(enableDiscount ? [] : [escapeHtml(VIP_DISCOUNT_NOTICE)]),
+    `Condition: ${displayValue(auth?.rating)}`,
+    `Inclusions: ${displayValue(form.inclusions)}`,
+    `Dimensions: ${displayValue(auth?.dimensions)}`,
+  ];
 
   return [
     `<p>${escapeHtml(title)}</p>`,
-    `<p>Condition: ${displayValue(auth?.rating)}<br>Inclusions: ${displayValue(
-      form.inclusions,
-    )}<br>Dimensions: ${displayValue(auth?.dimensions)}</p>`,
+    `<p>${conditionLines.join("<br>")}</p>`,
     "<p>We offer layaway installments or use your BDO credit card for up to 12 months installment — Just ask us how!</p>",
     "<p>Disclaimer: The Bag Hub is neither affiliated nor related with any of the brands posted in our page/account. All trademarks and brand names are sole properties of their respective owners.</p>",
   ].join("");
@@ -276,13 +319,19 @@ export function EditingItemPage() {
       }
       const detailJson = (await detailRes.json()) as InventoryDetailForStaff;
       setDetail(detailJson);
+      const enableDiscount = detailJson.enableDiscount ?? false;
       const posting = detailJson.itemPosting;
       if (posting) {
         setProductName(posting.productName);
         setCollectionValue(posting.collections[0] ?? "");
         setTagsSelected(posting.tags);
         setPriceComparison(posting.priceComparison ?? "");
-        setPostDescription(posting.productDescription ?? "");
+        setPostDescription(
+          applyVipDiscountNoticeToDescription(
+            posting.productDescription ?? "",
+            enableDiscount,
+          ),
+        );
         setPhotoSelectionOrder(
           selectedPhotoKeysFromSnapshot(posting.selectedPhotosSnapshot),
         );
@@ -292,9 +341,12 @@ export function EditingItemPage() {
         setTagsSelected([]);
         setPriceComparison("");
         setPostDescription(
-          buildPostDescriptionHtml(
-            detailJson.itemSnapshot.form,
-            detailJson.authenticationDetails,
+          normalizeVipNoticeGap(
+            buildPostDescriptionHtml(
+              detailJson.itemSnapshot.form,
+              detailJson.authenticationDetails,
+              enableDiscount,
+            ),
           ),
         );
       }
@@ -626,6 +678,12 @@ export function EditingItemPage() {
                 <dd className="tabular-nums">
                   {formatPhpDisplay(detail.tbhSellingPrice)}
                 </dd>
+              </div>
+              <div>
+                <dt className="text-slate-500 dark:text-slate-400">
+                  VIP discount
+                </dt>
+                <dd>{detail.enableDiscount ? "Yes" : "No"}</dd>
               </div>
               {detail.consignorName ? (
                 <div className="sm:col-span-2">

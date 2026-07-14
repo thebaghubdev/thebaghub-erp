@@ -149,6 +149,10 @@ export type InventoryListRow = {
   currentBranch: string;
   itemLabel: string;
   inclusions: string;
+  /** From item_authentication (`rating`), if set. */
+  rating: string | null;
+  /** From item_authentication (`authenticator_notes`), if set. */
+  authenticatorNotes: string | null;
   /** From item snapshot form (`marketPrice`), if set. */
   marketPrice: string | null;
   /** From item snapshot form (`retailPrice`), if set. */
@@ -157,6 +161,8 @@ export type InventoryListRow = {
   consignorPrice: string | null;
   /** TBH listed selling price (`inventory_items.tbh_selling_price`). */
   tbhSellingPrice: string | null;
+  /** When true, VIP/program discount logic may apply (`inventory_items.enable_discount`). */
+  enableDiscount: boolean;
   /** Display name of assigned authenticator, if any. */
   assignedToName: string | null;
   /** From item_authentication row; defaults to Pending when missing. */
@@ -382,6 +388,15 @@ function normalizedOfferPriceString(
   if (offer == null) return null;
   const s = String(offer).trim();
   return s.length > 0 ? s : null;
+}
+
+function normalizedTbhPriceString(
+  raw: string | number | null | undefined,
+): string | null {
+  if (raw == null || String(raw).trim() === '') return null;
+  const n = Number(String(raw).trim());
+  if (!Number.isFinite(n) || n < 0) return null;
+  return n.toFixed(2);
 }
 
 function normalizeOptionalText(value: unknown): string | null {
@@ -1473,6 +1488,8 @@ export class InventoryService {
         currentBranch: r.currentBranch,
         itemLabel: itemLabelFromSnapshot(r.itemSnapshot),
         inclusions: inclusionsFromSnapshot(r.itemSnapshot),
+        rating: normalizeOptionalText(auth?.rating),
+        authenticatorNotes: normalizeOptionalText(auth?.authenticatorNotes),
         marketPrice: authPriceField(auth, r.itemSnapshot, 'marketPrice'),
         retailPrice: authPriceField(auth, r.itemSnapshot, 'retailPrice'),
         consignorPrice: normalizedOfferPriceString(r.inquiry?.offerPrice),
@@ -1481,6 +1498,7 @@ export class InventoryService {
           String(r.tbhSellingPrice).trim() !== ''
             ? String(r.tbhSellingPrice)
             : null,
+        enableDiscount: r.enableDiscount,
         assignedToName: formatEmployeeName(auth?.assignedTo ?? null),
         authenticationStatus: auth?.authenticationStatus ?? 'Pending',
       };
@@ -1494,6 +1512,7 @@ export class InventoryService {
   ): Promise<{
     id: string;
     tbhSellingPrice: string | null;
+    enableDiscount: boolean;
     status: string;
   }> {
     const item = await this.inventoryRepo.findOne({
@@ -1508,41 +1527,67 @@ export class InventoryService {
         'TBH selling price can only be updated for items in For Pricing, For Repricing, or For Editing status.',
       );
     }
+    const priceProvided = dto.tbhSellingPrice !== undefined;
+    const discountProvided = dto.enableDiscount !== undefined;
+    if (!priceProvided && !discountProvided) {
+      throw new BadRequestException('No pricing fields to update.');
+    }
+
     const wasForRepricing = item.status === FOR_REPRICING_INVENTORY_STATUS;
-    const raw = dto.tbhSellingPrice;
-    let next: string | null;
-    if (raw == null || String(raw).trim() === '') {
-      next = null;
-    } else {
-      const n = Number(String(raw).trim());
-      if (!Number.isFinite(n) || n < 0) {
-        throw new BadRequestException('Invalid TBH selling price.');
+    const storedTbh = normalizedTbhPriceString(item.tbhSellingPrice);
+    let nextTbh: string | null = storedTbh;
+    let priceChanged = false;
+
+    if (priceProvided) {
+      const raw = dto.tbhSellingPrice;
+      let next: string | null;
+      if (raw == null || String(raw).trim() === '') {
+        next = null;
+      } else {
+        const n = Number(String(raw).trim());
+        if (!Number.isFinite(n) || n < 0) {
+          throw new BadRequestException('Invalid TBH selling price.');
+        }
+        next = n.toFixed(2);
       }
-      next = n.toFixed(2);
-    }
-    if (wasForRepricing && next == null) {
-      throw new BadRequestException(
-        'TBH selling price is required to finish repricing.',
-      );
-    }
-    item.tbhSellingPrice = next;
-    if (wasForRepricing) {
-      item.updatedById = actorUserId;
-      await this.inventoryRepo.save(item);
-      await this.syncPostedItemToShopify(item.itemPosting, item);
-      item.status = AVAILABLE_FOR_PURCHASE_INVENTORY_STATUS;
-    } else if (next != null) {
-      const pct = markupPercentFromOfferOrNull(
-        next,
-        item.inquiry?.offerPrice,
-      );
-      if (pct == null || pct > 0) {
-        item.status = FOR_EDITING_INVENTORY_STATUS;
+      if (wasForRepricing && next == null) {
+        throw new BadRequestException(
+          'TBH selling price is required to finish repricing.',
+        );
+      }
+      priceChanged = storedTbh !== next;
+      if (priceChanged) {
+        item.tbhSellingPrice = next;
+        nextTbh = next;
+        if (wasForRepricing) {
+          item.updatedById = actorUserId;
+          await this.inventoryRepo.save(item);
+          await this.syncPostedItemToShopify(item.itemPosting, item);
+          item.status = AVAILABLE_FOR_PURCHASE_INVENTORY_STATUS;
+        } else if (next != null) {
+          const pct = markupPercentFromOfferOrNull(
+            next,
+            item.inquiry?.offerPrice,
+          );
+          if (pct == null || pct > 0) {
+            item.status = FOR_EDITING_INVENTORY_STATUS;
+          }
+        }
       }
     }
+
+    if (discountProvided) {
+      item.enableDiscount = dto.enableDiscount ?? false;
+    }
+
     item.updatedById = actorUserId;
     await this.inventoryRepo.save(item);
-    return { id: item.id, tbhSellingPrice: next, status: item.status };
+    return {
+      id: item.id,
+      tbhSellingPrice: nextTbh,
+      enableDiscount: item.enableDiscount,
+      status: item.status,
+    };
   }
 
   async createItemPosting(

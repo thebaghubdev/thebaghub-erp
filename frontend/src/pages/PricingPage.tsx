@@ -41,12 +41,21 @@ type InventoryRow = {
   currentBranch: string;
   itemLabel: string;
   inclusions: string;
+  rating: string | null;
+  authenticatorNotes: string | null;
   marketPrice: string | null;
   retailPrice: string | null;
   consignorPrice: string | null;
   tbhSellingPrice: string | null;
+  enableDiscount: boolean;
   assignedToName: string | null;
   authenticationStatus: string;
+};
+
+type PricingUpdate = {
+  id: string;
+  tbhSellingPrice: string | null;
+  enableDiscount: boolean;
 };
 
 function normalizedStoredTbh(raw: string | null): string | null {
@@ -113,6 +122,24 @@ function markupPercentNumeric(
   return ((sell - cost) / cost) * 100;
 }
 
+function ownersPricePlusProfitFromTbhAndConsignor(
+  tbhSelling: string | null,
+  consignorPrice: string | null,
+): string {
+  const sell =
+    tbhSelling != null && tbhSelling.trim() !== ""
+      ? parsePhpStringToNumber(tbhSelling)
+      : null;
+  const cost =
+    consignorPrice != null && consignorPrice.trim() !== ""
+      ? parsePhpStringToNumber(consignorPrice)
+      : null;
+  if (sell == null || cost == null) {
+    return "—";
+  }
+  return formatPhpAmount(cost + (sell - cost));
+}
+
 const columnHelper = createColumnHelper<InventoryRow>();
 
 export function PricingPage() {
@@ -123,17 +150,20 @@ export function PricingPage() {
   const [error, setError] = useState<string | null>(null);
   const [pricingEditMode, setPricingEditMode] = useState(false);
   const [draftTbhById, setDraftTbhById] = useState<Record<string, string>>({});
+  const [draftEnableDiscountById, setDraftEnableDiscountById] = useState<
+    Record<string, boolean>
+  >({});
   const [savingPricing, setSavingPricing] = useState(false);
   const [pricingSaveError, setPricingSaveError] = useState<string | null>(null);
   const [markupRangeWarningOpen, setMarkupRangeWarningOpen] = useState(false);
   const [markupWarningLines, setMarkupWarningLines] = useState<string[]>([]);
-  const pendingPricingUpdatesRef = useRef<{ id: string; next: string | null }[]>(
-    [],
-  );
+  const pendingPricingUpdatesRef = useRef<PricingUpdate[]>([]);
 
   /** Keeps column defs stable while typing so inputs are not remounted (loses focus). */
   const draftTbhByIdRef = useRef(draftTbhById);
   draftTbhByIdRef.current = draftTbhById;
+  const draftEnableDiscountByIdRef = useRef(draftEnableDiscountById);
+  draftEnableDiscountByIdRef.current = draftEnableDiscountById;
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -157,12 +187,15 @@ export function PricingPage() {
   }, [load]);
 
   const beginPricingEdit = useCallback(() => {
-    const initial: Record<string, string> = {};
+    const initialTbh: Record<string, string> = {};
+    const initialDiscount: Record<string, boolean> = {};
     for (const r of rows) {
       const n = normalizedStoredTbh(r.tbhSellingPrice);
-      initial[r.id] = n != null ? n : "";
+      initialTbh[r.id] = n != null ? n : "";
+      initialDiscount[r.id] = r.enableDiscount ?? false;
     }
-    setDraftTbhById(initial);
+    setDraftTbhById(initialTbh);
+    setDraftEnableDiscountById(initialDiscount);
     setPricingSaveError(null);
     setPricingEditMode(true);
   }, [rows]);
@@ -177,11 +210,12 @@ export function PricingPage() {
     closeMarkupRangeWarning();
     setPricingEditMode(false);
     setDraftTbhById({});
+    setDraftEnableDiscountById({});
     setPricingSaveError(null);
   }, [closeMarkupRangeWarning]);
 
   const performPricingSave = useCallback(
-    async (updates: { id: string; next: string | null }[]) => {
+    async (updates: PricingUpdate[]) => {
       if (!token || updates.length === 0) return;
       setSavingPricing(true);
       try {
@@ -190,7 +224,10 @@ export function PricingPage() {
             `/api/inventory/${u.id}/pricing`,
             {
               method: "PATCH",
-              body: JSON.stringify({ tbhSellingPrice: u.next }),
+              body: JSON.stringify({
+                tbhSellingPrice: u.tbhSellingPrice,
+                enableDiscount: u.enableDiscount,
+              }),
             },
             token,
           );
@@ -205,6 +242,7 @@ export function PricingPage() {
         await load();
         setPricingEditMode(false);
         setDraftTbhById({});
+        setDraftEnableDiscountById({});
       } catch (e) {
         setPricingSaveError(
           e instanceof Error ? e.message : "Failed to save pricing",
@@ -227,7 +265,7 @@ export function PricingPage() {
   const savePricing = useCallback(async () => {
     if (!token) return;
     setPricingSaveError(null);
-    const updates: { id: string; next: string | null }[] = [];
+    const updates: PricingUpdate[] = [];
     for (const r of rows) {
       const draftRaw = draftTbhById[r.id] ?? "";
       let draftNorm: string | null;
@@ -243,25 +281,39 @@ export function PricingPage() {
         }
       }
       const origNorm = normalizedStoredTbh(r.tbhSellingPrice);
-      const same =
+      const priceSame =
         (draftNorm == null && origNorm == null) ||
         (draftNorm != null && origNorm != null && draftNorm === origNorm);
-      if (!same) {
-        updates.push({ id: r.id, next: draftNorm });
+      const draftDiscount = draftEnableDiscountById[r.id] ?? false;
+      const discountChanged = draftDiscount !== (r.enableDiscount ?? false);
+      if (!priceSame || discountChanged) {
+        updates.push({
+          id: r.id,
+          tbhSellingPrice: draftNorm,
+          enableDiscount: draftDiscount,
+        });
       }
     }
     if (updates.length === 0) {
       setPricingEditMode(false);
       setDraftTbhById({});
+      setDraftEnableDiscountById({});
       return;
     }
 
     const markupOutliers: string[] = [];
     for (const u of updates) {
-      if (u.next == null) continue;
+      if (u.tbhSellingPrice == null) continue;
       const row = rows.find((x) => x.id === u.id);
       if (!row) continue;
-      const pct = markupPercentNumeric(u.next, row.consignorPrice);
+      const origNorm = normalizedStoredTbh(row.tbhSellingPrice);
+      const priceSame =
+        (u.tbhSellingPrice == null && origNorm == null) ||
+        (u.tbhSellingPrice != null &&
+          origNorm != null &&
+          u.tbhSellingPrice === origNorm);
+      if (priceSame) continue;
+      const pct = markupPercentNumeric(u.tbhSellingPrice, row.consignorPrice);
       if (pct == null) continue;
       if (pct < 10 || pct > 40) {
         markupOutliers.push(`${row.sku} (${Math.round(pct)}% mark-up)`);
@@ -275,7 +327,13 @@ export function PricingPage() {
     }
 
     await performPricingSave(updates);
-  }, [token, rows, draftTbhById, performPricingSave]);
+  }, [
+    token,
+    rows,
+    draftTbhById,
+    draftEnableDiscountById,
+    performPricingSave,
+  ]);
 
   const columns = useMemo(() => {
     return [
@@ -436,6 +494,72 @@ export function PricingPage() {
           );
         },
       }),
+      columnHelper.display({
+        id: "ownersPricePlusProfit",
+        header: () => (
+          <span title="Consignor price plus mark-up">Owner's price + profit</span>
+        ),
+        cell: ({ row }) => {
+          const tbhEffective = pricingEditMode
+            ? (draftTbhByIdRef.current[row.original.id] ?? "").trim() === ""
+              ? null
+              : draftTbhByIdRef.current[row.original.id]
+            : row.original.tbhSellingPrice;
+          const total = ownersPricePlusProfitFromTbhAndConsignor(
+            tbhEffective,
+            row.original.consignorPrice,
+          );
+          return (
+            <span className="tabular-nums text-slate-800 dark:text-slate-200">
+              {total}
+            </span>
+          );
+        },
+      }),
+      columnHelper.accessor("enableDiscount", {
+        header: () => (
+          <span title="When Yes, VIP program discount may apply at checkout">
+            VIP Discount?
+          </span>
+        ),
+        cell: ({ row }) => {
+          if (!pricingEditMode) {
+            return (
+              <span className="text-slate-800 dark:text-slate-200">
+                {row.original.enableDiscount ? "Yes" : "No"}
+              </span>
+            );
+          }
+          const id = row.original.id;
+          const checked = draftEnableDiscountByIdRef.current[id] ?? false;
+          return (
+            <button
+              type="button"
+              role="switch"
+              aria-checked={checked}
+              aria-label={`VIP discount for ${row.original.sku}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                setDraftEnableDiscountById((prev) => ({
+                  ...prev,
+                  [id]: !checked,
+                }));
+              }}
+              className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500 ${
+                checked
+                  ? "bg-violet-600"
+                  : "bg-slate-300 dark:bg-slate-600"
+              }`}
+            >
+              <span
+                className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                  checked ? "translate-x-[1.35rem]" : "translate-x-0.5"
+                }`}
+              />
+            </button>
+          );
+        },
+      }),
       columnHelper.accessor("status", {
         header: "Status",
         cell: ({ row }) => (
@@ -464,6 +588,28 @@ export function PricingPage() {
             {row.original.inclusions}
           </span>
         ),
+      }),
+      columnHelper.accessor("rating", {
+        header: "Rating",
+        cell: ({ getValue }) => (
+          <span className="tabular-nums text-slate-800 dark:text-slate-200">
+            {getValue()?.trim() || "—"}
+          </span>
+        ),
+      }),
+      columnHelper.accessor("authenticatorNotes", {
+        header: "Authenticator's notes",
+        cell: ({ row }) => {
+          const notes = row.original.authenticatorNotes?.trim() || "";
+          return (
+            <span
+              className="max-w-[14rem] min-w-[7rem] whitespace-pre-wrap break-words text-slate-700 dark:text-slate-300"
+              title={notes !== "" ? notes : undefined}
+            >
+              {notes !== "" ? notes : "—"}
+            </span>
+          );
+        },
       }),
       columnHelper.accessor("dateReceived", {
         header: "Date received",
