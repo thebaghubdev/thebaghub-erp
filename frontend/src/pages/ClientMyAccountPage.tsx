@@ -4,13 +4,16 @@ import { apiFetch } from "../lib/api";
 import { branchLabel } from "../lib/consignment-schedule-labels";
 import {
   CLIENT_PAYMENT_PREFERENCE_LOCKED_MESSAGE,
+  clientVipStatusBadgeClassName,
   formatClientPaymentMethod,
+  formatClientVipStatus,
   hasCompleteClientBankDetails,
   isClientPaymentPreferenceLocked,
   parseClientPaymentBranch,
   parseClientPaymentMethod,
   type ClientPaymentMethod,
 } from "../lib/client-payment-preference";
+import { formatPhpDisplay } from "../lib/format-php";
 
 function bankDisplayName(code: string | null | undefined): string {
   if (code === "bdo") return "BDO";
@@ -293,6 +296,43 @@ export function ClientMyAccountPage() {
             <p className="mt-1 text-xs text-slate-500">
               Used to sign in (your account username).
             </p>
+          </div>
+        </dl>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 className="text-sm font-semibold text-slate-900">VIP & activity</h2>
+        <p className="mt-1 text-xs text-slate-500">
+          Your VIP tier and cumulative consignment and purchase totals.
+        </p>
+        <dl className="mt-4 space-y-3 text-sm">
+          <div>
+            <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              VIP status
+            </dt>
+            <dd className="mt-0.5">
+              <span
+                className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${clientVipStatusBadgeClassName(c?.vipStatus)}`}
+              >
+                {formatClientVipStatus(c?.vipStatus)}
+              </span>
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              Total consignments
+            </dt>
+            <dd className="mt-0.5 text-slate-900">
+              {formatPhpDisplay(c?.totalConsignments ?? 0)}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              Total purchases
+            </dt>
+            <dd className="mt-0.5 text-slate-900">
+              {formatPhpDisplay(c?.totalPurchases ?? 0)}
+            </dd>
           </div>
         </dl>
       </div>

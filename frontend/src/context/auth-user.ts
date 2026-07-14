@@ -13,6 +13,9 @@ export type ClientProfile = {
     | 'direct_deposit'
     | null
   preferredPaymentBranch: 'pasig' | 'makati' | null
+  vipStatus: 'Regular' | 'Gold' | 'Diamond'
+  totalConsignments: number
+  totalPurchases: number
 }
 
 export type AuthUser = {
@@ -54,5 +57,13 @@ export function normalizeClientProfile(
       raw.preferredPaymentBranch === 'makati'
         ? raw.preferredPaymentBranch
         : null,
+    vipStatus:
+      raw.vipStatus === 'Gold' || raw.vipStatus === 'Diamond'
+        ? raw.vipStatus
+        : 'Regular',
+    totalConsignments:
+      typeof raw.totalConsignments === 'number' ? raw.totalConsignments : 0,
+    totalPurchases:
+      typeof raw.totalPurchases === 'number' ? raw.totalPurchases : 0,
   }
 }

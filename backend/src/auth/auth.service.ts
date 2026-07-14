@@ -11,7 +11,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { Repository } from 'typeorm';
-import { CLIENT_VIP_STATUS_REGULAR } from '../clients/client-vip-status.util';
+import {
+  CLIENT_VIP_STATUS_REGULAR,
+  normalizeClientVipStatus,
+} from '../clients/client-vip-status.util';
 import { Client } from '../clients/entities/client.entity';
 import { Employee } from '../employees/entities/employee.entity';
 import { UserType } from '../enums/user-type.enum';
@@ -340,6 +343,9 @@ export class AuthService {
           | 'direct_deposit'
           | null;
         preferredPaymentBranch: 'pasig' | 'makati' | null;
+        vipStatus: 'Regular' | 'Gold' | 'Diamond';
+        totalConsignments: number;
+        totalPurchases: number;
       } | null,
     };
 
@@ -373,6 +379,9 @@ export class AuthService {
           bankCode: cli.bankCode,
           preferredPaymentMethod: cli.preferredPaymentMethod,
           preferredPaymentBranch: cli.preferredPaymentBranch,
+          vipStatus: normalizeClientVipStatus(cli.vipStatus),
+          totalConsignments: cli.totalConsignments ?? 0,
+          totalPurchases: cli.totalPurchases ?? 0,
         };
       }
     }

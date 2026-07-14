@@ -15,6 +15,7 @@ import {
 import { SaveConsignmentFormSnapshotDto } from './dto/save-consignment-form-snapshot.dto';
 import { UpdateClientBankDto } from './dto/update-client-bank.dto';
 import { Client } from './entities/client.entity';
+import { normalizeClientVipStatus } from './client-vip-status.util';
 
 function trimOrNull(v: string | undefined): string | null {
   if (v === undefined) return null;
@@ -37,6 +38,9 @@ export type ClientProfileView = {
     | 'direct_deposit'
     | null;
   preferredPaymentBranch: 'pasig' | 'makati' | null;
+  vipStatus: 'Regular' | 'Gold' | 'Diamond';
+  totalConsignments: number;
+  totalPurchases: number;
 };
 
 function mapClientProfileView(client: Client): ClientProfileView {
@@ -51,6 +55,9 @@ function mapClientProfileView(client: Client): ClientProfileView {
     bankCode: client.bankCode,
     preferredPaymentMethod: client.preferredPaymentMethod,
     preferredPaymentBranch: client.preferredPaymentBranch,
+    vipStatus: normalizeClientVipStatus(client.vipStatus),
+    totalConsignments: client.totalConsignments ?? 0,
+    totalPurchases: client.totalPurchases ?? 0,
   };
 }
 
