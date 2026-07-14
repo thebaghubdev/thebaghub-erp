@@ -114,7 +114,7 @@ export class ConsignmentSchedulesService {
 
   async findAllForStaff(): Promise<ConsignmentScheduleListRow[]> {
     const list = await this.scheduleRepo.find({
-      relations: { createdBy: true, items: true },
+      relations: { createdBy: true, scheduledByClient: true, items: true },
       order: { deliveryDate: 'ASC' },
     });
     return list.map((s) => this.mapScheduleToListRow(s));
@@ -123,7 +123,11 @@ export class ConsignmentSchedulesService {
   async findOneForStaff(id: string): Promise<ConsignmentScheduleDetail> {
     const s = await this.scheduleRepo.findOne({
       where: { id },
-      relations: { createdBy: true, items: { inquiry: true } },
+      relations: {
+        createdBy: true,
+        scheduledByClient: true,
+        items: { inquiry: true },
+      },
     });
     if (!s) {
       throw new NotFoundException('Schedule not found');
@@ -262,7 +266,7 @@ export class ConsignmentSchedulesService {
 
       const saved = await em.findOneOrFail(ConsignmentSchedule, {
         where: { id: schedule.id },
-        relations: { createdBy: true, items: true },
+        relations: { createdBy: true, scheduledByClient: true, items: true },
       });
       return this.mapScheduleToListRow(saved);
     });
@@ -352,6 +356,19 @@ export class ConsignmentSchedulesService {
 
   private mapScheduleToListRow(s: ConsignmentSchedule): ConsignmentScheduleListRow {
     const rr = s.rescheduleReason?.trim();
+    let createdByName = '';
+    if (s.scheduledByClient) {
+      const name = [s.scheduledByClient.firstName, s.scheduledByClient.lastName]
+        .filter(Boolean)
+        .join(' ')
+        .trim();
+      createdByName = name ? `${name} (client)` : 'Client';
+    } else if (s.createdBy) {
+      createdByName = [s.createdBy.firstName, s.createdBy.lastName]
+        .filter(Boolean)
+        .join(' ')
+        .trim();
+    }
     return {
       id: s.id,
       deliveryDate: s.deliveryDate.toISOString(),
@@ -360,10 +377,7 @@ export class ConsignmentSchedulesService {
       modeOfTransfer: s.modeOfTransfer,
       branch: s.branch,
       createdAt: s.createdAt.toISOString(),
-      createdByName: [s.createdBy.firstName, s.createdBy.lastName]
-        .filter(Boolean)
-        .join(' ')
-        .trim(),
+      createdByName: createdByName || 'Staff',
       inquiryCount: s.items?.length ?? 0,
       rescheduleReason: rr && rr.length > 0 ? rr : null,
     };

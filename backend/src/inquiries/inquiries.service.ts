@@ -11,7 +11,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { plainToInstance } from 'class-transformer';
 import { validateOrReject } from 'class-validator';
 import { randomUUID } from 'node:crypto';
-import { Between, Repository } from 'typeorm';
+import { Between, In, Repository } from 'typeorm';
 import { Client } from '../clients/entities/client.entity';
 import {
   extractBankDetailsFromClient,
@@ -19,7 +19,16 @@ import {
   isClientPaymentPreferenceLocked,
 } from '../clients/client-payment-preference.util';
 import { MailService } from '../mail/mail.service';
-import { ConsignmentScheduleItem } from '../consignment-schedules/entities/consignment-schedule.entities';
+import {
+  ConsignmentSchedule,
+  ConsignmentScheduleItem,
+} from '../consignment-schedules/entities/consignment-schedule.entities';
+import {
+  countDeliveryInquiriesOnDay,
+  fullDeliveryDatesForBranch,
+  loadConsignmentDailyLimit,
+} from '../consignment-schedules/consignment-daily-limit.util';
+import { normalizeClientVipStatus } from '../clients/client-vip-status.util';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
 import { ItemAuthentication } from '../inventory/entities/item-authentication.entity';
 import { InventoryService } from '../inventory/inventory.service';
@@ -38,6 +47,8 @@ import { SubmitOfferDto } from './dto/submit-offer.dto';
 import { ConfirmOfferDto } from './dto/confirm-offer.dto';
 import { SubmitConsignmentInquiryDto } from './dto/submit-consignment-inquiry.dto';
 import { SubmitWalkInConsignmentInquiryDto } from './dto/submit-walk-in-consignment-inquiry.dto';
+import { CreateClientDeliveryScheduleDto } from './dto/create-client-delivery-schedule.dto';
+import { ScheduleClientDeliveryDto } from './dto/schedule-client-delivery.dto';
 import {
   ClientOfferConfirmationData,
   Inquiry,
@@ -263,6 +274,7 @@ export type StaffInquiryDetail = StaffInquiryRow & {
 export type ClientDeliveryScheduleInfo = {
   deliveryDate: string;
   modeOfTransfer: string;
+  branch: string;
 };
 
 /** Client-facing inquiry detail (no internal staff notes). */
@@ -299,6 +311,8 @@ export class InquiriesService {
     private readonly clientsRepo: Repository<Client>,
     @InjectRepository(ConsignmentScheduleItem)
     private readonly scheduleItemRepo: Repository<ConsignmentScheduleItem>,
+    @InjectRepository(ConsignmentSchedule)
+    private readonly scheduleRepo: Repository<ConsignmentSchedule>,
     @InjectRepository(Setting)
     private readonly settingsRepo: Repository<Setting>,
     private readonly media: MediaService,
@@ -466,7 +480,275 @@ export class InquiriesService {
     return {
       deliveryDate: sch.deliveryDate.toISOString(),
       modeOfTransfer: sch.modeOfTransfer,
+      branch: sch.branch,
     };
+  }
+
+  private clientDeliveryModeLabel(mode: string): string {
+    if (mode === 'courier') return 'Courier';
+    if (mode === 'consignor_dropoff') return 'Drop-off at branch';
+    if (mode === 'pickup_service') return 'Pick-up service';
+    return mode;
+  }
+
+  private branchDisplayLabel(branch: string): string {
+    return branch.trim().toLowerCase() === 'makati' ? 'Makati' : 'Pasig';
+  }
+
+  private notifyCoordinatorsClientScheduledDelivery(
+    inquiries: Array<{ id: string; sku: string }>,
+    dto: ScheduleClientDeliveryDto,
+  ): void {
+    if (inquiries.length === 0) return;
+    const dateLabel = dto.deliveryDate;
+    const branch = this.branchDisplayLabel(dto.branch);
+    const mode = this.clientDeliveryModeLabel(dto.modeOfTransfer);
+    const skuLabel =
+      inquiries.length === 1
+        ? `inquiry ${inquiries[0].sku}`
+        : `inquiries ${inquiries.map((i) => i.sku).join(', ')}`;
+    void this.notifications
+      .notify({
+        message: `Consignor scheduled delivery for ${skuLabel} on ${dateLabel} (${branch} · ${mode}).`,
+        receiverRole: CONSIGNMENT_COORDINATOR_POSITION,
+        inquiryId: inquiries[0].id,
+      })
+      .catch((err: unknown) => {
+        this.logger.error(
+          'Failed to notify coordinators of client-scheduled delivery',
+          err,
+        );
+      });
+  }
+
+  async getClientDeliveryAvailability(
+    branchRaw: string,
+    itemCountRaw?: string,
+  ): Promise<{ dailyLimit: number | null; fullDates: string[] }> {
+    const branch = branchRaw?.trim().toLowerCase();
+    if (branch !== 'pasig' && branch !== 'makati') {
+      throw new BadRequestException('branch must be pasig or makati');
+    }
+    const parsed = Number.parseInt(String(itemCountRaw ?? '1').trim(), 10);
+    const itemCount =
+      Number.isFinite(parsed) && parsed >= 1 ? Math.floor(parsed) : 1;
+    const dailyLimit = await loadConsignmentDailyLimit(this.settingsRepo);
+    const schedules = await this.scheduleRepo.find({
+      where: { type: 'delivery' },
+      relations: { items: true },
+    });
+    return {
+      dailyLimit,
+      fullDates: fullDeliveryDatesForBranch(
+        schedules,
+        branch,
+        dailyLimit,
+        itemCount,
+      ),
+    };
+  }
+
+  async findForDeliveryForClient(user: JwtUser): Promise<
+    Array<{
+      id: string;
+      sku: string;
+      itemLabel: string;
+      status: InquiryStatus;
+      createdAt: Date;
+      offerTransactionType: 'consignment' | 'direct_purchase' | null;
+      offerPrice: string | null;
+    }>
+  > {
+    const client = await this.clientsRepo.findOne({
+      where: { userId: user.userId },
+    });
+    if (!client) {
+      throw new NotFoundException('Client profile not found');
+    }
+    const rows = await this.inquiriesRepo.find({
+      where: {
+        consignorId: client.id,
+        status: InquiryStatus.FOR_DELIVERY,
+      },
+      order: { createdAt: 'DESC' },
+    });
+    if (rows.length === 0) return [];
+    const links = await this.scheduleItemRepo.find({
+      where: { inquiry: { id: In(rows.map((r) => r.id)) } },
+      relations: { inquiry: true },
+    });
+    const linkedIds = new Set(links.map((l) => l.inquiry.id));
+    return rows
+      .filter((r) => !linkedIds.has(r.id))
+      .map((r) => ({
+        id: r.id,
+        sku: r.sku,
+        itemLabel: itemLabelFromSnapshot(r.itemSnapshot),
+        status: r.status,
+        createdAt: r.createdAt,
+        offerTransactionType: r.offerTransactionType ?? null,
+        offerPrice:
+          r.offerPrice != null && r.offerPrice !== ''
+            ? String(r.offerPrice)
+            : null,
+      }));
+  }
+
+  async listClientSchedules(user: JwtUser): Promise<
+    Array<{
+      id: string;
+      deliveryDate: string;
+      status: string;
+      modeOfTransfer: string;
+      branch: string;
+      inquiryCount: number;
+      skus: string[];
+      createdAt: string;
+    }>
+  > {
+    const client = await this.clientsRepo.findOne({
+      where: { userId: user.userId },
+    });
+    if (!client) {
+      throw new NotFoundException('Client profile not found');
+    }
+    const schedules = await this.scheduleRepo.find({
+      where: { scheduledByClient: { id: client.id }, type: 'delivery' },
+      relations: { items: { inquiry: true } },
+      order: { createdAt: 'DESC' },
+    });
+    return schedules.map((s) => ({
+      id: s.id,
+      deliveryDate: s.deliveryDate.toISOString(),
+      status: s.status,
+      modeOfTransfer: s.modeOfTransfer,
+      branch: s.branch,
+      inquiryCount: s.items?.length ?? 0,
+      skus: (s.items ?? [])
+        .map((item) => item.inquiry?.sku?.trim())
+        .filter((sku): sku is string => Boolean(sku)),
+      createdAt: s.createdAt.toISOString(),
+    }));
+  }
+
+  async createClientDeliverySchedule(
+    user: JwtUser,
+    dto: CreateClientDeliveryScheduleDto,
+  ): Promise<{ id: string }> {
+    const client = await this.clientsRepo.findOne({
+      where: { userId: user.userId },
+    });
+    if (!client) {
+      throw new NotFoundException('Client profile not found');
+    }
+
+    const vipStatus = normalizeClientVipStatus(client.vipStatus);
+    if (
+      dto.modeOfTransfer === 'pickup_service' &&
+      vipStatus !== 'Gold' &&
+      vipStatus !== 'Diamond'
+    ) {
+      throw new BadRequestException(
+        'Pick-up service is available for VIP Gold and Diamond clients only',
+      );
+    }
+
+    const uniqueIds = [...new Set(dto.inquiryIds)];
+    if (uniqueIds.length === 0) {
+      throw new BadRequestException('Select at least one inquiry');
+    }
+
+    const deliveryDate = new Date(`${dto.deliveryDate}T12:00:00.000Z`);
+    let scheduleId = '';
+
+    const scheduledInquiries = await this.scheduleRepo.manager.transaction(
+      async (em) => {
+        const inquiries = await em.find(Inquiry, {
+          where: { id: In(uniqueIds), consignorId: client.id },
+        });
+        if (inquiries.length !== uniqueIds.length) {
+          throw new BadRequestException(
+            'One or more selected inquiries are invalid',
+          );
+        }
+
+        for (const inquiry of inquiries) {
+          if (inquiry.status !== InquiryStatus.FOR_DELIVERY) {
+            throw new BadRequestException(
+              'One or more selected inquiries are not ready to schedule for delivery',
+            );
+          }
+        }
+
+        const existingLinks = await em.find(ConsignmentScheduleItem, {
+          where: { inquiry: { id: In(uniqueIds) } },
+          relations: { inquiry: true },
+        });
+        if (existingLinks.length > 0) {
+          throw new BadRequestException(
+            'One or more selected inquiries are already scheduled',
+          );
+        }
+
+        const dailyLimit = await loadConsignmentDailyLimit(
+          em.getRepository(Setting),
+        );
+        if (dailyLimit != null) {
+          const schedules = await em.find(ConsignmentSchedule, {
+            where: { type: 'delivery', branch: dto.branch },
+            relations: { items: true },
+          });
+          const count = countDeliveryInquiriesOnDay(
+            schedules,
+            dto.deliveryDate,
+            dto.branch,
+          );
+          if (count + uniqueIds.length > dailyLimit) {
+            throw new BadRequestException(
+              'The selected delivery date does not have enough capacity for this branch',
+            );
+          }
+        }
+
+        const schedule = em.create(ConsignmentSchedule, {
+          deliveryDate,
+          status: 'scheduled',
+          type: 'delivery',
+          modeOfTransfer: dto.modeOfTransfer,
+          branch: dto.branch,
+          createdBy: null,
+          scheduledByClient: client,
+        });
+        await em.save(schedule);
+        scheduleId = schedule.id;
+
+        const consignorActor = this.inquiryAudit.consignorActor(user.userId);
+        for (const inquiry of inquiries) {
+          const before = cloneInquiryForAudit(inquiry);
+          inquiry.status = InquiryStatus.FOR_DELIVERY_SCHEDULED;
+          await em.save(inquiry);
+          await this.inquiryAudit.recordDiff(
+            inquiry.id,
+            before,
+            inquiry,
+            consignorActor,
+            em,
+          );
+
+          const link = em.create(ConsignmentScheduleItem, {
+            consignmentSchedule: schedule,
+            inquiry,
+          });
+          await em.save(link);
+        }
+
+        return inquiries;
+      },
+    );
+
+    this.notifyCoordinatorsClientScheduledDelivery(scheduledInquiries, dto);
+
+    return { id: scheduleId };
   }
 
   /** Builds API view from consignor payment prefs and inquiry signature media. */

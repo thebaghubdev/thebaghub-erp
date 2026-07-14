@@ -8,6 +8,13 @@ export const DELIVERY_MODE_OPTIONS = [
   { value: "consignor_dropoff", label: "Consignor Dropoff" },
 ] as const;
 
+/** Client portal delivery scheduling options (subset labels). */
+export const CLIENT_DELIVERY_MODE_OPTIONS = [
+  { value: "courier", label: "Courier" },
+  { value: "consignor_dropoff", label: "Drop-off at branch" },
+  { value: "pickup_service", label: "Pick-up service" },
+] as const;
+
 export const PULLOUT_MODE_OPTIONS = [
   { value: "courier", label: "Courier" },
   { value: "consignor_pickup", label: "Consignor Pickup" },

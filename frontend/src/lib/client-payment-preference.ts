@@ -92,7 +92,7 @@ export const CLIENT_VIP_STATUS_OPTIONS: ClientVipStatus[] = [
 
 export function formatClientVipStatus(
   status: ClientVipStatus | null | undefined,
-): string {
+): ClientVipStatus {
   if (status === "Gold" || status === "Diamond") return status;
   return "Regular";
 }

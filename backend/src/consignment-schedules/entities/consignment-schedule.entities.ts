@@ -8,6 +8,7 @@ import {
   PrimaryGeneratedColumn,
 } from 'typeorm';
 import { Employee } from '../../employees/entities/employee.entity';
+import { Client } from '../../clients/entities/client.entity';
 import { Inquiry } from '../../inquiries/entities/inquiry.entity';
 
 @Entity('consignment_schedules')
@@ -44,9 +45,14 @@ export class ConsignmentSchedule {
   @Column({ name: 'reschedule_reason', type: 'text', nullable: true })
   rescheduleReason: string | null;
 
-  @ManyToOne(() => Employee, { onDelete: 'RESTRICT', nullable: false })
+  @ManyToOne(() => Employee, { onDelete: 'RESTRICT', nullable: true })
   @JoinColumn({ name: 'created_by_id' })
-  createdBy: Employee;
+  createdBy: Employee | null;
+
+  /** Set when a consignor self-schedules delivery from the client portal. */
+  @ManyToOne(() => Client, { onDelete: 'RESTRICT', nullable: true })
+  @JoinColumn({ name: 'scheduled_by_client_id' })
+  scheduledByClient: Client | null;
 
   @OneToMany(() => ConsignmentScheduleItem, (row) => row.consignmentSchedule)
   items: ConsignmentScheduleItem[];

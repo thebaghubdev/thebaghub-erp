@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   ConsignmentInquiryWizard,
   type ConsignmentInquiryWizardHandle,
 } from '../components/ConsignmentInquiryWizard'
+import { ClientConsignmentDeliveryWizard } from '../components/ClientConsignmentDeliveryWizard'
+import { ClientMySchedulesPanel } from '../components/ClientMySchedulesPanel'
 import { UnsavedConsignmentDraftDialog } from '../components/UnsavedConsignmentDraftDialog'
 import { SubmittedAtCell } from '../components/SubmittedAtCell'
 import { HorizontalScrollMirror } from '../components/HorizontalScrollMirror'
@@ -13,7 +15,7 @@ import { apiFetch } from '../lib/api'
 import { useClientPagination } from '../hooks/useClientPagination'
 import { InquiryStatusBadge } from '../components/InquiryStatusBadge'
 
-type ConsignmentsTab = 'mine' | 'consign'
+type ConsignmentsTab = 'mine' | 'consign' | 'schedules'
 
 type MyInquiryRow = {
   id: string
@@ -23,13 +25,23 @@ type MyInquiryRow = {
 }
 
 const tabBtn =
-  '-mb-px border-b-2 border-transparent px-3 py-2 text-sm font-medium transition-colors focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500 sm:px-4'
+  '-mb-px shrink-0 border-b-2 border-transparent px-3 py-2 text-sm font-medium transition-colors focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500 sm:px-4'
+
+function parseTabParam(raw: string | null): ConsignmentsTab | null {
+  if (raw === 'delivery') return 'schedules'
+  if (raw === 'mine' || raw === 'consign' || raw === 'schedules') {
+    return raw
+  }
+  return null
+}
 
 export function ConsignItemsPage() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { token } = useClientAuth()
   const wizardRef = useRef<ConsignmentInquiryWizardHandle>(null)
   const [tab, setTab] = useState<ConsignmentsTab>('mine')
+  const [scheduleWizardOpen, setScheduleWizardOpen] = useState(false)
   const [wizardDirty, setWizardDirty] = useState(false)
   const [tabLeaveOpen, setTabLeaveOpen] = useState(false)
   const [pendingTab, setPendingTab] = useState<ConsignmentsTab | null>(null)
@@ -37,8 +49,53 @@ export function ConsignItemsPage() {
   const [rows, setRows] = useState<MyInquiryRow[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [toast, setToast] = useState<string | null>(null)
+  const [schedulesRefreshKey, setSchedulesRefreshKey] = useState(0)
+  const preselectedInquiryId = searchParams.get('select')
 
   const minePagination = useClientPagination(rows)
+
+  useEffect(() => {
+    const tabParam = searchParams.get('tab')
+    const fromUrl = parseTabParam(tabParam)
+    if (fromUrl) setTab(fromUrl)
+
+    const wantsWizard =
+      tabParam === 'delivery' || searchParams.get('create') === '1'
+    setScheduleWizardOpen(wantsWizard)
+  }, [searchParams])
+
+  useEffect(() => {
+    if (!toast) return
+    const timer = window.setTimeout(() => setToast(null), 4000)
+    return () => window.clearTimeout(timer)
+  }, [toast])
+
+  const syncSchedulesUrl = useCallback(
+    (options?: { create?: boolean; keepSelect?: boolean }) => {
+      const params = new URLSearchParams(searchParams)
+      params.set('tab', 'schedules')
+      if (options?.create) {
+        params.set('create', '1')
+      } else {
+        params.delete('create')
+      }
+      if (!options?.keepSelect) params.delete('select')
+      setSearchParams(params, { replace: true })
+    },
+    [searchParams, setSearchParams],
+  )
+
+  const syncTabToUrl = useCallback(
+    (next: ConsignmentsTab) => {
+      const params = new URLSearchParams(searchParams)
+      params.set('tab', next)
+      params.delete('create')
+      params.delete('select')
+      setSearchParams(params, { replace: true })
+    },
+    [searchParams, setSearchParams],
+  )
 
   const loadMyInquiries = useCallback(async () => {
     setError(null)
@@ -62,13 +119,25 @@ export function ConsignItemsPage() {
   }, [tab, loadMyInquiries])
 
   const requestTab = (next: ConsignmentsTab) => {
-    if (tab === 'consign' && next === 'mine' && wizardDirty) {
+    if (tab === 'consign' && next !== 'consign' && wizardDirty) {
       setPendingTab(next)
       setTabLeaveOpen(true)
       return
     }
+    setScheduleWizardOpen(false)
     setTab(next)
+    syncTabToUrl(next)
   }
+
+  const openScheduleWizard = useCallback(() => {
+    setScheduleWizardOpen(true)
+    syncSchedulesUrl({ create: true, keepSelect: Boolean(preselectedInquiryId) })
+  }, [syncSchedulesUrl, preselectedInquiryId])
+
+  const closeScheduleWizard = useCallback(() => {
+    setScheduleWizardOpen(false)
+    syncSchedulesUrl()
+  }, [syncSchedulesUrl])
 
   const closeTabLeave = useCallback(() => {
     setTabLeaveOpen(false)
@@ -76,9 +145,13 @@ export function ConsignItemsPage() {
   }, [])
 
   const confirmTabLeaveWithoutSaving = useCallback(() => {
-    if (pendingTab != null) setTab(pendingTab)
+    if (pendingTab != null) {
+      setTab(pendingTab)
+      syncTabToUrl(pendingTab)
+      if (pendingTab !== 'schedules') setScheduleWizardOpen(false)
+    }
     closeTabLeave()
-  }, [pendingTab, closeTabLeave])
+  }, [pendingTab, closeTabLeave, syncTabToUrl])
 
   const confirmTabLeaveWithSave = useCallback(async () => {
     setTabLeaveSaving(true)
@@ -86,15 +159,33 @@ export function ConsignItemsPage() {
       const ok = await wizardRef.current?.saveDraftToServer()
       if (ok && pendingTab != null) {
         setTab(pendingTab)
+        syncTabToUrl(pendingTab)
+        if (pendingTab !== 'schedules') setScheduleWizardOpen(false)
         closeTabLeave()
       }
     } finally {
       setTabLeaveSaving(false)
     }
-  }, [pendingTab, closeTabLeave])
+  }, [pendingTab, closeTabLeave, syncTabToUrl])
+
+  const handleDeliverySaved = useCallback(() => {
+    setSchedulesRefreshKey((k) => k + 1)
+    setToast('Delivery scheduled successfully.')
+    setScheduleWizardOpen(false)
+    syncSchedulesUrl()
+  }, [syncSchedulesUrl])
 
   return (
     <div className="w-full min-w-0">
+      {toast ? (
+        <div
+          role="status"
+          className="fixed bottom-20 left-1/2 z-50 max-w-sm -translate-x-1/2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-900 shadow-lg sm:bottom-6"
+        >
+          {toast}
+        </div>
+      ) : null}
+
       <UnsavedConsignmentDraftDialog
         open={tabLeaveOpen}
         saveBusy={tabLeaveSaving}
@@ -136,6 +227,21 @@ export function ConsignItemsPage() {
           onClick={() => requestTab('consign')}
         >
           Consign items
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'schedules'}
+          id="tab-consignments-schedules"
+          aria-controls="panel-consignments-schedules"
+          className={`${tabBtn} ${
+            tab === 'schedules'
+              ? 'border-violet-600 text-violet-700'
+              : 'text-slate-600 hover:text-slate-900'
+          }`}
+          onClick={() => requestTab('schedules')}
+        >
+          Schedules
         </button>
       </div>
 
@@ -265,9 +371,31 @@ export function ConsignItemsPage() {
               onDirtyChange={setWizardDirty}
               onSubmitted={() => {
                 setTab('mine')
+                syncTabToUrl('mine')
               }}
             />
           </div>
+        </section>
+      )}
+
+      {tab === 'schedules' && (
+        <section
+          id="panel-consignments-schedules"
+          role="tabpanel"
+          aria-labelledby="tab-consignments-schedules"
+        >
+          {scheduleWizardOpen ? (
+            <ClientConsignmentDeliveryWizard
+              preselectedInquiryId={preselectedInquiryId}
+              onSaved={handleDeliverySaved}
+              onCancel={closeScheduleWizard}
+            />
+          ) : (
+            <ClientMySchedulesPanel
+              refreshKey={schedulesRefreshKey}
+              onCreateSchedule={openScheduleWizard}
+            />
+          )}
         </section>
       )}
     </div>

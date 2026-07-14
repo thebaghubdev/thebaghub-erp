@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { DayPicker } from "react-day-picker";
 import { format, parse, startOfDay } from "date-fns";
 import "react-day-picker/style.css";
@@ -22,6 +22,8 @@ export type DatePickerFieldProps = {
   dialogAriaLabel?: string;
   /** When true, days before today (local calendar) cannot be selected. */
   disablePast?: boolean;
+  /** `yyyy-MM-dd` dates that cannot be selected (e.g. at daily consignment limit). */
+  disabledDateKeys?: string[];
 };
 
 const dayPickerClassNames = {
@@ -65,10 +67,15 @@ export function DatePickerField({
   placeholder = "Select date",
   dialogAriaLabel = "Choose date",
   disablePast = false,
+  disabledDateKeys = [],
 }: DatePickerFieldProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const dialogId = useId();
+  const disabledDateSet = useMemo(
+    () => new Set(disabledDateKeys.map((d) => d.trim()).filter(Boolean)),
+    [disabledDateKeys],
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -123,9 +130,10 @@ export function DatePickerField({
               setOpen(false);
             }}
             defaultMonth={selected ?? new Date()}
-            disabled={
-              disablePast ? { before: startOfDay(new Date()) } : undefined
-            }
+            disabled={(date) => {
+              if (disablePast && date < startOfDay(new Date())) return true;
+              return disabledDateSet.has(format(date, "yyyy-MM-dd"));
+            }}
             classNames={dayPickerClassNames}
           />
         </div>

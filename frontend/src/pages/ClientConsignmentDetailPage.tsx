@@ -7,7 +7,7 @@ import {
   type FormEvent,
 } from "react";
 import { createPortal } from "react-dom";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { OfferSignatureField } from "../components/OfferSignatureField";
 import { TermsScrollAgreeModal } from "../components/TermsScrollAgreeModal";
@@ -68,10 +68,11 @@ type ClientInquiryDetail = {
   offerPrice: string | null;
   contractRenewalRequestedPrice: string | null;
   clientOfferConfirmation?: ClientOfferConfirmation | null;
-  /** Set when staff has scheduled this item for delivery. */
+  /** Set when delivery has been scheduled. */
   deliverySchedule?: {
     deliveryDate: string;
     modeOfTransfer: string;
+    branch: string;
   } | null;
   itemSnapshot: {
     clientItemId: string;
@@ -113,6 +114,10 @@ function isThirdPartyAuthPaymentFlowStatus(status: string): boolean {
 
 function isForContractRenewalStatus(status: string): boolean {
   return status.trim().toLowerCase() === "for_contract_renewal";
+}
+
+function isForDeliveryStatus(status: string): boolean {
+  return status.trim().toLowerCase() === "for_delivery";
 }
 
 function displayOrDash(v: string | null | undefined): string {
@@ -161,6 +166,7 @@ const CONSIGNMENT_TERMS_URL = "/terms/consignment.txt";
 
 export function ClientConsignmentDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const { token, user, refreshUser } = useClientAuth();
   const paymentLocked = isClientPaymentPreferenceLocked(user?.client);
   const [detail, setDetail] = useState<ClientInquiryDetail | null>(null);
@@ -460,8 +466,23 @@ export function ClientConsignmentDetailPage() {
 
             {canClientCancelInquiry(detail.status) ||
             isAwaitingOfferConfirmation(detail.status) ||
-            isForContractRenewalStatus(detail.status) ? (
+            isForContractRenewalStatus(detail.status) ||
+            isForDeliveryStatus(detail.status) ? (
               <div className="mt-4 flex flex-wrap gap-2">
+                {isForDeliveryStatus(detail.status) ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActionError(null);
+                      navigate(
+                        `/consignments?tab=schedules&create=1&select=${encodeURIComponent(detail.id)}`,
+                      );
+                    }}
+                    className="rounded-lg bg-violet-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-violet-700 disabled:opacity-50"
+                  >
+                    Schedule delivery
+                  </button>
+                ) : null}
                 {canClientCancelInquiry(detail.status) ? (
                   <button
                     type="button"
@@ -520,6 +541,14 @@ export function ClientConsignmentDetailPage() {
                         iso={detail.deliverySchedule.deliveryDate}
                         showTime={false}
                       />
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500 dark:text-slate-400">
+                      Branch
+                    </dt>
+                    <dd className="font-medium text-slate-900 dark:text-slate-100">
+                      {branchLabel(detail.deliverySchedule.branch)}
                     </dd>
                   </div>
                   <div>
