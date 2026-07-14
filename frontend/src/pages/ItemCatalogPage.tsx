@@ -7,12 +7,12 @@ import { formatPhpDisplay } from "../lib/format-php";
 
 type CatalogItem = {
   id: string;
-  sku: string;
   itemLabel: string;
   brand: string | null;
   category: string | null;
   productName: string;
   price: string | null;
+  priceComparison: string | null;
   imageUrl: string | null;
   status: string;
   isOwnConsignedItem: boolean;
@@ -22,7 +22,7 @@ const searchInputClassName =
   "w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500";
 
 function catalogItemSearchText(item: CatalogItem): string {
-  return [item.productName, item.itemLabel, item.sku, item.brand, item.category]
+  return [item.productName, item.itemLabel, item.brand, item.category]
     .filter(Boolean)
     .join(" ")
     .toLowerCase();
@@ -169,7 +169,7 @@ export function ItemCatalogPage() {
             type="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by product, SKU, brand, or category…"
+            placeholder="Search by product, brand, or category…"
             className={searchInputClassName}
             autoComplete="off"
           />
@@ -241,8 +241,8 @@ export function ItemCatalogPage() {
                 </p>
                 <div className="flex items-center justify-between gap-2 pt-1">
                   <div className="min-w-0">
-                    <p className="truncate text-xs text-slate-500">
-                      {item.sku}
+                    <p className="truncate text-xs text-slate-500 line-through tabular-nums">
+                      {formatPhpDisplay(item.priceComparison)}
                     </p>
                     <p className="truncate text-sm font-semibold tabular-nums text-violet-700">
                       {formatPhpDisplay(item.price)}
