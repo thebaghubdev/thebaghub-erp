@@ -6,9 +6,12 @@ export type OrderInstallmentRow = {
   scheduledAmount: string;
   amountDue: string;
   amountPaid: string | null;
+  penalty: string | null;
+  penaltyOverridden: boolean;
   status: string;
   proofUrl: string | null;
   dueDate: string | null;
+  paymentDate: string | null;
 };
 
 function installmentStatusBadgeClass(status: string): string {
@@ -26,7 +29,7 @@ function isInstallmentUnpaid(status: string): boolean {
   return status.trim().toLowerCase() === "unpaid";
 }
 
-/** Remaining balance: layaway price minus total amount paid. */
+/** Remaining balance: layaway price minus paid plus unpaid penalties. */
 function computeRemainingBalance(
   installments: OrderInstallmentRow[],
   layawayPrice: string | null,
@@ -36,7 +39,14 @@ function computeRemainingBalance(
     (sum, row) => sum + (parsePhpStringToNumber(row.amountPaid ?? "") ?? 0),
     0,
   );
-  return Math.max(0, Math.round((price - paid) * 100) / 100);
+  const unpaidPenalties = installments.reduce((sum, row) => {
+    if (!isInstallmentUnpaid(row.status)) return sum;
+    return sum + (parsePhpStringToNumber(row.penalty ?? "") ?? 0);
+  }, 0);
+  return Math.max(
+    0,
+    Math.round((price - paid + unpaidPenalties) * 100) / 100,
+  );
 }
 
 function formatDueDate(raw: string | null): string {
@@ -49,6 +59,22 @@ function formatDueDate(raw: string | null): string {
   return new Date(y, mo - 1, d).toLocaleDateString(undefined, {
     dateStyle: "medium",
   });
+}
+
+function dueDateInputValue(raw: string | null): string {
+  if (raw == null || raw.trim() === "") return "";
+  const m = /^(\d{4}-\d{2}-\d{2})/.exec(raw);
+  return m?.[1] ?? "";
+}
+
+/** Scheduled amount plus penalty for display. */
+function computeTotalAmountDue(
+  scheduledAmount: string,
+  penalty: string | null | undefined,
+): number {
+  const scheduled = parsePhpStringToNumber(scheduledAmount) ?? 0;
+  const penaltyAmount = parsePhpStringToNumber(penalty ?? "") ?? 0;
+  return Math.round((scheduled + penaltyAmount) * 100) / 100;
 }
 
 async function readApiErrorMessage(res: Response): Promise<string> {
@@ -64,6 +90,8 @@ async function readApiErrorMessage(res: Response): Promise<string> {
 
 export {
   computeRemainingBalance,
+  computeTotalAmountDue,
+  dueDateInputValue,
   formatDueDate,
   installmentStatusBadgeClass,
   isInstallmentUnpaid,

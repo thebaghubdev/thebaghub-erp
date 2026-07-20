@@ -35,6 +35,17 @@ export class OrderInstallment extends AuditedEntity {
   scheduledAmount: string;
 
   @Column({
+    type: 'numeric',
+    precision: 12,
+    scale: 2,
+    nullable: true,
+  })
+  penalty: string | null;
+
+  @Column({ name: 'penalty_overridden', type: 'boolean', default: false })
+  penaltyOverridden: boolean;
+
+  @Column({
     name: 'amount_paid',
     type: 'numeric',
     precision: 12,
@@ -62,4 +73,10 @@ export class OrderInstallment extends AuditedEntity {
     nullable: true,
   })
   proofUploadedByUserId: string | null;
+
+  @Column({ name: 'due_date', type: 'date', nullable: true })
+  dueDate: string | null;
+
+  @Column({ name: 'payment_date', type: 'date', nullable: true })
+  paymentDate: string | null;
 }

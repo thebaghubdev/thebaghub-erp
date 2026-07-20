@@ -1,4 +1,5 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { DayPicker } from "react-day-picker";
 import { format, parse, startOfDay } from "date-fns";
 import "react-day-picker/style.css";
@@ -24,6 +25,8 @@ export type DatePickerFieldProps = {
   disablePast?: boolean;
   /** `yyyy-MM-dd` dates that cannot be selected (e.g. at daily consignment limit). */
   disabledDateKeys?: string[];
+  /** When true, the calendar popover opens on mount. */
+  defaultOpen?: boolean;
 };
 
 const dayPickerClassNames = {
@@ -68,21 +71,59 @@ export function DatePickerField({
   dialogAriaLabel = "Choose date",
   disablePast = false,
   disabledDateKeys = [],
+  defaultOpen = false,
 }: DatePickerFieldProps) {
-  const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(defaultOpen);
+  const [popoverPosition, setPopoverPosition] = useState<{
+    top: number;
+    left: number;
+  } | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
   const dialogId = useId();
   const disabledDateSet = useMemo(
     () => new Set(disabledDateKeys.map((d) => d.trim()).filter(Boolean)),
     [disabledDateKeys],
   );
 
+  const updatePopoverPosition = useCallback(() => {
+    const trigger = triggerRef.current;
+    if (!trigger) return;
+    const rect = trigger.getBoundingClientRect();
+    const popoverHeight = 320;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const top =
+      spaceBelow >= popoverHeight
+        ? rect.bottom + 4
+        : Math.max(8, rect.top - popoverHeight - 4);
+    setPopoverPosition({ top, left: rect.left });
+  }, []);
+
+  useEffect(() => {
+    if (!open) {
+      setPopoverPosition(null);
+      return;
+    }
+    updatePopoverPosition();
+    window.addEventListener("resize", updatePopoverPosition);
+    window.addEventListener("scroll", updatePopoverPosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePopoverPosition);
+      window.removeEventListener("scroll", updatePopoverPosition, true);
+    };
+  }, [open, updatePopoverPosition]);
+
   useEffect(() => {
     if (!open) return;
     function handle(e: MouseEvent) {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
-        setOpen(false);
+      const target = e.target as Node;
+      if (
+        triggerRef.current?.contains(target) ||
+        popoverRef.current?.contains(target)
+      ) {
+        return;
       }
+      setOpen(false);
     }
     document.addEventListener("mousedown", handle);
     return () => document.removeEventListener("mousedown", handle);
@@ -94,8 +135,9 @@ export function DatePickerField({
     : placeholder;
 
   return (
-    <div ref={rootRef} className="relative w-full">
+    <div className="relative w-full">
       <button
+        ref={triggerRef}
         type="button"
         id={id}
         disabled={disabled}
@@ -112,32 +154,42 @@ export function DatePickerField({
           ▾
         </span>
       </button>
-      {open && (
-        <div
-          id={dialogId}
-          role="dialog"
-          aria-label={dialogAriaLabel}
-          className="absolute left-0 top-full z-30 mt-1 rounded-xl border border-slate-200 bg-white p-3 shadow-lg dark:border-slate-700 dark:bg-slate-900"
-        >
-          <DayPicker
-            mode="single"
-            required={false}
-            selected={selected}
-            onSelect={(d) => {
-              if (d) {
-                onChange(format(d, "yyyy-MM-dd"));
-              }
-              setOpen(false);
-            }}
-            defaultMonth={selected ?? new Date()}
-            disabled={(date) => {
-              if (disablePast && date < startOfDay(new Date())) return true;
-              return disabledDateSet.has(format(date, "yyyy-MM-dd"));
-            }}
-            classNames={dayPickerClassNames}
-          />
-        </div>
-      )}
+      {open && popoverPosition && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              ref={popoverRef}
+              id={dialogId}
+              role="dialog"
+              aria-label={dialogAriaLabel}
+              className="fixed z-[200] rounded-xl border border-slate-200 bg-white p-3 shadow-lg dark:border-slate-700 dark:bg-slate-900"
+              style={{
+                top: popoverPosition.top,
+                left: popoverPosition.left,
+              }}
+            >
+              <DayPicker
+                mode="single"
+                required={false}
+                selected={selected}
+                onSelect={(d) => {
+                  if (d) {
+                    onChange(format(d, "yyyy-MM-dd"));
+                  }
+                  setOpen(false);
+                }}
+                defaultMonth={selected ?? new Date()}
+                disabled={(date) => {
+                  if (disablePast && date < startOfDay(new Date())) return true;
+                  return disabledDateSet.has(format(date, "yyyy-MM-dd"));
+                }}
+                classNames={dayPickerClassNames}
+              />
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }
+
+export { dayPickerClassNames, parseYmd };

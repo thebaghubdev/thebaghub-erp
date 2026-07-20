@@ -27,7 +27,11 @@ import { CancelOrderDto } from './dto/cancel-order.dto';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { CreateReservationOrderDto } from './dto/create-reservation-order.dto';
 import { DeclineLayawayOrderDto } from './dto/decline-layaway-order.dto';
+import { MarkInstallmentPaidDto } from './dto/mark-installment-paid.dto';
 import { UpdateInstallmentAmountPaidDto } from './dto/update-installment-amount-paid.dto';
+import { UpdateInstallmentDueDateDto } from './dto/update-installment-due-date.dto';
+import { UpdateInstallmentPaymentDateDto } from './dto/update-installment-payment-date.dto';
+import { UpdateInstallmentPenaltyDto } from './dto/update-installment-penalty.dto';
 import { UpdateLayawayTermsDto } from './dto/update-layaway-terms.dto';
 import { OrderInstallment } from './entities/order-installment.entity';
 import { Order } from './entities/order.entity';
@@ -40,9 +44,13 @@ import { calculateLayawayPricing } from './layaway-pricing.util';
 import {
   buildScheduledAmounts,
   computeAmountDueForInstallment,
+  computeAutoPenalty,
+  computeDefaultDueDate,
   computeInstallmentViews,
   computeRemainingBalance,
+  effectiveDueDateForInstallment,
   formatMoney,
+  isInstallmentPaidStatus,
   parseMoney,
   shouldIncludeInstallmentSchedule,
   type OrderInstallmentView,
@@ -344,6 +352,7 @@ export class OrdersService {
       return [];
     }
     await this.ensureInstallments(order);
+    await this.backfillInstallmentDueDates(order);
     const rows = await this.installmentsRepo.find({
       where: { orderId: order.id },
       order: { installmentNumber: 'ASC' },
@@ -397,6 +406,10 @@ export class OrdersService {
         installmentNumber: index + 1,
         scheduledAmount,
         amountPaid: null,
+        dueDate: computeDefaultDueDate(
+          formatOrderDate(order.layawayPaymentStartDate),
+          index + 1,
+        ),
         proofUploadedAt: null,
         proofUploadedByUserId: null,
         createdById: userId ?? order.updatedById,
@@ -404,6 +417,35 @@ export class OrdersService {
       }),
     );
     await this.installmentsRepo.save(rows);
+  }
+
+  private async backfillInstallmentDueDates(
+    order: Order,
+    userId?: string,
+  ): Promise<void> {
+    const paymentStartDate = formatOrderDate(order.layawayPaymentStartDate);
+    if (!paymentStartDate) {
+      return;
+    }
+
+    const rows = await this.installmentsRepo.find({
+      where: { orderId: order.id },
+    });
+    const toUpdate = rows.filter(
+      (row) => row.dueDate == null || String(row.dueDate).trim() === '',
+    );
+    if (toUpdate.length === 0) {
+      return;
+    }
+
+    for (const row of toUpdate) {
+      row.dueDate = computeDefaultDueDate(
+        paymentStartDate,
+        row.installmentNumber,
+      );
+      row.updatedById = userId ?? order.updatedById;
+    }
+    await this.installmentsRepo.save(toUpdate);
   }
 
   private async createInstallmentsForOrder(
@@ -431,6 +473,10 @@ export class OrdersService {
         installmentNumber: i + 1,
         scheduledAmount: scheduledAmounts[i],
         amountPaid: null,
+        dueDate: computeDefaultDueDate(
+          formatOrderDate(order.layawayPaymentStartDate),
+          i + 1,
+        ),
         proofUploadedAt: null,
         proofUploadedByUserId: null,
         createdById: userId,
@@ -1385,11 +1431,112 @@ export class OrdersService {
     return this.findOneForStaff(orderId);
   }
 
+  async setInstallmentPenaltyForStaff(
+    user: JwtUser,
+    orderId: string,
+    installmentNumber: number,
+    dto: UpdateInstallmentPenaltyDto,
+  ): Promise<StaffOrderDetail> {
+    const order = await this.ordersRepo.findOne({ where: { id: orderId } });
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+    this.assertInstallmentScheduleAccessible(order);
+    await this.ensureInstallments(order, user.userId);
+
+    const rows = await this.installmentsRepo.find({
+      where: { orderId },
+      order: { installmentNumber: 'ASC' },
+    });
+    const row = await this.findInstallmentForOrder(orderId, installmentNumber);
+    const amountDue = computeAmountDueForInstallment(rows, installmentNumber);
+    const paymentStartDate = formatOrderDate(order.layawayPaymentStartDate);
+    const dueDate = effectiveDueDateForInstallment(row, paymentStartDate);
+
+    const raw = dto.penalty?.trim() ?? '';
+    if (raw === '') {
+      row.penaltyOverridden = false;
+      const autoPenalty = computeAutoPenalty(
+        amountDue,
+        row.amountPaid,
+        dueDate,
+        todayDateString(),
+      );
+      row.penalty = autoPenalty > 0 ? formatMoney(autoPenalty) : null;
+    } else {
+      const amount = parseMoney(raw);
+      if (amount < 0) {
+        throw new BadRequestException('Penalty cannot be negative');
+      }
+      row.penaltyOverridden = true;
+      row.penalty = formatMoney(amount);
+    }
+    row.updatedById = user.userId;
+    await this.installmentsRepo.save(row);
+
+    return this.findOneForStaff(orderId);
+  }
+
+  async setInstallmentDueDateForStaff(
+    user: JwtUser,
+    orderId: string,
+    installmentNumber: number,
+    dto: UpdateInstallmentDueDateDto,
+  ): Promise<StaffOrderDetail> {
+    const order = await this.ordersRepo.findOne({ where: { id: orderId } });
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+    this.assertInstallmentScheduleAccessible(order);
+    await this.ensureInstallments(order, user.userId);
+    await this.backfillInstallmentDueDates(order, user.userId);
+
+    const row = await this.findInstallmentForOrder(orderId, installmentNumber);
+    row.dueDate = formatOrderDate(dto.dueDate);
+    row.updatedById = user.userId;
+    await this.installmentsRepo.save(row);
+
+    return this.findOneForStaff(orderId);
+  }
+
+  async setInstallmentPaymentDateForStaff(
+    user: JwtUser,
+    orderId: string,
+    installmentNumber: number,
+    dto: UpdateInstallmentPaymentDateDto,
+  ): Promise<StaffOrderDetail> {
+    const order = await this.ordersRepo.findOne({ where: { id: orderId } });
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+    this.assertInstallmentScheduleAccessible(order);
+    await this.ensureInstallments(order, user.userId);
+
+    const row = await this.findInstallmentForOrder(orderId, installmentNumber);
+    row.paymentDate = formatOrderDate(dto.paymentDate);
+    row.updatedById = user.userId;
+    await this.installmentsRepo.save(row);
+
+    return this.findOneForStaff(orderId);
+  }
+
   async markInstallmentPaidForStaff(
     user: JwtUser,
     orderId: string,
     installmentNumber: number,
+    dto: MarkInstallmentPaidDto,
+    proofFile: MulterFile | undefined,
   ): Promise<StaffOrderDetail> {
+    const amount = parseMoney(dto.amountPaid);
+    if (amount < 0) {
+      throw new BadRequestException('Amount paid cannot be negative');
+    }
+
+    const paymentDate = formatOrderDate(dto.paymentDate);
+    if (!paymentDate) {
+      throw new BadRequestException('Payment date is required');
+    }
+
     await this.dataSource.transaction(async (em) => {
       const order = await em.findOne(Order, {
         where: { id: orderId },
@@ -1416,28 +1563,70 @@ export class OrdersService {
       }
 
       const amountDue = computeAmountDueForInstallment(rows, installmentNumber);
-      const amountPaid = parseMoney(row.amountPaid);
-      if (Math.round(amountPaid * 100) < Math.round(amountDue * 100)) {
+      const paymentStartDate = formatOrderDate(order.layawayPaymentStartDate);
+      const dueDate = effectiveDueDateForInstallment(row, paymentStartDate);
+
+      if (!row.penaltyOverridden) {
+        const autoPenalty = computeAutoPenalty(
+          amountDue,
+          row.amountPaid,
+          dueDate,
+          paymentDate,
+        );
+        row.penalty = autoPenalty > 0 ? formatMoney(autoPenalty) : null;
+      }
+
+      const penaltyAmount = parseMoney(row.penalty);
+      const totalRequired = amountDue + penaltyAmount;
+      if (Math.round(amount * 100) < Math.round(totalRequired * 100)) {
         throw new BadRequestException(
-          `Amount paid must be at least ${formatMoney(amountDue)} for this installment`,
+          penaltyAmount > 0
+            ? `Amount paid must be at least ${formatMoney(totalRequired)} for this installment (includes ${formatMoney(penaltyAmount)} penalty)`
+            : `Amount paid must be at least ${formatMoney(totalRequired)} for this installment`,
         );
       }
 
-      const hasProof = await this.media.hasMedia(
+      const hasExistingProof = await this.media.hasMedia(
         MediaOwnerType.ORDER_INSTALLMENT,
         row.id,
         MediaPurpose.PAYMENT_PROOF,
       );
-      if (!hasProof) {
-        throw new BadRequestException(
-          'Upload proof of payment before marking this installment as paid',
+      if (!proofFile?.buffer?.length && !hasExistingProof) {
+        throw new BadRequestException('Proof of payment is required');
+      }
+
+      row.amountPaid = formatMoney(amount);
+      row.paymentDate = paymentDate;
+      row.updatedById = user.userId;
+
+      if (proofFile?.buffer?.length) {
+        const mime = proofFile.mimetype?.toLowerCase() ?? '';
+        if (!ALLOWED_PROOF_MIMES.has(mime)) {
+          throw new BadRequestException(
+            `Proof must be an image or PDF (${proofFile.mimetype || 'unknown'})`,
+          );
+        }
+
+        const ext = extFromProofMime(mime);
+        const storageKey = `orders/${orderId}/installments/${installmentNumber}/proof-${randomUUID()}.${ext}`;
+        await this.media.replaceSingle(
+          MediaOwnerType.ORDER_INSTALLMENT,
+          row.id,
+          MediaPurpose.PAYMENT_PROOF,
+          proofFile,
+          storageKey,
+          {
+            uploadedByUserId: user.userId,
+            createdById: user.userId,
+          },
         );
+        row.proofUploadedAt = new Date();
+        row.proofUploadedByUserId = user.userId;
       }
 
       const markedPaidAt = new Date();
       row.status = ORDER_INSTALLMENT_STATUS_PAID;
       row.markedPaidAt = markedPaidAt;
-      row.updatedById = user.userId;
       await em.save(row);
 
       if (
@@ -1945,6 +2134,59 @@ export class OrdersService {
     });
 
     return this.toClientSummary(saved);
+  }
+
+  async recalculateInstallmentPenalties(): Promise<number> {
+    const today = todayDateString();
+    const orders = await this.ordersRepo.find({
+      where: {
+        paymentType: PAYMENT_TYPE_LAYAWAY,
+        status: ORDER_STATUS_FOR_PAYMENT,
+      },
+    });
+
+    let updatedCount = 0;
+    for (const order of orders) {
+      await this.ensureInstallments(order);
+      await this.backfillInstallmentDueDates(order);
+
+      const rows = await this.installmentsRepo.find({
+        where: { orderId: order.id },
+        order: { installmentNumber: 'ASC' },
+      });
+      const paymentStartDate = formatOrderDate(order.layawayPaymentStartDate);
+      const toSave: OrderInstallment[] = [];
+
+      for (const row of rows) {
+        if (isInstallmentPaidStatus(row.status) || row.penaltyOverridden) {
+          continue;
+        }
+
+        const amountDue = computeAmountDueForInstallment(
+          rows,
+          row.installmentNumber,
+        );
+        const dueDate = effectiveDueDateForInstallment(row, paymentStartDate);
+        const autoPenalty = computeAutoPenalty(
+          amountDue,
+          row.amountPaid,
+          dueDate,
+          today,
+        );
+        const nextPenalty = autoPenalty > 0 ? formatMoney(autoPenalty) : null;
+        if (row.penalty !== nextPenalty) {
+          row.penalty = nextPenalty;
+          toSave.push(row);
+        }
+      }
+
+      if (toSave.length > 0) {
+        await this.installmentsRepo.save(toSave);
+        updatedCount += toSave.length;
+      }
+    }
+
+    return updatedCount;
   }
 
   async expireOrdersPastHoldingPeriod(): Promise<number> {

@@ -1,0 +1,2 @@
+export const INSTALLMENT_PENALTY_RATE = 0.05;
+export const INSTALLMENT_PENALTY_WEEK_DAYS = 7;

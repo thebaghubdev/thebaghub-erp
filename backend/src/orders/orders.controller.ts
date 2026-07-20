@@ -19,7 +19,11 @@ import type { MulterFile } from '../inquiries/multer-file.type';
 import { ApproveLayawayOrderDto } from './dto/approve-layaway-order.dto';
 import { CancelOrderDto } from './dto/cancel-order.dto';
 import { DeclineLayawayOrderDto } from './dto/decline-layaway-order.dto';
+import { MarkInstallmentPaidDto } from './dto/mark-installment-paid.dto';
 import { UpdateInstallmentAmountPaidDto } from './dto/update-installment-amount-paid.dto';
+import { UpdateInstallmentDueDateDto } from './dto/update-installment-due-date.dto';
+import { UpdateInstallmentPaymentDateDto } from './dto/update-installment-payment-date.dto';
+import { UpdateInstallmentPenaltyDto } from './dto/update-installment-penalty.dto';
 import { UpdateLayawayTermsDto } from './dto/update-layaway-terms.dto';
 import { OrdersService } from './orders.service';
 
@@ -161,16 +165,70 @@ export class OrdersController {
     );
   }
 
+  @Patch(':id/installments/:installmentNumber/penalty')
+  setInstallmentPenalty(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('installmentNumber', ParseIntPipe) installmentNumber: number,
+    @Body() dto: UpdateInstallmentPenaltyDto,
+  ) {
+    return this.ordersService.setInstallmentPenaltyForStaff(
+      req.user,
+      id,
+      installmentNumber,
+      dto,
+    );
+  }
+
+  @Patch(':id/installments/:installmentNumber/due-date')
+  setInstallmentDueDate(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('installmentNumber', ParseIntPipe) installmentNumber: number,
+    @Body() dto: UpdateInstallmentDueDateDto,
+  ) {
+    return this.ordersService.setInstallmentDueDateForStaff(
+      req.user,
+      id,
+      installmentNumber,
+      dto,
+    );
+  }
+
+  @Patch(':id/installments/:installmentNumber/payment-date')
+  setInstallmentPaymentDate(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('installmentNumber', ParseIntPipe) installmentNumber: number,
+    @Body() dto: UpdateInstallmentPaymentDateDto,
+  ) {
+    return this.ordersService.setInstallmentPaymentDateForStaff(
+      req.user,
+      id,
+      installmentNumber,
+      dto,
+    );
+  }
+
   @Post(':id/installments/:installmentNumber/mark-paid')
+  @UseInterceptors(
+    FileInterceptor('proof', {
+      limits: { fileSize: 10 * 1024 * 1024 },
+    }),
+  )
   markInstallmentPaid(
     @Req() req: { user: JwtUser },
     @Param('id', ParseUUIDPipe) id: string,
     @Param('installmentNumber', ParseIntPipe) installmentNumber: number,
+    @Body() dto: MarkInstallmentPaidDto,
+    @UploadedFile() proof: MulterFile | undefined,
   ) {
     return this.ordersService.markInstallmentPaidForStaff(
       req.user,
       id,
       installmentNumber,
+      dto,
+      proof,
     );
   }
 

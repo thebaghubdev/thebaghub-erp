@@ -1,5 +1,6 @@
 import {
   Controller,
+  Delete,
   Get,
   Param,
   ParseUUIDPipe,
@@ -55,5 +56,13 @@ export class NotificationsController {
       req.user.userId,
     );
     return this.notifications.markAllRead(employeeId);
+  }
+
+  @Delete()
+  async clearAll(@Req() req: { user: JwtUser }) {
+    const employeeId = await this.notifications.requireEmployeeIdForUser(
+      req.user.userId,
+    );
+    return this.notifications.deleteAllForReceiver(employeeId);
   }
 }

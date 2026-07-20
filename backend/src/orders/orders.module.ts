@@ -12,6 +12,7 @@ import { OrdersController } from './orders.controller';
 import { OrderInstallment } from './entities/order-installment.entity';
 import { Order } from './entities/order.entity';
 import { Waitlist } from './entities/waitlist.entity';
+import { InstallmentPenaltyCron } from './installment-penalty.cron';
 import { OrdersExpiryCron } from './orders-expiry.cron';
 import { OrdersService } from './orders.service';
 
@@ -31,7 +32,7 @@ import { OrdersService } from './orders.service';
     ]),
   ],
   controllers: [ClientOrdersController, OrdersController],
-  providers: [OrdersService, OrdersExpiryCron],
+  providers: [OrdersService, OrdersExpiryCron, InstallmentPenaltyCron],
   exports: [OrdersService],
 })
 export class OrdersModule {}

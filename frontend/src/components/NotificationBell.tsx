@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom"
 import { io, type Socket } from "socket.io-client"
 import { usePortalAuth } from "../context/portal-auth"
 import { apiFetch } from "../lib/api"
+import { ConfirmDialog } from "./ConfirmDialog"
 
 export type NotificationRow = {
   id: string
@@ -54,6 +55,9 @@ export function NotificationBell() {
   const [items, setItems] = useState<NotificationRow[]>([])
   const [panelLoading, setPanelLoading] = useState(false)
   const [listError, setListError] = useState<string | null>(null)
+  const [clearAllOpen, setClearAllOpen] = useState(false)
+  const [clearAllBusy, setClearAllBusy] = useState(false)
+  const [clearAllError, setClearAllError] = useState<string | null>(null)
   const socketRef = useRef<Socket | null>(null)
 
   const employeeId = user?.employee?.id
@@ -169,6 +173,30 @@ export function NotificationBell() {
     }
   }
 
+  const onClearAll = async () => {
+    if (!token) return
+    setClearAllError(null)
+    setClearAllBusy(true)
+    try {
+      const res = await apiFetch(
+        "/api/notifications",
+        { method: "DELETE" },
+        token,
+      )
+      if (!res.ok) {
+        setClearAllError("Could not clear notifications")
+        return
+      }
+      setItems([])
+      setUnread(0)
+      setClearAllOpen(false)
+    } catch {
+      setClearAllError("Could not clear notifications")
+    } finally {
+      setClearAllBusy(false)
+    }
+  }
+
   if (authLoading || !token || !user?.employee) {
     return null
   }
@@ -212,6 +240,18 @@ export function NotificationBell() {
                   Notifications
                 </h2>
                 <div className="flex items-center gap-2">
+                  {items.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setClearAllError(null)
+                        setClearAllOpen(true)
+                      }}
+                      className="text-xs font-medium text-red-600 hover:underline dark:text-red-400"
+                    >
+                      Clear all
+                    </button>
+                  )}
                   {unread > 0 && (
                     <button
                       type="button"
@@ -279,6 +319,24 @@ export function NotificationBell() {
           </div>,
           document.body,
         )}
+
+      <ConfirmDialog
+        open={clearAllOpen}
+        title="Clear all notifications?"
+        description="This will permanently delete all your notifications. This cannot be undone."
+        cancelLabel="Cancel"
+        confirmLabel="Clear all"
+        danger
+        busy={clearAllBusy}
+        errorMessage={clearAllError}
+        onCancel={() => {
+          if (!clearAllBusy) {
+            setClearAllOpen(false)
+            setClearAllError(null)
+          }
+        }}
+        onConfirm={onClearAll}
+      />
     </>
   )
 }

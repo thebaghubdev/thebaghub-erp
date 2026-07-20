@@ -179,6 +179,13 @@ export class NotificationsService {
     return { updated: res.affected ?? 0 };
   }
 
+  async deleteAllForReceiver(employeeId: string): Promise<{ deleted: number }> {
+    const res = await this.notificationsRepo.delete({
+      receiverId: employeeId,
+    });
+    return { deleted: res.affected ?? 0 };
+  }
+
   /** Resolves portal user to employee id; throws if not staff with a profile. */
   async requireEmployeeIdForUser(userId: string): Promise<string> {
     const emp = await this.employeesRepo.findOne({ where: { userId } });

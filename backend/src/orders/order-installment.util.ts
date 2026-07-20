@@ -1,7 +1,12 @@
 import { OrderInstallment } from './entities/order-installment.entity';
 import { Order } from './entities/order.entity';
 import {
+  INSTALLMENT_PENALTY_RATE,
+  INSTALLMENT_PENALTY_WEEK_DAYS,
+} from './installment-penalty.constants';
+import {
   ORDER_STATUS_FOR_PAYMENT,
+  ORDER_INSTALLMENT_STATUS_PAID,
   ORDER_INSTALLMENT_STATUS_UNPAID,
   PAYMENT_TYPE_LAYAWAY,
 } from './order-status.constants';
@@ -12,9 +17,12 @@ export type OrderInstallmentView = {
   scheduledAmount: string;
   amountDue: string;
   amountPaid: string | null;
+  penalty: string | null;
+  penaltyOverridden: boolean;
   status: string;
   proofUrl: string | null;
   dueDate: string | null;
+  paymentDate: string | null;
 };
 
 const ORDINALS = [
@@ -49,6 +57,126 @@ export function formatMoney(value: number): string {
   return value.toFixed(2);
 }
 
+export function todayDateString(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+export function isInstallmentPaidStatus(status: string | null | undefined): boolean {
+  return status?.trim().toLowerCase() === ORDER_INSTALLMENT_STATUS_PAID.toLowerCase();
+}
+
+function utcDateFromYmd(ymd: string): Date {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(ymd);
+  if (!m) {
+    throw new Error(`Invalid date: ${ymd}`);
+  }
+  return new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+}
+
+export function daysBetweenYmd(startYmd: string, endYmd: string): number {
+  const start = utcDateFromYmd(startYmd.slice(0, 10));
+  const end = utcDateFromYmd(endYmd.slice(0, 10));
+  return Math.round((end.getTime() - start.getTime()) / 86_400_000);
+}
+
+/** Complete 7-day periods after due date (floor). Same-day payment = 0 weeks. */
+export function completeWeeksLate(
+  dueDate: string | null,
+  asOfDate: string,
+): number {
+  if (dueDate == null || dueDate.trim() === '') {
+    return 0;
+  }
+  const daysLate = daysBetweenYmd(dueDate.slice(0, 10), asOfDate.slice(0, 10));
+  if (daysLate <= 0) {
+    return 0;
+  }
+  return Math.floor(daysLate / INSTALLMENT_PENALTY_WEEK_DAYS);
+}
+
+export function computeRemainingUnpaidForInstallment(
+  amountDue: number,
+  amountPaid: string | null | undefined,
+): number {
+  const paid = parseMoney(amountPaid);
+  return Math.max(0, Math.round((amountDue - paid) * 100) / 100);
+}
+
+export function computeAutoPenalty(
+  amountDue: number,
+  amountPaid: string | null | undefined,
+  dueDate: string | null,
+  asOfDate: string,
+): number {
+  const remainingUnpaid = computeRemainingUnpaidForInstallment(
+    amountDue,
+    amountPaid,
+  );
+  if (remainingUnpaid <= 0) {
+    return 0;
+  }
+  const weeksLate = completeWeeksLate(dueDate, asOfDate);
+  if (weeksLate <= 0) {
+    return 0;
+  }
+  return (
+    Math.round(
+      remainingUnpaid * INSTALLMENT_PENALTY_RATE * weeksLate * 100,
+    ) / 100
+  );
+}
+
+export function effectiveDueDateForInstallment(
+  row: Pick<OrderInstallment, 'dueDate' | 'installmentNumber'>,
+  paymentStartDate: string | null,
+): string | null {
+  if (row.dueDate != null && String(row.dueDate).trim() !== '') {
+    return String(row.dueDate).slice(0, 10);
+  }
+  return computeDefaultDueDate(paymentStartDate, row.installmentNumber);
+}
+
+export function resolveInstallmentPenalty(
+  row: Pick<
+    OrderInstallment,
+    | 'amountPaid'
+    | 'dueDate'
+    | 'installmentNumber'
+    | 'penalty'
+    | 'penaltyOverridden'
+    | 'paymentDate'
+    | 'status'
+  >,
+  amountDue: number,
+  paymentStartDate: string | null,
+  asOfDate: string,
+): string | null {
+  if (isInstallmentPaidStatus(row.status)) {
+    return row.penalty != null && String(row.penalty).trim() !== ''
+      ? formatMoney(parseMoney(row.penalty))
+      : null;
+  }
+
+  if (row.penaltyOverridden) {
+    return row.penalty != null && String(row.penalty).trim() !== ''
+      ? formatMoney(parseMoney(row.penalty))
+      : null;
+  }
+
+  const dueDate = effectiveDueDateForInstallment(row, paymentStartDate);
+  const autoPenalty = computeAutoPenalty(
+    amountDue,
+    row.amountPaid,
+    dueDate,
+    asOfDate,
+  );
+  return autoPenalty > 0 ? formatMoney(autoPenalty) : null;
+}
+
 export function buildScheduledAmounts(
   layawayPrice: string,
   layawayMonthlyPayment: string,
@@ -64,6 +192,16 @@ export function buildScheduledAmounts(
   }
   amounts.push(formatMoney(total - sum));
   return amounts;
+}
+
+export function computeDefaultDueDate(
+  paymentStartDate: string | null,
+  installmentNumber: number,
+): string | null {
+  if (paymentStartDate == null || installmentNumber < 1) {
+    return null;
+  }
+  return addMonthsToDateString(paymentStartDate, installmentNumber - 1);
 }
 
 export function addMonthsToDateString(
@@ -117,20 +255,30 @@ export function computeAmountDueForInstallment(
 
 export function computeRemainingBalance(
   layawayPrice: string | null | undefined,
-  rows: Pick<OrderInstallment, 'amountPaid'>[],
+  rows: Pick<OrderInstallment, 'amountPaid' | 'penalty' | 'status'>[],
 ): number {
   const price = parseMoney(layawayPrice ?? '');
   const paid = rows.reduce(
     (sum, row) => sum + parseMoney(row.amountPaid),
     0,
   );
-  return Math.max(0, Math.round((price - paid) * 100) / 100);
+  const unpaidPenalties = rows.reduce((sum, row) => {
+    if (isInstallmentPaidStatus(row.status)) {
+      return sum;
+    }
+    return sum + parseMoney(row.penalty);
+  }, 0);
+  return Math.max(
+    0,
+    Math.round((price - paid + unpaidPenalties) * 100) / 100,
+  );
 }
 
 export function computeInstallmentViews(
   rows: OrderInstallment[],
   paymentStartDate: string | null,
   getProofUrl: (row: OrderInstallment) => string | null,
+  asOfDate: string = todayDateString(),
 ): OrderInstallmentView[] {
   const sorted = [...rows].sort(
     (a, b) => a.installmentNumber - b.installmentNumber,
@@ -144,13 +292,18 @@ export function computeInstallmentViews(
     const paid = row.amountPaid != null ? parseMoney(row.amountPaid) : 0;
     credit += paid - amountDue;
 
-    const dueDate =
-      paymentStartDate != null
-        ? addMonthsToDateString(
-            paymentStartDate,
-            row.installmentNumber - 1,
-          )
-        : null;
+    const dueDate = effectiveDueDateForInstallment(row, paymentStartDate);
+    const penaltyAsOfDate = isInstallmentPaidStatus(row.status)
+      ? row.paymentDate != null && String(row.paymentDate).trim() !== ''
+        ? String(row.paymentDate).slice(0, 10)
+        : asOfDate
+      : asOfDate;
+    const penalty = resolveInstallmentPenalty(
+      row,
+      amountDue,
+      paymentStartDate,
+      penaltyAsOfDate,
+    );
 
     return {
       installmentNumber: row.installmentNumber,
@@ -158,9 +311,15 @@ export function computeInstallmentViews(
       scheduledAmount: row.scheduledAmount,
       amountDue: formatMoney(amountDue),
       amountPaid: row.amountPaid,
+      penalty,
+      penaltyOverridden: row.penaltyOverridden ?? false,
       status: row.status?.trim() || ORDER_INSTALLMENT_STATUS_UNPAID,
       proofUrl: getProofUrl(row),
       dueDate,
+      paymentDate:
+        row.paymentDate != null && String(row.paymentDate).trim() !== ''
+          ? String(row.paymentDate).slice(0, 10)
+          : null,
     };
   });
 }
