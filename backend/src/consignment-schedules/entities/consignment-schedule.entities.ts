@@ -45,6 +45,10 @@ export class ConsignmentSchedule {
   @Column({ name: 'reschedule_reason', type: 'text', nullable: true })
   rescheduleReason: string | null;
 
+  /** True after the consignor uses their one-time client-portal reschedule. */
+  @Column({ name: 'has_client_rescheduled', type: 'boolean', default: false })
+  hasClientRescheduled: boolean;
+
   @ManyToOne(() => Employee, { onDelete: 'RESTRICT', nullable: true })
   @JoinColumn({ name: 'created_by_id' })
   createdBy: Employee | null;

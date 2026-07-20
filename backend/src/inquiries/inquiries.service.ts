@@ -27,6 +27,7 @@ import {
   countDeliveryInquiriesOnDay,
   fullDeliveryDatesForBranch,
   loadConsignmentDailyLimit,
+  utcDateKeyFromDeliveryDate,
 } from '../consignment-schedules/consignment-daily-limit.util';
 import { normalizeClientVipStatus } from '../clients/client-vip-status.util';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
@@ -48,6 +49,7 @@ import { ConfirmOfferDto } from './dto/confirm-offer.dto';
 import { SubmitConsignmentInquiryDto } from './dto/submit-consignment-inquiry.dto';
 import { SubmitWalkInConsignmentInquiryDto } from './dto/submit-walk-in-consignment-inquiry.dto';
 import { CreateClientDeliveryScheduleDto } from './dto/create-client-delivery-schedule.dto';
+import { RescheduleClientDeliveryScheduleDto } from './dto/reschedule-client-delivery-schedule.dto';
 import { ScheduleClientDeliveryDto } from './dto/schedule-client-delivery.dto';
 import {
   ClientOfferConfirmationData,
@@ -521,6 +523,34 @@ export class InquiriesService {
       });
   }
 
+  private notifyCoordinatorsClientRescheduledDelivery(
+    inquiries: Array<{ id: string; sku: string }>,
+    schedule: ConsignmentSchedule,
+    dto: RescheduleClientDeliveryScheduleDto,
+    previousDateLabel: string,
+  ): void {
+    if (inquiries.length === 0) return;
+    const dateLabel = dto.deliveryDate;
+    const branch = this.branchDisplayLabel(schedule.branch);
+    const mode = this.clientDeliveryModeLabel(schedule.modeOfTransfer);
+    const skuLabel =
+      inquiries.length === 1
+        ? `inquiry ${inquiries[0].sku}`
+        : `inquiries ${inquiries.map((i) => i.sku).join(', ')}`;
+    void this.notifications
+      .notify({
+        message: `Consignor rescheduled delivery for ${skuLabel} from ${previousDateLabel} to ${dateLabel} (${branch} · ${mode}). Reason: ${dto.rescheduleReason.trim()}`,
+        receiverRole: CONSIGNMENT_COORDINATOR_POSITION,
+        inquiryId: inquiries[0].id,
+      })
+      .catch((err: unknown) => {
+        this.logger.error(
+          'Failed to notify coordinators of client-rescheduled delivery',
+          err,
+        );
+      });
+  }
+
   async getClientDeliveryAvailability(
     branchRaw: string,
     itemCountRaw?: string,
@@ -602,8 +632,9 @@ export class InquiriesService {
       modeOfTransfer: string;
       branch: string;
       inquiryCount: number;
-      skus: string[];
+      items: Array<{ id: string; sku: string; itemLabel: string }>;
       createdAt: string;
+      hasClientRescheduled: boolean;
     }>
   > {
     const client = await this.clientsRepo.findOne({
@@ -612,23 +643,53 @@ export class InquiriesService {
     if (!client) {
       throw new NotFoundException('Client profile not found');
     }
-    const schedules = await this.scheduleRepo.find({
-      where: { scheduledByClient: { id: client.id }, type: 'delivery' },
-      relations: { items: { inquiry: true } },
-      order: { createdAt: 'DESC' },
+    const schedules = await this.scheduleRepo
+      .createQueryBuilder('s')
+      .innerJoin('s.items', 'link')
+      .innerJoin(
+        'link.inquiry',
+        'inquiry',
+        'inquiry.consignor_id = :clientId',
+        { clientId: client.id },
+      )
+      .leftJoinAndSelect('s.items', 'items')
+      .leftJoinAndSelect('items.inquiry', 'inq')
+      .where('s.type = :type', { type: 'delivery' })
+      .orderBy('s.created_at', 'DESC')
+      .distinct(true)
+      .getMany();
+
+    return schedules.map((s) => {
+      const clientItems = (s.items ?? []).filter(
+        (item) => item.inquiry?.consignorId === client.id,
+      );
+      const items = clientItems
+        .map((item) => {
+          const inquiry = item.inquiry;
+          if (!inquiry) return null;
+          return {
+            id: inquiry.id,
+            sku: inquiry.sku?.trim() ?? '',
+            itemLabel: itemLabelFromSnapshot(inquiry.itemSnapshot),
+          };
+        })
+        .filter(
+          (row): row is { id: string; sku: string; itemLabel: string } =>
+            row != null && row.sku !== '',
+        )
+        .sort((a, b) => a.sku.localeCompare(b.sku));
+      return {
+        id: s.id,
+        deliveryDate: s.deliveryDate.toISOString(),
+        status: s.status,
+        modeOfTransfer: s.modeOfTransfer,
+        branch: s.branch,
+        inquiryCount: items.length,
+        items,
+        createdAt: s.createdAt.toISOString(),
+        hasClientRescheduled: s.hasClientRescheduled,
+      };
     });
-    return schedules.map((s) => ({
-      id: s.id,
-      deliveryDate: s.deliveryDate.toISOString(),
-      status: s.status,
-      modeOfTransfer: s.modeOfTransfer,
-      branch: s.branch,
-      inquiryCount: s.items?.length ?? 0,
-      skus: (s.items ?? [])
-        .map((item) => item.inquiry?.sku?.trim())
-        .filter((sku): sku is string => Boolean(sku)),
-      createdAt: s.createdAt.toISOString(),
-    }));
   }
 
   async createClientDeliverySchedule(
@@ -749,6 +810,120 @@ export class InquiriesService {
     this.notifyCoordinatorsClientScheduledDelivery(scheduledInquiries, dto);
 
     return { id: scheduleId };
+  }
+
+  async rescheduleClientDeliverySchedule(
+    user: JwtUser,
+    scheduleId: string,
+    dto: RescheduleClientDeliveryScheduleDto,
+  ): Promise<{
+    id: string;
+    deliveryDate: string;
+    status: string;
+    hasClientRescheduled: boolean;
+  }> {
+    const client = await this.clientsRepo.findOne({
+      where: { userId: user.userId },
+    });
+    if (!client) {
+      throw new NotFoundException('Client profile not found');
+    }
+
+    const schedule = await this.scheduleRepo.findOne({
+      where: { id: scheduleId },
+      relations: { items: { inquiry: true } },
+    });
+    if (!schedule) {
+      throw new NotFoundException('Schedule not found');
+    }
+
+    const ownsSchedule = (schedule.items ?? []).some(
+      (item) => item.inquiry?.consignorId === client.id,
+    );
+    if (!ownsSchedule) {
+      throw new NotFoundException('Schedule not found');
+    }
+
+    if (schedule.type !== 'delivery') {
+      throw new BadRequestException(
+        'Only delivery schedules can be rescheduled',
+      );
+    }
+
+    const status = schedule.status.trim().toLowerCase();
+    if (status === 'received' || status === 'cancelled') {
+      throw new BadRequestException(
+        'This delivery can no longer be rescheduled',
+      );
+    }
+
+    if (schedule.hasClientRescheduled) {
+      throw new BadRequestException(
+        'You have already rescheduled this delivery',
+      );
+    }
+
+    const deliveryTime = schedule.deliveryDate.getTime();
+    const twentyFourHoursMs = 24 * 60 * 60 * 1000;
+    if (Date.now() >= deliveryTime - twentyFourHoursMs) {
+      throw new BadRequestException(
+        'Rescheduling is not available within 24 hours of the scheduled delivery date. You may reach out to the coordinator for assistance.',
+      );
+    }
+
+    const newDayKey = dto.deliveryDate.trim();
+    const currentDayKey = utcDateKeyFromDeliveryDate(schedule.deliveryDate);
+    if (newDayKey === currentDayKey) {
+      throw new BadRequestException('Choose a different delivery date');
+    }
+
+    const todayKey = utcDateKeyFromDeliveryDate(new Date());
+    if (newDayKey < todayKey) {
+      throw new BadRequestException('Delivery date cannot be in the past');
+    }
+
+    const movingCount = schedule.items?.length ?? 0;
+    const dailyLimit = await loadConsignmentDailyLimit(this.settingsRepo);
+    if (dailyLimit != null && movingCount > 0) {
+      const schedules = await this.scheduleRepo.find({
+        where: { type: 'delivery', branch: schedule.branch },
+        relations: { items: true },
+      });
+      const countOnNewDay = countDeliveryInquiriesOnDay(
+        schedules.filter((s) => s.id !== schedule.id),
+        newDayKey,
+        schedule.branch,
+      );
+      if (countOnNewDay + movingCount > dailyLimit) {
+        throw new BadRequestException(
+          'The selected delivery date does not have enough capacity for this branch',
+        );
+      }
+    }
+
+    const deliveryDate = new Date(`${newDayKey}T12:00:00.000Z`);
+    schedule.deliveryDate = deliveryDate;
+    schedule.status = 'rescheduled';
+    schedule.rescheduleReason = dto.rescheduleReason.trim();
+    schedule.hasClientRescheduled = true;
+    await this.scheduleRepo.save(schedule);
+
+    const inquiries = (schedule.items ?? [])
+      .map((item) => item.inquiry)
+      .filter((inq): inq is Inquiry => inq != null);
+    this.notifyCoordinatorsClientRescheduledDelivery(
+      inquiries,
+      schedule,
+      dto,
+      currentDayKey,
+    );
+
+    return {
+      id: schedule.id,
+      deliveryDate: schedule.deliveryDate.toISOString(),
+      status: schedule.status,
+      hasClientRescheduled: true,
+    };
   }
 
   /** Builds API view from consignor payment prefs and inquiry signature media. */
@@ -1448,11 +1623,13 @@ export class InquiriesService {
         accountName: dto.bankDetails.accountName.trim(),
         bank: dto.bankDetails.bank,
       };
-      if (!hasCompleteBankDetails({
-        bankAccountNumber: bankDetails.accountNumber,
-        bankAccountName: bankDetails.accountName,
-        bankCode: bankDetails.bank,
-      })) {
+      if (
+        !hasCompleteBankDetails({
+          bankAccountNumber: bankDetails.accountNumber,
+          bankAccountName: bankDetails.accountName,
+          bankCode: bankDetails.bank,
+        })
+      ) {
         throw new BadRequestException(
           'All bank fields are required for direct deposit',
         );
@@ -1792,46 +1969,46 @@ export class InquiriesService {
     }
 
     const out = await this.inquiriesRepo.manager.transaction(async (em) => {
-        await em.query(
-          `SELECT pg_advisory_xact_lock(hashtext($1::text)::bigint)`,
-          [utcDayLockKey(refNow)],
-        );
+      await em.query(
+        `SELECT pg_advisory_xact_lock(hashtext($1::text)::bigint)`,
+        [utcDayLockKey(refNow)],
+      );
 
-        const bounds = utcDayRange(refNow);
-        const countToday = await em.count(Inquiry, {
-          where: { createdAt: Between(bounds.start, bounds.end) },
-        });
-
-        const results: Array<{
-          id: string;
-          sku: string;
-          status: InquiryStatus;
-        }> = [];
-
-        for (let i = 0; i < planned.length; i++) {
-          const sku = formatInquirySku(refNow, countToday + i + 1);
-          const row = planned[i];
-          const inquiry = em.create(Inquiry, {
-            id: row.inquiryId,
-            consignorId: client.id,
-            sku,
-            status: InquiryStatus.PENDING,
-            itemSnapshot: row.itemSnapshot,
-            createdById: null,
-            updatedById: null,
-          });
-          await em.save(inquiry);
-          results.push({ id: inquiry.id, sku, status: inquiry.status });
-        }
-
-        await em.update(
-          Client,
-          { id: client.id },
-          { consignmentFormSnapshot: null },
-        );
-
-        return { inquiries: results };
+      const bounds = utcDayRange(refNow);
+      const countToday = await em.count(Inquiry, {
+        where: { createdAt: Between(bounds.start, bounds.end) },
       });
+
+      const results: Array<{
+        id: string;
+        sku: string;
+        status: InquiryStatus;
+      }> = [];
+
+      for (let i = 0; i < planned.length; i++) {
+        const sku = formatInquirySku(refNow, countToday + i + 1);
+        const row = planned[i];
+        const inquiry = em.create(Inquiry, {
+          id: row.inquiryId,
+          consignorId: client.id,
+          sku,
+          status: InquiryStatus.PENDING,
+          itemSnapshot: row.itemSnapshot,
+          createdById: null,
+          updatedById: null,
+        });
+        await em.save(inquiry);
+        results.push({ id: inquiry.id, sku, status: inquiry.status });
+      }
+
+      await em.update(
+        Client,
+        { id: client.id },
+        { consignmentFormSnapshot: null },
+      );
+
+      return { inquiries: results };
+    });
 
     for (const row of planned) {
       if (row.files.length === 0) continue;
@@ -2155,10 +2332,14 @@ export class InquiriesService {
         .replace(/^\u20b1\s?/i, ''),
     );
     if (!Number.isFinite(parsedOfferPrice) || parsedOfferPrice <= 0) {
-      throw new BadRequestException('Enter a valid offer price greater than zero.');
+      throw new BadRequestException(
+        'Enter a valid offer price greater than zero.',
+      );
     }
     if (!proof?.buffer?.length) {
-      throw new BadRequestException('Proof of consignor agreement is required.');
+      throw new BadRequestException(
+        'Proof of consignor agreement is required.',
+      );
     }
     const mime = proof.mimetype?.toLowerCase() ?? '';
     if (!ALLOWED_IMAGE_MIMES.has(mime)) {

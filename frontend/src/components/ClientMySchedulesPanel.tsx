@@ -1,88 +1,511 @@
-import { useCallback, useEffect, useState } from 'react'
-import { HorizontalScrollMirror } from './HorizontalScrollMirror'
-import { SubmittedAtCell } from './SubmittedAtCell'
-import { TablePaginationBar } from './TablePaginationBar'
-import { useClientAuth } from '../context/client-auth'
-import { apiFetch } from '../lib/api'
-import { useClientPagination } from '../hooks/useClientPagination'
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
+import { Link } from "react-router-dom";
+import { DatePickerField } from "./DatePickerField";
+import { HorizontalScrollMirror } from "./HorizontalScrollMirror";
+import { SubmittedAtCell } from "./SubmittedAtCell";
+import { TablePaginationBar } from "./TablePaginationBar";
+import { useClientAuth } from "../context/client-auth";
+import { apiFetch } from "../lib/api";
+import { utcDateKeyFromIso } from "../lib/consignment-daily-limit";
+import { useClientPagination } from "../hooks/useClientPagination";
 import {
   branchLabel,
   modeOfTransferLabel,
-} from '../lib/consignment-schedule-labels'
+} from "../lib/consignment-schedule-labels";
+
+type ClientScheduleItem = {
+  id: string;
+  sku: string;
+  itemLabel: string;
+};
 
 type ClientScheduleRow = {
-  id: string
-  deliveryDate: string
-  status: string
-  modeOfTransfer: string
-  branch: string
-  inquiryCount: number
-  skus: string[]
-  createdAt: string
+  id: string;
+  deliveryDate: string;
+  status: string;
+  modeOfTransfer: string;
+  branch: string;
+  inquiryCount: number;
+  items: ClientScheduleItem[];
+  createdAt: string;
+  hasClientRescheduled: boolean;
+};
+
+const MS_24H = 24 * 60 * 60 * 1000;
+
+function isWithin24HoursOfDelivery(deliveryDateIso: string): boolean {
+  const delivery = new Date(deliveryDateIso);
+  if (Number.isNaN(delivery.getTime())) return true;
+  return Date.now() >= delivery.getTime() - MS_24H;
+}
+
+function clientRescheduleEligibility(schedule: ClientScheduleRow): {
+  allowed: boolean;
+  disabledReason: string | null;
+} {
+  const status = schedule.status.trim().toLowerCase();
+  if (status === "received" || status === "cancelled") {
+    return {
+      allowed: false,
+      disabledReason: "This delivery can no longer be rescheduled.",
+    };
+  }
+  if (schedule.hasClientRescheduled) {
+    return {
+      allowed: false,
+      disabledReason:
+        "You have already used your one-time reschedule for this delivery.",
+    };
+  }
+  if (isWithin24HoursOfDelivery(schedule.deliveryDate)) {
+    return {
+      allowed: false,
+      disabledReason:
+        "Rescheduling is not available within 24 hours of the scheduled delivery date. You may reach out to the coordinator for assistance.",
+    };
+  }
+  return { allowed: true, disabledReason: null };
 }
 
 function formatScheduleStatus(status: string): string {
-  const s = status.trim().toLowerCase()
-  if (s === 'scheduled') return 'Scheduled'
-  if (s === 'received') return 'Received'
-  if (s === 'cancelled') return 'Cancelled'
-  return status
+  const s = status.trim().toLowerCase();
+  if (s === "scheduled") return "Scheduled";
+  if (s === "rescheduled") return "Rescheduled";
+  if (s === "received") return "Received";
+  if (s === "cancelled") return "Cancelled";
+  return status;
 }
 
 async function readApiErrorMessage(res: Response): Promise<string> {
   try {
-    const body = (await res.json()) as { message?: unknown }
-    const m = body.message
-    if (typeof m === 'string') return m
-    if (Array.isArray(m)) return m.join(', ')
+    const body = (await res.json()) as { message?: unknown };
+    const m = body.message;
+    if (typeof m === "string") return m;
+    if (Array.isArray(m)) return m.join(", ");
   } catch {
     /* ignore */
   }
-  return `Request failed (${res.status})`
+  return `Request failed (${res.status})`;
+}
+
+type ScheduleItemsModalProps = {
+  schedule: ClientScheduleRow;
+  token: string | null;
+  onClose: () => void;
+  onRescheduled: (updated: ClientScheduleRow) => void;
+};
+
+function ClientRescheduleModal({
+  schedule,
+  token,
+  onClose,
+  onSuccess,
+}: {
+  schedule: ClientScheduleRow;
+  token: string | null;
+  onClose: () => void;
+  onSuccess: (updated: ClientScheduleRow) => void;
+}) {
+  const titleId = useId();
+  const datePickerId = useId();
+  const reasonId = useId();
+  const currentDateKey = useMemo(
+    () => utcDateKeyFromIso(schedule.deliveryDate),
+    [schedule.deliveryDate],
+  );
+  const [newDate, setNewDate] = useState("");
+  const [reason, setReason] = useState("");
+  const [fullDates, setFullDates] = useState<string[]>([]);
+  const [availabilityLoading, setAvailabilityLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const disabledDateKeys = useMemo(
+    () => [...fullDates, currentDateKey],
+    [fullDates, currentDateKey],
+  );
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !busy) onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose, busy]);
+
+  useEffect(() => {
+    if (!token) {
+      setAvailabilityLoading(false);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      setAvailabilityLoading(true);
+      try {
+        const res = await apiFetch(
+          `/api/client/consignment-schedules/delivery-availability?branch=${encodeURIComponent(schedule.branch)}&itemCount=${encodeURIComponent(String(Math.max(1, schedule.inquiryCount)))}`,
+          {},
+          token,
+        );
+        if (!res.ok) throw new Error("Failed to load availability");
+        const body = (await res.json()) as { fullDates?: string[] };
+        if (!cancelled) {
+          setFullDates(Array.isArray(body.fullDates) ? body.fullDates : []);
+        }
+      } catch {
+        if (!cancelled) setFullDates([]);
+      } finally {
+        if (!cancelled) setAvailabilityLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token, schedule.branch, schedule.inquiryCount]);
+
+  useEffect(() => {
+    if (newDate && disabledDateKeys.includes(newDate)) {
+      setNewDate("");
+    }
+  }, [newDate, disabledDateKeys]);
+
+  const submit = useCallback(async () => {
+    if (!token) return;
+    if (!newDate.trim()) {
+      setError("Please select a new delivery date.");
+      return;
+    }
+    if (disabledDateKeys.includes(newDate.trim())) {
+      setError("The selected delivery date is not available.");
+      return;
+    }
+    if (!reason.trim()) {
+      setError("Please enter a reason for rescheduling.");
+      return;
+    }
+    setError(null);
+    setBusy(true);
+    try {
+      const res = await apiFetch(
+        `/api/client/consignment-schedules/${schedule.id}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            deliveryDate: newDate.trim(),
+            rescheduleReason: reason.trim(),
+          }),
+        },
+        token,
+      );
+      if (!res.ok) throw new Error(await readApiErrorMessage(res));
+      const body = (await res.json()) as {
+        deliveryDate?: string;
+        status?: string;
+        hasClientRescheduled?: boolean;
+      };
+      onSuccess({
+        ...schedule,
+        deliveryDate: body.deliveryDate ?? schedule.deliveryDate,
+        status: body.status ?? "rescheduled",
+        hasClientRescheduled: body.hasClientRescheduled ?? true,
+      });
+      onClose();
+    } catch (e) {
+      setError(
+        e instanceof Error ? e.message : "Could not reschedule delivery.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }, [token, newDate, reason, disabledDateKeys, schedule, onSuccess, onClose]);
+
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[110] flex items-end justify-center p-4 sm:items-center"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
+    >
+      <button
+        type="button"
+        className="absolute inset-0 bg-slate-900/50"
+        aria-label="Close"
+        disabled={busy}
+        onClick={onClose}
+      />
+      <div className="relative z-10 w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-xl">
+        <h2 id={titleId} className="text-base font-semibold text-slate-900">
+          Reschedule delivery
+        </h2>
+        <p className="mt-1 text-sm text-slate-600">
+          Choose a new delivery date and explain why. You can only reschedule
+          once.
+        </p>
+        <div className="mt-4">
+          <label
+            htmlFor={datePickerId}
+            className="block text-sm font-medium text-slate-700"
+          >
+            New delivery date
+          </label>
+          <DatePickerField
+            id={datePickerId}
+            value={newDate}
+            onChange={setNewDate}
+            disabled={busy || availabilityLoading}
+            triggerClassName="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
+            placeholder="Select date"
+            dialogAriaLabel="Choose new delivery date"
+            disablePast
+            disabledDateKeys={disabledDateKeys}
+          />
+          {availabilityLoading ? (
+            <p className="mt-1 text-xs text-slate-500">
+              Checking availability…
+            </p>
+          ) : null}
+        </div>
+        <div className="mt-4">
+          <label
+            htmlFor={reasonId}
+            className="block text-sm font-medium text-slate-700"
+          >
+            Reason for rescheduling <span className="text-red-600">*</span>
+          </label>
+          <textarea
+            id={reasonId}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            disabled={busy || availabilityLoading}
+            rows={4}
+            required
+            placeholder="e.g. I will be out of town on the original date…"
+            className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 disabled:opacity-50"
+          />
+        </div>
+        {error ? (
+          <p className="mt-3 text-sm text-red-600" role="alert">
+            {error}
+          </p>
+        ) : null}
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={busy}
+            className="rounded-lg border border-slate-300 bg-white px-4 py-1.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => void submit()}
+            disabled={
+              busy || availabilityLoading || !newDate.trim() || !reason.trim()
+            }
+            className="rounded-lg bg-violet-600 px-4 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-violet-700 disabled:opacity-50"
+          >
+            {busy ? "Saving…" : "Confirm reschedule"}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+function ScheduleItemsModal({
+  schedule,
+  token,
+  onClose,
+  onRescheduled,
+}: ScheduleItemsModalProps) {
+  const titleId = useId();
+  const descId = useId();
+  const [rescheduleOpen, setRescheduleOpen] = useState(false);
+  const { allowed: canReschedule, disabledReason } =
+    clientRescheduleEligibility(schedule);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !rescheduleOpen) onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose, rescheduleOpen]);
+
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[100] flex items-end justify-center p-4 sm:items-center"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
+      aria-describedby={descId}
+    >
+      <button
+        type="button"
+        className="absolute inset-0 bg-slate-900/50"
+        aria-label="Close"
+        onClick={onClose}
+      />
+      <div className="relative z-10 flex max-h-[min(32rem,85vh)] w-full max-w-lg flex-col rounded-2xl border border-slate-200 bg-white shadow-xl">
+        <div className="border-b border-slate-200 px-5 py-4">
+          <h2 id={titleId} className="text-base font-semibold text-slate-900">
+            Scheduled delivery
+          </h2>
+          <dl
+            id={descId}
+            className="mt-2 grid gap-1 text-sm text-slate-600 sm:grid-cols-2"
+          >
+            <div>
+              <dt className="inline font-medium text-slate-500">Date: </dt>
+              <dd className="inline text-slate-800">
+                <SubmittedAtCell iso={schedule.deliveryDate} showTime={false} />
+              </dd>
+            </div>
+            <div>
+              <dt className="inline font-medium text-slate-500">Branch: </dt>
+              <dd className="inline text-slate-800">
+                {branchLabel(schedule.branch)}
+              </dd>
+            </div>
+            <div>
+              <dt className="inline font-medium text-slate-500">Mode: </dt>
+              <dd className="inline text-slate-800">
+                {modeOfTransferLabel("delivery", schedule.modeOfTransfer)}
+              </dd>
+            </div>
+            <div>
+              <dt className="inline font-medium text-slate-500">Status: </dt>
+              <dd className="inline text-slate-800">
+                {formatScheduleStatus(schedule.status)}
+              </dd>
+            </div>
+          </dl>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Items ({schedule.items.length})
+          </p>
+          {schedule.items.length === 0 ? (
+            <p className="mt-3 text-sm text-slate-500">
+              No items on this schedule.
+            </p>
+          ) : (
+            <ul className="mt-3 divide-y divide-slate-200 rounded-lg border border-slate-200">
+              {schedule.items.map((item) => (
+                <li key={item.id}>
+                  <Link
+                    to={`/consignments/${item.id}`}
+                    onClick={onClose}
+                    className="flex flex-col gap-0.5 px-3 py-2.5 text-sm transition-colors hover:bg-slate-50 focus-visible:bg-slate-50 focus-visible:outline focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-violet-500 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <span className="font-medium text-slate-900">
+                      {item.itemLabel}
+                    </span>
+                    <span className="text-xs text-slate-500 sm:text-sm">
+                      {item.sku}
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div className="border-t border-slate-200 px-5 py-4">
+          {disabledReason ? (
+            <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              {disabledReason}
+            </p>
+          ) : null}
+          <div className="flex flex-wrap justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setRescheduleOpen(true)}
+              disabled={!canReschedule}
+              className="rounded-lg border border-slate-300 bg-white px-4 py-1.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Reschedule
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg bg-violet-600 px-4 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-violet-700"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+      {rescheduleOpen ? (
+        <ClientRescheduleModal
+          schedule={schedule}
+          token={token}
+          onClose={() => setRescheduleOpen(false)}
+          onSuccess={(updated) => {
+            onRescheduled(updated);
+            setRescheduleOpen(false);
+          }}
+        />
+      ) : null}
+    </div>,
+    document.body,
+  );
 }
 
 type Props = {
-  refreshKey?: number
-  onCreateSchedule?: () => void
-}
+  refreshKey?: number;
+  onCreateSchedule?: () => void;
+};
 
 export function ClientMySchedulesPanel({
   refreshKey = 0,
   onCreateSchedule,
 }: Props) {
-  const { token } = useClientAuth()
-  const [rows, setRows] = useState<ClientScheduleRow[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const { token } = useClientAuth();
+  const [rows, setRows] = useState<ClientScheduleRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedSchedule, setSelectedSchedule] =
+    useState<ClientScheduleRow | null>(null);
 
-  const pagination = useClientPagination(rows)
+  const pagination = useClientPagination(rows);
 
   const load = useCallback(async () => {
-    setError(null)
-    setLoading(true)
+    setError(null);
+    setLoading(true);
     try {
-      const res = await apiFetch('/api/client/consignment-schedules', {}, token)
-      if (!res.ok) throw new Error(await readApiErrorMessage(res))
-      const data = (await res.json()) as ClientScheduleRow[]
-      setRows(Array.isArray(data) ? data : [])
+      const res = await apiFetch(
+        "/api/client/consignment-schedules",
+        {},
+        token,
+      );
+      if (!res.ok) throw new Error(await readApiErrorMessage(res));
+      const data = (await res.json()) as ClientScheduleRow[];
+      setRows(Array.isArray(data) ? data : []);
     } catch (e) {
       setError(
-        e instanceof Error ? e.message : 'Failed to load your schedules',
-      )
+        e instanceof Error ? e.message : "Failed to load your schedules",
+      );
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [token])
+  }, [token]);
 
   useEffect(() => {
-    void load()
-  }, [load, refreshKey])
+    void load();
+  }, [load, refreshKey]);
 
   return (
     <section>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-slate-600">
-          View your delivery schedules or create a new one.
+          View delivery schedules for your consignments, or create a new one.
         </p>
         {onCreateSchedule ? (
           <button
@@ -147,21 +570,41 @@ export function ClientMySchedulesPanel({
             <tbody className="divide-y divide-slate-200">
               {loading && rows.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
+                  <td
+                    colSpan={6}
+                    className="px-4 py-8 text-center text-slate-500"
+                  >
                     Loading…
                   </td>
                 </tr>
               )}
               {!loading && rows.length === 0 && !error && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
-                    No delivery schedules yet. Use &quot;Create schedule&quot; to
-                    book one.
+                  <td
+                    colSpan={6}
+                    className="px-4 py-8 text-center text-slate-500"
+                  >
+                    No delivery schedules yet for your items. Use &quot;Create
+                    schedule&quot; to book one, or contact The Bag Hub team if
+                    staff arranged delivery for you.
                   </td>
                 </tr>
               )}
               {pagination.pageItems.map((row) => (
-                <tr key={row.id} className="hover:bg-slate-50">
+                <tr
+                  key={row.id}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`View items for delivery on ${row.deliveryDate}`}
+                  className="cursor-pointer hover:bg-slate-50 focus-visible:bg-slate-50 focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2"
+                  onClick={() => setSelectedSchedule(row)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setSelectedSchedule(row);
+                    }
+                  }}
+                >
                   <td className="px-4 py-3 font-medium text-slate-900">
                     <SubmittedAtCell iso={row.deliveryDate} showTime={false} />
                   </td>
@@ -169,15 +612,10 @@ export function ClientMySchedulesPanel({
                     {branchLabel(row.branch)}
                   </td>
                   <td className="px-4 py-3 text-slate-800">
-                    {modeOfTransferLabel('delivery', row.modeOfTransfer)}
+                    {modeOfTransferLabel("delivery", row.modeOfTransfer)}
                   </td>
-                  <td className="px-4 py-3 text-slate-800">
-                    <span className="font-medium">{row.inquiryCount}</span>
-                    {row.skus.length > 0 ? (
-                      <span className="mt-0.5 block text-xs text-slate-500">
-                        {row.skus.join(', ')}
-                      </span>
-                    ) : null}
+                  <td className="px-4 py-3 font-medium text-slate-800">
+                    {row.inquiryCount}
                   </td>
                   <td className="px-4 py-3 text-slate-800">
                     {formatScheduleStatus(row.status)}
@@ -191,6 +629,20 @@ export function ClientMySchedulesPanel({
           </table>
         </HorizontalScrollMirror>
       </div>
+
+      {selectedSchedule ? (
+        <ScheduleItemsModal
+          schedule={selectedSchedule}
+          token={token}
+          onClose={() => setSelectedSchedule(null)}
+          onRescheduled={(updated) => {
+            setSelectedSchedule(updated);
+            setRows((prev) =>
+              prev.map((row) => (row.id === updated.id ? updated : row)),
+            );
+          }}
+        />
+      ) : null}
     </section>
-  )
+  );
 }
