@@ -25,6 +25,7 @@ import { ConsignorPaymentsService } from '../consignor-payments/consignor-paymen
 import { ApproveLayawayOrderDto } from './dto/approve-layaway-order.dto';
 import { CancelOrderDto } from './dto/cancel-order.dto';
 import { CreateOrderDto } from './dto/create-order.dto';
+import { CreateStaffOrderDto } from './dto/create-staff-order.dto';
 import { CreateReservationOrderDto } from './dto/create-reservation-order.dto';
 import { DeclineLayawayOrderDto } from './dto/decline-layaway-order.dto';
 import { MarkInstallmentPaidDto } from './dto/mark-installment-paid.dto';
@@ -56,10 +57,18 @@ import {
   type OrderInstallmentView,
 } from './order-installment.util';
 import {
+  COURIER_SERVICE_OPTIONS,
+  PICKUP_BRANCH_OPTIONS,
+  PICKUP_OPTION_COURIER,
+  PICKUP_OPTION_IN_STORE,
+  PICKUP_OPTION_STORE,
+  PICKUP_OPTIONS,
+} from './order-pickup.constants';
+import {
   FULL_PAYMENT_HOLDING_HOURS,
   INVENTORY_STATUS_AVAILABLE_FOR_PURCHASE,
+  INVENTORY_STATUS_FOR_PICKUP,
   INVENTORY_STATUS_ON_HOLD,
-  INVENTORY_STATUS_OUT_FOR_DELIVERY,
   INVENTORY_STATUS_SOLD_UNDER_WARRANTY,
   INVENTORY_STATUS_RESERVED_LAYAWAY,
   LAYAWAY_HOLDING_HOURS,
@@ -68,8 +77,8 @@ import {
   ORDER_STATUS_EXPIRED,
   ORDER_STATUS_FOR_LAYAWAY_APPROVAL,
   ORDER_STATUS_FOR_PAYMENT,
+  ORDER_STATUS_FOR_PICKUP,
   ORDER_STATUS_ITEM_RECEIVED,
-  ORDER_STATUS_OUT_FOR_DELIVERY,
   ORDER_STATUS_PAID,
   ORDER_STATUS_RESERVATION,
   ORDER_INSTALLMENT_STATUS_PAID,
@@ -237,6 +246,9 @@ export type StaffOrderDetail = {
   fullPaymentProofUrl: string | null;
   shippingFeeCareOf: string | null;
   shippingFeeProofUrl: string | null;
+  pickupOption: string | null;
+  pickupBranch: string | null;
+  courierService: string | null;
   holdingPeriod: string | null;
   layawayPaymentStartDate: string | null;
   consignorPaymentRelease: number | null;
@@ -344,7 +356,7 @@ export class OrdersService {
       order.paymentType !== PAYMENT_TYPE_LAYAWAY ||
       (order.status !== ORDER_STATUS_FOR_PAYMENT &&
         order.status !== ORDER_STATUS_PAID &&
-        order.status !== ORDER_STATUS_OUT_FOR_DELIVERY &&
+        order.status !== ORDER_STATUS_FOR_PICKUP &&
         order.status !== ORDER_STATUS_ITEM_RECEIVED) ||
       order.layawayMonths == null ||
       order.layawayMonths <= 0
@@ -890,6 +902,9 @@ export class OrdersService {
       fullPaymentProofUrl: await this.fullPaymentProofUrl(order),
       shippingFeeCareOf: order.shippingFeeCareOf,
       shippingFeeProofUrl: await this.shippingFeeProofUrl(order),
+      pickupOption: order.pickupOption,
+      pickupBranch: order.pickupBranch,
+      courierService: order.courierService,
       holdingPeriod: order.holdingPeriod?.toISOString() ?? null,
       layawayPaymentStartDate: formatOrderDate(order.layawayPaymentStartDate),
       consignorPaymentRelease: order.consignorPaymentRelease,
@@ -1167,34 +1182,73 @@ export class OrdersService {
     return this.findOneForStaff(id);
   }
 
-  async markOutForDeliveryForStaff(
+  async markForPickupForStaff(
     user: JwtUser,
     id: string,
+    pickupOptionRaw: string | undefined,
+    pickupBranchRaw: string | undefined,
+    courierServiceRaw: string | undefined,
     shippingFeeCareOfRaw: string | undefined,
     proofFile: MulterFile | undefined,
   ): Promise<StaffOrderDetail> {
-    const shippingFeeCareOf = shippingFeeCareOfRaw?.trim() ?? '';
+    const pickupOption = pickupOptionRaw?.trim() ?? '';
     if (
-      !SHIPPING_FEE_CARE_OF_OPTIONS.includes(
-        shippingFeeCareOf as (typeof SHIPPING_FEE_CARE_OF_OPTIONS)[number],
+      !PICKUP_OPTIONS.includes(
+        pickupOption as (typeof PICKUP_OPTIONS)[number],
       )
     ) {
-      throw new BadRequestException(
-        'Shipping fee care of must be The Bag Hub or Client',
-      );
+      throw new BadRequestException('Invalid pick-up option');
     }
 
-    if (shippingFeeCareOf === SHIPPING_FEE_CARE_OF_TBH) {
-      if (!proofFile?.buffer?.length) {
+    let pickupBranch: string | null = null;
+    let courierService: string | null = null;
+    let shippingFeeCareOf: string | null = null;
+
+    if (
+      pickupOption === PICKUP_OPTION_STORE ||
+      pickupOption === PICKUP_OPTION_IN_STORE
+    ) {
+      pickupBranch = pickupBranchRaw?.trim() ?? '';
+      if (
+        !PICKUP_BRANCH_OPTIONS.includes(
+          pickupBranch as (typeof PICKUP_BRANCH_OPTIONS)[number],
+        )
+      ) {
+        throw new BadRequestException('Pick-up branch must be Makati or Pasig');
+      }
+    } else if (pickupOption === PICKUP_OPTION_COURIER) {
+      courierService = courierServiceRaw?.trim() ?? '';
+      if (
+        !COURIER_SERVICE_OPTIONS.includes(
+          courierService as (typeof COURIER_SERVICE_OPTIONS)[number],
+        )
+      ) {
+        throw new BadRequestException('Invalid courier service');
+      }
+
+      shippingFeeCareOf = shippingFeeCareOfRaw?.trim() ?? '';
+      if (
+        !SHIPPING_FEE_CARE_OF_OPTIONS.includes(
+          shippingFeeCareOf as (typeof SHIPPING_FEE_CARE_OF_OPTIONS)[number],
+        )
+      ) {
         throw new BadRequestException(
-          'Proof of payment for shipping fee is required when The Bag Hub covers shipping',
+          'Shipping fee care of must be The Bag Hub or Client',
         );
       }
-      const mime = proofFile.mimetype?.toLowerCase() ?? '';
-      if (!ALLOWED_PROOF_MIMES.has(mime)) {
-        throw new BadRequestException(
-          `Proof must be an image or PDF (${proofFile.mimetype || 'unknown'})`,
-        );
+
+      if (shippingFeeCareOf === SHIPPING_FEE_CARE_OF_TBH) {
+        if (!proofFile?.buffer?.length) {
+          throw new BadRequestException(
+            'Proof of payment for shipping fee is required when The Bag Hub covers shipping',
+          );
+        }
+        const mime = proofFile.mimetype?.toLowerCase() ?? '';
+        if (!ALLOWED_PROOF_MIMES.has(mime)) {
+          throw new BadRequestException(
+            `Proof must be an image or PDF (${proofFile.mimetype || 'unknown'})`,
+          );
+        }
       }
     }
 
@@ -1214,7 +1268,7 @@ export class OrdersService {
       }
       if (order.status !== ORDER_STATUS_PAID) {
         throw new BadRequestException(
-          'Only paid orders can be marked as out for delivery',
+          'Only paid orders can be marked as for pick-up',
         );
       }
 
@@ -1226,7 +1280,11 @@ export class OrdersService {
         throw new NotFoundException('Inventory item not found');
       }
 
-      if (shippingFeeCareOf === SHIPPING_FEE_CARE_OF_TBH && proofFile) {
+      if (
+        pickupOption === PICKUP_OPTION_COURIER &&
+        shippingFeeCareOf === SHIPPING_FEE_CARE_OF_TBH &&
+        proofFile
+      ) {
         const mime = proofFile.mimetype!.toLowerCase();
         const ext = extFromProofMime(mime);
         const storageKey = `orders/${order.id}/shipping-fee/proof-${randomUUID()}.${ext}`;
@@ -1249,11 +1307,14 @@ export class OrdersService {
         order.shippingFeeProofUploadedByUserId = null;
       }
 
-      item.status = INVENTORY_STATUS_OUT_FOR_DELIVERY;
+      item.status = INVENTORY_STATUS_FOR_PICKUP;
       item.updatedById = user.userId;
       await em.save(item);
 
-      order.status = ORDER_STATUS_OUT_FOR_DELIVERY;
+      order.status = ORDER_STATUS_FOR_PICKUP;
+      order.pickupOption = pickupOption;
+      order.pickupBranch = pickupBranch;
+      order.courierService = courierService;
       order.shippingFeeCareOf = shippingFeeCareOf;
       order.updatedById = user.userId;
       await em.save(order);
@@ -1326,9 +1387,9 @@ export class OrdersService {
       if (!order) {
         throw new NotFoundException('Order not found');
       }
-      if (order.status !== ORDER_STATUS_OUT_FOR_DELIVERY) {
+      if (order.status !== ORDER_STATUS_FOR_PICKUP) {
         throw new BadRequestException(
-          'Only orders out for delivery can be marked as item received',
+          'Only orders for pick-up can be marked as item received',
         );
       }
 
@@ -1339,9 +1400,9 @@ export class OrdersService {
       if (!item) {
         throw new NotFoundException('Inventory item not found');
       }
-      if (item.status !== INVENTORY_STATUS_OUT_FOR_DELIVERY) {
+      if (item.status !== INVENTORY_STATUS_FOR_PICKUP) {
         throw new BadRequestException(
-          'Inventory item is not out for delivery',
+          'Inventory item is not for pick-up',
         );
       }
 
@@ -2004,6 +2065,158 @@ export class OrdersService {
     });
 
     return this.toClientSummary(saved);
+  }
+
+  async createOrderForStaff(
+    user: JwtUser,
+    payloadRaw: string | undefined,
+    signatureFile: MulterFile | undefined,
+  ): Promise<{ id: string }> {
+    if (payloadRaw == null || payloadRaw.trim() === '') {
+      throw new BadRequestException('Missing payload');
+    }
+    if (!signatureFile?.buffer?.length) {
+      throw new BadRequestException('Signature image is required');
+    }
+
+    let dto: CreateStaffOrderDto;
+    try {
+      dto = plainToInstance(
+        CreateStaffOrderDto,
+        JSON.parse(payloadRaw) as object,
+        { enableImplicitConversion: true },
+      );
+      await validateOrReject(dto);
+    } catch {
+      throw new BadRequestException('Invalid order payload');
+    }
+
+    if (dto.paymentType === PAYMENT_TYPE_LAYAWAY && dto.layawayMonths == null) {
+      throw new BadRequestException(
+        'Layaway months are required for layaway orders',
+      );
+    }
+
+    const mime = signatureFile.mimetype?.toLowerCase() ?? '';
+    if (!ALLOWED_IMAGE_MIMES.has(mime)) {
+      throw new BadRequestException(
+        `Signature must be an image file (${signatureFile.mimetype || 'unknown'})`,
+      );
+    }
+
+    const client = await this.clientsRepo.findOne({
+      where: { id: dto.customerId },
+    });
+    if (!client) {
+      throw new NotFoundException('Client not found');
+    }
+
+    const item = await this.inventoryRepo.findOne({
+      where: {
+        id: dto.inventoryItemId,
+        status: INVENTORY_STATUS_AVAILABLE_FOR_PURCHASE,
+      },
+    });
+    if (!item) {
+      throw new NotFoundException('Item is not available for purchase');
+    }
+    if (item.consignorId === client.id) {
+      throw new BadRequestException(
+        'The selected client cannot purchase their own consigned item.',
+      );
+    }
+
+    const itemPrice = parseItemPrice(item.tbhSellingPrice);
+    if (itemPrice == null) {
+      throw new BadRequestException('Item price is not set');
+    }
+
+    let layawayPrice: string | null = null;
+    let layawayMonthlyPayment: string | null = null;
+    let fullPaymentPrice: string | null = null;
+    let layawayMonths: number | null = null;
+    let status: string;
+    let holdingHours: number;
+
+    if (dto.paymentType === PAYMENT_TYPE_LAYAWAY) {
+      const auth = await this.itemAuthRepo.findOne({
+        where: { inventoryItemId: item.id },
+      });
+      const layawayEligibility = getLayawayEligibility(
+        auth?.rating ?? null,
+        categoryFromItemSnapshot(item.itemSnapshot),
+      );
+      if (!layawayEligibility.allowed) {
+        throw new BadRequestException(layawayEligibility.reasons.join(' '));
+      }
+
+      const pricing = calculateLayawayPricing(itemPrice, dto.layawayMonths!);
+      if (!pricing) {
+        throw new BadRequestException('Invalid layaway terms');
+      }
+      layawayMonths = dto.layawayMonths!;
+      layawayPrice = formatDecimal(pricing.layawayPrice);
+      layawayMonthlyPayment = formatDecimal(pricing.monthlyPayment);
+      status = ORDER_STATUS_FOR_LAYAWAY_APPROVAL;
+      holdingHours = LAYAWAY_HOLDING_HOURS;
+    } else {
+      fullPaymentPrice = formatDecimal(itemPrice);
+      status = ORDER_STATUS_FOR_PAYMENT;
+      holdingHours = FULL_PAYMENT_HOLDING_HOURS;
+    }
+
+    const ext = extFromMime(mime);
+    const orderId = randomUUID();
+    const signatureKey = `orders/${orderId}/signature-${randomUUID()}.${ext}`;
+    await this.media.replaceSingle(
+      MediaOwnerType.ORDER,
+      orderId,
+      MediaPurpose.SIGNATURE,
+      signatureFile,
+      signatureKey,
+      {
+        uploadedByUserId: user.userId,
+        createdById: user.userId,
+      },
+    );
+
+    const saved = await this.dataSource.transaction(async (em) => {
+      await em.query('SELECT pg_advisory_xact_lock($1)', [834729105]);
+
+      const maxRow = await em
+        .createQueryBuilder(Order, 'o')
+        .select('MAX(o.orderNumber)', 'max')
+        .getRawOne<{ max: string | null }>();
+      const orderNumber = nextOrderNumber(
+        maxRow?.max ? Number(maxRow.max) : null,
+      );
+
+      const createdAt = new Date();
+      const order = em.create(Order, {
+        id: orderId,
+        orderNumber,
+        status,
+        inventoryItemId: item.id,
+        customerId: client.id,
+        paymentType: dto.paymentType,
+        layawayMonths,
+        layawayPrice,
+        layawayMonthlyPayment,
+        fullPaymentPrice,
+        holdingPeriod: addHours(createdAt, holdingHours),
+        createdById: user.userId,
+        updatedById: user.userId,
+      });
+      await em.save(order);
+
+      item.status = INVENTORY_STATUS_ON_HOLD;
+      item.updatedById = user.userId;
+      await em.save(item);
+
+      return order;
+    });
+
+    return { id: saved.id };
   }
 
   async createReservationForClient(

@@ -1,7 +1,7 @@
 export const ORDER_STATUS_FOR_LAYAWAY_APPROVAL = 'For Layaway Approval';
 export const ORDER_STATUS_FOR_PAYMENT = 'For Payment';
 export const ORDER_STATUS_PAID = 'Paid';
-export const ORDER_STATUS_OUT_FOR_DELIVERY = 'Out for delivery';
+export const ORDER_STATUS_FOR_PICKUP = 'For pick-up';
 export const ORDER_STATUS_ITEM_RECEIVED = 'Item Received';
 export const ORDER_STATUS_EXPIRED = 'Expired';
 export const ORDER_STATUS_DECLINED = 'Declined';
@@ -14,7 +14,7 @@ export const ORDER_NUMBER_OFFSET = 10_000;
 export const INVENTORY_STATUS_ON_HOLD = 'On Hold';
 export const INVENTORY_STATUS_RESERVED_LAYAWAY = 'Reserved - Layaway';
 export const INVENTORY_STATUS_AVAILABLE_FOR_PURCHASE = 'Available For Purchase';
-export const INVENTORY_STATUS_OUT_FOR_DELIVERY = 'Out for delivery';
+export const INVENTORY_STATUS_FOR_PICKUP = 'For pick-up';
 export const INVENTORY_STATUS_SOLD_UNDER_WARRANTY = 'Sold under warranty';
 export const INVENTORY_STATUS_SOLD_FINAL = 'Sold final';
 export const INVENTORY_STATUS_PAID_TO_CONSIGNOR = 'Paid to consignor';

@@ -9,6 +9,7 @@ import { useClientAuth } from "../context/client-auth";
 import { apiFetch } from "../lib/api";
 import { formatPhpDisplay } from "../lib/format-php";
 import { paymentTypeLabel } from "../lib/order-status-filter-options";
+import { isForPickupOrderStatus } from "../lib/order-pickup-labels";
 import type { OrderInstallmentRow } from "../lib/order-installments";
 
 type ClientOrderDetail = {
@@ -151,25 +152,25 @@ export function ClientOrderDetailPage() {
   }
 
   const isPaidOrder = detail.status === "Paid";
-  const isOutForDeliveryOrder = detail.status === "Out for delivery";
+  const isForPickupOrder = isForPickupOrderStatus(detail.status);
   const isItemReceivedOrder = detail.status === "Item Received";
   const isPostPaymentOrder =
-    isPaidOrder || isOutForDeliveryOrder || isItemReceivedOrder;
+    isPaidOrder || isForPickupOrder || isItemReceivedOrder;
   const showReservationPaymentProofs =
     detail.paymentType === "full_payment" &&
     (detail.status === "Reservation" ||
-      ((isPaidOrder || isOutForDeliveryOrder || isItemReceivedOrder) &&
+      ((isPaidOrder || isForPickupOrder || isItemReceivedOrder) &&
         detail.reservationPaymentProofUrl != null));
   const showFullPaymentProof =
     detail.paymentType === "full_payment" &&
     (detail.status === "For Payment" ||
-      ((isPaidOrder || isOutForDeliveryOrder || isItemReceivedOrder) &&
+      ((isPaidOrder || isForPickupOrder || isItemReceivedOrder) &&
         detail.reservationPaymentProofUrl == null));
   const showLayawaySchedule =
     detail.paymentType === "layaway" &&
     (detail.status === "For Payment" ||
       isPaidOrder ||
-      isOutForDeliveryOrder ||
+      isForPickupOrder ||
       isItemReceivedOrder) &&
     detail.installments.length > 0;
 
@@ -319,7 +320,7 @@ export function ClientOrderDetailPage() {
         ) : null}
       </div>
 
-      {isOutForDeliveryOrder ? (
+      {isForPickupOrder ? (
         <div className={cardClass}>
           <h2 className="text-sm font-semibold text-slate-900">Order actions</h2>
           <div className="mt-4">

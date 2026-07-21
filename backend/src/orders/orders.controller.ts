@@ -37,6 +37,24 @@ export class OrdersController {
     return this.ordersService.findAllForStaff();
   }
 
+  @Post()
+  @UseInterceptors(
+    FileInterceptor('signature', {
+      limits: { fileSize: 5 * 1024 * 1024 },
+    }),
+  )
+  createOrder(
+    @Req() req: { user: JwtUser },
+    @Body('payload') payload: string,
+    @UploadedFile() signature: MulterFile | undefined,
+  ) {
+    return this.ordersService.createOrderForStaff(
+      req.user,
+      payload,
+      signature,
+    );
+  }
+
   @Get(':id')
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.ordersService.findOneForStaff(id);
@@ -94,21 +112,27 @@ export class OrdersController {
     return this.ordersService.markItemReceivedForStaff(req.user, id);
   }
 
-  @Post(':id/out-for-delivery')
+  @Post(':id/for-pick-up')
   @UseInterceptors(
     FileInterceptor('proof', {
       limits: { fileSize: 10 * 1024 * 1024 },
     }),
   )
-  markOutForDelivery(
+  markForPickup(
     @Req() req: { user: JwtUser },
     @Param('id', ParseUUIDPipe) id: string,
+    @Body('pickupOption') pickupOption: string | undefined,
+    @Body('pickupBranch') pickupBranch: string | undefined,
+    @Body('courierService') courierService: string | undefined,
     @Body('shippingFeeCareOf') shippingFeeCareOf: string | undefined,
     @UploadedFile() proof: MulterFile | undefined,
   ) {
-    return this.ordersService.markOutForDeliveryForStaff(
+    return this.ordersService.markForPickupForStaff(
       req.user,
       id,
+      pickupOption,
+      pickupBranch,
+      courierService,
       shippingFeeCareOf,
       proof,
     );

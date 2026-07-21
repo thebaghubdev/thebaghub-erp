@@ -14,6 +14,12 @@ import {
   MIN_LAYAWAY_MONTHS,
 } from "../lib/layaway-pricing";
 import { paymentTypeLabel } from "../lib/order-status-filter-options";
+import {
+  courierServiceLabel,
+  isForPickupOrderStatus,
+  pickupBranchLabel,
+  pickupOptionLabel,
+} from "../lib/order-pickup-labels";
 import type { OrderInstallmentRow } from "../lib/order-installments";
 
 type OrderDetail = {
@@ -31,6 +37,9 @@ type OrderDetail = {
   fullPaymentProofUrl: string | null;
   shippingFeeCareOf: string | null;
   shippingFeeProofUrl: string | null;
+  pickupOption: string | null;
+  pickupBranch: string | null;
+  courierService: string | null;
   holdingPeriod: string | null;
   layawayPaymentStartDate: string | null;
   consignorPaymentRelease: number | null;
@@ -209,6 +218,9 @@ export function OrderDetailPage() {
   const [shippingFeeProofFile, setShippingFeeProofFile] = useState<File | null>(
     null,
   );
+  const [pickupOption, setPickupOption] = useState("");
+  const [pickupBranch, setPickupBranch] = useState("");
+  const [courierService, setCourierService] = useState("");
   const [itemReceivedConfirmOpen, setItemReceivedConfirmOpen] = useState(false);
   const [itemReceivedBusy, setItemReceivedBusy] = useState(false);
   const [itemReceivedError, setItemReceivedError] = useState<string | null>(
@@ -469,29 +481,57 @@ export function OrderDetailPage() {
     token,
   ]);
 
-  const confirmOutForDelivery = useCallback(async () => {
+  const confirmForPickup = useCallback(async () => {
     if (!id || !token) return;
-    if (!shippingFeeCareOf) {
-      setOutForDeliveryError("Please select who covers the shipping fee.");
+    if (!pickupOption) {
+      setOutForDeliveryError("Please select a pick-up option.");
       return;
     }
-    if (shippingFeeCareOf === "The Bag Hub" && !shippingFeeProofFile) {
-      setOutForDeliveryError(
-        "Please upload proof of payment for the shipping fee.",
-      );
+    if (
+      (pickupOption === "store_pickup" ||
+        pickupOption === "in_store_purchase") &&
+      !pickupBranch
+    ) {
+      setOutForDeliveryError("Please select a branch.");
       return;
+    }
+    if (pickupOption === "courier_delivery") {
+      if (!courierService) {
+        setOutForDeliveryError("Please select a courier service.");
+        return;
+      }
+      if (!shippingFeeCareOf) {
+        setOutForDeliveryError("Please select who covers the shipping fee.");
+        return;
+      }
+      if (shippingFeeCareOf === "The Bag Hub" && !shippingFeeProofFile) {
+        setOutForDeliveryError(
+          "Please upload proof of payment for the shipping fee.",
+        );
+        return;
+      }
     }
 
     setOutForDeliveryError(null);
     setOutForDeliveryBusy(true);
     try {
       const fd = new FormData();
-      fd.append("shippingFeeCareOf", shippingFeeCareOf);
-      if (shippingFeeProofFile) {
-        fd.append("proof", shippingFeeProofFile);
+      fd.append("pickupOption", pickupOption);
+      if (
+        pickupOption === "store_pickup" ||
+        pickupOption === "in_store_purchase"
+      ) {
+        fd.append("pickupBranch", pickupBranch);
+      }
+      if (pickupOption === "courier_delivery") {
+        fd.append("courierService", courierService);
+        fd.append("shippingFeeCareOf", shippingFeeCareOf);
+        if (shippingFeeProofFile) {
+          fd.append("proof", shippingFeeProofFile);
+        }
       }
       const res = await apiFetch(
-        `/api/orders/${id}/out-for-delivery`,
+        `/api/orders/${id}/for-pick-up`,
         { method: "POST", body: fd },
         token,
       );
@@ -501,16 +541,27 @@ export function OrderDetailPage() {
       setOutForDeliveryOpen(false);
       setShippingFeeCareOf("");
       setShippingFeeProofFile(null);
+      setPickupOption("");
+      setPickupBranch("");
+      setCourierService("");
     } catch (e) {
       setOutForDeliveryError(
         e instanceof Error
           ? e.message
-          : "Could not mark order as out for delivery",
+          : "Could not mark order as for pick-up",
       );
     } finally {
       setOutForDeliveryBusy(false);
     }
-  }, [id, shippingFeeCareOf, shippingFeeProofFile, token]);
+  }, [
+    courierService,
+    id,
+    pickupBranch,
+    pickupOption,
+    shippingFeeCareOf,
+    shippingFeeProofFile,
+    token,
+  ]);
 
   const confirmItemReceived = useCallback(async () => {
     if (!id || !token) return;
@@ -569,10 +620,10 @@ export function OrderDetailPage() {
     outForDeliveryBusy ||
     itemReceivedBusy;
   const isPaidOrder = detail.status === "Paid";
-  const isOutForDeliveryOrder = detail.status === "Out for delivery";
+  const isForPickupOrder = isForPickupOrderStatus(detail.status);
   const isItemReceivedOrder = detail.status === "Item Received";
   const isPostPaymentOrder =
-    isPaidOrder || isOutForDeliveryOrder || isItemReceivedOrder;
+    isPaidOrder || isForPickupOrder || isItemReceivedOrder;
   const showReservationPaymentProofs =
     detail.paymentType === "full_payment" &&
     (detail.status === "Reservation" ||
@@ -583,7 +634,7 @@ export function OrderDetailPage() {
       (isPostPaymentOrder && detail.reservationPaymentProofUrl == null));
   const showLayawaySchedule =
     detail.paymentType === "layaway" &&
-    (detail.status === "For Payment" || isPaidOrder || isOutForDeliveryOrder || isItemReceivedOrder) &&
+    (detail.status === "For Payment" || isPaidOrder || isForPickupOrder || isItemReceivedOrder) &&
     detail.installments.length > 0;
 
   return (
@@ -686,10 +737,13 @@ export function OrderDetailPage() {
                   setOutForDeliveryError(null);
                   setShippingFeeCareOf("");
                   setShippingFeeProofFile(null);
+                  setPickupOption("");
+                  setPickupBranch("");
+                  setCourierService("");
                   setOutForDeliveryOpen(true);
                 }}
               >
-                Out for delivery
+                For pick-up
               </button>
             ) : null}
             {isCancellableOrderStatus(detail.status) ? (
@@ -710,7 +764,7 @@ export function OrderDetailPage() {
         </div>
       ) : null}
 
-      {isOutForDeliveryOrder ? (
+      {isForPickupOrder ? (
         <div className={cardClass}>
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
             Order actions
@@ -838,6 +892,21 @@ export function OrderDetailPage() {
               <span className="whitespace-pre-wrap break-words">
                 {detail.declineReason}
               </span>
+            </DetailField>
+          ) : null}
+          {detail.pickupOption ? (
+            <DetailField label="Pick-up option">
+              {pickupOptionLabel(detail.pickupOption)}
+            </DetailField>
+          ) : null}
+          {detail.pickupBranch ? (
+            <DetailField label="Branch">
+              {pickupBranchLabel(detail.pickupBranch)}
+            </DetailField>
+          ) : null}
+          {detail.courierService ? (
+            <DetailField label="Courier service">
+              {courierServiceLabel(detail.courierService)}
             </DetailField>
           ) : null}
           {detail.shippingFeeCareOf ? (
@@ -1216,7 +1285,7 @@ export function OrderDetailPage() {
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
           role="dialog"
           aria-modal
-          aria-labelledby="out-for-delivery-title"
+          aria-labelledby="for-pickup-title"
           onClick={() => {
             if (!outForDeliveryBusy) setOutForDeliveryOpen(false);
           }}
@@ -1226,55 +1295,121 @@ export function OrderDetailPage() {
             onClick={(e) => e.stopPropagation()}
           >
             <h3
-              id="out-for-delivery-title"
+              id="for-pickup-title"
               className="text-base font-semibold text-slate-900 dark:text-slate-100"
             >
-              Out for delivery
+              For pick-up
             </h3>
             <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
-              The order and inventory item will be marked as out for delivery.
+              The order and inventory item will be marked as for pick-up.
               Waitlisted clients will be notified that this item is no longer
               available.
             </p>
             <div className="mt-4 space-y-4">
               <label className="block">
                 <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                  Shipping fee care of
+                  Pick-up options
                 </span>
                 <select
-                  value={shippingFeeCareOf}
+                  value={pickupOption}
                   onChange={(e) => {
-                    setShippingFeeCareOf(e.target.value);
-                    if (e.target.value !== "The Bag Hub") {
-                      setShippingFeeProofFile(null);
-                    }
+                    setPickupOption(e.target.value);
+                    setPickupBranch("");
+                    setCourierService("");
+                    setShippingFeeCareOf("");
+                    setShippingFeeProofFile(null);
                     if (outForDeliveryError) setOutForDeliveryError(null);
                   }}
                   disabled={outForDeliveryBusy}
                   className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-500/30 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                 >
                   <option value="">Select…</option>
-                  <option value="The Bag Hub">The Bag Hub</option>
-                  <option value="Client">Client</option>
+                  <option value="store_pickup">Store pick-up</option>
+                  <option value="courier_delivery">Courier delivery</option>
+                  <option value="in_store_purchase">In-store purchase</option>
                 </select>
               </label>
-              {shippingFeeCareOf === "The Bag Hub" ? (
+              {pickupOption === "store_pickup" ||
+              pickupOption === "in_store_purchase" ? (
                 <label className="block">
                   <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                    Proof of payment for shipping fee
+                    Branch
                   </span>
-                  <input
-                    type="file"
-                    accept="image/*,application/pdf"
-                    disabled={outForDeliveryBusy}
+                  <select
+                    value={pickupBranch}
                     onChange={(e) => {
-                      const file = e.target.files?.[0] ?? null;
-                      setShippingFeeProofFile(file);
+                      setPickupBranch(e.target.value);
                       if (outForDeliveryError) setOutForDeliveryError(null);
                     }}
-                    className="mt-1 block w-full text-sm text-slate-700 file:mr-3 file:rounded-lg file:border-0 file:bg-violet-50 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-violet-900 hover:file:bg-violet-100 disabled:opacity-50 dark:text-slate-300 dark:file:bg-violet-950/60 dark:file:text-violet-100"
-                  />
+                    disabled={outForDeliveryBusy}
+                    className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-500/30 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                  >
+                    <option value="">Select…</option>
+                    <option value="makati">Makati</option>
+                    <option value="pasig">Pasig</option>
+                  </select>
                 </label>
+              ) : null}
+              {pickupOption === "courier_delivery" ? (
+                <>
+                  <label className="block">
+                    <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                      Courier service
+                    </span>
+                    <select
+                      value={courierService}
+                      onChange={(e) => {
+                        setCourierService(e.target.value);
+                        if (outForDeliveryError) setOutForDeliveryError(null);
+                      }}
+                      disabled={outForDeliveryBusy}
+                      className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-500/30 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                    >
+                      <option value="">Select…</option>
+                      <option value="lbc">LBC</option>
+                      <option value="third_party">Third-party</option>
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                      Shipping fee care of
+                    </span>
+                    <select
+                      value={shippingFeeCareOf}
+                      onChange={(e) => {
+                        setShippingFeeCareOf(e.target.value);
+                        if (e.target.value !== "The Bag Hub") {
+                          setShippingFeeProofFile(null);
+                        }
+                        if (outForDeliveryError) setOutForDeliveryError(null);
+                      }}
+                      disabled={outForDeliveryBusy}
+                      className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-500/30 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                    >
+                      <option value="">Select…</option>
+                      <option value="The Bag Hub">The Bag Hub</option>
+                      <option value="Client">Client</option>
+                    </select>
+                  </label>
+                  {shippingFeeCareOf === "The Bag Hub" ? (
+                    <label className="block">
+                      <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                        Proof of payment for shipping fee
+                      </span>
+                      <input
+                        type="file"
+                        accept="image/*,application/pdf"
+                        disabled={outForDeliveryBusy}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0] ?? null;
+                          setShippingFeeProofFile(file);
+                          if (outForDeliveryError) setOutForDeliveryError(null);
+                        }}
+                        className="mt-1 block w-full text-sm text-slate-700 file:mr-3 file:rounded-lg file:border-0 file:bg-violet-50 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-violet-900 hover:file:bg-violet-100 disabled:opacity-50 dark:text-slate-300 dark:file:bg-violet-950/60 dark:file:text-violet-100"
+                      />
+                    </label>
+                  ) : null}
+                </>
               ) : null}
               {outForDeliveryError ? (
                 <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
@@ -1290,6 +1425,11 @@ export function OrderDetailPage() {
                   if (outForDeliveryBusy) return;
                   setOutForDeliveryOpen(false);
                   setOutForDeliveryError(null);
+                  setPickupOption("");
+                  setPickupBranch("");
+                  setCourierService("");
+                  setShippingFeeCareOf("");
+                  setShippingFeeProofFile(null);
                 }}
                 className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
               >
@@ -1299,10 +1439,17 @@ export function OrderDetailPage() {
                 type="button"
                 disabled={
                   outForDeliveryBusy ||
-                  !shippingFeeCareOf ||
-                  (shippingFeeCareOf === "The Bag Hub" && !shippingFeeProofFile)
+                  !pickupOption ||
+                  ((pickupOption === "store_pickup" ||
+                    pickupOption === "in_store_purchase") &&
+                    !pickupBranch) ||
+                  (pickupOption === "courier_delivery" &&
+                    (!courierService ||
+                      !shippingFeeCareOf ||
+                      (shippingFeeCareOf === "The Bag Hub" &&
+                        !shippingFeeProofFile)))
                 }
-                onClick={() => void confirmOutForDelivery()}
+                onClick={() => void confirmForPickup()}
                 className={layawayApproveBtn}
               >
                 {outForDeliveryBusy ? "Saving…" : "Save"}

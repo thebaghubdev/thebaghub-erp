@@ -148,6 +148,8 @@ export type InventoryListRow = {
   transactionType: string | null;
   currentBranch: string;
   itemLabel: string;
+  /** Posted product name when available, otherwise item label. */
+  productName: string;
   inclusions: string;
   /** From item_authentication (`rating`), if set. */
   rating: string | null;
@@ -1457,7 +1459,7 @@ export class InventoryService {
 
   async findAllForStaff(): Promise<InventoryListRow[]> {
     const rows = await this.inventoryRepo.find({
-      relations: { inquiry: true, consignor: true },
+      relations: { inquiry: true, consignor: true, itemPosting: true },
       order: { dateReceived: 'DESC' },
     });
     const ids = rows.map((r) => r.id);
@@ -1477,6 +1479,9 @@ export class InventoryService {
             .trim()
         : '';
       const auth = authByItemId.get(r.id);
+      const itemLabel = itemLabelFromSnapshot(r.itemSnapshot);
+      const productName =
+        r.itemPosting?.productName?.trim() || itemLabel;
       return {
         id: r.id,
         sku: r.sku,
@@ -1486,7 +1491,8 @@ export class InventoryService {
         status: r.status,
         transactionType: r.transactionType,
         currentBranch: r.currentBranch,
-        itemLabel: itemLabelFromSnapshot(r.itemSnapshot),
+        itemLabel,
+        productName,
         inclusions: inclusionsFromSnapshot(r.itemSnapshot),
         rating: normalizeOptionalText(auth?.rating),
         authenticatorNotes: normalizeOptionalText(auth?.authenticatorNotes),

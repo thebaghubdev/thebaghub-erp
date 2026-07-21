@@ -108,6 +108,30 @@ export class Order extends AuditedEntity {
   declineReason: string | null;
 
   @Column({
+    name: 'pickup_option',
+    type: 'varchar',
+    length: 32,
+    nullable: true,
+  })
+  pickupOption: string | null;
+
+  @Column({
+    name: 'pickup_branch',
+    type: 'varchar',
+    length: 16,
+    nullable: true,
+  })
+  pickupBranch: string | null;
+
+  @Column({
+    name: 'courier_service',
+    type: 'varchar',
+    length: 32,
+    nullable: true,
+  })
+  courierService: string | null;
+
+  @Column({
     name: 'shipping_fee_care_of',
     type: 'varchar',
     length: 32,

@@ -1,4 +1,7 @@
-import { inventoryStatusBadgeClassName } from "../lib/inventory-status-badge";
+import {
+  inventoryStatusBadgeClassName,
+  inventoryStatusDisplayLabel,
+} from "../lib/inventory-status-badge";
 
 const baseClass = "font-medium";
 
@@ -12,7 +15,7 @@ export function InventoryStatusBadge({ status, className = "" }: Props) {
     <span
       className={`${baseClass} ${inventoryStatusBadgeClassName(status)} ${className}`.trim()}
     >
-      {status}
+      {inventoryStatusDisplayLabel(status)}
     </span>
   );
 }

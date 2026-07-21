@@ -14,7 +14,7 @@ export const INVENTORY_ITEM_STATUS_FILTER_OPTIONS: {
   { value: "For Posting", label: "For Posting" },
   { value: "Available For Purchase", label: "Available For Purchase" },
   { value: "Reserved - Layaway", label: "Reserved - Layaway" },
-  { value: "Out for delivery", label: "Out for delivery" },
+  { value: "For pick-up", label: "For pick-up" },
   { value: "Sold under warranty", label: "Sold under warranty" },
   { value: "Sold final", label: "Sold final" },
   { value: "Paid to consignor", label: "Paid to consignor" },

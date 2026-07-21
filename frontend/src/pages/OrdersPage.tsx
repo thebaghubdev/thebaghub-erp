@@ -1,8 +1,10 @@
 import { createColumnHelper } from "@tanstack/react-table";
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DataTable } from "../components/data-table/DataTable";
 import { OrderStatusBadge } from "../components/OrderStatusBadge";
+import { StaffCreateOrderPanel } from "../components/StaffCreateOrderPanel";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
@@ -27,6 +29,9 @@ type OrderRow = {
 };
 
 type OrdersTab = "all" | "create";
+
+const LEAVE_TAB_MSG =
+  "You have unsaved changes to this order. Switch tabs anyway?";
 
 const columnHelper = createColumnHelper<OrderRow>();
 
@@ -110,6 +115,11 @@ export function OrdersPage() {
   const [rows, setRows] = useState<OrderRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [tabLeaveOpen, setTabLeaveOpen] = useState(false);
+  const [pendingOrdersTab, setPendingOrdersTab] = useState<OrdersTab | null>(
+    null,
+  );
+  const [createFormDirty, setCreateFormDirty] = useState(false);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -132,11 +142,40 @@ export function OrdersPage() {
     if (tab === "all") void load();
   }, [tab, load]);
 
+  useEffect(() => {
+    if (tab === "all") setCreateFormDirty(false);
+  }, [tab]);
+
+  const requestTab = (next: OrdersTab) => {
+    if (tab === "create" && next === "all" && createFormDirty) {
+      setPendingOrdersTab(next);
+      setTabLeaveOpen(true);
+      return;
+    }
+    setTab(next);
+  };
+
   const tabBtn =
     "-mb-px border-b-2 border-transparent px-4 py-2 text-sm font-medium transition-colors focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500";
 
   return (
     <div className="w-full min-w-0">
+      <ConfirmDialog
+        open={tabLeaveOpen}
+        title="Unsaved changes"
+        description={LEAVE_TAB_MSG}
+        cancelLabel="Stay"
+        confirmLabel="Switch tab"
+        onCancel={() => {
+          setTabLeaveOpen(false);
+          setPendingOrdersTab(null);
+        }}
+        onConfirm={() => {
+          if (pendingOrdersTab !== null) setTab(pendingOrdersTab);
+          setTabLeaveOpen(false);
+          setPendingOrdersTab(null);
+        }}
+      />
       <div
         className="mb-6 flex items-end gap-2 border-b border-slate-200 dark:border-slate-800"
         role="tablist"
@@ -153,7 +192,7 @@ export function OrdersPage() {
               ? "border-violet-600 text-violet-700 dark:text-violet-300"
               : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
           }`}
-          onClick={() => setTab("all")}
+          onClick={() => requestTab("all")}
         >
           All orders
         </button>
@@ -168,7 +207,7 @@ export function OrdersPage() {
               ? "border-violet-600 text-violet-700 dark:text-violet-300"
               : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
           }`}
-          onClick={() => setTab("create")}
+          onClick={() => requestTab("create")}
         >
           Create order
         </button>
@@ -210,11 +249,11 @@ export function OrdersPage() {
           aria-labelledby="tab-orders-create"
           className="min-h-[12rem]"
         >
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-            <p className="text-sm leading-relaxed text-slate-600 dark:text-slate-400">
-              Staff order creation will be available here.
-            </p>
-          </div>
+          <StaffCreateOrderPanel
+            portalToken={token ?? ""}
+            onDirtyChange={setCreateFormDirty}
+            onSubmitted={(orderId) => navigate(`/portal/orders/${orderId}`)}
+          />
         </section>
       )}
     </div>

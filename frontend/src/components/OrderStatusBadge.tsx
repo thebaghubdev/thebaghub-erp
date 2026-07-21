@@ -1,4 +1,7 @@
-import { orderStatusBadgeClassName } from "../lib/order-status-badge";
+import {
+  orderStatusBadgeClassName,
+  orderStatusDisplayLabel,
+} from "../lib/order-status-badge";
 
 const baseClass = "font-medium";
 
@@ -12,7 +15,7 @@ export function OrderStatusBadge({ status, className = "" }: Props) {
     <span
       className={`${baseClass} ${orderStatusBadgeClassName(status)} ${className}`.trim()}
     >
-      {status}
+      {orderStatusDisplayLabel(status)}
     </span>
   );
 }

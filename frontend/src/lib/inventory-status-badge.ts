@@ -11,6 +11,7 @@ const BY_STATUS: Record<string, string> = {
   "available for purchase": "text-green-800 dark:text-green-300",
   "reserved - layaway": "text-blue-800 dark:text-blue-300",
   "out for delivery": "text-sky-800 dark:text-sky-300",
+  "for pick-up": "text-sky-800 dark:text-sky-300",
   "sold under warranty": "text-emerald-800 dark:text-emerald-300",
   "sold final": "text-zinc-700 dark:text-zinc-300",
   "paid to consignor": "text-emerald-800 dark:text-emerald-300",
@@ -26,4 +27,11 @@ const BY_STATUS: Record<string, string> = {
 export function inventoryStatusBadgeClassName(status: string): string {
   const key = status.trim().toLowerCase();
   return BY_STATUS[key] ?? DEFAULT;
+}
+
+/** Display label for inventory status (backend may still store legacy values). */
+export function inventoryStatusDisplayLabel(status: string): string {
+  const key = status.trim().toLowerCase();
+  if (key === "out for delivery" || key === "for pick-up") return "For pick-up";
+  return status;
 }
