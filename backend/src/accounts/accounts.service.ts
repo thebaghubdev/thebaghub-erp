@@ -50,6 +50,7 @@ export type ClientAccountDetail = ClientAccountRow & {
     | 'direct_deposit'
     | null;
   preferredPaymentBranch: 'pasig' | 'makati' | null;
+  isCreditLine: boolean;
   emailVerifiedAt: string | null;
   updatedAt: string;
 };
@@ -134,6 +135,7 @@ export class AccountsService {
       bankCode: c.bankCode,
       preferredPaymentMethod: c.preferredPaymentMethod,
       preferredPaymentBranch: c.preferredPaymentBranch,
+      isCreditLine: c.isCreditLine,
       emailVerifiedAt: c.user.emailVerifiedAt?.toISOString() ?? null,
       updatedAt: c.updatedAt.toISOString(),
     };
@@ -153,6 +155,30 @@ export class AccountsService {
     }
 
     client.vipStatus = vipStatus;
+    client.updatedById = actorUserId;
+    await this.clientsRepo.save(client);
+
+    const refreshed = await this.clientsRepo.findOneOrFail({
+      where: { id: clientId },
+      relations: ['user'],
+    });
+    return this.mapClientDetail(refreshed);
+  }
+
+  async updateClientCreditLine(
+    clientId: string,
+    isCreditLine: boolean,
+    actorUserId: string,
+  ): Promise<ClientAccountDetail> {
+    const client = await this.clientsRepo.findOne({
+      where: { id: clientId },
+      relations: ['user'],
+    });
+    if (!client) {
+      throw new NotFoundException('Client not found');
+    }
+
+    client.isCreditLine = isCreditLine;
     client.updatedById = actorUserId;
     await this.clientsRepo.save(client);
 

@@ -98,4 +98,8 @@ export class Client extends AuditedEntity {
   /** Cumulative purchase value in whole PHP pesos. */
   @Column({ name: 'total_purchases', type: 'int', default: 0 })
   totalPurchases: number;
+
+  /** Whether this client has an active credit line for purchases. */
+  @Column({ name: 'is_credit_line', type: 'boolean', default: false })
+  isCreditLine: boolean;
 }

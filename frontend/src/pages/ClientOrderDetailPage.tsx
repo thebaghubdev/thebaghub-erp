@@ -8,7 +8,10 @@ import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { useClientAuth } from "../context/client-auth";
 import { apiFetch } from "../lib/api";
 import { formatPhpDisplay } from "../lib/format-php";
-import { paymentTypeLabel } from "../lib/order-status-filter-options";
+import {
+  isFullPaymentLike,
+  paymentTypeLabel,
+} from "../lib/order-status-filter-options";
 import { isForPickupOrderStatus } from "../lib/order-pickup-labels";
 import type { OrderInstallmentRow } from "../lib/order-installments";
 
@@ -238,7 +241,7 @@ export function ClientOrderDetailPage() {
                 {formatPhpDisplay(detail.fullPaymentTotalPrice)}
               </DetailField>
             </>
-          ) : detail.paymentType === "full_payment" ? (
+          ) : isFullPaymentLike(detail.paymentType) ? (
             <DetailField label="Full payment price">
               {formatPhpDisplay(detail.fullPaymentPrice)}
             </DetailField>

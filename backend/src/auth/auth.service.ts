@@ -346,6 +346,7 @@ export class AuthService {
         vipStatus: 'Regular' | 'Gold' | 'Diamond';
         totalConsignments: number;
         totalPurchases: number;
+        isCreditLine: boolean;
       } | null,
     };
 
@@ -382,6 +383,7 @@ export class AuthService {
           vipStatus: normalizeClientVipStatus(cli.vipStatus),
           totalConsignments: cli.totalConsignments ?? 0,
           totalPurchases: cli.totalPurchases ?? 0,
+          isCreditLine: cli.isCreditLine,
         };
       }
     }

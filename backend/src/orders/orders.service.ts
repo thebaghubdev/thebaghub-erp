@@ -84,6 +84,7 @@ import {
   ORDER_INSTALLMENT_STATUS_PAID,
   ORDER_INSTALLMENT_STATUS_UNPAID,
   ORDER_NUMBER_OFFSET,
+  PAYMENT_TYPE_CREDIT_LINE,
   PAYMENT_TYPE_FULL,
   PAYMENT_TYPE_LAYAWAY,
   RESERVATION_HOLDING_HOURS,
@@ -1150,26 +1151,31 @@ export class OrdersService {
       throw new BadRequestException(
         'Layaway orders are marked as paid automatically when the last installment is marked as paid',
       );
-    } else if (order.paymentType === PAYMENT_TYPE_FULL) {
+    } else if (
+      order.paymentType === PAYMENT_TYPE_FULL ||
+      order.paymentType === PAYMENT_TYPE_CREDIT_LINE
+    ) {
       if (
         order.status !== ORDER_STATUS_FOR_PAYMENT &&
         order.status !== ORDER_STATUS_RESERVATION
       ) {
         throw new BadRequestException(
-          'Only full payment orders awaiting payment or reserved can be marked as paid',
+          'Only full payment or credit line orders awaiting payment or reserved can be marked as paid',
         );
       }
-      if (
-        !(await this.media.hasMedia(
-          MediaOwnerType.ORDER,
-          order.id,
-          MediaPurpose.PAYMENT_PROOF,
-          { proofType: 'full' },
-        ))
-      ) {
-        throw new BadRequestException(
-          'Upload proof of payment before marking this order as paid',
-        );
+      if (order.paymentType === PAYMENT_TYPE_FULL) {
+        if (
+          !(await this.media.hasMedia(
+            MediaOwnerType.ORDER,
+            order.id,
+            MediaPurpose.PAYMENT_PROOF,
+            { proofType: 'full' },
+          ))
+        ) {
+          throw new BadRequestException(
+            'Upload proof of payment before marking this order as paid',
+          );
+        }
       }
     } else {
       throw new BadRequestException('Unsupported payment type');
@@ -1960,6 +1966,11 @@ export class OrdersService {
     if (!client) {
       throw new NotFoundException('Client profile not found');
     }
+    if (dto.paymentType === PAYMENT_TYPE_CREDIT_LINE && !client.isCreditLine) {
+      throw new BadRequestException(
+        'Credit line is not available for this account',
+      );
+    }
 
     const item = await this.inventoryRepo.findOne({
       where: {
@@ -2109,6 +2120,11 @@ export class OrdersService {
     });
     if (!client) {
       throw new NotFoundException('Client not found');
+    }
+    if (dto.paymentType === PAYMENT_TYPE_CREDIT_LINE && !client.isCreditLine) {
+      throw new BadRequestException(
+        'Credit line is not available for this client',
+      );
     }
 
     const item = await this.inventoryRepo.findOne({

@@ -22,6 +22,10 @@ import {
   MIN_LAYAWAY_MONTHS,
 } from "../lib/layaway-pricing";
 import {
+  orderPaymentTypeOptions,
+  type OrderPaymentType,
+} from "../lib/order-status-filter-options";
+import {
   formatPhpAmount,
   formatPhpDisplay,
   parsePhpStringToNumber,
@@ -52,13 +56,6 @@ const labelCellClassName =
   "border border-slate-200 bg-slate-50 px-3 py-2.5 text-left text-sm font-normal text-slate-600 align-top w-28 sm:w-32";
 const valueCellClassName =
   "border border-slate-200 bg-white px-3 py-2.5 text-left text-sm text-slate-900 align-top break-words whitespace-normal";
-
-type PaymentType = "full_payment" | "layaway";
-
-const paymentTypeOptions: Array<{ value: PaymentType; label: string }> = [
-  { value: "full_payment", label: "Full payment" },
-  { value: "layaway", label: "Layaway" },
-];
 
 const LAYAWAY_TERMS_URL = "/terms/layaway.txt";
 const ORDER_SALES_CONTRACT_TERMS_URL = "/terms/order-sales-contract.txt";
@@ -186,7 +183,7 @@ export function ClientOrderItemPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [photosModalOpen, setPhotosModalOpen] = useState(false);
-  const [paymentType, setPaymentType] = useState<PaymentType>("full_payment");
+  const [paymentType, setPaymentType] = useState<OrderPaymentType>("full_payment");
   const [layawayMonths, setLayawayMonths] = useState(
     String(DEFAULT_LAYAWAY_MONTHS),
   );
@@ -340,6 +337,12 @@ export function ClientOrderItemPage() {
     return getLayawayEligibility(rating, item.category);
   }, [item]);
 
+  const isCreditLine = Boolean(user?.client?.isCreditLine);
+  const paymentTypeOptions = useMemo(
+    () => orderPaymentTypeOptions(isCreditLine),
+    [isCreditLine],
+  );
+
   useEffect(() => {
     if (!layawayEligibility.allowed && paymentType === "layaway") {
       setPaymentType("full_payment");
@@ -349,6 +352,14 @@ export function ClientOrderItemPage() {
       setSignatureFieldKey((k) => k + 1);
     }
   }, [layawayEligibility.allowed, paymentType]);
+
+  useEffect(() => {
+    if (!isCreditLine && paymentType === "credit_line") {
+      setPaymentType("full_payment");
+      setOrderSignatureFile(null);
+      setSignatureFieldKey((k) => k + 1);
+    }
+  }, [isCreditLine, paymentType]);
 
   const layawayMonthsNumber = useMemo(() => {
     const n = Number.parseInt(layawayMonths, 10);
@@ -462,8 +473,9 @@ export function ClientOrderItemPage() {
           <select
             value={paymentType}
             onChange={(e) => {
-              const next = e.target.value as PaymentType;
+              const next = e.target.value as OrderPaymentType;
               if (next === "layaway" && !layawayEligibility.allowed) return;
+              if (next === "credit_line" && !isCreditLine) return;
               setPaymentType(next);
               setOrderSignatureFile(null);
               setSignatureFieldKey((k) => k + 1);

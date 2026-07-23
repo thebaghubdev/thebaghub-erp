@@ -16,6 +16,7 @@ export type ClientProfile = {
   vipStatus: 'Regular' | 'Gold' | 'Diamond'
   totalConsignments: number
   totalPurchases: number
+  isCreditLine: boolean
 }
 
 export type AuthUser = {
@@ -65,5 +66,6 @@ export function normalizeClientProfile(
       typeof raw.totalConsignments === 'number' ? raw.totalConsignments : 0,
     totalPurchases:
       typeof raw.totalPurchases === 'number' ? raw.totalPurchases : 0,
+    isCreditLine: Boolean(raw.isCreditLine),
   }
 }

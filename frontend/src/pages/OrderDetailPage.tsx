@@ -13,7 +13,10 @@ import {
   MAX_LAYAWAY_MONTHS,
   MIN_LAYAWAY_MONTHS,
 } from "../lib/layaway-pricing";
-import { paymentTypeLabel } from "../lib/order-status-filter-options";
+import {
+  isFullPaymentLike,
+  paymentTypeLabel,
+} from "../lib/order-status-filter-options";
 import {
   courierServiceLabel,
   isForPickupOrderStatus,
@@ -632,6 +635,10 @@ export function OrderDetailPage() {
     detail.paymentType === "full_payment" &&
     (detail.status === "For Payment" ||
       (isPostPaymentOrder && detail.reservationPaymentProofUrl == null));
+  const showCreditLineMarkPaid =
+    detail.paymentType === "credit_line" &&
+    detail.status === "For Payment" &&
+    !isPostPaymentOrder;
   const showLayawaySchedule =
     detail.paymentType === "layaway" &&
     (detail.status === "For Payment" || isPaidOrder || isForPickupOrder || isItemReceivedOrder) &&
@@ -861,7 +868,7 @@ export function OrderDetailPage() {
                 {formatPhpDisplay(detail.fullPaymentTotalPrice)}
               </DetailField>
             </>
-          ) : detail.paymentType === "full_payment" &&
+          ) : isFullPaymentLike(detail.paymentType) &&
             !isCancelledOrderStatus(detail.status) ? (
             <DetailField label="Full payment price">
               {formatPhpDisplay(detail.fullPaymentPrice)}
@@ -986,6 +993,22 @@ export function OrderDetailPage() {
             }
             allowMarkPaid={!isPostPaymentOrder}
             readOnly={isPostPaymentOrder}
+            onUpdated={setDetail}
+          />
+        ) : null}
+        {showCreditLineMarkPaid ? (
+          <FullPaymentProofUpload<OrderDetail>
+            orderId={detail.id}
+            token={token}
+            apiBase="/api/orders"
+            proofUrl={null}
+            title="Credit line"
+            noProofLabel="No proof upload required for credit line orders."
+            hideUpload
+            requireProofForMarkPaid={false}
+            allowMarkPaid
+            confirmTitle="Mark credit line order as paid?"
+            confirmDescription="This order will be marked as paid."
             onUpdated={setDetail}
           />
         ) : null}

@@ -34,6 +34,7 @@ export const SHIPPING_FEE_CARE_OF_OPTIONS = [
 
 export const PAYMENT_TYPE_FULL = 'full_payment';
 export const PAYMENT_TYPE_LAYAWAY = 'layaway';
+export const PAYMENT_TYPE_CREDIT_LINE = 'credit_line';
 
 export const ORDER_INSTALLMENT_STATUS_UNPAID = 'Unpaid';
 export const ORDER_INSTALLMENT_STATUS_PAID = 'Paid';

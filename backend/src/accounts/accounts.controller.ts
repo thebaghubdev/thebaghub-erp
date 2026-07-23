@@ -11,6 +11,7 @@ import { StaffOnlyGuard } from '../auth/staff-only.guard';
 import { JwtUser } from '../auth/jwt-user';
 import { AccountsService } from './accounts.service';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
+import { UpdateClientCreditLineDto } from './dto/update-client-credit-line.dto';
 import { UpdateClientVipStatusDto } from './dto/update-client-vip-status.dto';
 
 @Controller('accounts')
@@ -42,6 +43,19 @@ export class AccountsController {
     return this.accountsService.updateClientVipStatus(
       id,
       dto.vipStatus,
+      req.user.userId,
+    );
+  }
+
+  @Patch('clients/:id/credit-line')
+  updateClientCreditLine(
+    @Param('id') id: string,
+    @Body() dto: UpdateClientCreditLineDto,
+    @Req() req: { user: JwtUser },
+  ) {
+    return this.accountsService.updateClientCreditLine(
+      id,
+      dto.isCreditLine,
       req.user.userId,
     );
   }
