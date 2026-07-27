@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import {
   IsIn,
   IsNotEmpty,
+  IsOptional,
   IsString,
   MinLength,
   ValidateIf,
@@ -23,11 +24,16 @@ export class ConfirmOfferBankDetailsDto {
   bank: 'bdo' | 'bpi' | 'other';
 }
 
+/** Offer confirmation uses payment prefs from the client profile; fields are optional for legacy payloads. */
 export class ConfirmOfferDto {
+  @IsOptional()
   @IsIn(['check_pickup', 'cash_pickup', 'direct_deposit'])
-  paymentMethod: 'check_pickup' | 'cash_pickup' | 'direct_deposit';
+  paymentMethod?: 'check_pickup' | 'cash_pickup' | 'direct_deposit';
 
-  @ValidateIf((o: ConfirmOfferDto) => o.paymentMethod !== 'direct_deposit')
+  @ValidateIf(
+    (o: ConfirmOfferDto) =>
+      o.paymentMethod != null && o.paymentMethod !== 'direct_deposit',
+  )
   @IsIn(['pasig', 'makati'])
   paymentBranch?: 'pasig' | 'makati';
 

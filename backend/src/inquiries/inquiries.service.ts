@@ -15,8 +15,7 @@ import { Between, In, Repository } from 'typeorm';
 import { Client } from '../clients/entities/client.entity';
 import {
   extractBankDetailsFromClient,
-  hasCompleteBankDetails,
-  isClientPaymentPreferenceLocked,
+  isClientPaymentProfileReadyForOffer,
 } from '../clients/client-payment-preference.util';
 import { MailService } from '../mail/mail.service';
 import {
@@ -1589,57 +1588,25 @@ export class InquiriesService {
 
     const beforeMedia = await this.inquiryMediaAudit(inquiryId);
 
-    const paymentLocked = isClientPaymentPreferenceLocked(client);
-    let paymentMethod: ClientOfferConfirmationData['paymentMethod'];
+    if (!isClientPaymentProfileReadyForOffer(client)) {
+      throw new BadRequestException(
+        'Complete your preferred payment method on My profile before confirming this offer.',
+      );
+    }
+
+    const paymentMethod = client.preferredPaymentMethod!;
     let bankDetails: ClientOfferConfirmationData['bankDetails'] = null;
     let paymentBranch: ClientOfferConfirmationData['paymentBranch'] = null;
 
-    if (paymentLocked) {
-      paymentMethod = client.preferredPaymentMethod!;
-      if (paymentMethod === 'direct_deposit') {
-        bankDetails = extractBankDetailsFromClient(client);
-        if (!bankDetails) {
-          throw new BadRequestException(
-            'Your saved bank details are incomplete. Please contact our coordinators if you need to update them.',
-          );
-        }
-      } else {
-        if (!client.preferredPaymentBranch) {
-          throw new BadRequestException(
-            'Your saved payment pickup branch is missing. Please contact our coordinators if you need to update it.',
-          );
-        }
-        paymentBranch = client.preferredPaymentBranch;
-      }
-    } else if (dto.paymentMethod === 'direct_deposit') {
-      paymentMethod = dto.paymentMethod;
-      if (!dto.bankDetails) {
+    if (paymentMethod === 'direct_deposit') {
+      bankDetails = extractBankDetailsFromClient(client);
+      if (!bankDetails) {
         throw new BadRequestException(
-          'Bank details are required for direct deposit',
-        );
-      }
-      bankDetails = {
-        accountNumber: dto.bankDetails.accountNumber.trim(),
-        accountName: dto.bankDetails.accountName.trim(),
-        bank: dto.bankDetails.bank,
-      };
-      if (
-        !hasCompleteBankDetails({
-          bankAccountNumber: bankDetails.accountNumber,
-          bankAccountName: bankDetails.accountName,
-          bankCode: bankDetails.bank,
-        })
-      ) {
-        throw new BadRequestException(
-          'All bank fields are required for direct deposit',
+          'Your saved bank details are incomplete. Update them on My profile, then confirm this offer.',
         );
       }
     } else {
-      paymentMethod = dto.paymentMethod;
-      if (!dto.paymentBranch) {
-        throw new BadRequestException('Payment pickup branch is required');
-      }
-      paymentBranch = dto.paymentBranch;
+      paymentBranch = client.preferredPaymentBranch!;
     }
 
     const ext = extFromMime(mime);
@@ -1652,21 +1619,6 @@ export class InquiriesService {
       signatureKey,
       { uploadedByUserId: user.userId },
     );
-
-    if (!paymentLocked) {
-      if (paymentMethod === 'direct_deposit' && bankDetails) {
-        client.bankAccountNumber = bankDetails.accountNumber;
-        client.bankAccountName = bankDetails.accountName;
-        client.bankCode = bankDetails.bank;
-      } else {
-        client.bankAccountNumber = null;
-        client.bankAccountName = null;
-        client.bankCode = null;
-      }
-      client.preferredPaymentMethod = paymentMethod;
-      client.preferredPaymentBranch = paymentBranch;
-      await this.clientsRepo.save(client);
-    }
 
     const before = cloneInquiryForAudit(r);
 

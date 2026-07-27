@@ -15,9 +15,6 @@ export type ClientBankDetails = {
   bank: ClientBankCode;
 };
 
-export const CLIENT_PAYMENT_PREFERENCE_LOCKED_MESSAGE =
-  "Please contact our coordinators if you need to update these details.";
-
 export function formatClientPaymentMethod(
   m: ClientPaymentMethod | null | undefined,
 ): string {
@@ -46,10 +43,25 @@ export function parseClientPaymentBranch(
   return value === "makati" ? "makati" : "pasig";
 }
 
-export function isClientPaymentPreferenceLocked(
-  client: Pick<ClientProfile, "preferredPaymentMethod"> | null | undefined,
+export function isClientPaymentProfileReadyForOffer(
+  client: Pick<
+    ClientProfile,
+    | "preferredPaymentMethod"
+    | "preferredPaymentBranch"
+    | "bankAccountNumber"
+    | "bankAccountName"
+    | "bankCode"
+  > | null | undefined,
 ): boolean {
-  return parseClientPaymentMethod(client?.preferredPaymentMethod) != null;
+  const method = parseClientPaymentMethod(client?.preferredPaymentMethod);
+  if (!method) return false;
+  if (method === "direct_deposit") {
+    return hasCompleteClientBankDetails(client);
+  }
+  return (
+    client?.preferredPaymentBranch === "pasig" ||
+    client?.preferredPaymentBranch === "makati"
+  );
 }
 
 export function hasCompleteClientBankDetails(

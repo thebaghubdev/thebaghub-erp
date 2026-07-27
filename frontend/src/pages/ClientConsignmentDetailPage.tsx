@@ -21,11 +21,9 @@ import {
 import { InquiryStatusBadge } from "../components/InquiryStatusBadge";
 import { formatPhpDisplay } from "../lib/format-php";
 import {
-  bankDetailsFromClientProfile,
-  CLIENT_PAYMENT_PREFERENCE_LOCKED_MESSAGE,
   formatClientBank,
   formatClientPaymentMethod,
-  isClientPaymentPreferenceLocked,
+  isClientPaymentProfileReadyForOffer,
   parseClientPaymentBranch,
   parseClientPaymentMethod,
 } from "../lib/client-payment-preference";
@@ -168,7 +166,7 @@ export function ClientConsignmentDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { token, user, refreshUser } = useClientAuth();
-  const paymentLocked = isClientPaymentPreferenceLocked(user?.client);
+  const [profileRefreshBusy, setProfileRefreshBusy] = useState(false);
   const [detail, setDetail] = useState<ClientInquiryDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -181,12 +179,6 @@ export function ClientConsignmentDetailPage() {
   const [confirmModalOpen, setConfirmModalOpen] = useState(false);
   const [confirmBusy, setConfirmBusy] = useState(false);
   const [confirmFormError, setConfirmFormError] = useState<string | null>(null);
-  const [paymentMethod, setPaymentMethod] = useState<
-    "check_pickup" | "cash_pickup" | "direct_deposit"
-  >("check_pickup");
-  const [paymentBranch, setPaymentBranch] = useState<"pasig" | "makati">(
-    "pasig",
-  );
   const [consignmentTermsAccepted, setConsignmentTermsAccepted] =
     useState(false);
   const [termsAgreementModalOpen, setTermsAgreementModalOpen] = useState(false);
@@ -289,18 +281,21 @@ export function ClientConsignmentDetailPage() {
 
   const openConfirmOfferModal = useCallback(() => {
     setConfirmFormError(null);
-    setPaymentMethod(
-      parseClientPaymentMethod(user?.client?.preferredPaymentMethod) ??
-        "check_pickup",
-    );
-    setPaymentBranch(
-      parseClientPaymentBranch(user?.client?.preferredPaymentBranch),
-    );
     setConsignmentTermsAccepted(false);
     setOfferSignatureFile(null);
     setSignatureFieldKey((k) => k + 1);
+    void refreshUser();
     setConfirmModalOpen(true);
-  }, [user?.client?.preferredPaymentBranch, user?.client?.preferredPaymentMethod]);
+  }, [refreshUser]);
+
+  const refreshProfileForConfirm = useCallback(async () => {
+    setProfileRefreshBusy(true);
+    try {
+      await refreshUser();
+    } finally {
+      setProfileRefreshBusy(false);
+    }
+  }, [refreshUser]);
 
   const openRenewalModal = useCallback(() => {
     setRenewalFormError(null);
@@ -326,31 +321,17 @@ export function ClientConsignmentDetailPage() {
         );
         return;
       }
-      let savedBankDetails: NonNullable<
-        ClientOfferConfirmation["bankDetails"]
-      > | null = null;
-      if (paymentMethod === "direct_deposit") {
-        savedBankDetails = bankDetailsFromClientProfile(user?.client);
-        if (!savedBankDetails) {
-          setConfirmFormError(
-            isClientPaymentPreferenceLocked(user?.client)
-              ? `Your saved bank details are incomplete. ${CLIENT_PAYMENT_PREFERENCE_LOCKED_MESSAGE}`
-              : "Your saved bank details are incomplete. Add or update them on My profile, then return here to confirm.",
-          );
-          return;
-        }
+      if (!isClientPaymentProfileReadyForOffer(user?.client)) {
+        setConfirmFormError(
+          "Complete your preferred payment method on My profile before confirming.",
+        );
+        return;
       }
       setConfirmFormError(null);
       setConfirmBusy(true);
       try {
-        const payload: Record<string, unknown> = { paymentMethod };
-        if (paymentMethod === "direct_deposit" && savedBankDetails) {
-          payload.bankDetails = savedBankDetails;
-        } else {
-          payload.paymentBranch = paymentBranch;
-        }
         const fd = new FormData();
-        fd.append("payload", JSON.stringify(payload));
+        fd.append("payload", JSON.stringify({}));
         fd.append("signature", offerSignatureFile);
         const res = await apiFetch(
           `/api/client/consignment-inquiry/${id}/confirm-offer`,
@@ -373,8 +354,6 @@ export function ClientConsignmentDetailPage() {
     [
       id,
       token,
-      paymentMethod,
-      paymentBranch,
       user,
       consignmentTermsAccepted,
       offerSignatureFile,
@@ -976,176 +955,111 @@ export function ClientConsignmentDetailPage() {
                   Confirm offer
                 </h2>
                 <p className="mt-1 text-sm text-slate-600">
-                  {paymentLocked
-                    ? "Your saved payment preference will be used for this offer."
-                    : "Choose how you would like to receive payment for this offer."}
+                  Your saved payment preference on My profile will be used for
+                  this offer.
                 </p>
                 <form
                   onSubmit={(e) => void submitConfirmOffer(e)}
                   className="mt-4 space-y-4"
                 >
-                  {paymentLocked ? (
-                    <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/80 p-3">
+                  <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/80 p-3">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
                       <p className="text-sm text-slate-700">
-                        {CLIENT_PAYMENT_PREFERENCE_LOCKED_MESSAGE}
+                        To change payment method or bank details, update{" "}
+                        <Link
+                          to="/profile"
+                          className="font-medium text-violet-700 hover:underline"
+                        >
+                          My profile
+                        </Link>
+                        , then refresh below.
                       </p>
-                      <dl className="space-y-2 text-sm">
+                      <button
+                        type="button"
+                        onClick={() => void refreshProfileForConfirm()}
+                        disabled={confirmBusy || profileRefreshBusy}
+                        className="shrink-0 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+                      >
+                        {profileRefreshBusy ? "Refreshing…" : "Refresh"}
+                      </button>
+                    </div>
+                    <dl className="space-y-2 text-sm">
+                      <div>
+                        <dt className="text-slate-500">Payment method</dt>
+                        <dd className="font-medium text-slate-900">
+                          {formatClientPaymentMethod(
+                            user?.client?.preferredPaymentMethod,
+                          )}
+                        </dd>
+                      </div>
+                      {parseClientPaymentMethod(
+                        user?.client?.preferredPaymentMethod,
+                      ) === "direct_deposit" ? (
+                        <>
+                          <div>
+                            <dt className="text-slate-500">Bank</dt>
+                            <dd className="font-medium text-slate-900">
+                              {(() => {
+                                const bc = user?.client?.bankCode;
+                                return bc === "bdo" ||
+                                  bc === "bpi" ||
+                                  bc === "other"
+                                  ? formatClientBank(bc)
+                                  : "—";
+                              })()}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt className="text-slate-500">Account name</dt>
+                            <dd className="text-slate-900">
+                              {displayOrDash(user?.client?.bankAccountName)}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt className="text-slate-500">Account number</dt>
+                            <dd className="font-mono text-xs text-slate-900">
+                              {displayOrDash(user?.client?.bankAccountNumber)}
+                            </dd>
+                          </div>
+                        </>
+                      ) : parseClientPaymentMethod(
+                          user?.client?.preferredPaymentMethod,
+                        ) ? (
                         <div>
-                          <dt className="text-slate-500">Payment method</dt>
+                          <dt className="text-slate-500">Pickup branch</dt>
                           <dd className="font-medium text-slate-900">
-                            {formatClientPaymentMethod(
-                              user?.client?.preferredPaymentMethod,
+                            {branchLabel(
+                              parseClientPaymentBranch(
+                                user?.client?.preferredPaymentBranch,
+                              ),
                             )}
                           </dd>
                         </div>
-                        {user?.client?.preferredPaymentMethod ===
-                        "direct_deposit" ? (
-                          <>
-                            <div>
-                              <dt className="text-slate-500">Bank</dt>
-                              <dd className="font-medium text-slate-900">
-                                {(() => {
-                                  const bc = user?.client?.bankCode;
-                                  return bc === "bdo" ||
-                                    bc === "bpi" ||
-                                    bc === "other"
-                                    ? formatClientBank(bc)
-                                    : "—";
-                                })()}
-                              </dd>
-                            </div>
-                            <div>
-                              <dt className="text-slate-500">Account name</dt>
-                              <dd className="text-slate-900">
-                                {displayOrDash(user?.client?.bankAccountName)}
-                              </dd>
-                            </div>
-                            <div>
-                              <dt className="text-slate-500">Account number</dt>
-                              <dd className="font-mono text-xs text-slate-900">
-                                {displayOrDash(user?.client?.bankAccountNumber)}
-                              </dd>
-                            </div>
-                          </>
-                        ) : (
-                          <div>
-                            <dt className="text-slate-500">Pickup branch</dt>
-                            <dd className="font-medium text-slate-900">
-                              {branchLabel(
-                                user?.client?.preferredPaymentBranch ?? "pasig",
-                              )}
-                            </dd>
-                          </div>
-                        )}
-                      </dl>
-                    </div>
-                  ) : (
-                    <>
-                      <div>
-                        <label
-                          htmlFor="client-payment-method"
-                          className="block text-sm font-medium text-slate-700"
+                      ) : null}
+                    </dl>
+                    {!isClientPaymentProfileReadyForOffer(user?.client) ? (
+                      <p
+                        className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"
+                        role="status"
+                      >
+                        Your payment profile is incomplete.{" "}
+                        <Link
+                          to="/profile"
+                          className="font-medium text-amber-950 underline"
                         >
-                          Your preferred payment method
-                        </label>
-                        <select
-                          id="client-payment-method"
-                          value={paymentMethod}
-                          onChange={(e) =>
-                            setPaymentMethod(
-                              e.target.value as typeof paymentMethod,
-                            )
-                          }
-                          disabled={confirmBusy}
-                          className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 disabled:bg-slate-100"
-                        >
-                          <option value="check_pickup">Check pickup</option>
-                          <option value="cash_pickup">Cash pickup</option>
-                          <option value="direct_deposit">Direct deposit</option>
-                        </select>
-                      </div>
-
-                      {paymentMethod === "direct_deposit" ? (
-                        <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/80 p-3">
-                          <p className="text-sm text-slate-700">
-                            Direct deposit uses the bank account saved on{" "}
-                            <Link
-                              to="/profile"
-                              className="font-medium text-violet-700 hover:underline"
-                            >
-                              My profile
-                            </Link>
-                            . Complete all bank fields there before confirming.
-                          </p>
-                          <dl className="space-y-2 text-sm">
-                            <div>
-                              <dt className="text-slate-500">Bank</dt>
-                              <dd className="font-medium text-slate-900">
-                                {(() => {
-                                  const bc = user?.client?.bankCode;
-                                  return bc === "bdo" ||
-                                    bc === "bpi" ||
-                                    bc === "other"
-                                    ? formatClientBank(bc)
-                                    : "—";
-                                })()}
-                              </dd>
-                            </div>
-                            <div>
-                              <dt className="text-slate-500">Account name</dt>
-                              <dd className="text-slate-900">
-                                {displayOrDash(user?.client?.bankAccountName)}
-                              </dd>
-                            </div>
-                            <div>
-                              <dt className="text-slate-500">Account number</dt>
-                              <dd className="font-mono text-xs text-slate-900">
-                                {displayOrDash(user?.client?.bankAccountNumber)}
-                              </dd>
-                            </div>
-                          </dl>
-                          {!bankDetailsFromClientProfile(user?.client) ? (
-                            <p
-                              className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"
-                              role="status"
-                            >
-                              Your bank details are incomplete.{" "}
-                              <Link
-                                to="/profile"
-                                className="font-medium text-amber-950 underline"
-                              >
-                                Open My profile
-                              </Link>{" "}
-                              to add them, then return here to confirm.
-                            </p>
-                          ) : null}
-                        </div>
-                      ) : (
-                        <div>
-                          <label
-                            htmlFor="client-payment-branch"
-                            className="block text-sm font-medium text-slate-700"
-                          >
-                            Pickup branch
-                          </label>
-                          <select
-                            id="client-payment-branch"
-                            value={paymentBranch}
-                            onChange={(e) =>
-                              setPaymentBranch(
-                                e.target.value as typeof paymentBranch,
-                              )
-                            }
-                            disabled={confirmBusy}
-                            className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 disabled:bg-slate-100"
-                          >
-                            <option value="pasig">Pasig</option>
-                            <option value="makati">Makati</option>
-                          </select>
-                        </div>
-                      )}
-                    </>
-                  )}
+                          Open My profile
+                        </Link>{" "}
+                        to set your preferred payment method
+                        {parseClientPaymentMethod(
+                          user?.client?.preferredPaymentMethod,
+                        ) === "direct_deposit" ||
+                        !user?.client?.preferredPaymentMethod
+                          ? " and bank details"
+                          : " and pickup branch"}
+                        , then refresh above.
+                      </p>
+                    ) : null}
+                  </div>
 
                   <div className="flex items-start gap-2 pt-1">
                     <input

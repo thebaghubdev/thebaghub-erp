@@ -13,6 +13,7 @@ import { AccountsService } from './accounts.service';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
 import { UpdateClientCreditLineDto } from './dto/update-client-credit-line.dto';
 import { UpdateClientVipStatusDto } from './dto/update-client-vip-status.dto';
+import { UpdateClientBankDto } from '../clients/dto/update-client-bank.dto';
 
 @Controller('accounts')
 @UseGuards(StaffOnlyGuard)
@@ -56,6 +57,19 @@ export class AccountsController {
     return this.accountsService.updateClientCreditLine(
       id,
       dto.isCreditLine,
+      req.user.userId,
+    );
+  }
+
+  @Patch('clients/:id/payment-profile')
+  updateClientPaymentProfile(
+    @Param('id') id: string,
+    @Body() dto: UpdateClientBankDto,
+    @Req() req: { user: JwtUser },
+  ) {
+    return this.accountsService.updateClientPaymentProfile(
+      id,
+      dto,
       req.user.userId,
     );
   }

@@ -6,11 +6,8 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import {
-  CLIENT_PAYMENT_PREFERENCE_LOCKED_MESSAGE,
   hasCompleteBankDetails,
-  isClientPaymentPreferenceLocked,
   touchesBankFields,
-  touchesPaymentFields,
 } from './client-payment-preference.util';
 import { SaveConsignmentFormSnapshotDto } from './dto/save-consignment-form-snapshot.dto';
 import { UpdateClientBankDto } from './dto/update-client-bank.dto';
@@ -76,15 +73,32 @@ export class ClientProfileService {
     if (!client) {
       throw new NotFoundException('Client profile not found');
     }
+    this.applyPaymentAndBankUpdate(client, dto);
+    await this.clientsRepo.save(client);
+    return mapClientProfileView(client);
+  }
 
-    const locked = isClientPaymentPreferenceLocked(client);
-    if (
-      locked &&
-      (touchesBankFields(dto) || touchesPaymentFields(dto))
-    ) {
-      throw new BadRequestException(CLIENT_PAYMENT_PREFERENCE_LOCKED_MESSAGE);
+  async updatePaymentAndBankByClientId(
+    clientId: string,
+    dto: UpdateClientBankDto,
+    updatedById?: string,
+  ): Promise<ClientProfileView> {
+    const client = await this.clientsRepo.findOne({ where: { id: clientId } });
+    if (!client) {
+      throw new NotFoundException('Client not found');
     }
+    this.applyPaymentAndBankUpdate(client, dto);
+    if (updatedById) {
+      client.updatedById = updatedById;
+    }
+    await this.clientsRepo.save(client);
+    return mapClientProfileView(client);
+  }
 
+  private applyPaymentAndBankUpdate(
+    client: Client,
+    dto: UpdateClientBankDto,
+  ): void {
     if (touchesBankFields(dto)) {
       const missing =
         dto.bankAccountNumber === undefined ||
@@ -144,10 +158,6 @@ export class ClientProfileService {
         client.preferredPaymentBranch = dto.preferredPaymentBranch;
       }
     }
-
-    await this.clientsRepo.save(client);
-
-    return mapClientProfileView(client);
   }
 
   async getConsignmentFormSnapshot(userId: string): Promise<{

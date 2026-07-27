@@ -1,8 +1,5 @@
 import { Client } from './entities/client.entity';
 
-export const CLIENT_PAYMENT_PREFERENCE_LOCKED_MESSAGE =
-  'Payment and bank details cannot be changed after they are set. Please contact our coordinators if you need to update them.';
-
 export type ClientBankCode = 'bdo' | 'bpi' | 'other';
 
 export type ClientBankDetails = {
@@ -10,12 +7,6 @@ export type ClientBankDetails = {
   accountName: string;
   bank: ClientBankCode;
 };
-
-export function isClientPaymentPreferenceLocked(
-  client: Pick<Client, 'preferredPaymentMethod'>,
-): boolean {
-  return client.preferredPaymentMethod != null;
-}
 
 export function hasCompleteBankDetails(
   client: Pick<
@@ -67,5 +58,28 @@ export function touchesPaymentFields(dto: {
   return (
     dto.preferredPaymentMethod !== undefined ||
     dto.preferredPaymentBranch !== undefined
+  );
+}
+
+export function isClientPaymentProfileReadyForOffer(
+  client: Pick<
+    Client,
+    'preferredPaymentMethod' | 'preferredPaymentBranch' | 'bankAccountNumber' | 'bankAccountName' | 'bankCode'
+  >,
+): boolean {
+  const method = client.preferredPaymentMethod;
+  if (
+    method !== 'check_pickup' &&
+    method !== 'cash_pickup' &&
+    method !== 'direct_deposit'
+  ) {
+    return false;
+  }
+  if (method === 'direct_deposit') {
+    return hasCompleteBankDetails(client);
+  }
+  return (
+    client.preferredPaymentBranch === 'pasig' ||
+    client.preferredPaymentBranch === 'makati'
   );
 }

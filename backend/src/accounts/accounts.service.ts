@@ -6,6 +6,8 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Client } from '../clients/entities/client.entity';
+import { ClientProfileService } from '../clients/client-profile.service';
+import { UpdateClientBankDto } from '../clients/dto/update-client-bank.dto';
 import { normalizeClientVipStatus } from '../clients/client-vip-status.util';
 import type { ClientVipStatus } from '../clients/client-vip-status.util';
 import { Employee } from '../employees/entities/employee.entity';
@@ -62,6 +64,7 @@ export class AccountsService {
     private readonly employeesRepo: Repository<Employee>,
     @InjectRepository(Client)
     private readonly clientsRepo: Repository<Client>,
+    private readonly clientProfileService: ClientProfileService,
   ) {}
 
   private mapEmployee(e: Employee): EmployeeAccountRow {
@@ -187,6 +190,19 @@ export class AccountsService {
       relations: ['user'],
     });
     return this.mapClientDetail(refreshed);
+  }
+
+  async updateClientPaymentProfile(
+    clientId: string,
+    dto: UpdateClientBankDto,
+    actorUserId: string,
+  ): Promise<ClientAccountDetail> {
+    await this.clientProfileService.updatePaymentAndBankByClientId(
+      clientId,
+      dto,
+      actorUserId,
+    );
+    return this.findClientById(clientId);
   }
 
   async updateEmployee(

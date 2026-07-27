@@ -3,12 +3,10 @@ import { useClientAuth } from "../context/client-auth";
 import { apiFetch } from "../lib/api";
 import { branchLabel } from "../lib/consignment-schedule-labels";
 import {
-  CLIENT_PAYMENT_PREFERENCE_LOCKED_MESSAGE,
   clientVipStatusBadgeClassName,
   formatClientPaymentMethod,
   formatClientVipStatus,
   hasCompleteClientBankDetails,
-  isClientPaymentPreferenceLocked,
   parseClientPaymentBranch,
   parseClientPaymentMethod,
   type ClientPaymentMethod,
@@ -129,8 +127,6 @@ export function ClientMyAccountPage() {
     const t = v?.trim();
     return t ? t : "—";
   };
-
-  const paymentLocked = isClientPaymentPreferenceLocked(c);
 
   const onSubmitBank = async (e: FormEvent) => {
     e.preventDefault();
@@ -373,23 +369,15 @@ export function ClientMyAccountPage() {
               payouts.
             </p>
           </div>
-          {!paymentLocked ? (
-            <button
-              type="button"
-              onClick={openPaymentModal}
-              disabled={!c || !token}
-              className="shrink-0 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-900 shadow-sm hover:bg-slate-50 disabled:opacity-50"
-            >
-              Edit
-            </button>
-          ) : null}
+          <button
+            type="button"
+            onClick={openPaymentModal}
+            disabled={!c || !token}
+            className="shrink-0 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-900 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+          >
+            Edit
+          </button>
         </div>
-
-        {paymentLocked ? (
-          <p className="mt-3 text-xs text-slate-500">
-            {CLIENT_PAYMENT_PREFERENCE_LOCKED_MESSAGE}
-          </p>
-        ) : null}
 
         <dl className="mt-4 space-y-3 text-sm">
           <div>
@@ -424,23 +412,15 @@ export function ClientMyAccountPage() {
               Saved for consignment payments with direct deposit.
             </p>
           </div>
-          {!paymentLocked ? (
-            <button
-              type="button"
-              onClick={openBankModal}
-              disabled={!c || !token}
-              className="shrink-0 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-900 shadow-sm hover:bg-slate-50 disabled:opacity-50"
-            >
-              Edit
-            </button>
-          ) : null}
+          <button
+            type="button"
+            onClick={openBankModal}
+            disabled={!c || !token}
+            className="shrink-0 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-900 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+          >
+            Edit
+          </button>
         </div>
-
-        {paymentLocked ? (
-          <p className="mt-3 text-xs text-slate-500">
-            {CLIENT_PAYMENT_PREFERENCE_LOCKED_MESSAGE}
-          </p>
-        ) : null}
 
         <dl className="mt-4 space-y-3 text-sm">
           <div>

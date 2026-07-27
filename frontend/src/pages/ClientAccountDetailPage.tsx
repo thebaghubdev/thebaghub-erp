@@ -9,6 +9,9 @@ import {
   formatClientPaymentMethod,
   formatClientVipStatus,
   clientVipStatusBadgeClassName,
+  parseClientPaymentBranch,
+  parseClientPaymentMethod,
+  type ClientPaymentMethod,
   type ClientVipStatus,
 } from "../lib/client-payment-preference";
 import { formatPhpDisplay } from "../lib/format-php";
@@ -105,6 +108,17 @@ export function ClientAccountDetailPage() {
     null,
   );
   const [creditLineEditSaving, setCreditLineEditSaving] = useState(false);
+  const [paymentEditOpen, setPaymentEditOpen] = useState(false);
+  const [paymentMethodEdit, setPaymentMethodEdit] =
+    useState<ClientPaymentMethod>("check_pickup");
+  const [paymentBranchEdit, setPaymentBranchEdit] = useState<
+    "pasig" | "makati"
+  >("pasig");
+  const [bankCodeEdit, setBankCodeEdit] = useState("");
+  const [accountNumberEdit, setAccountNumberEdit] = useState("");
+  const [accountNameEdit, setAccountNameEdit] = useState("");
+  const [paymentEditError, setPaymentEditError] = useState<string | null>(null);
+  const [paymentEditSaving, setPaymentEditSaving] = useState(false);
 
   const loadDetail = useCallback(async () => {
     if (!token || !clientId) return;
@@ -231,6 +245,88 @@ export function ClientAccountDetailPage() {
       );
     } finally {
       setCreditLineEditSaving(false);
+    }
+  }
+
+  function openPaymentEdit() {
+    if (!detail) return;
+    setPaymentEditError(null);
+    setPaymentMethodEdit(
+      parseClientPaymentMethod(detail.preferredPaymentMethod) ?? "check_pickup",
+    );
+    setPaymentBranchEdit(parseClientPaymentBranch(detail.preferredPaymentBranch));
+    setBankCodeEdit(
+      detail.bankCode === "bdo" ||
+        detail.bankCode === "bpi" ||
+        detail.bankCode === "other"
+        ? detail.bankCode
+        : "",
+    );
+    setAccountNumberEdit(detail.bankAccountNumber ?? "");
+    setAccountNameEdit(detail.bankAccountName ?? "");
+    setPaymentEditOpen(true);
+  }
+
+  function closePaymentEdit() {
+    setPaymentEditOpen(false);
+    setPaymentEditError(null);
+  }
+
+  async function submitPaymentEdit(e: FormEvent) {
+    e.preventDefault();
+    if (!detail || !token || !clientId) return;
+    if (
+      !bankCodeEdit.trim() ||
+      !accountNumberEdit.trim() ||
+      !accountNameEdit.trim()
+    ) {
+      setPaymentEditError(
+        "All bank fields are required: bank, account number, and account name.",
+      );
+      return;
+    }
+    setPaymentEditError(null);
+    setPaymentEditSaving(true);
+    try {
+      const payload: Record<string, unknown> = {
+        preferredPaymentMethod: paymentMethodEdit,
+        bankAccountNumber: accountNumberEdit,
+        bankAccountName: accountNameEdit,
+        bankCode: bankCodeEdit,
+      };
+      if (paymentMethodEdit !== "direct_deposit") {
+        payload.preferredPaymentBranch = paymentBranchEdit;
+      }
+      const res = await apiFetch(
+        `/api/accounts/clients/${clientId}/payment-profile`,
+        {
+          method: "PATCH",
+          body: JSON.stringify(payload),
+        },
+        token,
+      );
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as {
+          message?: string | string[];
+        } | null;
+        const msg = body?.message;
+        throw new Error(
+          Array.isArray(msg)
+            ? msg.join(", ")
+            : typeof msg === "string"
+              ? msg
+              : `Request failed (${res.status})`,
+        );
+      }
+      const updated = (await res.json()) as ClientAccountDetail;
+      setDetail(updated);
+      closePaymentEdit();
+    } catch (err) {
+      setPaymentEditError(
+        err instanceof Error ? err.message : "Failed to update payment profile",
+      );
+    } finally {
+      setPaymentEditSaving(false);
     }
   }
 
@@ -535,9 +631,39 @@ export function ClientAccountDetailPage() {
       </section>
 
       <section className={cardClass}>
-        <h2 className="mb-4 text-sm font-semibold text-slate-900 dark:text-slate-100">
-          Preferred payment method
-        </h2>
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+              Payment & bank details
+            </h2>
+          </div>
+          <button
+            type="button"
+            onClick={openPaymentEdit}
+            aria-label="Edit payment and bank details"
+            className={iconEditButtonClass}
+          >
+            <svg
+              className="h-3.5 w-3.5"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              aria-hidden
+            >
+              <path
+                d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <path
+                d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
+        </div>
         <dl className="grid gap-4 sm:grid-cols-2">
           <DetailField
             label="Payment method"
@@ -550,14 +676,6 @@ export function ClientAccountDetailPage() {
               value={branchLabel(detail.preferredPaymentBranch ?? "pasig")}
             />
           ) : null}
-        </dl>
-      </section>
-
-      <section className={cardClass}>
-        <h2 className="mb-4 text-sm font-semibold text-slate-900 dark:text-slate-100">
-          Bank details (direct deposit)
-        </h2>
-        <dl className="grid gap-4 sm:grid-cols-2">
           <DetailField
             label="Bank"
             value={bankCode ? formatClientBank(bankCode) : "—"}
@@ -573,6 +691,158 @@ export function ClientAccountDetailPage() {
           />
         </dl>
       </section>
+
+      {paymentEditOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          role="dialog"
+          aria-modal
+          aria-labelledby="edit-payment-profile-title"
+        >
+          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-slate-200 bg-white p-6 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+            <h3
+              id="edit-payment-profile-title"
+              className="text-base font-semibold text-slate-900 dark:text-slate-100"
+            >
+              Edit payment & bank details
+            </h3>
+            <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+              {fullName || detail.username}
+            </p>
+
+            <form
+              onSubmit={(e) => void submitPaymentEdit(e)}
+              className="mt-4 space-y-4"
+            >
+              <div>
+                <label
+                  className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300"
+                  htmlFor="edit-payment-method"
+                >
+                  Payment method
+                </label>
+                <select
+                  id="edit-payment-method"
+                  className={fieldClass}
+                  value={paymentMethodEdit}
+                  onChange={(e) =>
+                    setPaymentMethodEdit(e.target.value as ClientPaymentMethod)
+                  }
+                  disabled={paymentEditSaving}
+                >
+                  <option value="check_pickup">Check pickup</option>
+                  <option value="cash_pickup">Cash pickup</option>
+                  <option value="direct_deposit">Direct deposit</option>
+                </select>
+              </div>
+
+              {paymentMethodEdit !== "direct_deposit" ? (
+                <div>
+                  <label
+                    className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300"
+                    htmlFor="edit-payment-branch"
+                  >
+                    Pickup branch
+                  </label>
+                  <select
+                    id="edit-payment-branch"
+                    className={fieldClass}
+                    value={paymentBranchEdit}
+                    onChange={(e) =>
+                      setPaymentBranchEdit(
+                        e.target.value as typeof paymentBranchEdit,
+                      )
+                    }
+                    disabled={paymentEditSaving}
+                  >
+                    <option value="pasig">Pasig</option>
+                    <option value="makati">Makati</option>
+                  </select>
+                </div>
+              ) : null}
+
+              <div>
+                <label
+                  className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300"
+                  htmlFor="edit-bank-code"
+                >
+                  Bank
+                </label>
+                <select
+                  id="edit-bank-code"
+                  className={fieldClass}
+                  value={bankCodeEdit}
+                  onChange={(e) => setBankCodeEdit(e.target.value)}
+                  disabled={paymentEditSaving}
+                >
+                  <option value="">— Select bank —</option>
+                  <option value="bdo">BDO</option>
+                  <option value="bpi">BPI</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              <div>
+                <label
+                  className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300"
+                  htmlFor="edit-account-number"
+                >
+                  Account number
+                </label>
+                <input
+                  id="edit-account-number"
+                  type="text"
+                  autoComplete="off"
+                  className={fieldClass}
+                  value={accountNumberEdit}
+                  onChange={(e) => setAccountNumberEdit(e.target.value)}
+                  disabled={paymentEditSaving}
+                />
+              </div>
+              <div>
+                <label
+                  className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300"
+                  htmlFor="edit-account-name"
+                >
+                  Account name
+                </label>
+                <input
+                  id="edit-account-name"
+                  type="text"
+                  autoComplete="name"
+                  className={fieldClass}
+                  value={accountNameEdit}
+                  onChange={(e) => setAccountNameEdit(e.target.value)}
+                  disabled={paymentEditSaving}
+                />
+              </div>
+
+              {paymentEditError ? (
+                <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+                  {paymentEditError}
+                </p>
+              ) : null}
+
+              <div className="flex flex-wrap justify-end gap-2">
+                <button
+                  type="button"
+                  disabled={paymentEditSaving}
+                  onClick={closePaymentEdit}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={paymentEditSaving}
+                  className="rounded-lg bg-violet-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-violet-700 disabled:opacity-50 dark:bg-violet-600 dark:hover:bg-violet-500"
+                >
+                  {paymentEditSaving ? "Saving…" : "Save"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
