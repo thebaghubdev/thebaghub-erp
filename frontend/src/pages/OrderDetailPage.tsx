@@ -78,6 +78,9 @@ const recordActionBtn =
 const layawayApproveBtn =
   "rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-emerald-700 focus-visible:outline focus-visible:ring-2 focus-visible:ring-emerald-500 dark:bg-emerald-600 dark:hover:bg-emerald-500";
 
+const primaryActionBtn =
+  "rounded-lg bg-violet-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-violet-700 focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-violet-600 dark:hover:bg-violet-500";
+
 const layawayDeclineBtn =
   "rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-800 shadow-sm hover:bg-red-50 focus-visible:outline focus-visible:ring-2 focus-visible:ring-red-500 dark:border-red-900 dark:bg-slate-950 dark:text-red-200 dark:hover:bg-red-950/40";
 
@@ -215,6 +218,7 @@ export function OrderDetailPage() {
   const [termsConsignorPaymentRelease, setTermsConsignorPaymentRelease] =
     useState("");
   const [outForDeliveryOpen, setOutForDeliveryOpen] = useState(false);
+  const [forPickupModalFromPaid, setForPickupModalFromPaid] = useState(false);
   const [outForDeliveryBusy, setOutForDeliveryBusy] = useState(false);
   const [outForDeliveryError, setOutForDeliveryError] = useState<string | null>(
     null,
@@ -499,13 +503,28 @@ export function OrderDetailPage() {
       setTermsBusy(false);
     }
   }, [
-    id,
     detail,
+    id,
     termsConsignorPaymentRelease,
     termsMonthsNumber,
     termsPriceNumber,
     token,
   ]);
+
+  const openForPickupModal = useCallback(
+    (fromPaid: boolean) => {
+      if (!detail) return;
+      setOutForDeliveryError(null);
+      setShippingFeeCareOf(detail.shippingFeeCareOf ?? "");
+      setShippingFeeProofFile(null);
+      setPickupOption(detail.pickupOption ?? "");
+      setPickupBranch(detail.pickupBranch ?? "");
+      setCourierService(detail.courierService ?? "");
+      setForPickupModalFromPaid(fromPaid);
+      setOutForDeliveryOpen(true);
+    },
+    [detail],
+  );
 
   const confirmForPickup = useCallback(async () => {
     if (!id || !token) return;
@@ -531,10 +550,13 @@ export function OrderDetailPage() {
         return;
       }
       if (shippingFeeCareOf === "The Bag Hub" && !shippingFeeProofFile) {
-        setOutForDeliveryError(
-          "Please upload proof of payment for the shipping fee.",
-        );
-        return;
+        const hasExistingProof = Boolean(detail?.shippingFeeProofUrl);
+        if (!hasExistingProof) {
+          setOutForDeliveryError(
+            "Please upload proof of payment for the shipping fee.",
+          );
+          return;
+        }
       }
     }
 
@@ -581,6 +603,7 @@ export function OrderDetailPage() {
     }
   }, [
     courierService,
+    detail,
     id,
     pickupBranch,
     pickupOption,
@@ -771,15 +794,7 @@ export function OrderDetailPage() {
                 type="button"
                 className={layawayApproveBtn}
                 disabled={anyActionBusy}
-                onClick={() => {
-                  setOutForDeliveryError(null);
-                  setShippingFeeCareOf("");
-                  setShippingFeeProofFile(null);
-                  setPickupOption("");
-                  setPickupBranch("");
-                  setCourierService("");
-                  setOutForDeliveryOpen(true);
-                }}
+                onClick={() => openForPickupModal(true)}
               >
                 For pick-up
               </button>
@@ -807,7 +822,15 @@ export function OrderDetailPage() {
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
             Order actions
           </h2>
-          <div className="mt-4">
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button
+              type="button"
+              className={primaryActionBtn}
+              disabled={anyActionBusy}
+              onClick={() => openForPickupModal(false)}
+            >
+              Edit pick-up details
+            </button>
             <button
               type="button"
               className={layawayApproveBtn}
@@ -1348,12 +1371,12 @@ export function OrderDetailPage() {
               id="for-pickup-title"
               className="text-base font-semibold text-slate-900 dark:text-slate-100"
             >
-              For pick-up
+              {forPickupModalFromPaid ? "For pick-up" : "Edit pick-up details"}
             </h3>
             <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
-              The order and inventory item will be marked as for pick-up.
-              Waitlisted clients will be notified that this item is no longer
-              available.
+              {forPickupModalFromPaid
+                ? "Confirm or update how the client will receive this item. The order and inventory item will be marked as for pick-up. Waitlisted clients will be notified that this item is no longer available."
+                : "Update how the client will receive this item. For courier delivery, set who covers the shipping fee when ready."}
             </p>
             <div className="mt-4 space-y-4">
               <label className="block">
@@ -1497,12 +1520,17 @@ export function OrderDetailPage() {
                     (!courierService ||
                       !shippingFeeCareOf ||
                       (shippingFeeCareOf === "The Bag Hub" &&
-                        !shippingFeeProofFile)))
+                        !shippingFeeProofFile &&
+                        !detail?.shippingFeeProofUrl)))
                 }
                 onClick={() => void confirmForPickup()}
                 className={layawayApproveBtn}
               >
-                {outForDeliveryBusy ? "Saving…" : "Save"}
+                {outForDeliveryBusy
+                  ? "Saving…"
+                  : forPickupModalFromPaid
+                    ? "Mark for pick-up"
+                    : "Save changes"}
               </button>
             </div>
           </div>

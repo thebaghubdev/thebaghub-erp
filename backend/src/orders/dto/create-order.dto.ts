@@ -16,8 +16,9 @@ import {
   PAYMENT_TYPE_FULL,
   PAYMENT_TYPE_LAYAWAY,
 } from '../order-status.constants';
+import { OrderPickupFieldsDto } from './order-pickup-fields.dto';
 
-export class CreateOrderDto {
+export class CreateOrderDto extends OrderPickupFieldsDto {
   @IsUUID()
   inventoryItemId: string;
 

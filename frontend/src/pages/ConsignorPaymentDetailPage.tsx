@@ -418,7 +418,7 @@ function ConsignorPaymentGroupHeaderActions({
                   setUnableToSendModalOpen(true);
                 }}
               >
-                Unable to send
+                Unable to send payment
               </button>
             </li>
           </ul>

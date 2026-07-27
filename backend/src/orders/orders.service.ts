@@ -57,13 +57,9 @@ import {
   type OrderInstallmentView,
 } from './order-installment.util';
 import {
-  COURIER_SERVICE_OPTIONS,
-  PICKUP_BRANCH_OPTIONS,
   PICKUP_OPTION_COURIER,
-  PICKUP_OPTION_IN_STORE,
-  PICKUP_OPTION_STORE,
-  PICKUP_OPTIONS,
 } from './order-pickup.constants';
+import { resolveOrderPickupFields } from './order-pickup-fields.util';
 import {
   isCreditLinePaymentType,
   isInstallmentPaymentType,
@@ -214,6 +210,9 @@ export type ClientOrderDetail = {
   holdingPeriod: string | null;
   declineReason: string | null;
   signatureUrl: string | null;
+  pickupOption: string | null;
+  pickupBranch: string | null;
+  courierService: string | null;
   createdAt: string;
   updatedAt: string;
   inventoryItem: {
@@ -853,6 +852,9 @@ export class OrdersService {
       holdingPeriod: order.holdingPeriod?.toISOString() ?? null,
       declineReason: order.declineReason,
       signatureUrl: await this.signatureUrlForOrder(order.id),
+      pickupOption: order.pickupOption,
+      pickupBranch: order.pickupBranch,
+      courierService: order.courierService,
       createdAt: order.createdAt.toISOString(),
       updatedAt: order.updatedAt.toISOString(),
       inventoryItem: {
@@ -1246,41 +1248,15 @@ export class OrdersService {
     shippingFeeCareOfRaw: string | undefined,
     proofFile: MulterFile | undefined,
   ): Promise<StaffOrderDetail> {
-    const pickupOption = pickupOptionRaw?.trim() ?? '';
-    if (
-      !PICKUP_OPTIONS.includes(
-        pickupOption as (typeof PICKUP_OPTIONS)[number],
-      )
-    ) {
-      throw new BadRequestException('Invalid pick-up option');
-    }
+    const { pickupOption, pickupBranch, courierService } =
+      resolveOrderPickupFields({
+        pickupOptionRaw,
+        pickupBranchRaw,
+        courierServiceRaw,
+      });
 
-    let pickupBranch: string | null = null;
-    let courierService: string | null = null;
     let shippingFeeCareOf: string | null = null;
-
-    if (
-      pickupOption === PICKUP_OPTION_STORE ||
-      pickupOption === PICKUP_OPTION_IN_STORE
-    ) {
-      pickupBranch = pickupBranchRaw?.trim() ?? '';
-      if (
-        !PICKUP_BRANCH_OPTIONS.includes(
-          pickupBranch as (typeof PICKUP_BRANCH_OPTIONS)[number],
-        )
-      ) {
-        throw new BadRequestException('Pick-up branch must be Makati or Pasig');
-      }
-    } else if (pickupOption === PICKUP_OPTION_COURIER) {
-      courierService = courierServiceRaw?.trim() ?? '';
-      if (
-        !COURIER_SERVICE_OPTIONS.includes(
-          courierService as (typeof COURIER_SERVICE_OPTIONS)[number],
-        )
-      ) {
-        throw new BadRequestException('Invalid courier service');
-      }
-
+    if (pickupOption === PICKUP_OPTION_COURIER) {
       shippingFeeCareOf = shippingFeeCareOfRaw?.trim() ?? '';
       if (
         !SHIPPING_FEE_CARE_OF_OPTIONS.includes(
@@ -1292,12 +1268,7 @@ export class OrdersService {
         );
       }
 
-      if (shippingFeeCareOf === SHIPPING_FEE_CARE_OF_TBH) {
-        if (!proofFile?.buffer?.length) {
-          throw new BadRequestException(
-            'Proof of payment for shipping fee is required when The Bag Hub covers shipping',
-          );
-        }
+      if (shippingFeeCareOf === SHIPPING_FEE_CARE_OF_TBH && proofFile?.buffer?.length) {
         const mime = proofFile.mimetype?.toLowerCase() ?? '';
         if (!ALLOWED_PROOF_MIMES.has(mime)) {
           throw new BadRequestException(
@@ -1321,9 +1292,13 @@ export class OrdersService {
       if (!order) {
         throw new NotFoundException('Order not found');
       }
-      if (order.status !== ORDER_STATUS_PAID) {
+
+      const markingPaidAsForPickup = order.status === ORDER_STATUS_PAID;
+      const updatingForPickupDetails =
+        order.status === ORDER_STATUS_FOR_PICKUP;
+      if (!markingPaidAsForPickup && !updatingForPickupDetails) {
         throw new BadRequestException(
-          'Only paid orders can be marked as for pick-up',
+          'Only paid orders or orders already for pick-up can update pick-up details',
         );
       }
 
@@ -1335,60 +1310,73 @@ export class OrdersService {
         throw new NotFoundException('Inventory item not found');
       }
 
-      if (
-        pickupOption === PICKUP_OPTION_COURIER &&
-        shippingFeeCareOf === SHIPPING_FEE_CARE_OF_TBH &&
-        proofFile
-      ) {
-        const mime = proofFile.mimetype!.toLowerCase();
-        const ext = extFromProofMime(mime);
-        const storageKey = `orders/${order.id}/shipping-fee/proof-${randomUUID()}.${ext}`;
-        await this.media.replaceSingle(
-          MediaOwnerType.ORDER,
-          order.id,
-          MediaPurpose.PAYMENT_PROOF,
-          proofFile,
-          storageKey,
-          {
-            uploadedByUserId: user.userId,
-            createdById: user.userId,
-            metadata: { proofType: 'shipping_fee' },
-          },
-        );
-        order.shippingFeeProofUploadedAt = new Date();
-        order.shippingFeeProofUploadedByUserId = user.userId;
+      if (pickupOption === PICKUP_OPTION_COURIER) {
+        if (shippingFeeCareOf === SHIPPING_FEE_CARE_OF_TBH) {
+          if (proofFile?.buffer?.length) {
+            const mime = proofFile.mimetype!.toLowerCase();
+            const ext = extFromProofMime(mime);
+            const storageKey = `orders/${order.id}/shipping-fee/proof-${randomUUID()}.${ext}`;
+            await this.media.replaceSingle(
+              MediaOwnerType.ORDER,
+              order.id,
+              MediaPurpose.PAYMENT_PROOF,
+              proofFile,
+              storageKey,
+              {
+                uploadedByUserId: user.userId,
+                createdById: user.userId,
+                metadata: { proofType: 'shipping_fee' },
+              },
+            );
+            order.shippingFeeProofUploadedAt = new Date();
+            order.shippingFeeProofUploadedByUserId = user.userId;
+          } else if (!order.shippingFeeProofUploadedAt) {
+            throw new BadRequestException(
+              'Proof of payment for shipping fee is required when The Bag Hub covers shipping',
+            );
+          }
+        } else {
+          order.shippingFeeProofUploadedAt = null;
+          order.shippingFeeProofUploadedByUserId = null;
+        }
+        order.shippingFeeCareOf = shippingFeeCareOf;
       } else {
+        order.shippingFeeCareOf = null;
         order.shippingFeeProofUploadedAt = null;
         order.shippingFeeProofUploadedByUserId = null;
       }
 
-      item.status = INVENTORY_STATUS_FOR_PICKUP;
-      item.updatedById = user.userId;
-      await em.save(item);
-
-      order.status = ORDER_STATUS_FOR_PICKUP;
       order.pickupOption = pickupOption;
       order.pickupBranch = pickupBranch;
       order.courierService = courierService;
-      order.shippingFeeCareOf = shippingFeeCareOf;
       order.updatedById = user.userId;
-      await em.save(order);
 
-      const waitlistRows = await em.find(Waitlist, {
-        where: { inventoryItemId: item.id },
-        relations: { client: true },
-      });
-      const itemLabel = itemLabelFromSnapshot(item);
-      waitlistRecipients = waitlistRows
-        .filter((row) => row.clientId !== order.customerId)
-        .map((row) => ({
-          email: row.client.email.trim(),
-          firstName: row.client.firstName.trim() || 'there',
-          itemLabel,
-        }));
+      if (markingPaidAsForPickup) {
+        item.status = INVENTORY_STATUS_FOR_PICKUP;
+        item.updatedById = user.userId;
+        await em.save(item);
 
-      if (waitlistRows.length > 0) {
-        await em.delete(Waitlist, { inventoryItemId: item.id });
+        order.status = ORDER_STATUS_FOR_PICKUP;
+        await em.save(order);
+
+        const waitlistRows = await em.find(Waitlist, {
+          where: { inventoryItemId: item.id },
+          relations: { client: true },
+        });
+        const itemLabel = itemLabelFromSnapshot(item);
+        waitlistRecipients = waitlistRows
+          .filter((row) => row.clientId !== order.customerId)
+          .map((row) => ({
+            email: row.client.email.trim(),
+            firstName: row.client.firstName.trim() || 'there',
+            itemLabel,
+          }));
+
+        if (waitlistRows.length > 0) {
+          await em.delete(Waitlist, { inventoryItemId: item.id });
+        }
+      } else {
+        await em.save(order);
       }
     });
 
@@ -2064,6 +2052,12 @@ export class OrdersService {
       throw new BadRequestException('Item price is not set');
     }
 
+    const pickupFields = resolveOrderPickupFields({
+      pickupOptionRaw: dto.pickupOption,
+      pickupBranchRaw: dto.pickupBranch,
+      courierServiceRaw: dto.courierService,
+    });
+
     let layawayPrice: string | null = null;
     let layawayMonthlyPayment: string | null = null;
     let fullPaymentPrice: string | null = null;
@@ -2138,6 +2132,9 @@ export class OrdersService {
         layawayPrice,
         layawayMonthlyPayment,
         fullPaymentPrice,
+        pickupOption: pickupFields.pickupOption,
+        pickupBranch: pickupFields.pickupBranch,
+        courierService: pickupFields.courierService,
         holdingPeriod: addHours(createdAt, holdingHours),
         createdById: user.userId,
         updatedById: user.userId,
@@ -2226,6 +2223,12 @@ export class OrdersService {
       throw new BadRequestException('Item price is not set');
     }
 
+    const pickupFields = resolveOrderPickupFields({
+      pickupOptionRaw: dto.pickupOption,
+      pickupBranchRaw: dto.pickupBranch,
+      courierServiceRaw: dto.courierService,
+    });
+
     let layawayPrice: string | null = null;
     let layawayMonthlyPayment: string | null = null;
     let fullPaymentPrice: string | null = null;
@@ -2300,6 +2303,9 @@ export class OrdersService {
         layawayPrice,
         layawayMonthlyPayment,
         fullPaymentPrice,
+        pickupOption: pickupFields.pickupOption,
+        pickupBranch: pickupFields.pickupBranch,
+        courierService: pickupFields.courierService,
         holdingPeriod: addHours(createdAt, holdingHours),
         createdById: user.userId,
         updatedById: user.userId,
@@ -2378,6 +2384,12 @@ export class OrdersService {
       throw new BadRequestException('This is your item and you cannot buy it.');
     }
 
+    const pickupFields = resolveOrderPickupFields({
+      pickupOptionRaw: dto.pickupOption,
+      pickupBranchRaw: dto.pickupBranch,
+      courierServiceRaw: dto.courierService,
+    });
+
     const orderId = randomUUID();
     const signatureKey = `orders/${orderId}/signature-${randomUUID()}.${extFromMime(signatureMime)}`;
     const proofKey = `orders/${orderId}/reservation/proof-${randomUUID()}.${extFromProofMime(proofMime)}`;
@@ -2430,6 +2442,9 @@ export class OrdersService {
         fullPaymentPrice: formatDecimal(RESERVATION_FEE),
         reservationPaymentProofUploadedAt: createdAt,
         reservationPaymentProofUploadedByUserId: user.userId,
+        pickupOption: pickupFields.pickupOption,
+        pickupBranch: pickupFields.pickupBranch,
+        courierService: pickupFields.courierService,
         holdingPeriod: addHours(createdAt, RESERVATION_HOLDING_HOURS),
         createdById: user.userId,
         updatedById: user.userId,

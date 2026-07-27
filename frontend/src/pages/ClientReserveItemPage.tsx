@@ -13,6 +13,13 @@ import { TermsScrollAgreeModal } from "../components/TermsScrollAgreeModal";
 import { useClientAuth } from "../context/client-auth";
 import { apiFetch } from "../lib/api";
 import { formatPhpDisplay } from "../lib/format-php";
+import {
+  EMPTY_ORDER_PICKUP_FORM,
+  isOrderPickupFormValid,
+  orderPickupPayloadFields,
+  type OrderPickupFormValues,
+} from "../lib/order-pickup-form";
+import { OrderPickupFormFields } from "../components/OrderPickupFormFields";
 
 type CatalogItemDetail = {
   id: string;
@@ -142,6 +149,9 @@ export function ClientReserveItemPage() {
   const [signatureFieldKey, setSignatureFieldKey] = useState(0);
   const [submitBusy, setSubmitBusy] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [pickupForm, setPickupForm] = useState<OrderPickupFormValues>(
+    EMPTY_ORDER_PICKUP_FORM,
+  );
   const photosModalTitleId = useId();
 
   useEffect(() => {
@@ -258,7 +268,11 @@ export function ClientReserveItemPage() {
   }, [user]);
 
   const canSubmit =
-    !submitBusy && proofFile != null && signatureFile != null && termsAccepted;
+    !submitBusy &&
+    proofFile != null &&
+    signatureFile != null &&
+    termsAccepted &&
+    isOrderPickupFormValid(pickupForm);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -268,7 +282,13 @@ export function ClientReserveItemPage() {
     setSubmitBusy(true);
     try {
       const fd = new FormData();
-      fd.append("payload", JSON.stringify({ inventoryItemId: itemId }));
+      fd.append(
+        "payload",
+        JSON.stringify({
+          inventoryItemId: itemId,
+          ...orderPickupPayloadFields(pickupForm),
+        }),
+      );
       fd.append("proof", proofFile);
       fd.append("signature", signatureFile);
 
@@ -349,6 +369,12 @@ export function ClientReserveItemPage() {
             }}
           />
         </label>
+
+        <OrderPickupFormFields
+          values={pickupForm}
+          onChange={setPickupForm}
+          disabled={submitBusy}
+        />
 
         <div className="flex items-start gap-2 pt-1">
           <input

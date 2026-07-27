@@ -29,6 +29,13 @@ import {
   formatPhpDisplay,
   parsePhpStringToNumber,
 } from "../lib/format-php";
+import {
+  EMPTY_ORDER_PICKUP_FORM,
+  isOrderPickupFormValid,
+  orderPickupPayloadFields,
+  type OrderPickupFormValues,
+} from "../lib/order-pickup-form";
+import { OrderPickupFormFields } from "./OrderPickupFormFields";
 
 type ClientAccountRow = {
   id: string;
@@ -235,6 +242,9 @@ export function StaffCreateOrderPanel({
   const [signatureFieldKey, setSignatureFieldKey] = useState(0);
   const [submitBusy, setSubmitBusy] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [pickupForm, setPickupForm] = useState<OrderPickupFormValues>(
+    EMPTY_ORDER_PICKUP_FORM,
+  );
   const photosModalTitleId = useId();
 
   const sortedClients = useMemo(() => {
@@ -594,6 +604,7 @@ export function StaffCreateOrderPanel({
     !ownItemConflict &&
     orderSignatureFile != null &&
     orderTermsAccepted &&
+    isOrderPickupFormValid(pickupForm) &&
     (!isInstallmentPaymentType(paymentType) || layawayTermsAccepted);
 
   const handleSelectSearchResult = (item: InventorySearchRow) => {
@@ -611,6 +622,7 @@ export function StaffCreateOrderPanel({
     setOrderTermsAccepted(false);
     setOrderSignatureFile(null);
     setSignatureFieldKey((k) => k + 1);
+    setPickupForm(EMPTY_ORDER_PICKUP_FORM);
     setSubmitError(null);
   };
 
@@ -640,6 +652,7 @@ export function StaffCreateOrderPanel({
         customerId: selectedClient.id,
         inventoryItemId: selectedItemId,
         paymentType,
+        ...orderPickupPayloadFields(pickupForm),
       };
       if (isInstallmentPaymentType(paymentType)) {
         payload.layawayMonths = layawayMonthsNumber;
@@ -964,6 +977,13 @@ export function StaffCreateOrderPanel({
                   </div>
                 </div>
               ) : null}
+
+              <OrderPickupFormFields
+                values={pickupForm}
+                onChange={setPickupForm}
+                disabled={submitBusy || ownItemConflict}
+                variant="staff"
+              />
 
               <div className="flex items-start gap-2 pt-1">
                 <input

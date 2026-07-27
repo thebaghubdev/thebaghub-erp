@@ -14,7 +14,12 @@ import {
   isItemReceivedOrderStatus,
   paymentTypeLabel,
 } from "../lib/order-status-filter-options";
-import { isForPickupOrderStatus } from "../lib/order-pickup-labels";
+import {
+  courierServiceLabel,
+  isForPickupOrderStatus,
+  pickupBranchLabel,
+  pickupOptionLabel,
+} from "../lib/order-pickup-labels";
 import type { OrderInstallmentRow } from "../lib/order-installments";
 
 type ClientOrderDetail = {
@@ -33,6 +38,9 @@ type ClientOrderDetail = {
   holdingPeriod: string | null;
   declineReason: string | null;
   signatureUrl: string | null;
+  pickupOption: string | null;
+  pickupBranch: string | null;
+  courierService: string | null;
   createdAt: string;
   updatedAt: string;
   inventoryItem: {
@@ -273,6 +281,21 @@ export function ClientOrderDetailPage() {
               <span className="whitespace-pre-wrap break-words">
                 {detail.declineReason}
               </span>
+            </DetailField>
+          ) : null}
+          {detail.pickupOption ? (
+            <DetailField label="Pick-up option">
+              {pickupOptionLabel(detail.pickupOption)}
+            </DetailField>
+          ) : null}
+          {detail.pickupBranch ? (
+            <DetailField label="Branch">
+              {pickupBranchLabel(detail.pickupBranch)}
+            </DetailField>
+          ) : null}
+          {detail.courierService ? (
+            <DetailField label="Courier service">
+              {courierServiceLabel(detail.courierService)}
             </DetailField>
           ) : null}
         </dl>

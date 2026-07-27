@@ -31,6 +31,13 @@ import {
   formatPhpDisplay,
   parsePhpStringToNumber,
 } from "../lib/format-php";
+import {
+  EMPTY_ORDER_PICKUP_FORM,
+  isOrderPickupFormValid,
+  orderPickupPayloadFields,
+  type OrderPickupFormValues,
+} from "../lib/order-pickup-form";
+import { OrderPickupFormFields } from "../components/OrderPickupFormFields";
 
 type CatalogItemDetail = {
   id: string;
@@ -198,6 +205,9 @@ export function ClientOrderItemPage() {
   const [signatureFieldKey, setSignatureFieldKey] = useState(0);
   const [submitBusy, setSubmitBusy] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [pickupForm, setPickupForm] = useState<OrderPickupFormValues>(
+    EMPTY_ORDER_PICKUP_FORM,
+  );
   const photosModalTitleId = useId();
 
   useEffect(() => {
@@ -387,6 +397,7 @@ export function ClientOrderItemPage() {
     !submitBusy &&
     orderSignatureFile != null &&
     orderTermsAccepted &&
+    isOrderPickupFormValid(pickupForm) &&
     (!isInstallmentPaymentType(paymentType) || layawayTermsAccepted);
 
   const handleSubmitOrder = async (e: FormEvent) => {
@@ -407,6 +418,7 @@ export function ClientOrderItemPage() {
       const payload: Record<string, unknown> = {
         inventoryItemId: itemId,
         paymentType,
+        ...orderPickupPayloadFields(pickupForm),
       };
       if (isInstallmentPaymentType(paymentType)) {
         payload.layawayMonths = layawayMonthsNumber;
@@ -586,6 +598,12 @@ export function ClientOrderItemPage() {
             </div>
           </div>
         ) : null}
+
+        <OrderPickupFormFields
+          values={pickupForm}
+          onChange={setPickupForm}
+          disabled={submitBusy}
+        />
 
         <div className="flex items-start gap-2 pt-1">
           <input
