@@ -20,6 +20,7 @@ import {
   MIN_LAYAWAY_MONTHS,
 } from "../lib/layaway-pricing";
 import {
+  isInstallmentPaymentType,
   orderPaymentTypeOptions,
   type OrderPaymentType,
 } from "../lib/order-status-filter-options";
@@ -593,7 +594,7 @@ export function StaffCreateOrderPanel({
     !ownItemConflict &&
     orderSignatureFile != null &&
     orderTermsAccepted &&
-    (paymentType !== "layaway" || layawayTermsAccepted);
+    (!isInstallmentPaymentType(paymentType) || layawayTermsAccepted);
 
   const handleSelectSearchResult = (item: InventorySearchRow) => {
     setSelectedItemId(item.id);
@@ -624,7 +625,10 @@ export function StaffCreateOrderPanel({
       return;
     }
 
-    if (paymentType === "layaway" && layawayMonthsNumber == null) {
+    if (
+      isInstallmentPaymentType(paymentType) &&
+      layawayMonthsNumber == null
+    ) {
       setSubmitError("Please enter a valid number of layaway months.");
       return;
     }
@@ -637,7 +641,7 @@ export function StaffCreateOrderPanel({
         inventoryItemId: selectedItemId,
         paymentType,
       };
-      if (paymentType === "layaway") {
+      if (isInstallmentPaymentType(paymentType)) {
         payload.layawayMonths = layawayMonthsNumber;
       }
 
@@ -850,7 +854,7 @@ export function StaffCreateOrderPanel({
                     setPaymentType(next);
                     setOrderSignatureFile(null);
                     setSignatureFieldKey((k) => k + 1);
-                    if (next !== "layaway") {
+                    if (next !== "layaway" && next !== "credit_line") {
                       setLayawayTermsAccepted(false);
                       setLayawayTermsModalOpen(false);
                     }
@@ -878,7 +882,7 @@ export function StaffCreateOrderPanel({
                 ) : null}
               </label>
 
-              {paymentType === "layaway" ? (
+              {isInstallmentPaymentType(paymentType) ? (
                 <div className="space-y-3">
                   <label className="block">
                     <span className="text-xs font-medium text-slate-500 dark:text-slate-400">

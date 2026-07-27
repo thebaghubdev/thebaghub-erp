@@ -1,4 +1,4 @@
-import { IsInt, IsNumberString, Matches, Max, Min } from 'class-validator';
+import { IsInt, IsNumberString, IsOptional, Matches, Max, Min } from 'class-validator';
 import {
   MAX_LAYAWAY_MONTHS,
   MIN_LAYAWAY_MONTHS,
@@ -16,7 +16,8 @@ export class UpdateLayawayTermsDto {
   })
   layawayPrice: string;
 
+  @IsOptional()
   @IsInt()
   @Min(1)
-  consignorPaymentRelease: number;
+  consignorPaymentRelease?: number;
 }

@@ -4,6 +4,8 @@ export const ORDER_STATUS_FILTER_OPTIONS = [
   { value: "Paid", label: "Paid" },
   { value: "For pick-up", label: "For pick-up" },
   { value: "Item Received", label: "Item Received" },
+  { value: "Item Received - Unpaid", label: "Item Received - Unpaid" },
+  { value: "Item Received - Paid", label: "Item Received - Paid" },
   { value: "Expired", label: "Expired" },
   { value: "Declined", label: "Declined" },
   { value: "Cancelled", label: "Cancelled" },
@@ -21,19 +23,32 @@ export function orderPaymentTypeOptions(isCreditLine: boolean): Array<{
     { value: "layaway", label: "Layaway" },
   ];
   if (isCreditLine) {
-    options.push({ value: "credit_line", label: "Credit line" });
+    options.push({ value: "credit_line", label: "Credit Line" });
   }
   return options;
 }
 
+export function isInstallmentPaymentType(paymentType: string): boolean {
+  return paymentType === "layaway" || paymentType === "credit_line";
+}
+
 export function isFullPaymentLike(paymentType: string): boolean {
-  return paymentType === "full_payment" || paymentType === "credit_line";
+  return paymentType === "full_payment";
+}
+
+export function isItemReceivedOrderStatus(status: string): boolean {
+  const key = status.trim().toLowerCase();
+  return (
+    key === "item received" ||
+    key === "item received - unpaid" ||
+    key === "item received - paid"
+  );
 }
 
 function paymentTypeLabel(paymentType: string): string {
   if (paymentType === "full_payment") return "Full payment";
   if (paymentType === "layaway") return "Layaway";
-  if (paymentType === "credit_line") return "Credit line";
+  if (paymentType === "credit_line") return "Credit Line";
   return paymentType;
 }
 

@@ -10,6 +10,8 @@ import { apiFetch } from "../lib/api";
 import { formatPhpDisplay } from "../lib/format-php";
 import {
   isFullPaymentLike,
+  isInstallmentPaymentType,
+  isItemReceivedOrderStatus,
   paymentTypeLabel,
 } from "../lib/order-status-filter-options";
 import { isForPickupOrderStatus } from "../lib/order-pickup-labels";
@@ -156,9 +158,13 @@ export function ClientOrderDetailPage() {
 
   const isPaidOrder = detail.status === "Paid";
   const isForPickupOrder = isForPickupOrderStatus(detail.status);
-  const isItemReceivedOrder = detail.status === "Item Received";
+  const isItemReceivedOrder = isItemReceivedOrderStatus(detail.status);
   const isPostPaymentOrder =
     isPaidOrder || isForPickupOrder || isItemReceivedOrder;
+  const installmentScheduleReadOnly =
+    detail.paymentType === "credit_line"
+      ? detail.status === "Item Received - Paid"
+      : isPostPaymentOrder;
   const showReservationPaymentProofs =
     detail.paymentType === "full_payment" &&
     (detail.status === "Reservation" ||
@@ -170,12 +176,16 @@ export function ClientOrderDetailPage() {
       ((isPaidOrder || isForPickupOrder || isItemReceivedOrder) &&
         detail.reservationPaymentProofUrl == null));
   const showLayawaySchedule =
-    detail.paymentType === "layaway" &&
-    (detail.status === "For Payment" ||
-      isPaidOrder ||
-      isForPickupOrder ||
-      isItemReceivedOrder) &&
-    detail.installments.length > 0;
+    isInstallmentPaymentType(detail.paymentType) &&
+    detail.installments.length > 0 &&
+    (detail.paymentType === "credit_line"
+      ? detail.status === "For pick-up" ||
+        detail.status === "Item Received - Unpaid" ||
+        detail.status === "Item Received - Paid"
+      : detail.status === "For Payment" ||
+        isPaidOrder ||
+        isForPickupOrder ||
+        isItemReceivedOrder);
 
   return (
     <div className="w-full min-w-0 space-y-4">
@@ -241,11 +251,7 @@ export function ClientOrderDetailPage() {
                 {formatPhpDisplay(detail.fullPaymentTotalPrice)}
               </DetailField>
             </>
-          ) : isFullPaymentLike(detail.paymentType) ? (
-            <DetailField label="Full payment price">
-              {formatPhpDisplay(detail.fullPaymentPrice)}
-            </DetailField>
-          ) : (
+          ) : isInstallmentPaymentType(detail.paymentType) ? (
             <>
               <DetailField label="Layaway months">
                 {detail.layawayMonths ?? "—"}
@@ -257,7 +263,11 @@ export function ClientOrderDetailPage() {
                 {formatPhpDisplay(detail.layawayMonthlyPayment)}
               </DetailField>
             </>
-          )}
+          ) : isFullPaymentLike(detail.paymentType) ? (
+            <DetailField label="Full payment price">
+              {formatPhpDisplay(detail.fullPaymentPrice)}
+            </DetailField>
+          ) : null}
           {detail.declineReason ? (
             <DetailField label="Reason">
               <span className="whitespace-pre-wrap break-words">
@@ -323,7 +333,7 @@ export function ClientOrderDetailPage() {
         ) : null}
       </div>
 
-      {isForPickupOrder ? (
+      {isForPickupOrder && detail.paymentType !== "credit_line" ? (
         <div className={cardClass}>
           <h2 className="text-sm font-semibold text-slate-900">Order actions</h2>
           <div className="mt-4">
@@ -349,7 +359,7 @@ export function ClientOrderDetailPage() {
           layawayPrice={detail.layawayPrice}
           installments={detail.installments}
           mode="client"
-          readOnly={isPostPaymentOrder}
+          readOnly={installmentScheduleReadOnly}
           onUpdated={(update) =>
             setDetail((prev) =>
               prev ? { ...prev, installments: update.installments } : prev,

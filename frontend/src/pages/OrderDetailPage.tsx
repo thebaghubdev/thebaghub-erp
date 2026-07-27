@@ -15,6 +15,8 @@ import {
 } from "../lib/layaway-pricing";
 import {
   isFullPaymentLike,
+  isInstallmentPaymentType,
+  isItemReceivedOrderStatus,
   paymentTypeLabel,
 } from "../lib/order-status-filter-options";
 import {
@@ -258,12 +260,17 @@ export function OrderDetailPage() {
   }, [load]);
 
   const confirmApproveLayaway = useCallback(async () => {
-    if (!id || !token) return;
+    if (!id || !token || !detail) return;
+    const isCreditLineOrder = detail.paymentType === "credit_line";
     const consignorPaymentRelease = Number.parseInt(
       approveConsignorPaymentRelease,
       10,
     );
-    if (!Number.isFinite(consignorPaymentRelease) || consignorPaymentRelease < 1) {
+    if (
+      !isCreditLineOrder &&
+      (!Number.isFinite(consignorPaymentRelease) ||
+        consignorPaymentRelease < 1)
+    ) {
       setApproveError("Please select a consignor payment release.");
       return;
     }
@@ -276,7 +283,11 @@ export function OrderDetailPage() {
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ consignorPaymentRelease }),
+          body: JSON.stringify(
+            isCreditLineOrder
+              ? {}
+              : { consignorPaymentRelease },
+          ),
         },
         token,
       );
@@ -287,12 +298,14 @@ export function OrderDetailPage() {
       setApproveConsignorPaymentRelease("");
     } catch (e) {
       setApproveError(
-        e instanceof Error ? e.message : "Could not approve layaway order",
+        e instanceof Error
+          ? e.message
+          : `Could not approve ${isCreditLineOrder ? "credit line" : "layaway"} order`,
       );
     } finally {
       setApproveBusy(false);
     }
-  }, [approveConsignorPaymentRelease, id, token]);
+  }, [approveConsignorPaymentRelease, detail, id, token]);
 
   const confirmDeclineLayaway = useCallback(async () => {
     if (!id || !token) return;
@@ -408,7 +421,8 @@ export function OrderDetailPage() {
   const termsFormValid =
     termsMonthsNumber != null &&
     termsPriceNumber != null &&
-    termsConsignorPaymentRelease !== "" &&
+    (detail?.paymentType === "credit_line" ||
+      termsConsignorPaymentRelease !== "") &&
     !termsBusy;
 
   const approvePaymentReleaseOptions = useMemo(
@@ -435,15 +449,20 @@ export function OrderDetailPage() {
   }, [detail]);
 
   const confirmUpdateLayawayTerms = useCallback(async () => {
-    if (!id || !token || termsMonthsNumber == null || termsPriceNumber == null) {
+    if (!id || !token || !detail || termsMonthsNumber == null || termsPriceNumber == null) {
       setTermsError("Enter valid layaway months and layaway price.");
       return;
     }
+    const isCreditLineOrder = detail.paymentType === "credit_line";
     const consignorPaymentRelease = Number.parseInt(
       termsConsignorPaymentRelease,
       10,
     );
-    if (!Number.isFinite(consignorPaymentRelease) || consignorPaymentRelease < 1) {
+    if (
+      !isCreditLineOrder &&
+      (!Number.isFinite(consignorPaymentRelease) ||
+        consignorPaymentRelease < 1)
+    ) {
       setTermsError("Please select a consignor payment release.");
       return;
     }
@@ -451,16 +470,19 @@ export function OrderDetailPage() {
     setTermsError(null);
     setTermsBusy(true);
     try {
+      const body: Record<string, unknown> = {
+        layawayMonths: termsMonthsNumber,
+        layawayPrice: termsPriceNumber.toFixed(2),
+      };
+      if (!isCreditLineOrder) {
+        body.consignorPaymentRelease = consignorPaymentRelease;
+      }
       const res = await apiFetch(
         `/api/orders/${id}/update-layaway-terms`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            layawayMonths: termsMonthsNumber,
-            layawayPrice: termsPriceNumber.toFixed(2),
-            consignorPaymentRelease,
-          }),
+          body: JSON.stringify(body),
         },
         token,
       );
@@ -478,6 +500,7 @@ export function OrderDetailPage() {
     }
   }, [
     id,
+    detail,
     termsConsignorPaymentRelease,
     termsMonthsNumber,
     termsPriceNumber,
@@ -624,9 +647,14 @@ export function OrderDetailPage() {
     itemReceivedBusy;
   const isPaidOrder = detail.status === "Paid";
   const isForPickupOrder = isForPickupOrderStatus(detail.status);
-  const isItemReceivedOrder = detail.status === "Item Received";
+  const isCreditLineOrder = detail.paymentType === "credit_line";
+  const isItemReceivedOrder = isItemReceivedOrderStatus(detail.status);
   const isPostPaymentOrder =
     isPaidOrder || isForPickupOrder || isItemReceivedOrder;
+  const installmentScheduleReadOnly =
+    isCreditLineOrder
+      ? detail.status === "Item Received - Paid"
+      : isPostPaymentOrder;
   const showReservationPaymentProofs =
     detail.paymentType === "full_payment" &&
     (detail.status === "Reservation" ||
@@ -635,14 +663,17 @@ export function OrderDetailPage() {
     detail.paymentType === "full_payment" &&
     (detail.status === "For Payment" ||
       (isPostPaymentOrder && detail.reservationPaymentProofUrl == null));
-  const showCreditLineMarkPaid =
-    detail.paymentType === "credit_line" &&
-    detail.status === "For Payment" &&
-    !isPostPaymentOrder;
   const showLayawaySchedule =
-    detail.paymentType === "layaway" &&
-    (detail.status === "For Payment" || isPaidOrder || isForPickupOrder || isItemReceivedOrder) &&
-    detail.installments.length > 0;
+    isInstallmentPaymentType(detail.paymentType) &&
+    detail.installments.length > 0 &&
+    (isCreditLineOrder
+      ? detail.status === "For pick-up" ||
+        detail.status === "Item Received - Unpaid" ||
+        detail.status === "Item Received - Paid"
+      : detail.status === "For Payment" ||
+        isPaidOrder ||
+        isForPickupOrder ||
+        isItemReceivedOrder);
 
   return (
     <div className="w-full min-w-0 space-y-6">
@@ -669,7 +700,7 @@ export function OrderDetailPage() {
       {isForLayawayApproval(detail.status) ? (
         <div className={cardClass}>
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
-            Layaway approval
+            {isCreditLineOrder ? "Credit line approval" : "Layaway approval"}
           </h2>
           <div className="mt-4 flex flex-wrap gap-2">
             <button
@@ -798,9 +829,11 @@ export function OrderDetailPage() {
           token={token}
           layawayPrice={detail.layawayPrice}
           installments={detail.installments}
-          consignorPaymentRelease={detail.consignorPaymentRelease}
+          consignorPaymentRelease={
+            isCreditLineOrder ? null : detail.consignorPaymentRelease
+          }
           mode="staff"
-          readOnly={isPostPaymentOrder}
+          readOnly={installmentScheduleReadOnly}
           onUpdated={(update) =>
             setDetail((prev) =>
               prev
@@ -873,7 +906,7 @@ export function OrderDetailPage() {
             <DetailField label="Full payment price">
               {formatPhpDisplay(detail.fullPaymentPrice)}
             </DetailField>
-          ) : detail.paymentType === "layaway" ? (
+          ) : isInstallmentPaymentType(detail.paymentType) ? (
             <>
               <DetailField label="Layaway months">
                 {detail.layawayMonths ?? "—"}
@@ -887,7 +920,7 @@ export function OrderDetailPage() {
               <DetailField label="Layaway payment start date">
                 {formatOrderDate(detail.layawayPaymentStartDate)}
               </DetailField>
-              {detail.consignorPaymentRelease != null ? (
+              {!isCreditLineOrder && detail.consignorPaymentRelease != null ? (
                 <DetailField label="Consignor payment release">
                   {consignorPaymentReleaseLabel(detail.consignorPaymentRelease)}
                 </DetailField>
@@ -996,22 +1029,6 @@ export function OrderDetailPage() {
             onUpdated={setDetail}
           />
         ) : null}
-        {showCreditLineMarkPaid ? (
-          <FullPaymentProofUpload<OrderDetail>
-            orderId={detail.id}
-            token={token}
-            apiBase="/api/orders"
-            proofUrl={null}
-            title="Credit line"
-            noProofLabel="No proof upload required for credit line orders."
-            hideUpload
-            requireProofForMarkPaid={false}
-            allowMarkPaid
-            confirmTitle="Mark credit line order as paid?"
-            confirmDescription="This order will be marked as paid."
-            onUpdated={setDetail}
-          />
-        ) : null}
       </div>
 
       <div className={cardClass}>
@@ -1066,37 +1083,44 @@ export function OrderDetailPage() {
 
       <ConfirmDialog
         open={approveConfirmOpen}
-        title="Approve layaway order?"
+        title={
+          isCreditLineOrder
+            ? "Approve credit line order?"
+            : "Approve layaway order?"
+        }
         description={
           <div className="space-y-3">
             <p>
-              The order status will change to For Payment and the layaway payment
-              start date will be set to today.
+              {isCreditLineOrder
+                ? "The order status will change to For pick-up and the installment schedule will begin today. The client can receive the item once staff marks it as received."
+                : "The order status will change to For Payment and the layaway payment start date will be set to today."}
             </p>
-            <label className="block">
-              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                Consignor payment release
-              </span>
-              <select
-                value={approveConsignorPaymentRelease}
-                onChange={(e) => setApproveConsignorPaymentRelease(e.target.value)}
-                disabled={approveBusy || approvePaymentReleaseOptions.length === 0}
-                className={formSelectClass}
-              >
-                <option value="">Select…</option>
-                {approvePaymentReleaseOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
+            {!isCreditLineOrder ? (
+              <label className="block">
+                <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                  Consignor payment release
+                </span>
+                <select
+                  value={approveConsignorPaymentRelease}
+                  onChange={(e) => setApproveConsignorPaymentRelease(e.target.value)}
+                  disabled={approveBusy || approvePaymentReleaseOptions.length === 0}
+                  className={formSelectClass}
+                >
+                  <option value="">Select…</option>
+                  {approvePaymentReleaseOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
           </div>
         }
         confirmLabel="Approve"
         cancelLabel="Cancel"
         busy={approveBusy}
-        confirmDisabled={!approveConsignorPaymentRelease}
+        confirmDisabled={!isCreditLineOrder && !approveConsignorPaymentRelease}
         errorMessage={approveError}
         onCancel={() => {
           if (approveBusy) return;
@@ -1212,8 +1236,9 @@ export function OrderDetailPage() {
         description={
           <div className="space-y-3">
             <p>
-              Save the revised terms and move this order to For Payment. The
-              installment schedule will use these values.
+              {detail?.paymentType === "credit_line"
+                ? "Save the revised terms and move this order to For pick-up. The installment schedule will use these values."
+                : "Save the revised terms and move this order to For Payment. The installment schedule will use these values."}
             </p>
             <label className="block">
               <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
@@ -1267,26 +1292,28 @@ export function OrderDetailPage() {
                 placeholder="Calculated automatically"
               />
             </label>
-            <label className="block">
-              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                Consignor payment release
-              </span>
-              <select
-                value={termsConsignorPaymentRelease}
-                onChange={(e) =>
-                  setTermsConsignorPaymentRelease(e.target.value)
-                }
-                disabled={termsBusy || termsPaymentReleaseOptions.length === 0}
-                className={formSelectClass}
-              >
-                <option value="">Select…</option>
-                {termsPaymentReleaseOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
+            {detail?.paymentType !== "credit_line" ? (
+              <label className="block">
+                <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                  Consignor payment release
+                </span>
+                <select
+                  value={termsConsignorPaymentRelease}
+                  onChange={(e) =>
+                    setTermsConsignorPaymentRelease(e.target.value)
+                  }
+                  disabled={termsBusy || termsPaymentReleaseOptions.length === 0}
+                  className={formSelectClass}
+                >
+                  <option value="">Select…</option>
+                  {termsPaymentReleaseOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
           </div>
         }
         confirmLabel="Save terms"

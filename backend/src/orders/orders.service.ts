@@ -65,6 +65,10 @@ import {
   PICKUP_OPTIONS,
 } from './order-pickup.constants';
 import {
+  isCreditLinePaymentType,
+  isInstallmentPaymentType,
+} from './order-payment-type.util';
+import {
   FULL_PAYMENT_HOLDING_HOURS,
   INVENTORY_STATUS_AVAILABLE_FOR_PURCHASE,
   INVENTORY_STATUS_FOR_PICKUP,
@@ -79,6 +83,8 @@ import {
   ORDER_STATUS_FOR_PAYMENT,
   ORDER_STATUS_FOR_PICKUP,
   ORDER_STATUS_ITEM_RECEIVED,
+  ORDER_STATUS_ITEM_RECEIVED_PAID,
+  ORDER_STATUS_ITEM_RECEIVED_UNPAID,
   ORDER_STATUS_PAID,
   ORDER_STATUS_RESERVATION,
   ORDER_INSTALLMENT_STATUS_PAID,
@@ -353,15 +359,7 @@ export class OrdersService {
   private async getInstallmentViewsForOrder(
     order: Order,
   ): Promise<OrderInstallmentView[]> {
-    if (
-      order.paymentType !== PAYMENT_TYPE_LAYAWAY ||
-      (order.status !== ORDER_STATUS_FOR_PAYMENT &&
-        order.status !== ORDER_STATUS_PAID &&
-        order.status !== ORDER_STATUS_FOR_PICKUP &&
-        order.status !== ORDER_STATUS_ITEM_RECEIVED) ||
-      order.layawayMonths == null ||
-      order.layawayMonths <= 0
-    ) {
+    if (!shouldIncludeInstallmentSchedule(order)) {
       return [];
     }
     await this.ensureInstallments(order);
@@ -497,6 +495,20 @@ export class OrdersService {
       });
       await em.save(row);
     }
+  }
+
+  private async areAllInstallmentsPaid(
+    orderId: string,
+    em: typeof this.ordersRepo.manager,
+  ): Promise<boolean> {
+    const rows = await em.find(OrderInstallment, {
+      where: { orderId },
+      order: { installmentNumber: 'ASC' },
+    });
+    if (rows.length === 0) {
+      return false;
+    }
+    return rows.every((row) => isInstallmentPaidStatus(row.status));
   }
 
   private assertInstallmentScheduleAccessible(order: Order): void {
@@ -767,8 +779,7 @@ export class OrdersService {
       itemSku: order.inventoryItem.sku,
       itemLabel: itemLabelFromSnapshot(order.inventoryItem),
       paymentType: order.paymentType,
-      amount:
-        order.paymentType === PAYMENT_TYPE_LAYAWAY
+      amount: isInstallmentPaymentType(order.paymentType)
           ? order.layawayPrice
           : order.fullPaymentPrice,
       createdAt: order.createdAt.toISOString(),
@@ -867,8 +878,7 @@ export class OrdersService {
       itemSku: order.inventoryItem.sku,
       itemLabel: itemLabelFromSnapshot(order.inventoryItem),
       paymentType: order.paymentType,
-      amount:
-        order.paymentType === PAYMENT_TYPE_LAYAWAY
+      amount: isInstallmentPaymentType(order.paymentType)
           ? order.layawayPrice
           : order.fullPaymentPrice,
       layawayMonths: order.layawayMonths,
@@ -949,13 +959,27 @@ export class OrdersService {
           'Only orders awaiting layaway approval can be approved',
         );
       }
-      if (order.paymentType !== PAYMENT_TYPE_LAYAWAY) {
-        throw new BadRequestException('Order is not a layaway order');
+      if (!isInstallmentPaymentType(order.paymentType)) {
+        throw new BadRequestException(
+          'Order is not a layaway or credit line order',
+        );
       }
-      assertConsignorPaymentReleaseWithinTerms(
-        dto.consignorPaymentRelease,
-        order.layawayMonths,
-      );
+
+      const isCreditLine = isCreditLinePaymentType(order.paymentType);
+      if (!isCreditLine) {
+        if (dto.consignorPaymentRelease == null) {
+          throw new BadRequestException(
+            'Consignor payment release is required for layaway orders',
+          );
+        }
+        assertConsignorPaymentReleaseWithinTerms(
+          dto.consignorPaymentRelease,
+          order.layawayMonths,
+        );
+        order.consignorPaymentRelease = dto.consignorPaymentRelease;
+      } else {
+        order.consignorPaymentRelease = null;
+      }
 
       const item = await em.findOne(InventoryItem, {
         where: { id: order.inventoryItemId },
@@ -965,13 +989,17 @@ export class OrdersService {
         throw new NotFoundException('Inventory item not found');
       }
 
-      order.status = ORDER_STATUS_FOR_PAYMENT;
       order.layawayPaymentStartDate = todayDateString();
-      order.consignorPaymentRelease = dto.consignorPaymentRelease;
       order.updatedById = user.userId;
+      if (isCreditLine) {
+        order.status = ORDER_STATUS_FOR_PICKUP;
+        item.status = INVENTORY_STATUS_FOR_PICKUP;
+      } else {
+        order.status = ORDER_STATUS_FOR_PAYMENT;
+        item.status = INVENTORY_STATUS_RESERVED_LAYAWAY;
+      }
       await em.save(order);
 
-      item.status = INVENTORY_STATUS_RESERVED_LAYAWAY;
       item.updatedById = user.userId;
       await em.save(item);
 
@@ -1004,8 +1032,10 @@ export class OrdersService {
           'Only orders awaiting layaway approval can be declined',
         );
       }
-      if (order.paymentType !== PAYMENT_TYPE_LAYAWAY) {
-        throw new BadRequestException('Order is not a layaway order');
+      if (!isInstallmentPaymentType(order.paymentType)) {
+        throw new BadRequestException(
+          'Order is not a layaway or credit line order',
+        );
       }
 
       const item = await em.findOne(InventoryItem, {
@@ -1041,10 +1071,6 @@ export class OrdersService {
     if (layawayPrice <= 0) {
       throw new BadRequestException('Layaway price must be greater than zero');
     }
-    assertConsignorPaymentReleaseWithinTerms(
-      dto.consignorPaymentRelease,
-      dto.layawayMonths,
-    );
 
     await this.dataSource.transaction(async (em) => {
       const order = await em.findOne(Order, {
@@ -1059,8 +1085,26 @@ export class OrdersService {
           'Only orders awaiting layaway approval can have terms updated',
         );
       }
-      if (order.paymentType !== PAYMENT_TYPE_LAYAWAY) {
-        throw new BadRequestException('Order is not a layaway order');
+      if (!isInstallmentPaymentType(order.paymentType)) {
+        throw new BadRequestException(
+          'Order is not a layaway or credit line order',
+        );
+      }
+
+      const isCreditLine = isCreditLinePaymentType(order.paymentType);
+      if (!isCreditLine) {
+        if (dto.consignorPaymentRelease == null) {
+          throw new BadRequestException(
+            'Consignor payment release is required for layaway orders',
+          );
+        }
+        assertConsignorPaymentReleaseWithinTerms(
+          dto.consignorPaymentRelease,
+          dto.layawayMonths,
+        );
+        order.consignorPaymentRelease = dto.consignorPaymentRelease;
+      } else {
+        order.consignorPaymentRelease = null;
       }
 
       order.layawayMonths = dto.layawayMonths;
@@ -1068,10 +1112,13 @@ export class OrdersService {
       order.layawayMonthlyPayment = formatMoney(
         layawayPrice / dto.layawayMonths,
       );
-      order.consignorPaymentRelease = dto.consignorPaymentRelease;
-      order.status = ORDER_STATUS_FOR_PAYMENT;
       order.layawayPaymentStartDate = todayDateString();
       order.updatedById = user.userId;
+      if (isCreditLine) {
+        order.status = ORDER_STATUS_FOR_PICKUP;
+      } else {
+        order.status = ORDER_STATUS_FOR_PAYMENT;
+      }
       await em.save(order);
 
       const item = await em.findOne(InventoryItem, {
@@ -1082,7 +1129,9 @@ export class OrdersService {
         throw new NotFoundException('Inventory item not found');
       }
 
-      item.status = INVENTORY_STATUS_RESERVED_LAYAWAY;
+      item.status = isCreditLine
+        ? INVENTORY_STATUS_FOR_PICKUP
+        : INVENTORY_STATUS_RESERVED_LAYAWAY;
       item.updatedById = user.userId;
       await em.save(item);
 
@@ -1151,34 +1200,34 @@ export class OrdersService {
       throw new BadRequestException(
         'Layaway orders are marked as paid automatically when the last installment is marked as paid',
       );
-    } else if (
-      order.paymentType === PAYMENT_TYPE_FULL ||
-      order.paymentType === PAYMENT_TYPE_CREDIT_LINE
-    ) {
-      if (
-        order.status !== ORDER_STATUS_FOR_PAYMENT &&
-        order.status !== ORDER_STATUS_RESERVATION
-      ) {
-        throw new BadRequestException(
-          'Only full payment or credit line orders awaiting payment or reserved can be marked as paid',
-        );
-      }
-      if (order.paymentType === PAYMENT_TYPE_FULL) {
-        if (
-          !(await this.media.hasMedia(
-            MediaOwnerType.ORDER,
-            order.id,
-            MediaPurpose.PAYMENT_PROOF,
-            { proofType: 'full' },
-          ))
-        ) {
-          throw new BadRequestException(
-            'Upload proof of payment before marking this order as paid',
-          );
-        }
-      }
-    } else {
+    }
+    if (order.paymentType === PAYMENT_TYPE_CREDIT_LINE) {
+      throw new BadRequestException(
+        'Credit line orders are marked as paid automatically when the last installment is marked as paid',
+      );
+    }
+    if (order.paymentType !== PAYMENT_TYPE_FULL) {
       throw new BadRequestException('Unsupported payment type');
+    }
+    if (
+      order.status !== ORDER_STATUS_FOR_PAYMENT &&
+      order.status !== ORDER_STATUS_RESERVATION
+    ) {
+      throw new BadRequestException(
+        'Only full payment orders awaiting payment or reserved can be marked as paid',
+      );
+    }
+    if (
+      !(await this.media.hasMedia(
+        MediaOwnerType.ORDER,
+        order.id,
+        MediaPurpose.PAYMENT_PROOF,
+        { proofType: 'full' },
+      ))
+    ) {
+      throw new BadRequestException(
+        'Upload proof of payment before marking this order as paid',
+      );
     }
 
     order.status = ORDER_STATUS_PAID;
@@ -1393,6 +1442,11 @@ export class OrdersService {
       if (!order) {
         throw new NotFoundException('Order not found');
       }
+      if (isCreditLinePaymentType(order.paymentType) && customerId != null) {
+        throw new BadRequestException(
+          'Credit line orders can only be marked as item received by staff',
+        );
+      }
       if (order.status !== ORDER_STATUS_FOR_PICKUP) {
         throw new BadRequestException(
           'Only orders for pick-up can be marked as item received',
@@ -1412,15 +1466,22 @@ export class OrdersService {
         );
       }
 
-      order.status = ORDER_STATUS_ITEM_RECEIVED;
-      order.updatedById = user.userId;
-      await em.save(order);
-
       const dateSoldAt = new Date();
       item.status = INVENTORY_STATUS_SOLD_UNDER_WARRANTY;
       item.dateSold = dateSoldAt;
       item.updatedById = user.userId;
       await em.save(item);
+
+      if (isCreditLinePaymentType(order.paymentType)) {
+        const allPaid = await this.areAllInstallmentsPaid(order.id, em);
+        order.status = allPaid
+          ? ORDER_STATUS_ITEM_RECEIVED_PAID
+          : ORDER_STATUS_ITEM_RECEIVED_UNPAID;
+      } else {
+        order.status = ORDER_STATUS_ITEM_RECEIVED;
+      }
+      order.updatedById = user.userId;
+      await em.save(order);
 
       if (
         item.inquiryId &&
@@ -1698,7 +1759,8 @@ export class OrdersService {
 
       if (
         order.consignorPaymentRelease != null &&
-        installmentNumber === order.consignorPaymentRelease
+        installmentNumber === order.consignorPaymentRelease &&
+        order.paymentType === PAYMENT_TYPE_LAYAWAY
       ) {
         const item = await em.findOne(InventoryItem, {
           where: { id: order.inventoryItemId },
@@ -1725,7 +1787,16 @@ export class OrdersService {
         order.layawayMonths != null &&
         installmentNumber === order.layawayMonths
       ) {
-        order.status = ORDER_STATUS_PAID;
+        if (isCreditLinePaymentType(order.paymentType)) {
+          if (
+            order.status === ORDER_STATUS_ITEM_RECEIVED_UNPAID ||
+            order.status === ORDER_STATUS_ITEM_RECEIVED
+          ) {
+            order.status = ORDER_STATUS_ITEM_RECEIVED_PAID;
+          }
+        } else {
+          order.status = ORDER_STATUS_PAID;
+        }
         order.updatedById = user.userId;
         await em.save(order);
       }
@@ -1947,9 +2018,12 @@ export class OrdersService {
       throw new BadRequestException('Invalid order payload');
     }
 
-    if (dto.paymentType === PAYMENT_TYPE_LAYAWAY && dto.layawayMonths == null) {
+    if (
+      isInstallmentPaymentType(dto.paymentType) &&
+      dto.layawayMonths == null
+    ) {
       throw new BadRequestException(
-        'Layaway months are required for layaway orders',
+        'Layaway months are required for layaway and credit line orders',
       );
     }
 
@@ -1997,16 +2071,18 @@ export class OrdersService {
     let status: string;
     let holdingHours: number;
 
-    if (dto.paymentType === PAYMENT_TYPE_LAYAWAY) {
-      const auth = await this.itemAuthRepo.findOne({
-        where: { inventoryItemId: item.id },
-      });
-      const layawayEligibility = getLayawayEligibility(
-        auth?.rating ?? null,
-        categoryFromItemSnapshot(item.itemSnapshot),
-      );
-      if (!layawayEligibility.allowed) {
-        throw new BadRequestException(layawayEligibility.reasons.join(' '));
+    if (isInstallmentPaymentType(dto.paymentType)) {
+      if (dto.paymentType === PAYMENT_TYPE_LAYAWAY) {
+        const auth = await this.itemAuthRepo.findOne({
+          where: { inventoryItemId: item.id },
+        });
+        const layawayEligibility = getLayawayEligibility(
+          auth?.rating ?? null,
+          categoryFromItemSnapshot(item.itemSnapshot),
+        );
+        if (!layawayEligibility.allowed) {
+          throw new BadRequestException(layawayEligibility.reasons.join(' '));
+        }
       }
 
       const pricing = calculateLayawayPricing(itemPrice, dto.layawayMonths!);
@@ -2102,9 +2178,12 @@ export class OrdersService {
       throw new BadRequestException('Invalid order payload');
     }
 
-    if (dto.paymentType === PAYMENT_TYPE_LAYAWAY && dto.layawayMonths == null) {
+    if (
+      isInstallmentPaymentType(dto.paymentType) &&
+      dto.layawayMonths == null
+    ) {
       throw new BadRequestException(
-        'Layaway months are required for layaway orders',
+        'Layaway months are required for layaway and credit line orders',
       );
     }
 
@@ -2154,16 +2233,18 @@ export class OrdersService {
     let status: string;
     let holdingHours: number;
 
-    if (dto.paymentType === PAYMENT_TYPE_LAYAWAY) {
-      const auth = await this.itemAuthRepo.findOne({
-        where: { inventoryItemId: item.id },
-      });
-      const layawayEligibility = getLayawayEligibility(
-        auth?.rating ?? null,
-        categoryFromItemSnapshot(item.itemSnapshot),
-      );
-      if (!layawayEligibility.allowed) {
-        throw new BadRequestException(layawayEligibility.reasons.join(' '));
+    if (isInstallmentPaymentType(dto.paymentType)) {
+      if (dto.paymentType === PAYMENT_TYPE_LAYAWAY) {
+        const auth = await this.itemAuthRepo.findOne({
+          where: { inventoryItemId: item.id },
+        });
+        const layawayEligibility = getLayawayEligibility(
+          auth?.rating ?? null,
+          categoryFromItemSnapshot(item.itemSnapshot),
+        );
+        if (!layawayEligibility.allowed) {
+          throw new BadRequestException(layawayEligibility.reasons.join(' '));
+        }
       }
 
       const pricing = calculateLayawayPricing(itemPrice, dto.layawayMonths!);

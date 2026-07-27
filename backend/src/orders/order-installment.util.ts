@@ -6,10 +6,16 @@ import {
 } from './installment-penalty.constants';
 import {
   ORDER_STATUS_FOR_PAYMENT,
+  ORDER_STATUS_FOR_PICKUP,
+  ORDER_STATUS_ITEM_RECEIVED,
+  ORDER_STATUS_ITEM_RECEIVED_PAID,
+  ORDER_STATUS_ITEM_RECEIVED_UNPAID,
+  ORDER_STATUS_PAID,
   ORDER_INSTALLMENT_STATUS_PAID,
   ORDER_INSTALLMENT_STATUS_UNPAID,
   PAYMENT_TYPE_LAYAWAY,
 } from './order-status.constants';
+import { isCreditLinePaymentType } from './order-payment-type.util';
 
 export type OrderInstallmentView = {
   installmentNumber: number;
@@ -218,12 +224,25 @@ export function addMonthsToDateString(
 }
 
 export function shouldIncludeInstallmentSchedule(order: Order): boolean {
-  return (
-    order.paymentType === PAYMENT_TYPE_LAYAWAY &&
-    order.status === ORDER_STATUS_FOR_PAYMENT &&
-    order.layawayMonths != null &&
-    order.layawayMonths > 0
-  );
+  if (order.layawayMonths == null || order.layawayMonths <= 0) {
+    return false;
+  }
+  if (order.paymentType === PAYMENT_TYPE_LAYAWAY) {
+    return (
+      order.status === ORDER_STATUS_FOR_PAYMENT ||
+      order.status === ORDER_STATUS_PAID ||
+      order.status === ORDER_STATUS_FOR_PICKUP ||
+      order.status === ORDER_STATUS_ITEM_RECEIVED
+    );
+  }
+  if (isCreditLinePaymentType(order.paymentType)) {
+    return (
+      order.status === ORDER_STATUS_FOR_PICKUP ||
+      order.status === ORDER_STATUS_ITEM_RECEIVED_UNPAID ||
+      order.status === ORDER_STATUS_ITEM_RECEIVED_PAID
+    );
+  }
+  return false;
 }
 
 export function computeAmountDueForInstallment(

@@ -27,7 +27,11 @@ export class CreateOrderDto {
     | typeof PAYMENT_TYPE_LAYAWAY
     | typeof PAYMENT_TYPE_CREDIT_LINE;
 
-  @ValidateIf((o: CreateOrderDto) => o.paymentType === PAYMENT_TYPE_LAYAWAY)
+  @ValidateIf(
+    (o: CreateOrderDto) =>
+      o.paymentType === PAYMENT_TYPE_LAYAWAY ||
+      o.paymentType === PAYMENT_TYPE_CREDIT_LINE,
+  )
   @IsInt()
   @Min(MIN_LAYAWAY_MONTHS)
   @Max(MAX_LAYAWAY_MONTHS)
