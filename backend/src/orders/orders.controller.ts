@@ -2,6 +2,8 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseIntPipe,
   ParseUUIDPipe,
@@ -17,6 +19,7 @@ import { JwtUser } from '../auth/jwt-user';
 import { StaffOnlyGuard } from '../auth/staff-only.guard';
 import type { MulterFile } from '../inquiries/multer-file.type';
 import { ApproveLayawayOrderDto } from './dto/approve-layaway-order.dto';
+import { BatchAssignSalesAssociateDto } from './dto/batch-assign-sales-associate.dto';
 import { CancelOrderDto } from './dto/cancel-order.dto';
 import { DeclineLayawayOrderDto } from './dto/decline-layaway-order.dto';
 import { MarkInstallmentPaidDto } from './dto/mark-installment-paid.dto';
@@ -35,6 +38,23 @@ export class OrdersController {
   @Get()
   findAll() {
     return this.ordersService.findAllForStaff();
+  }
+
+  @Get('sales-associates')
+  listSalesAssociates() {
+    return this.ordersService.listSalesAssociates();
+  }
+
+  @Post('batch-assign-sales-associate')
+  @HttpCode(HttpStatus.OK)
+  batchAssignSalesAssociate(
+    @Body() dto: BatchAssignSalesAssociateDto,
+    @Req() req: { user: JwtUser },
+  ) {
+    return this.ordersService.batchAssignSalesAssociate(
+      dto,
+      req.user.userId,
+    );
   }
 
   @Post()

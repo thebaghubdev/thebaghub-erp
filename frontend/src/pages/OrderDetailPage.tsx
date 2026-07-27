@@ -8,6 +8,7 @@ import { OrderStatusBadge } from "../components/OrderStatusBadge";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
+import { canBypassOrderAssignment } from "../lib/employee-position";
 import { formatPhpDisplay } from "../lib/format-php";
 import {
   MAX_LAYAWAY_MONTHS,
@@ -50,6 +51,8 @@ type OrderDetail = {
   consignorPaymentRelease: number | null;
   declineReason: string | null;
   signatureUrl: string | null;
+  assignedToEmployeeId: string | null;
+  assignedToName: string | null;
   createdAt: string;
   updatedAt: string;
   customer: {
@@ -187,7 +190,7 @@ function DetailField({
 
 export function OrderDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { token } = usePortalAuth();
+  const { token, user } = usePortalAuth();
   const [detail, setDetail] = useState<OrderDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -262,6 +265,23 @@ export function OrderDetailPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const canEditOrder = useMemo(() => {
+    if (!detail) return false;
+    if (
+      canBypassOrderAssignment(
+        Boolean(user?.isAdmin),
+        user?.employee?.position,
+      )
+    ) {
+      return true;
+    }
+    const assigneeId = detail.assignedToEmployeeId;
+    if (assigneeId == null) return false;
+    const myEmployeeId = user?.employee?.id;
+    if (!myEmployeeId) return false;
+    return myEmployeeId === assigneeId;
+  }, [detail, user]);
 
   const confirmApproveLayaway = useCallback(async () => {
     if (!id || !token || !detail) return;
@@ -668,6 +688,7 @@ export function OrderDetailPage() {
     reservationCancelBusy ||
     outForDeliveryBusy ||
     itemReceivedBusy;
+  const actionsLocked = anyActionBusy || !canEditOrder;
   const isPaidOrder = detail.status === "Paid";
   const isForPickupOrder = isForPickupOrderStatus(detail.status);
   const isCreditLineOrder = detail.paymentType === "credit_line";
@@ -677,7 +698,7 @@ export function OrderDetailPage() {
   const installmentScheduleReadOnly =
     isCreditLineOrder
       ? detail.status === "Item Received - Paid"
-      : isPostPaymentOrder;
+      : isPostPaymentOrder || !canEditOrder;
   const showReservationPaymentProofs =
     detail.paymentType === "full_payment" &&
     (detail.status === "Reservation" ||
@@ -720,6 +741,32 @@ export function OrderDetailPage() {
         </Link>
       </div>
 
+      {!canEditOrder ? (
+        <p
+          className="rounded-xl border border-amber-200/80 bg-amber-50/90 px-4 py-3 text-sm leading-relaxed text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/25 dark:text-amber-100"
+          role="status"
+        >
+          <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/50 dark:text-amber-200">
+            View only
+          </span>
+          <span className="mt-2 block sm:mt-0 sm:ml-2 sm:inline">
+            {detail.assignedToEmployeeId ? (
+              <>
+                This order is assigned to{" "}
+                <span className="font-medium">
+                  {detail.assignedToName ?? "a sales associate"}
+                </span>
+                .
+              </>
+            ) : (
+              "This order is not assigned to a sales associate yet."
+            )}{" "}
+            You can review the order below, but your account cannot approve,
+            cancel, upload proofs, or change installment details.
+          </span>
+        </p>
+      ) : null}
+
       {isForLayawayApproval(detail.status) ? (
         <div className={cardClass}>
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
@@ -729,7 +776,7 @@ export function OrderDetailPage() {
             <button
               type="button"
               className={layawayApproveBtn}
-              disabled={anyActionBusy}
+              disabled={actionsLocked}
               onClick={() => {
                 setApproveError(null);
                 setApproveConsignorPaymentRelease("");
@@ -741,7 +788,7 @@ export function OrderDetailPage() {
             <button
               type="button"
               className={layawayDeclineBtn}
-              disabled={anyActionBusy}
+              disabled={actionsLocked}
               onClick={() => {
                 setDeclineError(null);
                 setDeclineReason("");
@@ -753,7 +800,7 @@ export function OrderDetailPage() {
             <button
               type="button"
               className={layawayUpdateTermsBtn}
-              disabled={anyActionBusy}
+              disabled={actionsLocked}
               onClick={openUpdateTermsDialog}
             >
               Update terms
@@ -771,7 +818,7 @@ export function OrderDetailPage() {
             <button
               type="button"
               className={layawayDeclineBtn}
-              disabled={anyActionBusy}
+              disabled={actionsLocked}
               onClick={() => {
                 setReservationCancelError(null);
                 setReservationCancelConfirmOpen(true);
@@ -793,7 +840,7 @@ export function OrderDetailPage() {
               <button
                 type="button"
                 className={layawayApproveBtn}
-                disabled={anyActionBusy}
+                disabled={actionsLocked}
                 onClick={() => openForPickupModal(true)}
               >
                 For pick-up
@@ -803,7 +850,7 @@ export function OrderDetailPage() {
               <button
                 type="button"
                 className={layawayDeclineBtn}
-                disabled={anyActionBusy}
+                disabled={actionsLocked}
                 onClick={() => {
                   setCancelError(null);
                   setCancelReason("");
@@ -826,7 +873,7 @@ export function OrderDetailPage() {
             <button
               type="button"
               className={primaryActionBtn}
-              disabled={anyActionBusy}
+              disabled={actionsLocked}
               onClick={() => openForPickupModal(false)}
             >
               Edit pick-up details
@@ -834,7 +881,7 @@ export function OrderDetailPage() {
             <button
               type="button"
               className={layawayApproveBtn}
-              disabled={anyActionBusy}
+              disabled={actionsLocked}
               onClick={() => {
                 setItemReceivedError(null);
                 setItemReceivedConfirmOpen(true);
@@ -884,6 +931,9 @@ export function OrderDetailPage() {
           </Link>
         </div>
         <dl className="mt-4 grid grid-cols-1 gap-x-8 gap-y-4 text-sm sm:grid-cols-2">
+          <DetailField label="Assigned to">
+            {detail.assignedToName?.trim() || "—"}
+          </DetailField>
           <DetailField label="Status">
             <OrderStatusBadge status={detail.status} />
           </DetailField>
@@ -1003,7 +1053,7 @@ export function OrderDetailPage() {
               proofUrl={detail.reservationPaymentProofUrl}
               title="Reservation fee proof of payment"
               uploadLabel="Upload reservation proof"
-              readOnly={isPostPaymentOrder}
+              readOnly={isPostPaymentOrder || !canEditOrder}
               onUpdated={setDetail}
             />
             <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-950/40">
@@ -1022,7 +1072,7 @@ export function OrderDetailPage() {
                 title="Remaining balance proof of payment"
                 uploadLabel="Upload remaining balance proof"
                 allowMarkPaid={!isPostPaymentOrder}
-                readOnly={isPostPaymentOrder}
+                readOnly={isPostPaymentOrder || !canEditOrder}
                 confirmTitle="Mark remaining balance as paid?"
                 confirmDescription="This reservation order will be marked as paid. Make sure the uploaded remaining balance proof has been reviewed."
                 onUpdated={setDetail}
@@ -1048,7 +1098,7 @@ export function OrderDetailPage() {
                 : "Upload proof of payment"
             }
             allowMarkPaid={!isPostPaymentOrder}
-            readOnly={isPostPaymentOrder}
+            readOnly={isPostPaymentOrder || !canEditOrder}
             onUpdated={setDetail}
           />
         ) : null}

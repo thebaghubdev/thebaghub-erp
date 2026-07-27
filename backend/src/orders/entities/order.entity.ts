@@ -7,6 +7,7 @@ import {
 } from 'typeorm';
 import { Client } from '../../clients/entities/client.entity';
 import { AuditedEntity } from '../../common/entities/audited.entity';
+import { Employee } from '../../employees/entities/employee.entity';
 import { InventoryItem } from '../../inventory/entities/inventory-item.entity';
 
 @Entity('orders')
@@ -33,6 +34,13 @@ export class Order extends AuditedEntity {
   @ManyToOne(() => Client, { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'customer_id' })
   customer: Client;
+
+  @Column({ name: 'assigned_to_id', type: 'uuid', nullable: true })
+  assignedToId: string | null;
+
+  @ManyToOne(() => Employee, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'assigned_to_id' })
+  assignedTo: Employee | null;
 
   @Column({ name: 'payment_type', type: 'varchar', length: 32 })
   paymentType: string;

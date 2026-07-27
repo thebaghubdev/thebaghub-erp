@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -12,6 +13,7 @@ import { ConfigService } from '@nestjs/config';
 import { DataSource, Repository } from 'typeorm';
 import { JwtUser } from '../auth/jwt-user';
 import { Client } from '../clients/entities/client.entity';
+import { Employee } from '../employees/entities/employee.entity';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
 import { Inquiry } from '../inquiries/entities/inquiry.entity';
 import { ItemAuthentication } from '../inventory/entities/item-authentication.entity';
@@ -22,7 +24,9 @@ import { MediaService } from '../media/media.service';
 import { MailService } from '../mail/mail.service';
 import { computeConsignorPaymentAuditDate } from '../consignor-payments/consignor-payment-audit-date.util';
 import { ConsignorPaymentsService } from '../consignor-payments/consignor-payments.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { ApproveLayawayOrderDto } from './dto/approve-layaway-order.dto';
+import { BatchAssignSalesAssociateDto } from './dto/batch-assign-sales-associate.dto';
 import { CancelOrderDto } from './dto/cancel-order.dto';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { CreateStaffOrderDto } from './dto/create-staff-order.dto';
@@ -56,6 +60,11 @@ import {
   shouldIncludeInstallmentSchedule,
   type OrderInstallmentView,
 } from './order-installment.util';
+import {
+  isOrderOpenForStaffUpdates,
+  isSalesAdminPosition,
+  isSalesAssociatePosition,
+} from './order-assignment.util';
 import {
   PICKUP_OPTION_COURIER,
 } from './order-pickup.constants';
@@ -234,6 +243,8 @@ export type StaffOrderRow = {
   amount: string | null;
   layawayMonths: number | null;
   holdingPeriod: string | null;
+  assignedToEmployeeId: string | null;
+  assignedToName: string | null;
   createdAt: string;
 };
 
@@ -260,6 +271,8 @@ export type StaffOrderDetail = {
   consignorPaymentRelease: number | null;
   declineReason: string | null;
   signatureUrl: string | null;
+  assignedToEmployeeId: string | null;
+  assignedToName: string | null;
   createdAt: string;
   updatedAt: string;
   customer: {
@@ -299,6 +312,15 @@ function itemLabelFromSnapshot(item: InventoryItem): string {
 
 function customerName(client: Client): string {
   return `${client.firstName} ${client.lastName}`.trim() || client.email;
+}
+
+function formatEmployeeName(employee: Employee | null | undefined): string | null {
+  if (!employee) return null;
+  const name = [employee.firstName, employee.lastName]
+    .filter(Boolean)
+    .join(' ')
+    .trim();
+  return name.length > 0 ? name : null;
 }
 
 function formatOrderDate(
@@ -344,6 +366,8 @@ export class OrdersService {
     private readonly waitlistsRepo: Repository<Waitlist>,
     @InjectRepository(Client)
     private readonly clientsRepo: Repository<Client>,
+    @InjectRepository(Employee)
+    private readonly employeesRepo: Repository<Employee>,
     @InjectRepository(InventoryItem)
     private readonly inventoryRepo: Repository<InventoryItem>,
     @InjectRepository(ItemAuthentication)
@@ -353,7 +377,134 @@ export class OrdersService {
     private readonly mail: MailService,
     private readonly config: ConfigService,
     private readonly consignorPaymentsService: ConsignorPaymentsService,
+    private readonly notifications: NotificationsService,
   ) {}
+
+  private async employeeForUser(userId: string): Promise<Employee | null> {
+    return this.employeesRepo.findOne({ where: { userId } });
+  }
+
+  private canBypassOrderAssignment(
+    user: JwtUser,
+    employee: Employee | null,
+  ): boolean {
+    if (user.isAdmin) return true;
+    return employee != null && isSalesAdminPosition(employee.position);
+  }
+
+  private async enforceOrderMutationAccessOnOrder(
+    user: JwtUser,
+    order: Pick<Order, 'assignedToId'>,
+  ): Promise<void> {
+    const employee = await this.employeeForUser(user.userId);
+    if (this.canBypassOrderAssignment(user, employee)) {
+      return;
+    }
+    const assigneeId = order.assignedToId;
+    if (!assigneeId) {
+      throw new ForbiddenException(
+        'This order must be assigned to a sales associate before it can be updated.',
+      );
+    }
+    if (!employee?.id || employee.id !== assigneeId) {
+      throw new ForbiddenException(
+        'Only the assigned sales associate can perform this action.',
+      );
+    }
+  }
+
+  private async enforceOrderMutationAccess(
+    user: JwtUser,
+    orderId: string,
+  ): Promise<Order> {
+    const order = await this.ordersRepo.findOne({ where: { id: orderId } });
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+    await this.enforceOrderMutationAccessOnOrder(user, order);
+    return order;
+  }
+
+  /** Sales associates only (admins may create and are auto-assigned when they have a profile). */
+  private async resolveStaffOrderCreatorAssignment(
+    user: JwtUser,
+  ): Promise<string | null> {
+    const employee = await this.employeeForUser(user.userId);
+    if (user.isAdmin) {
+      return employee?.id ?? null;
+    }
+    if (!employee || !isSalesAssociatePosition(employee.position)) {
+      throw new ForbiddenException('Only sales associates can create orders.');
+    }
+    return employee.id;
+  }
+
+  async listSalesAssociates(): Promise<{ id: string; displayName: string }[]> {
+    const rows = await this.employeesRepo
+      .createQueryBuilder('e')
+      .where('LOWER(TRIM(e.position)) = :p', { p: 'sales associate' })
+      .orderBy('e.lastName', 'ASC')
+      .addOrderBy('e.firstName', 'ASC')
+      .getMany();
+    return rows.map((e) => ({
+      id: e.id,
+      displayName: formatEmployeeName(e) ?? e.email,
+    }));
+  }
+
+  async batchAssignSalesAssociate(
+    dto: BatchAssignSalesAssociateDto,
+    actorUserId: string,
+  ): Promise<{ updated: number }> {
+    const employee = await this.employeesRepo.findOne({
+      where: { id: dto.employeeId },
+    });
+    if (!employee) {
+      throw new NotFoundException('Employee not found');
+    }
+    if (!isSalesAssociatePosition(employee.position)) {
+      throw new BadRequestException(
+        'Selected person is not in the Sales Associate position.',
+      );
+    }
+
+    const uniqueIds = [...new Set(dto.orderIds)];
+    const assignedOrders: { orderNumber: number }[] = [];
+
+    await this.ordersRepo.manager.transaction(async (em) => {
+      for (const orderId of uniqueIds) {
+        const order = await em.findOne(Order, { where: { id: orderId } });
+        if (!order) {
+          throw new NotFoundException(`Order ${orderId} not found`);
+        }
+        if (!isOrderOpenForStaffUpdates(order.status)) {
+          throw new BadRequestException(
+            `Order #${order.orderNumber} is closed and cannot be assigned.`,
+          );
+        }
+        order.assignedToId = dto.employeeId;
+        order.updatedById = actorUserId;
+        await em.save(order);
+        assignedOrders.push({ orderNumber: order.orderNumber });
+      }
+    });
+
+    for (const { orderNumber } of assignedOrders) {
+      void this.notifications
+        .notify({
+          message: `Order #${orderNumber} has been assigned to you.`,
+          receiverId: dto.employeeId,
+        })
+        .catch((err: unknown) => {
+          this.logger.error(
+            'Failed to notify sales associate for order assignment',
+            err,
+          );
+        });
+    }
+
+    return { updated: uniqueIds.length };
+  }
 
   private async getInstallmentViewsForOrder(
     order: Order,
@@ -868,7 +1019,7 @@ export class OrdersService {
 
   async findAllForStaff(): Promise<StaffOrderRow[]> {
     const rows = await this.ordersRepo.find({
-      relations: { customer: true, inventoryItem: true },
+      relations: { customer: true, inventoryItem: true, assignedTo: true },
       order: { createdAt: 'DESC' },
     });
 
@@ -885,6 +1036,8 @@ export class OrdersService {
           : order.fullPaymentPrice,
       layawayMonths: order.layawayMonths,
       holdingPeriod: order.holdingPeriod?.toISOString() ?? null,
+      assignedToEmployeeId: order.assignedToId ?? null,
+      assignedToName: formatEmployeeName(order.assignedTo),
       createdAt: order.createdAt.toISOString(),
     }));
   }
@@ -892,7 +1045,7 @@ export class OrdersService {
   async findOneForStaff(id: string): Promise<StaffOrderDetail> {
     const order = await this.ordersRepo.findOne({
       where: { id },
-      relations: { customer: true, inventoryItem: true },
+      relations: { customer: true, inventoryItem: true, assignedTo: true },
     });
     if (!order) {
       throw new NotFoundException('Order not found');
@@ -923,6 +1076,8 @@ export class OrdersService {
       consignorPaymentRelease: order.consignorPaymentRelease,
       declineReason: order.declineReason,
       signatureUrl: await this.signatureUrlForOrder(order.id),
+      assignedToEmployeeId: order.assignedToId ?? null,
+      assignedToName: formatEmployeeName(order.assignedTo),
       createdAt: order.createdAt.toISOString(),
       updatedAt: order.updatedAt.toISOString(),
       customer: {
@@ -948,6 +1103,7 @@ export class OrdersService {
     id: string,
     dto: ApproveLayawayOrderDto,
   ): Promise<StaffOrderDetail> {
+    await this.enforceOrderMutationAccess(user, id);
     await this.dataSource.transaction(async (em) => {
       const order = await em.findOne(Order, {
         where: { id },
@@ -1016,6 +1172,7 @@ export class OrdersService {
     id: string,
     dto: DeclineLayawayOrderDto,
   ): Promise<StaffOrderDetail> {
+    await this.enforceOrderMutationAccess(user, id);
     const reason = dto.reason.trim();
     if (!reason) {
       throw new BadRequestException('Decline reason is required');
@@ -1069,6 +1226,7 @@ export class OrdersService {
     id: string,
     dto: UpdateLayawayTermsDto,
   ): Promise<StaffOrderDetail> {
+    await this.enforceOrderMutationAccess(user, id);
     const layawayPrice = parseMoney(dto.layawayPrice);
     if (layawayPrice <= 0) {
       throw new BadRequestException('Layaway price must be greater than zero');
@@ -1148,6 +1306,7 @@ export class OrdersService {
     id: string,
     dto: CancelOrderDto,
   ): Promise<StaffOrderDetail> {
+    await this.enforceOrderMutationAccess(user, id);
     const reason = dto.reason.trim();
     if (!reason) {
       throw new BadRequestException('Cancellation reason is required');
@@ -1198,6 +1357,7 @@ export class OrdersService {
     if (!order) {
       throw new NotFoundException('Order not found');
     }
+    await this.enforceOrderMutationAccessOnOrder(user, order);
     if (order.paymentType === PAYMENT_TYPE_LAYAWAY) {
       throw new BadRequestException(
         'Layaway orders are marked as paid automatically when the last installment is marked as paid',
@@ -1248,6 +1408,7 @@ export class OrdersService {
     shippingFeeCareOfRaw: string | undefined,
     proofFile: MulterFile | undefined,
   ): Promise<StaffOrderDetail> {
+    await this.enforceOrderMutationAccess(user, id);
     const { pickupOption, pickupBranch, courierService } =
       resolveOrderPickupFields({
         pickupOptionRaw,
@@ -1396,6 +1557,7 @@ export class OrdersService {
     user: JwtUser,
     orderId: string,
   ): Promise<StaffOrderDetail> {
+    await this.enforceOrderMutationAccess(user, orderId);
     await this.markItemReceivedInternal(user, orderId, null);
     return this.findOneForStaff(orderId);
   }
@@ -1531,6 +1693,7 @@ export class OrdersService {
     if (!order) {
       throw new NotFoundException('Order not found');
     }
+    await this.enforceOrderMutationAccessOnOrder(user, order);
     this.assertInstallmentScheduleAccessible(order);
     await this.ensureInstallments(order, user.userId);
 
@@ -1557,6 +1720,7 @@ export class OrdersService {
     if (!order) {
       throw new NotFoundException('Order not found');
     }
+    await this.enforceOrderMutationAccessOnOrder(user, order);
     this.assertInstallmentScheduleAccessible(order);
     await this.ensureInstallments(order, user.userId);
 
@@ -1603,6 +1767,7 @@ export class OrdersService {
     if (!order) {
       throw new NotFoundException('Order not found');
     }
+    await this.enforceOrderMutationAccessOnOrder(user, order);
     this.assertInstallmentScheduleAccessible(order);
     await this.ensureInstallments(order, user.userId);
     await this.backfillInstallmentDueDates(order, user.userId);
@@ -1625,6 +1790,7 @@ export class OrdersService {
     if (!order) {
       throw new NotFoundException('Order not found');
     }
+    await this.enforceOrderMutationAccessOnOrder(user, order);
     this.assertInstallmentScheduleAccessible(order);
     await this.ensureInstallments(order, user.userId);
 
@@ -1652,6 +1818,8 @@ export class OrdersService {
     if (!paymentDate) {
       throw new BadRequestException('Payment date is required');
     }
+
+    await this.enforceOrderMutationAccess(user, orderId);
 
     await this.dataSource.transaction(async (em) => {
       const order = await em.findOne(Order, {
@@ -1802,6 +1970,7 @@ export class OrdersService {
     if (!order) {
       throw new NotFoundException('Order not found');
     }
+    await this.enforceOrderMutationAccessOnOrder(user, order);
 
     await this.saveFullPaymentProof(order, user, proofFile);
 
@@ -1841,6 +2010,7 @@ export class OrdersService {
     if (!order) {
       throw new NotFoundException('Order not found');
     }
+    await this.enforceOrderMutationAccessOnOrder(user, order);
 
     await this.saveReservationPaymentProof(order, user, proofFile);
 
@@ -1885,6 +2055,7 @@ export class OrdersService {
     if (!order) {
       throw new NotFoundException('Order not found');
     }
+    await this.enforceOrderMutationAccessOnOrder(user, order);
     this.assertInstallmentScheduleAccessible(order);
     await this.ensureInstallments(order, user.userId);
 
@@ -2156,6 +2327,7 @@ export class OrdersService {
     payloadRaw: string | undefined,
     signatureFile: MulterFile | undefined,
   ): Promise<{ id: string }> {
+    const assignedToId = await this.resolveStaffOrderCreatorAssignment(user);
     if (payloadRaw == null || payloadRaw.trim() === '') {
       throw new BadRequestException('Missing payload');
     }
@@ -2298,6 +2470,7 @@ export class OrdersService {
         status,
         inventoryItemId: item.id,
         customerId: client.id,
+        assignedToId,
         paymentType: dto.paymentType,
         layawayMonths,
         layawayPrice,
