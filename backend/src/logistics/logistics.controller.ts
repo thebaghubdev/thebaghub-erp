@@ -1,0 +1,55 @@
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
+import { JwtUser } from '../auth/jwt-user';
+import { StaffOnlyGuard } from '../auth/staff-only.guard';
+import { CreateLogisticsDto } from './dto/create-logistics.dto';
+import { LogisticsService } from './logistics.service';
+
+@Controller('logistics')
+@UseGuards(StaffOnlyGuard)
+export class LogisticsController {
+  constructor(private readonly logisticsService: LogisticsService) {}
+
+  @Get()
+  findAll() {
+    return this.logisticsService.findAllForStaff();
+  }
+
+  @Get('reserved-item-ids')
+  findReservedInventoryItemIds() {
+    return this.logisticsService.findInventoryIdsOnOpenTransfers();
+  }
+
+  @Get(':id')
+  findOne(@Param('id', ParseUUIDPipe) id: string) {
+    return this.logisticsService.findOneForStaff(id);
+  }
+
+  @Post()
+  create(@Req() req: { user: JwtUser }, @Body() body: CreateLogisticsDto) {
+    return this.logisticsService.createForStaff(req.user.userId, body);
+  }
+
+  @Post(':id/dispatch')
+  dispatch(@Req() req: { user: JwtUser }, @Param('id', ParseUUIDPipe) id: string) {
+    return this.logisticsService.dispatchForStaff(id, req.user.userId);
+  }
+
+  @Post(':id/cancel')
+  cancel(@Req() req: { user: JwtUser }, @Param('id', ParseUUIDPipe) id: string) {
+    return this.logisticsService.cancelForStaff(id, req.user.userId);
+  }
+
+  @Post(':id/complete')
+  complete(@Req() req: { user: JwtUser }, @Param('id', ParseUUIDPipe) id: string) {
+    return this.logisticsService.completeForStaff(id, req.user.userId);
+  }
+}

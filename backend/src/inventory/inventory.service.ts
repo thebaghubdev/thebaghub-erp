@@ -169,6 +169,7 @@ export type InventoryListRow = {
   assignedToName: string | null;
   /** From item_authentication row; defaults to Pending when missing. */
   authenticationStatus: string;
+  logisticsStatus: string;
 };
 
 export type InventoryDetailForStaff = {
@@ -1507,6 +1508,7 @@ export class InventoryService {
         enableDiscount: r.enableDiscount,
         assignedToName: formatEmployeeName(auth?.assignedTo ?? null),
         authenticationStatus: auth?.authenticationStatus ?? 'Pending',
+        logisticsStatus: r.logisticsStatus ?? 'In Stock',
       };
     });
   }

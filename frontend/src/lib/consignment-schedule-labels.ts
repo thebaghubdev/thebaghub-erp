@@ -1,6 +1,14 @@
 export type ScheduleKind = "delivery" | "pullout";
 
-export type BranchCode = "pasig" | "makati";
+export type BranchCode = "pasig" | "makati" | "authentication" | "studio";
+
+export const LOGISTICS_BRANCH_OPTIONS: { value: BranchCode; label: string }[] =
+  [
+    { value: "pasig", label: "Pasig" },
+    { value: "makati", label: "Makati" },
+    { value: "authentication", label: "Authentication" },
+    { value: "studio", label: "Studio" },
+  ];
 
 export const DELIVERY_MODE_OPTIONS = [
   { value: "pickup_service", label: "Pickup Service" },
@@ -30,7 +38,10 @@ export function modeOfTransferLabel(
 }
 
 export function branchLabel(branch: string): string {
-  return branch.trim().toLowerCase() === "makati" ? "Makati" : "Pasig";
+  const code = branch.trim().toLowerCase();
+  const match = LOGISTICS_BRANCH_OPTIONS.find((b) => b.value === code);
+  if (match) return match.label;
+  return branch.trim() || "—";
 }
 
 export function scheduleTypeLabel(scheduleType: string): string {

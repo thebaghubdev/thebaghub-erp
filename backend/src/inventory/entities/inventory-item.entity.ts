@@ -53,6 +53,14 @@ export class InventoryItem extends AuditedEntity {
   @Column({ name: 'current_branch', type: 'varchar', length: 32 })
   currentBranch: string;
 
+  @Column({
+    name: 'logistics_status',
+    type: 'varchar',
+    length: 32,
+    default: 'In Stock',
+  })
+  logisticsStatus: string;
+
   @Column({ name: 'item_snapshot', type: 'jsonb' })
   itemSnapshot: InquiryItemSnapshot;
 

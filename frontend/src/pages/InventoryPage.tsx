@@ -9,6 +9,7 @@ import { InventoryStatusBadge } from "../components/InventoryStatusBadge";
 import { branchLabel } from "../lib/consignment-schedule-labels";
 import { formatOfferTransactionLabel } from "../lib/format-offer-transaction-type";
 import { INVENTORY_ITEM_STATUS_FILTER_OPTIONS } from "../lib/inventory-item-status-filter-options";
+import { logisticsStatusBadgeClass } from "../lib/logistics-display";
 
 type InventoryRow = {
   id: string;
@@ -23,6 +24,7 @@ type InventoryRow = {
   inclusions: string;
   assignedToName: string | null;
   authenticationStatus: string;
+  logisticsStatus: string;
 };
 
 type InventoryTab = "all" | "add";
@@ -97,6 +99,19 @@ const columns = [
         {branchLabel(getValue())}
       </span>
     ),
+  }),
+  columnHelper.accessor("logisticsStatus", {
+    header: "Logistics status",
+    cell: ({ getValue }) => {
+      const status = getValue() || "In Stock";
+      return (
+        <span
+          className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${logisticsStatusBadgeClass(status)}`}
+        >
+          {status}
+        </span>
+      );
+    },
   }),
 ];
 

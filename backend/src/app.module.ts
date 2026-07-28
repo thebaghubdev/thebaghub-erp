@@ -49,6 +49,11 @@ import { Waitlist } from './orders/entities/waitlist.entity';
 import { OrdersModule } from './orders/orders.module';
 import { Media } from './media/entities/media.entity';
 import { MediaModule } from './media/media.module';
+import { LogisticsModule } from './logistics/logistics.module';
+import {
+  Logistics,
+  LogisticsItem,
+} from './logistics/entities/logistics.entities';
 
 @Module({
   imports: [
@@ -89,6 +94,8 @@ import { MediaModule } from './media/media.module';
           OrderInstallment,
           Waitlist,
           Media,
+          Logistics,
+          LogisticsItem,
         ],
         synchronize:
           config.get<string>('NODE_ENV', 'development') !== 'production',
@@ -109,6 +116,7 @@ import { MediaModule } from './media/media.module';
     TablePreferencesModule,
     OrdersModule,
     MediaModule,
+    LogisticsModule,
   ],
   controllers: [AppController],
   providers: [
