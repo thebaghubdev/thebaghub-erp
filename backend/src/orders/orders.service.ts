@@ -15,6 +15,7 @@ import { JwtUser } from '../auth/jwt-user';
 import { Client } from '../clients/entities/client.entity';
 import { Employee } from '../employees/entities/employee.entity';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
+import { effectiveInventoryUnitPrice } from '../inventory/inventory-effective-price.util';
 import { Inquiry } from '../inquiries/entities/inquiry.entity';
 import { ItemAuthentication } from '../inventory/entities/item-authentication.entity';
 import type { MulterFile } from '../inquiries/multer-file.type';
@@ -141,6 +142,13 @@ function parseItemPrice(raw: string | null | undefined): number | null {
   if (raw == null || String(raw).trim() === '') return null;
   const n = Number.parseFloat(String(raw));
   return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function liveInventoryUnitPrice(
+  item: InventoryItem | null | undefined,
+): number | null {
+  if (!item) return null;
+  return effectiveInventoryUnitPrice(item);
 }
 
 function formatDecimal(value: number): string {
@@ -884,13 +892,13 @@ export class OrdersService {
 
   private fullPaymentTotalPrice(order: Order): string | null {
     if (order.status !== ORDER_STATUS_RESERVATION) return order.fullPaymentPrice;
-    const itemPrice = parseItemPrice(order.inventoryItem?.tbhSellingPrice);
+    const itemPrice = liveInventoryUnitPrice(order.inventoryItem);
     return itemPrice == null ? null : formatMoney(itemPrice);
   }
 
   private remainingBalancePrice(order: Order): string | null {
     if (order.status !== ORDER_STATUS_RESERVATION) return null;
-    const itemPrice = parseItemPrice(order.inventoryItem?.tbhSellingPrice);
+    const itemPrice = liveInventoryUnitPrice(order.inventoryItem);
     if (itemPrice == null) return null;
     return formatMoney(Math.max(0, itemPrice - RESERVATION_FEE));
   }
@@ -960,7 +968,10 @@ export class OrdersService {
         productName:
           row.inventoryItem.itemPosting?.productName?.trim() || itemLabel,
         status: row.inventoryItem.status,
-        price: row.inventoryItem.tbhSellingPrice,
+        price:
+          liveInventoryUnitPrice(row.inventoryItem) != null
+            ? formatDecimal(liveInventoryUnitPrice(row.inventoryItem)!)
+            : row.inventoryItem.tbhSellingPrice,
         createdAt: row.createdAt.toISOString(),
       };
     });
@@ -2218,7 +2229,7 @@ export class OrdersService {
       throw new BadRequestException('This is your item and you cannot buy it.');
     }
 
-    const itemPrice = parseItemPrice(item.tbhSellingPrice);
+    const itemPrice = liveInventoryUnitPrice(item);
     if (itemPrice == null) {
       throw new BadRequestException('Item price is not set');
     }
@@ -2390,7 +2401,7 @@ export class OrdersService {
       );
     }
 
-    const itemPrice = parseItemPrice(item.tbhSellingPrice);
+    const itemPrice = liveInventoryUnitPrice(item);
     if (itemPrice == null) {
       throw new BadRequestException('Item price is not set');
     }

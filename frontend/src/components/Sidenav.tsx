@@ -104,6 +104,15 @@ export function Sidenav() {
           Consignor Payments
         </NavLink>
         <NavLink
+          to="/portal/promotions"
+          end
+          className={({ isActive }) =>
+            [linkClass, isActive ? activeClass : ""].join(" ")
+          }
+        >
+          Promotions
+        </NavLink>
+        <NavLink
           to="/portal/logistics"
           end
           className={({ isActive }) =>

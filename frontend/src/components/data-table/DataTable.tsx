@@ -39,7 +39,7 @@ const thBase =
   "max-w-[10rem] min-w-0 break-words px-2 py-2 text-left text-[0.65rem] font-semibold uppercase tracking-wide sm:px-3 sm:py-2.5 sm:text-xs text-slate-600 dark:text-slate-400";
 
 const tdBase =
-  "max-w-[10rem] min-w-0 break-words px-2 py-2 align-top text-xs sm:px-3 sm:py-2.5 sm:text-sm";
+  "max-w-[10rem] min-w-0 break-words px-2 py-2 align-top text-xs text-slate-900 sm:px-3 sm:py-2.5 sm:text-sm dark:text-slate-100";
 
 /** Leading checkbox column: narrow; no max-w cap (checkbox only). */
 const isCheckboxColumnId = (id: string) =>

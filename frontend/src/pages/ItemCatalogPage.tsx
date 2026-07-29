@@ -13,6 +13,8 @@ type CatalogItem = {
   productName: string;
   price: string | null;
   priceComparison: string | null;
+  onPromo: boolean;
+  listPrice: string | null;
   imageUrl: string | null;
   status: string;
   isOwnConsignedItem: boolean;
@@ -229,7 +231,11 @@ export function ItemCatalogPage() {
                     No photo
                   </div>
                 )}
-                {isOnHold(item.status) ? (
+                {item.onPromo ? (
+                  <span className="absolute bottom-2 left-2 rounded-full bg-rose-100 px-2 py-0.5 text-[0.65rem] font-medium text-rose-800 shadow-sm">
+                    On Sale
+                  </span>
+                ) : isOnHold(item.status) ? (
                   <span className="absolute bottom-2 left-2 rounded-full bg-amber-100 px-2 py-0.5 text-[0.65rem] font-medium text-amber-800 shadow-sm">
                     On Hold
                   </span>
@@ -242,7 +248,11 @@ export function ItemCatalogPage() {
                 <div className="flex items-center justify-between gap-2 pt-1">
                   <div className="min-w-0">
                     <p className="truncate text-xs text-slate-500 line-through tabular-nums">
-                      {formatPhpDisplay(item.priceComparison)}
+                      {formatPhpDisplay(
+                        item.onPromo
+                          ? item.listPrice
+                          : item.priceComparison,
+                      )}
                     </p>
                     <p className="truncate text-sm font-semibold tabular-nums text-violet-700">
                       {formatPhpDisplay(item.price)}

@@ -76,6 +76,18 @@ export class InventoryItem extends AuditedEntity {
   @Column({ name: 'enable_discount', type: 'boolean', default: false })
   enableDiscount: boolean;
 
+  @Column({ name: 'on_promo', type: 'boolean', default: false })
+  onPromo: boolean;
+
+  @Column({
+    name: 'promo_price',
+    type: 'numeric',
+    precision: 12,
+    scale: 2,
+    nullable: true,
+  })
+  promoPrice: string | null;
+
   @Column({ name: 'date_sold', type: 'timestamptz', nullable: true })
   dateSold: Date | null;
 

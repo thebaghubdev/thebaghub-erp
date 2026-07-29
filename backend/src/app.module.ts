@@ -54,6 +54,11 @@ import {
   Logistics,
   LogisticsItem,
 } from './logistics/entities/logistics.entities';
+import { PromotionsModule } from './promotions/promotions.module';
+import {
+  Promotion,
+  PromotionItem,
+} from './promotions/entities/promotion.entities';
 
 @Module({
   imports: [
@@ -96,6 +101,8 @@ import {
           Media,
           Logistics,
           LogisticsItem,
+          Promotion,
+          PromotionItem,
         ],
         synchronize:
           config.get<string>('NODE_ENV', 'development') !== 'production',
@@ -117,6 +124,7 @@ import {
     OrdersModule,
     MediaModule,
     LogisticsModule,
+    PromotionsModule,
   ],
   controllers: [AppController],
   providers: [

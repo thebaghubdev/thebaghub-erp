@@ -9,6 +9,7 @@ import { JwtUser } from '../auth/jwt-user';
 import { MediaOwnerType } from '../enums/media-owner-type.enum';
 import { MediaPurpose } from '../enums/media-purpose.enum';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
+import { effectiveInventoryPriceString } from '../inventory/inventory-effective-price.util';
 import { ItemAuthentication } from '../inventory/entities/item-authentication.entity';
 import { Waitlist } from '../orders/entities/waitlist.entity';
 import { MediaService } from '../media/media.service';
@@ -51,6 +52,8 @@ export type ClientCatalogItem = {
   productName: string;
   price: string | null;
   priceComparison: string | null;
+  onPromo: boolean;
+  listPrice: string | null;
   productDescription: string | null;
   imageUrl: string | null;
   status: string;
@@ -75,6 +78,30 @@ export type ClientWaitlistSummary = {
   clientId: string;
   createdAt: string;
 };
+
+function catalogPriceFields(item: InventoryItem): {
+  price: string | null;
+  onPromo: boolean;
+  listPrice: string | null;
+} {
+  const tbh =
+    item.tbhSellingPrice != null && String(item.tbhSellingPrice).trim() !== ''
+      ? String(item.tbhSellingPrice)
+      : null;
+  if (item.onPromo) {
+    const effective = effectiveInventoryPriceString(item);
+    return {
+      onPromo: true,
+      price: effective,
+      listPrice: tbh,
+    };
+  }
+  return {
+    onPromo: false,
+    price: tbh,
+    listPrice: null,
+  };
+}
 
 function snapshotFormString(
   form: Record<string, unknown> | undefined,
@@ -207,6 +234,7 @@ export class ClientCatalogService {
         const photos = posting
           ? await this.loadPostingPhotosSnapshot(posting.id)
           : [];
+        const priceFields = catalogPriceFields(item);
         return {
           id: item.id,
           sku: item.sku,
@@ -214,11 +242,9 @@ export class ClientCatalogService {
           brand: snapshotFormString(form, 'brand'),
           category: snapshotFormString(form, 'category'),
           productName: posting?.productName?.trim() || itemLabelFromSnapshot(item),
-          price:
-            item.tbhSellingPrice != null &&
-            String(item.tbhSellingPrice).trim() !== ''
-              ? String(item.tbhSellingPrice)
-              : null,
+          price: priceFields.price,
+          onPromo: priceFields.onPromo,
+          listPrice: priceFields.listPrice,
           priceComparison:
             posting?.priceComparison != null &&
             String(posting.priceComparison).trim() !== ''
@@ -266,6 +292,7 @@ export class ClientCatalogService {
       ? await this.loadPostingPhotosSnapshot(posting.id)
       : [];
     const itemLabel = itemLabelFromSnapshot(item);
+    const priceFields = catalogPriceFields(item);
     return {
       id: item.id,
       sku: item.sku,
@@ -273,11 +300,9 @@ export class ClientCatalogService {
       brand: snapshotFormString(form, 'brand'),
       category: snapshotFormString(form, 'category'),
       productName: posting?.productName?.trim() || itemLabel,
-      price:
-        item.tbhSellingPrice != null &&
-        String(item.tbhSellingPrice).trim() !== ''
-          ? String(item.tbhSellingPrice)
-          : null,
+      price: priceFields.price,
+      onPromo: priceFields.onPromo,
+      listPrice: priceFields.listPrice,
       priceComparison:
         posting?.priceComparison != null &&
         String(posting.priceComparison).trim() !== ''

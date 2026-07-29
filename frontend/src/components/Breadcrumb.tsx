@@ -11,6 +11,8 @@ const pathLabels: Record<string, string> = {
   "/portal/posting": "Posting",
   "/portal/orders": "Orders",
   "/portal/consignor-payments": "Consignor Payments",
+  "/portal/promotions": "Promotions",
+  "/portal/logistics": "Logistics",
   "/portal/settings": "Settings",
   "/portal/employees": "Employees",
   "/portal/employees/register": "Register",

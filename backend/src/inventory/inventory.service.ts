@@ -163,6 +163,8 @@ export type InventoryListRow = {
   consignorPrice: string | null;
   /** TBH listed selling price (`inventory_items.tbh_selling_price`). */
   tbhSellingPrice: string | null;
+  onPromo: boolean;
+  promoPrice: string | null;
   /** When true, VIP/program discount logic may apply (`inventory_items.enable_discount`). */
   enableDiscount: boolean;
   /** Display name of assigned authenticator, if any. */
@@ -207,6 +209,8 @@ export type InventoryDetailForStaff = {
   inquiryOfferPrice: string | null;
   /** TBH listed selling price (`inventory_items.tbh_selling_price`). */
   tbhSellingPrice: string | null;
+  onPromo: boolean;
+  promoPrice: string | null;
   /** When true, VIP/program discount logic may apply (`inventory_items.enable_discount`). */
   enableDiscount: boolean;
   itemSnapshot: {
@@ -1505,6 +1509,11 @@ export class InventoryService {
           String(r.tbhSellingPrice).trim() !== ''
             ? String(r.tbhSellingPrice)
             : null,
+        onPromo: r.onPromo,
+        promoPrice:
+          r.promoPrice != null && String(r.promoPrice).trim() !== ''
+            ? String(r.promoPrice)
+            : null,
         enableDiscount: r.enableDiscount,
         assignedToName: formatEmployeeName(auth?.assignedTo ?? null),
         authenticationStatus: auth?.authenticationStatus ?? 'Pending',
@@ -1768,6 +1777,11 @@ export class InventoryService {
       tbhSellingPrice:
         r.tbhSellingPrice != null && String(r.tbhSellingPrice).trim() !== ''
           ? String(r.tbhSellingPrice)
+          : null,
+      onPromo: r.onPromo,
+      promoPrice:
+        r.promoPrice != null && String(r.promoPrice).trim() !== ''
+          ? String(r.promoPrice)
           : null,
       enableDiscount: r.enableDiscount,
       itemSnapshot: {

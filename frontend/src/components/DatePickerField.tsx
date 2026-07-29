@@ -23,6 +23,8 @@ export type DatePickerFieldProps = {
   dialogAriaLabel?: string;
   /** When true, days before today (local calendar) cannot be selected. */
   disablePast?: boolean;
+  /** When set, days before this `yyyy-MM-dd` cannot be selected. */
+  minDateYmd?: string;
   /** `yyyy-MM-dd` dates that cannot be selected (e.g. at daily consignment limit). */
   disabledDateKeys?: string[];
   /** When true, the calendar popover opens on mount. */
@@ -70,6 +72,7 @@ export function DatePickerField({
   placeholder = "Select date",
   dialogAriaLabel = "Choose date",
   disablePast = false,
+  minDateYmd,
   disabledDateKeys = [],
   defaultOpen = false,
 }: DatePickerFieldProps) {
@@ -130,6 +133,7 @@ export function DatePickerField({
   }, [open]);
 
   const selected = parseYmd(value);
+  const minDate = minDateYmd ? parseYmd(minDateYmd) : undefined;
   const displayLabel = selected
     ? format(selected, "MMM d, yyyy")
     : placeholder;
@@ -180,6 +184,7 @@ export function DatePickerField({
                 defaultMonth={selected ?? new Date()}
                 disabled={(date) => {
                   if (disablePast && date < startOfDay(new Date())) return true;
+                  if (minDate && date < startOfDay(minDate)) return true;
                   return disabledDateSet.has(format(date, "yyyy-MM-dd"));
                 }}
                 classNames={dayPickerClassNames}

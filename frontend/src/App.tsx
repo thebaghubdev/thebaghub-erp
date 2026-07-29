@@ -43,6 +43,7 @@ import { PricingPage } from './pages/PricingPage'
 import { OrderDetailPage } from './pages/OrderDetailPage'
 import { ConsignorPaymentDetailPage } from './pages/ConsignorPaymentDetailPage'
 import { ConsignorPaymentsPage } from './pages/ConsignorPaymentsPage'
+import { PromotionsPage } from './pages/PromotionsPage'
 import { LogisticsPage } from './pages/LogisticsPage'
 import { OrdersPage } from './pages/OrdersPage'
 import { PortalLoginPage } from './pages/PortalLoginPage'
@@ -123,6 +124,7 @@ const router = createBrowserRouter([
             path: 'consignor-payments/:id',
             element: <ConsignorPaymentDetailPage />,
           },
+          { path: 'promotions', element: <PromotionsPage /> },
           { path: 'logistics', element: <LogisticsPage /> },
           { path: 'settings', element: <SettingsPage /> },
           { path: 'employees/register', element: <RegisterPage /> },

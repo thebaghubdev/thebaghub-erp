@@ -60,6 +60,8 @@ type InventorySearchRow = {
   productName: string;
   status: string;
   tbhSellingPrice: string | null;
+  onPromo?: boolean;
+  promoPrice?: string | null;
   consignorName: string | null;
 };
 
@@ -68,6 +70,8 @@ type InventoryDetailForStaff = {
   sku: string;
   status: string;
   tbhSellingPrice: string | null;
+  onPromo?: boolean;
+  promoPrice?: string | null;
   consignorId: string | null;
   itemSnapshot: {
     form: Record<string, unknown>;
@@ -84,6 +88,17 @@ type InventoryDetailForStaff = {
 };
 
 const AVAILABLE_FOR_PURCHASE = "Available For Purchase";
+
+function effectiveItemListPrice(item: {
+  onPromo?: boolean;
+  promoPrice?: string | null;
+  tbhSellingPrice: string | null;
+}): string | null {
+  if (item.onPromo && item.promoPrice != null && item.promoPrice.trim() !== "") {
+    return item.promoPrice;
+  }
+  return item.tbhSellingPrice;
+}
 
 const LAYAWAY_TERMS_URL = "/terms/layaway.txt";
 const ORDER_SALES_CONTRACT_TERMS_URL = "/terms/order-sales-contract.txt";
@@ -468,7 +483,7 @@ export function StaffCreateOrderPanel({
       [
         {
           label: "Price",
-          value: formatPhpDisplay(itemDetail.tbhSellingPrice),
+          value: formatPhpDisplay(effectiveItemListPrice(itemDetail)),
           valueColSpan: 3,
         },
       ],
@@ -529,7 +544,9 @@ export function StaffCreateOrderPanel({
   const itemPrice = useMemo(
     () =>
       itemDetail
-        ? parsePhpStringToNumber(String(itemDetail.tbhSellingPrice ?? ""))
+        ? parsePhpStringToNumber(
+            String(effectiveItemListPrice(itemDetail) ?? ""),
+          )
         : null,
     [itemDetail],
   );
@@ -786,7 +803,7 @@ export function StaffCreateOrderPanel({
                             {item.productName || item.itemLabel}
                           </span>
                           <span className="text-xs text-slate-500">
-                            {formatPhpDisplay(item.tbhSellingPrice)}
+                            {formatPhpDisplay(effectiveItemListPrice(item))}
                           </span>
                         </button>
                       </li>
