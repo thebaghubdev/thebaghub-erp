@@ -16,6 +16,7 @@ import { Client } from '../clients/entities/client.entity';
 import { Employee } from '../employees/entities/employee.entity';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
 import { effectiveInventoryUnitPrice } from '../inventory/inventory-effective-price.util';
+import { calendarDateStringInTimeZone } from '../inventory/sold-warranty.util';
 import { Inquiry } from '../inquiries/entities/inquiry.entity';
 import { ItemAuthentication } from '../inventory/entities/item-authentication.entity';
 import type { MulterFile } from '../inquiries/multer-file.type';
@@ -74,6 +75,13 @@ import {
   isCreditLinePaymentType,
   isInstallmentPaymentType,
 } from './order-payment-type.util';
+import {
+  emptyDailySalesByTierRow,
+  isSoldOrderStatus,
+  salesPriceTierKey,
+  suggestDailySalesYAxisMax,
+  type DailySalesByTierRow,
+} from './order-sales-tier.util';
 import {
   FULL_PAYMENT_HOLDING_HOURS,
   INVENTORY_STATUS_AVAILABLE_FOR_PURCHASE,
@@ -238,6 +246,13 @@ export type ClientOrderDetail = {
     itemLabel: string;
   };
   installments: OrderInstallmentView[];
+};
+
+export type DailySalesByPriceTierDashboard = {
+  year: number;
+  month: number;
+  days: DailySalesByTierRow[];
+  yAxisMax: number;
 };
 
 export type StaffOrderRow = {
@@ -1025,6 +1040,66 @@ export class OrdersService {
         itemLabel: itemLabelFromSnapshot(order.inventoryItem),
       },
       installments,
+    };
+  }
+
+  async getDailySalesByPriceTierForStaff(
+    year: number,
+    month: number,
+  ): Promise<DailySalesByPriceTierDashboard> {
+    if (!Number.isInteger(year) || year < 2000 || year > 2100) {
+      throw new BadRequestException('Invalid year');
+    }
+    if (!Number.isInteger(month) || month < 1 || month > 12) {
+      throw new BadRequestException('Invalid month');
+    }
+
+    const rows = await this.ordersRepo.find({
+      relations: { inventoryItem: true },
+    });
+
+    const buckets = new Map<string, DailySalesByTierRow>();
+    let maxBarValue = 0;
+
+    for (const order of rows) {
+      if (!isSoldOrderStatus(order.status)) continue;
+
+      const item = order.inventoryItem;
+      const soldAt = item.dateSold ?? order.updatedAt;
+      const soldDateOnly = calendarDateStringInTimeZone(soldAt);
+      const [y, m, dayPart] = soldDateOnly.split('-');
+      if (Number(y) !== year || Number(m) !== month) continue;
+
+      const unitPrice = effectiveInventoryUnitPrice(item);
+      const tierKey =
+        unitPrice != null ? salesPriceTierKey(unitPrice) : null;
+      if (!tierKey) continue;
+
+      const amountRaw = isInstallmentPaymentType(order.paymentType)
+        ? order.layawayPrice
+        : order.fullPaymentPrice;
+      const amount = parseMoney(amountRaw);
+      if (amount == null || amount <= 0) continue;
+
+      const dayLabel = String(Number(dayPart));
+      let row = buckets.get(dayLabel);
+      if (!row) {
+        row = emptyDailySalesByTierRow(dayLabel);
+        buckets.set(dayLabel, row);
+      }
+      row[tierKey] += amount;
+      maxBarValue = Math.max(maxBarValue, row[tierKey]);
+    }
+
+    const days = [...buckets.values()].sort(
+      (a, b) => Number(a.day) - Number(b.day),
+    );
+
+    return {
+      year,
+      month,
+      days,
+      yAxisMax: suggestDailySalesYAxisMax(maxBarValue),
     };
   }
 

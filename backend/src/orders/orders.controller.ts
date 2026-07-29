@@ -9,6 +9,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
   Req,
   UploadedFile,
   UseGuards,
@@ -43,6 +44,14 @@ export class OrdersController {
   @Get('sales-associates')
   listSalesAssociates() {
     return this.ordersService.listSalesAssociates();
+  }
+
+  @Get('dashboard/daily-sales-by-price-tier')
+  dailySalesByPriceTier(
+    @Query('year', ParseIntPipe) year: number,
+    @Query('month', ParseIntPipe) month: number,
+  ) {
+    return this.ordersService.getDailySalesByPriceTierForStaff(year, month);
   }
 
   @Post('batch-assign-sales-associate')

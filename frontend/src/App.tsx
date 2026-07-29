@@ -52,6 +52,7 @@ import { ClientOrderDetailPage } from './pages/ClientOrderDetailPage'
 import { ClientOrdersPage } from './pages/ClientOrdersPage'
 import { RegisterPage } from './pages/RegisterPage'
 import { SettingsPage } from './pages/SettingsPage'
+import { DashboardsPage } from './pages/DashboardsPage'
 
 function PortalBranch() {
   return (
@@ -89,6 +90,7 @@ const router = createBrowserRouter([
         ),
         children: [
           { index: true, element: <Navigate to="inquiries" replace /> },
+          { path: 'dashboards', element: <DashboardsPage /> },
           { path: 'inquiries', element: <InquiryPage /> },
           { path: 'inquiries/:id', element: <InquiryDetailPage /> },
           { path: 'inventory', element: <InventoryPage /> },
