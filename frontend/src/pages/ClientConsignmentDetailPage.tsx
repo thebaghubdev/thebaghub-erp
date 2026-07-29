@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useMemo,
   useRef,
   useState,
   type FormEvent,
@@ -161,6 +162,34 @@ function yesNo(v: unknown): string {
 const cardClass = "rounded-xl border border-slate-200 bg-white p-4 shadow-sm";
 
 const CONSIGNMENT_TERMS_URL = "/terms/consignment.txt";
+const DIRECT_PURCHASE_TERMS_URL = "/terms/direct-purchase.txt";
+
+function confirmOfferTermsCopy(
+  offerTransactionType: TransactionType | null | undefined,
+): {
+  url: string;
+  title: string;
+  agreeLabel: string;
+  agreeError: string;
+} {
+  if (offerTransactionType === "direct_purchase") {
+    return {
+      url: DIRECT_PURCHASE_TERMS_URL,
+      title: "Direct purchase — terms and conditions",
+      agreeLabel:
+        "I agree to The Bag Hub Direct Purchase Terms and Conditions.",
+      agreeError:
+        "You must read and agree to The Bag Hub Direct Purchase Terms and Conditions.",
+    };
+  }
+  return {
+    url: CONSIGNMENT_TERMS_URL,
+    title: "Consignment — terms and conditions",
+    agreeLabel: "I agree to The Bag Hub Consignment Terms and Conditions.",
+    agreeError:
+      "You must read and agree to The Bag Hub Consignment Terms and Conditions.",
+  };
+}
 
 export function ClientConsignmentDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -196,6 +225,11 @@ export function ClientConsignmentDetailPage() {
   const [renewalSignatureFieldKey, setRenewalSignatureFieldKey] = useState(0);
   const confirmOfferTitleId = useId();
   const renewalModalTitleId = useId();
+
+  const confirmOfferTerms = useMemo(
+    () => confirmOfferTermsCopy(detail?.offerTransactionType),
+    [detail?.offerTransactionType],
+  );
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -310,9 +344,7 @@ export function ClientConsignmentDetailPage() {
       e.preventDefault();
       if (!id || !token) return;
       if (!consignmentTermsAccepted) {
-        setConfirmFormError(
-          "You must read and agree to The Bag Hub Consignment Terms and Conditions.",
-        );
+        setConfirmFormError(confirmOfferTerms.agreeError);
         return;
       }
       if (!offerSignatureFile) {
@@ -358,6 +390,7 @@ export function ClientConsignmentDetailPage() {
       consignmentTermsAccepted,
       offerSignatureFile,
       refreshUser,
+      confirmOfferTerms.agreeError,
     ],
   );
 
@@ -1085,7 +1118,7 @@ export function ClientConsignmentDetailPage() {
                       htmlFor="offer-consignment-terms"
                       className="text-sm leading-snug text-slate-700"
                     >
-                      I agree to The Bag Hub Consignment Terms and Conditions.
+                      {confirmOfferTerms.agreeLabel}
                     </label>
                   </div>
 
@@ -1267,8 +1300,8 @@ export function ClientConsignmentDetailPage() {
           setConsignmentTermsAccepted(true);
           setTermsAgreementModalOpen(false);
         }}
-        url={CONSIGNMENT_TERMS_URL}
-        title="Consignment — terms and conditions"
+        url={confirmOfferTerms.url}
+        title={confirmOfferTerms.title}
       />
 
       <TermsScrollAgreeModal
