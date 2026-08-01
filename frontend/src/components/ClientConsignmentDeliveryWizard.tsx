@@ -7,7 +7,9 @@ import { apiFetch } from '../lib/api'
 import {
   branchLabel,
   CLIENT_DELIVERY_MODE_OPTIONS,
+  DELIVERY_TIME_SLOT_OPTIONS,
   type BranchCode,
+  type DeliveryTimeSlotCode,
 } from '../lib/consignment-schedule-labels'
 import { formatOfferTransactionLabel } from '../lib/format-offer-transaction-type'
 import { formatPhpDisplay } from '../lib/format-php'
@@ -67,6 +69,9 @@ export function ClientConsignmentDeliveryWizard({
   const [preselectApplied, setPreselectApplied] = useState(false)
 
   const [deliveryDate, setDeliveryDate] = useState('')
+  const [deliveryTimeSlot, setDeliveryTimeSlot] = useState<DeliveryTimeSlotCode>(
+    DELIVERY_TIME_SLOT_OPTIONS[0].value,
+  )
   const [mode, setMode] = useState('courier')
   const [branch, setBranch] = useState<BranchCode>('pasig')
   const [fullDates, setFullDates] = useState<string[]>([])
@@ -199,6 +204,10 @@ export function ClientConsignmentDeliveryWizard({
       setSaveError('Select a delivery date.')
       return
     }
+    if (!deliveryTimeSlot) {
+      setSaveError('Select a delivery time slot.')
+      return
+    }
     if (fullDates.includes(deliveryDate)) {
       setSaveError('The selected delivery date is not available for this branch.')
       return
@@ -212,6 +221,7 @@ export function ClientConsignmentDeliveryWizard({
           body: JSON.stringify({
             inquiryIds: selectedIds,
             deliveryDate,
+            deliveryTimeSlot,
             modeOfTransfer: mode,
             branch,
           }),
@@ -400,6 +410,30 @@ export function ClientConsignmentDeliveryWizard({
 
         <div>
           <label
+            htmlFor="client-delivery-time-slot"
+            className="block text-sm font-medium text-slate-700"
+          >
+            Delivery time slot
+          </label>
+          <select
+            id="client-delivery-time-slot"
+            value={deliveryTimeSlot}
+            onChange={(e) =>
+              setDeliveryTimeSlot(e.target.value as DeliveryTimeSlotCode)
+            }
+            disabled={saveLoading}
+            className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
+          >
+            {DELIVERY_TIME_SLOT_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label
             htmlFor="client-delivery-mode"
             className="block text-sm font-medium text-slate-700"
           >
@@ -461,7 +495,7 @@ export function ClientConsignmentDeliveryWizard({
         <button
           type="button"
           className={btnPrimary}
-          disabled={saveLoading || !deliveryDate.trim()}
+          disabled={saveLoading || !deliveryDate.trim() || !deliveryTimeSlot}
           onClick={() => void saveSchedule()}
         >
           {saveLoading ? 'Saving…' : 'Save schedule'}

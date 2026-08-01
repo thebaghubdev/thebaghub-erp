@@ -19,6 +19,15 @@ export class ConsignmentSchedule {
   @Column({ name: 'delivery_date', type: 'timestamptz' })
   deliveryDate: Date;
 
+  /** Preferred delivery window when type is `delivery`. */
+  @Column({
+    name: 'delivery_time_slot',
+    type: 'varchar',
+    length: 32,
+    nullable: true,
+  })
+  deliveryTimeSlot: string | null;
+
   @Column({ type: 'varchar', length: 128 })
   status: string;
 

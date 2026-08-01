@@ -11,7 +11,10 @@ import { utcDateKeyFromIso } from "../lib/consignment-daily-limit";
 import { useClientPagination } from "../hooks/useClientPagination";
 import {
   branchLabel,
+  DELIVERY_TIME_SLOT_OPTIONS,
+  deliveryTimeSlotLabel,
   modeOfTransferLabel,
+  type DeliveryTimeSlotCode,
 } from "../lib/consignment-schedule-labels";
 
 type ClientScheduleItem = {
@@ -23,6 +26,7 @@ type ClientScheduleItem = {
 type ClientScheduleRow = {
   id: string;
   deliveryDate: string;
+  deliveryTimeSlot: string | null;
   status: string;
   modeOfTransfer: string;
   branch: string;
@@ -115,6 +119,9 @@ function ClientRescheduleModal({
     [schedule.deliveryDate],
   );
   const [newDate, setNewDate] = useState("");
+  const [newTimeSlot, setNewTimeSlot] = useState<DeliveryTimeSlotCode>(
+    DELIVERY_TIME_SLOT_OPTIONS[0].value,
+  );
   const [reason, setReason] = useState("");
   const [fullDates, setFullDates] = useState<string[]>([]);
   const [availabilityLoading, setAvailabilityLoading] = useState(true);
@@ -125,6 +132,13 @@ function ClientRescheduleModal({
     () => [...fullDates, currentDateKey],
     [fullDates, currentDateKey],
   );
+
+  useEffect(() => {
+    setNewTimeSlot(
+      (schedule.deliveryTimeSlot as DeliveryTimeSlotCode | null) ??
+        DELIVERY_TIME_SLOT_OPTIONS[0].value,
+    );
+  }, [schedule.deliveryTimeSlot]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -184,6 +198,10 @@ function ClientRescheduleModal({
       setError("Please enter a reason for rescheduling.");
       return;
     }
+    if (!newTimeSlot) {
+      setError("Please select a delivery time slot.");
+      return;
+    }
     setError(null);
     setBusy(true);
     try {
@@ -193,6 +211,7 @@ function ClientRescheduleModal({
           method: "PATCH",
           body: JSON.stringify({
             deliveryDate: newDate.trim(),
+            deliveryTimeSlot: newTimeSlot,
             rescheduleReason: reason.trim(),
           }),
         },
@@ -201,12 +220,14 @@ function ClientRescheduleModal({
       if (!res.ok) throw new Error(await readApiErrorMessage(res));
       const body = (await res.json()) as {
         deliveryDate?: string;
+        deliveryTimeSlot?: string | null;
         status?: string;
         hasClientRescheduled?: boolean;
       };
       onSuccess({
         ...schedule,
         deliveryDate: body.deliveryDate ?? schedule.deliveryDate,
+        deliveryTimeSlot: body.deliveryTimeSlot ?? schedule.deliveryTimeSlot,
         status: body.status ?? "rescheduled",
         hasClientRescheduled: body.hasClientRescheduled ?? true,
       });
@@ -218,7 +239,7 @@ function ClientRescheduleModal({
     } finally {
       setBusy(false);
     }
-  }, [token, newDate, reason, disabledDateKeys, schedule, onSuccess, onClose]);
+  }, [token, newDate, newTimeSlot, reason, disabledDateKeys, schedule, onSuccess, onClose]);
 
   if (typeof document === "undefined") return null;
 
@@ -270,6 +291,29 @@ function ClientRescheduleModal({
         </div>
         <div className="mt-4">
           <label
+            htmlFor="client-reschedule-time-slot"
+            className="block text-sm font-medium text-slate-700"
+          >
+            Delivery time slot
+          </label>
+          <select
+            id="client-reschedule-time-slot"
+            value={newTimeSlot}
+            onChange={(e) =>
+              setNewTimeSlot(e.target.value as DeliveryTimeSlotCode)
+            }
+            disabled={busy || availabilityLoading}
+            className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 disabled:opacity-50"
+          >
+            {DELIVERY_TIME_SLOT_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="mt-4">
+          <label
             htmlFor={reasonId}
             className="block text-sm font-medium text-slate-700"
           >
@@ -304,7 +348,11 @@ function ClientRescheduleModal({
             type="button"
             onClick={() => void submit()}
             disabled={
-              busy || availabilityLoading || !newDate.trim() || !reason.trim()
+              busy ||
+              availabilityLoading ||
+              !newDate.trim() ||
+              !newTimeSlot ||
+              !reason.trim()
             }
             className="rounded-lg bg-violet-600 px-4 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-violet-700 disabled:opacity-50"
           >
@@ -366,6 +414,12 @@ function ScheduleItemsModal({
               <dt className="inline font-medium text-slate-500">Date: </dt>
               <dd className="inline text-slate-800">
                 <SubmittedAtCell iso={schedule.deliveryDate} showTime={false} />
+              </dd>
+            </div>
+            <div>
+              <dt className="inline font-medium text-slate-500">Time slot: </dt>
+              <dd className="inline text-slate-800">
+                {deliveryTimeSlotLabel(schedule.deliveryTimeSlot)}
               </dd>
             </div>
             <div>
@@ -551,6 +605,9 @@ export function ClientMySchedulesPanel({
                   Delivery date
                 </th>
                 <th scope="col" className="px-2 py-2.5 sm:px-4 sm:py-3">
+                  Time slot
+                </th>
+                <th scope="col" className="px-2 py-2.5 sm:px-4 sm:py-3">
                   Branch
                 </th>
                 <th scope="col" className="px-2 py-2.5 sm:px-4 sm:py-3">
@@ -571,7 +628,7 @@ export function ClientMySchedulesPanel({
               {loading && rows.length === 0 && (
                 <tr>
                   <td
-                    colSpan={6}
+                    colSpan={7}
                     className="px-4 py-8 text-center text-slate-500"
                   >
                     Loading…
@@ -581,7 +638,7 @@ export function ClientMySchedulesPanel({
               {!loading && rows.length === 0 && !error && (
                 <tr>
                   <td
-                    colSpan={6}
+                    colSpan={7}
                     className="px-4 py-8 text-center text-slate-500"
                   >
                     No delivery schedules yet for your items. Use &quot;Create
@@ -607,6 +664,9 @@ export function ClientMySchedulesPanel({
                 >
                   <td className="px-4 py-3 font-medium text-slate-900">
                     <SubmittedAtCell iso={row.deliveryDate} showTime={false} />
+                  </td>
+                  <td className="px-4 py-3 text-slate-800">
+                    {deliveryTimeSlotLabel(row.deliveryTimeSlot)}
                   </td>
                   <td className="px-4 py-3 text-slate-800">
                     {branchLabel(row.branch)}

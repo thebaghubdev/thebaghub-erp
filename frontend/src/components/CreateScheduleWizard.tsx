@@ -9,9 +9,12 @@ import { apiFetch } from "../lib/api";
 import {
   branchLabel,
   DELIVERY_MODE_OPTIONS,
+  DELIVERY_TIME_SLOT_OPTIONS,
+  deliveryTimeSlotLabel,
   modeOfTransferLabel,
   PULLOUT_MODE_OPTIONS,
   type BranchCode,
+  type DeliveryTimeSlotCode,
   type ScheduleKind,
   scheduleTypeLabel,
 } from "../lib/consignment-schedule-labels";
@@ -81,6 +84,9 @@ export function CreateScheduleWizard({ onScheduleSaved }: Props) {
   const [mode, setMode] = useState<string>(DELIVERY_MODE_OPTIONS[0].value);
   const [branch, setBranch] = useState<BranchCode>("pasig");
   const [deliveryDate, setDeliveryDate] = useState("");
+  const [deliveryTimeSlot, setDeliveryTimeSlot] = useState<DeliveryTimeSlotCode>(
+    DELIVERY_TIME_SLOT_OPTIONS[0].value,
+  );
 
   const [inquiries, setInquiries] = useState<WizardInquiryRow[]>([]);
   const [inquiryLoading, setInquiryLoading] = useState(false);
@@ -210,7 +216,10 @@ export function CreateScheduleWizard({ onScheduleSaved }: Props) {
       ? Math.max(0, dailyLimit - scheduledConsignmentCount)
       : null;
 
-  const canAdvanceFromStep1 = deliveryDate.trim() !== "" && mode !== "";
+  const canAdvanceFromStep1 =
+    deliveryDate.trim() !== "" &&
+    mode !== "" &&
+    (scheduleKind !== "delivery" || Boolean(deliveryTimeSlot));
 
   const canAdvanceFromStep2 = selectedIds.length > 0;
 
@@ -218,7 +227,7 @@ export function CreateScheduleWizard({ onScheduleSaved }: Props) {
     setStep1Error(null);
     if (!canAdvanceFromStep1) {
       setStep1Error(
-        "Choose type, mode of transfer, branch, and delivery date to continue.",
+        "Choose type, mode of transfer, branch, delivery date, and time slot to continue.",
       );
       return;
     }
@@ -278,6 +287,7 @@ export function CreateScheduleWizard({ onScheduleSaved }: Props) {
             modeOfTransfer: mode,
             branch,
             deliveryDate,
+            ...(scheduleKind === "delivery" ? { deliveryTimeSlot } : {}),
             inquiryIds: selectedIds,
           }),
         },
@@ -483,6 +493,27 @@ export function CreateScheduleWizard({ onScheduleSaved }: Props) {
               disablePast
             />
           </div>
+          {scheduleKind === "delivery" ? (
+            <div>
+              <label htmlFor="sched-delivery-time-slot" className={fieldLabel}>
+                Delivery time slot
+              </label>
+              <select
+                id="sched-delivery-time-slot"
+                value={deliveryTimeSlot}
+                onChange={(e) =>
+                  setDeliveryTimeSlot(e.target.value as DeliveryTimeSlotCode)
+                }
+                className={inputSelectClass}
+              >
+                {DELIVERY_TIME_SLOT_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
           <div className="flex flex-wrap justify-end gap-2 pt-2">
             <button
               type="button"
@@ -631,6 +662,16 @@ export function CreateScheduleWizard({ onScheduleSaved }: Props) {
                 {deliveryDateLabel}
               </dd>
             </div>
+            {scheduleKind === "delivery" ? (
+              <div>
+                <dt className="text-slate-500 dark:text-slate-400">
+                  Delivery time slot
+                </dt>
+                <dd className="font-medium text-slate-900 dark:text-slate-100">
+                  {deliveryTimeSlotLabel(deliveryTimeSlot)}
+                </dd>
+              </div>
+            ) : null}
           </dl>
           <div>
             <h3 className="text-sm font-medium text-slate-800 dark:text-slate-200">

@@ -19,13 +19,17 @@ import {
 } from "../lib/consignment-daily-limit";
 import {
   branchLabel,
+  DELIVERY_TIME_SLOT_OPTIONS,
+  deliveryTimeSlotLabel,
   modeOfTransferLabel,
   scheduleTypeLabel,
+  type DeliveryTimeSlotCode,
 } from "../lib/consignment-schedule-labels";
 
 type ConsignmentScheduleDetail = {
   id: string;
   deliveryDate: string;
+  deliveryTimeSlot: string | null;
   status: string;
   type: string;
   modeOfTransfer: string;
@@ -175,6 +179,8 @@ export function ConsignmentScheduleDetailPage() {
 
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
   const [rescheduleYmd, setRescheduleYmd] = useState("");
+  const [rescheduleTimeSlot, setRescheduleTimeSlot] =
+    useState<DeliveryTimeSlotCode>(DELIVERY_TIME_SLOT_OPTIONS[0].value);
   const [rescheduleReasonText, setRescheduleReasonText] = useState("");
   const [rescheduleBusy, setRescheduleBusy] = useState(false);
   const [rescheduleError, setRescheduleError] = useState<string | null>(null);
@@ -288,6 +294,10 @@ export function ConsignmentScheduleDetailPage() {
   const openReschedule = useCallback(() => {
     if (!detail) return;
     setRescheduleYmd(isoDeliveryToYmd(detail.deliveryDate));
+    setRescheduleTimeSlot(
+      (detail.deliveryTimeSlot as DeliveryTimeSlotCode | null) ??
+        DELIVERY_TIME_SLOT_OPTIONS[0].value,
+    );
     setRescheduleReasonText("");
     setRescheduleError(null);
     setRescheduleLimitConfirmOpen(false);
@@ -371,6 +381,9 @@ export function ConsignmentScheduleDetailPage() {
           method: "PATCH",
           body: JSON.stringify({
             deliveryDate: rescheduleYmd.trim(),
+            ...(detail?.type === "delivery"
+              ? { deliveryTimeSlot: rescheduleTimeSlot }
+              : {}),
             rescheduleReason: rescheduleReasonText.trim(),
           }),
         },
@@ -391,7 +404,7 @@ export function ConsignmentScheduleDetailPage() {
     } finally {
       setRescheduleBusy(false);
     }
-  }, [id, token, rescheduleYmd, rescheduleReasonText]);
+  }, [id, token, rescheduleYmd, rescheduleTimeSlot, rescheduleReasonText, detail?.type]);
 
   const submitReschedule = useCallback(() => {
     if (!id || !token || !detail || !rescheduleYmd.trim()) {
@@ -400,6 +413,10 @@ export function ConsignmentScheduleDetailPage() {
     }
     if (!rescheduleReasonText.trim()) {
       setRescheduleError("Please enter a reschedule reason.");
+      return;
+    }
+    if (detail.type === "delivery" && !rescheduleTimeSlot) {
+      setRescheduleError("Please select a delivery time slot.");
       return;
     }
     setRescheduleError(null);
@@ -430,6 +447,7 @@ export function ConsignmentScheduleDetailPage() {
     token,
     detail,
     rescheduleYmd,
+    rescheduleTimeSlot,
     rescheduleReasonText,
     allSchedulesForLimit,
     rescheduleDailyLimit,
@@ -690,6 +708,16 @@ export function ConsignmentScheduleDetailPage() {
                   />
                 </dd>
               </div>
+              {detail.type === "delivery" ? (
+                <div>
+                  <dt className="text-slate-500 dark:text-slate-400">
+                    Delivery time slot
+                  </dt>
+                  <dd className="mt-0.5 text-slate-900 dark:text-slate-100">
+                    {deliveryTimeSlotLabel(detail.deliveryTimeSlot)}
+                  </dd>
+                </div>
+              ) : null}
               <div>
                 <dt className="text-slate-500 dark:text-slate-400">Status</dt>
                 <dd className="mt-0.5 text-slate-900 dark:text-slate-100">
@@ -1306,6 +1334,33 @@ export function ConsignmentScheduleDetailPage() {
                     disablePast
                   />
                 </div>
+                {detail.type === "delivery" ? (
+                  <div className="mt-4">
+                    <label
+                      htmlFor="reschedule-time-slot"
+                      className="block text-sm font-medium text-slate-700 dark:text-slate-300"
+                    >
+                      Delivery time slot
+                    </label>
+                    <select
+                      id="reschedule-time-slot"
+                      value={rescheduleTimeSlot}
+                      onChange={(e) =>
+                        setRescheduleTimeSlot(
+                          e.target.value as DeliveryTimeSlotCode,
+                        )
+                      }
+                      disabled={rescheduleBusy || rescheduleCapacityLoading}
+                      className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
+                    >
+                      {DELIVERY_TIME_SLOT_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : null}
                 <div className="mt-4">
                   <label
                     htmlFor={rescheduleReasonId}

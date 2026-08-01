@@ -28,6 +28,7 @@ import {
 export type ConsignmentScheduleListRow = {
   id: string;
   deliveryDate: string;
+  deliveryTimeSlot: string | null;
   status: string;
   type: string;
   modeOfTransfer: string;
@@ -155,9 +156,15 @@ export class ConsignmentSchedulesService {
     if (!s) {
       throw new NotFoundException('Schedule not found');
     }
+    if (s.type === 'delivery' && !dto.deliveryTimeSlot) {
+      throw new BadRequestException('Delivery time slot is required');
+    }
     s.deliveryDate = deliveryDate;
     s.status = 'rescheduled';
     s.rescheduleReason = dto.rescheduleReason.trim();
+    if (dto.deliveryTimeSlot) {
+      s.deliveryTimeSlot = dto.deliveryTimeSlot;
+    }
     await this.scheduleRepo.save(s);
     return this.findOneForStaff(id);
   }
@@ -220,9 +227,15 @@ export class ConsignmentSchedulesService {
 
     const deliveryDate = new Date(`${dto.deliveryDate}T12:00:00.000Z`);
 
+    if (dto.type === 'delivery' && !dto.deliveryTimeSlot) {
+      throw new BadRequestException('Delivery time slot is required');
+    }
+
     return await this.scheduleRepo.manager.transaction(async (em) => {
       const schedule = em.create(ConsignmentSchedule, {
         deliveryDate,
+        deliveryTimeSlot:
+          dto.type === 'delivery' ? (dto.deliveryTimeSlot ?? null) : null,
         status: 'scheduled',
         type: dto.type,
         modeOfTransfer: dto.modeOfTransfer,
@@ -372,6 +385,7 @@ export class ConsignmentSchedulesService {
     return {
       id: s.id,
       deliveryDate: s.deliveryDate.toISOString(),
+      deliveryTimeSlot: s.deliveryTimeSlot,
       status: s.status,
       type: s.type,
       modeOfTransfer: s.modeOfTransfer,

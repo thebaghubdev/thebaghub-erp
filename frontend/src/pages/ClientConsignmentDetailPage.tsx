@@ -17,6 +17,7 @@ import { apiFetch } from "../lib/api";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import {
   branchLabel,
+  deliveryTimeSlotLabel,
   modeOfTransferLabel,
 } from "../lib/consignment-schedule-labels";
 import { InquiryStatusBadge } from "../components/InquiryStatusBadge";
@@ -70,6 +71,7 @@ type ClientInquiryDetail = {
   /** Set when delivery has been scheduled. */
   deliverySchedule?: {
     deliveryDate: string;
+    deliveryTimeSlot: string | null;
     modeOfTransfer: string;
     branch: string;
   } | null;
@@ -553,6 +555,16 @@ export function ClientConsignmentDetailPage() {
                         iso={detail.deliverySchedule.deliveryDate}
                         showTime={false}
                       />
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500 dark:text-slate-400">
+                      Delivery time slot
+                    </dt>
+                    <dd className="font-medium text-slate-900 dark:text-slate-100">
+                      {deliveryTimeSlotLabel(
+                        detail.deliverySchedule.deliveryTimeSlot,
+                      )}
                     </dd>
                   </div>
                   <div>

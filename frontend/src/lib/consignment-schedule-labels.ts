@@ -47,3 +47,17 @@ export function branchLabel(branch: string): string {
 export function scheduleTypeLabel(scheduleType: string): string {
   return scheduleType === "pullout" ? "Pullout" : "Delivery";
 }
+
+export const DELIVERY_TIME_SLOT_OPTIONS = [
+  { value: "morning", label: "Morning (10:30AM-12NN)" },
+  { value: "early_afternoon", label: "Early Afternoon (12NN-3PM)" },
+  { value: "late_afternoon", label: "Late Afternoon (3PM-6PM)" },
+] as const;
+
+export type DeliveryTimeSlotCode =
+  (typeof DELIVERY_TIME_SLOT_OPTIONS)[number]["value"];
+
+export function deliveryTimeSlotLabel(slot: string | null | undefined): string {
+  const match = DELIVERY_TIME_SLOT_OPTIONS.find((o) => o.value === slot);
+  return match?.label ?? (slot?.trim() || "—");
+}

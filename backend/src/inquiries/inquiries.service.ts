@@ -274,6 +274,7 @@ export type StaffInquiryDetail = StaffInquiryRow & {
 /** When status is for_delivery_scheduled, schedule row from staff calendar. */
 export type ClientDeliveryScheduleInfo = {
   deliveryDate: string;
+  deliveryTimeSlot: string | null;
   modeOfTransfer: string;
   branch: string;
 };
@@ -480,6 +481,7 @@ export class InquiriesService {
     }
     return {
       deliveryDate: sch.deliveryDate.toISOString(),
+      deliveryTimeSlot: sch.deliveryTimeSlot,
       modeOfTransfer: sch.modeOfTransfer,
       branch: sch.branch,
     };
@@ -627,6 +629,7 @@ export class InquiriesService {
     Array<{
       id: string;
       deliveryDate: string;
+      deliveryTimeSlot: string | null;
       status: string;
       modeOfTransfer: string;
       branch: string;
@@ -680,6 +683,7 @@ export class InquiriesService {
       return {
         id: s.id,
         deliveryDate: s.deliveryDate.toISOString(),
+        deliveryTimeSlot: s.deliveryTimeSlot,
         status: s.status,
         modeOfTransfer: s.modeOfTransfer,
         branch: s.branch,
@@ -772,6 +776,7 @@ export class InquiriesService {
 
         const schedule = em.create(ConsignmentSchedule, {
           deliveryDate,
+          deliveryTimeSlot: dto.deliveryTimeSlot,
           status: 'scheduled',
           type: 'delivery',
           modeOfTransfer: dto.modeOfTransfer,
@@ -818,6 +823,7 @@ export class InquiriesService {
   ): Promise<{
     id: string;
     deliveryDate: string;
+    deliveryTimeSlot: string | null;
     status: string;
     hasClientRescheduled: boolean;
   }> {
@@ -902,6 +908,7 @@ export class InquiriesService {
 
     const deliveryDate = new Date(`${newDayKey}T12:00:00.000Z`);
     schedule.deliveryDate = deliveryDate;
+    schedule.deliveryTimeSlot = dto.deliveryTimeSlot;
     schedule.status = 'rescheduled';
     schedule.rescheduleReason = dto.rescheduleReason.trim();
     schedule.hasClientRescheduled = true;
@@ -920,6 +927,7 @@ export class InquiriesService {
     return {
       id: schedule.id,
       deliveryDate: schedule.deliveryDate.toISOString(),
+      deliveryTimeSlot: schedule.deliveryTimeSlot,
       status: schedule.status,
       hasClientRescheduled: true,
     };
