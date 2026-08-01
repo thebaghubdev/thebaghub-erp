@@ -34,15 +34,6 @@ export class ItemPosting extends AuditedEntity {
   @Column({ type: 'text', array: true, default: () => "'{}'" })
   tags: string[];
 
-  @Column({
-    name: 'price_comparison',
-    type: 'numeric',
-    precision: 12,
-    scale: 2,
-    nullable: true,
-  })
-  priceComparison: string | null;
-
   @Column({ name: 'product_description', type: 'text', nullable: true })
   productDescription: string | null;
 

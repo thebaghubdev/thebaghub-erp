@@ -59,6 +59,7 @@ type InventoryDetailForStaff = {
   consignorPhone: string | null;
   inquiryOfferPrice: string | null;
   tbhSellingPrice: string | null;
+  creditCardPrice: string | null;
   enableDiscount: boolean;
   itemSnapshot: {
     clientItemId: string;
@@ -79,7 +80,6 @@ type InventoryDetailForStaff = {
     productName: string;
     collections: string[];
     tags: string[];
-    priceComparison: string | null;
     productDescription: string | null;
     selectedPhotosSnapshot: Array<Record<string, unknown>>;
     shopifyProductId: string | null;
@@ -193,7 +193,6 @@ export function EditingItemPage() {
   const productNameId = useId();
   const collectionId = useId();
   const tagsId = useId();
-  const priceComparisonId = useId();
   const postDescId = useId();
 
   const [detail, setDetail] = useState<InventoryDetailForStaff | null>(null);
@@ -209,7 +208,6 @@ export function EditingItemPage() {
   >([]);
   const [collectionsLoading, setCollectionsLoading] = useState(false);
   const [collectionsError, setCollectionsError] = useState<string | null>(null);
-  const [priceComparison, setPriceComparison] = useState("");
   const [postDescription, setPostDescription] = useState("");
   const [postingSaving, setPostingSaving] = useState(false);
   const [postingSubmitting, setPostingSubmitting] = useState(false);
@@ -325,7 +323,6 @@ export function EditingItemPage() {
         setProductName(posting.productName);
         setCollectionValue(posting.collections[0] ?? "");
         setTagsSelected(posting.tags);
-        setPriceComparison(posting.priceComparison ?? "");
         setPostDescription(
           applyVipDiscountNoticeToDescription(
             posting.productDescription ?? "",
@@ -339,7 +336,6 @@ export function EditingItemPage() {
         setProductName(buildProductName(detailJson.itemSnapshot.form));
         setCollectionValue("");
         setTagsSelected([]);
-        setPriceComparison("");
         setPostDescription(
           normalizeVipNoticeGap(
             buildPostDescriptionHtml(
@@ -458,7 +454,6 @@ export function EditingItemPage() {
               productName: productName.trim(),
               collections: collectionValue ? [collectionValue] : [],
               tags: tagsSelected,
-              priceComparison: priceComparison.trim() || null,
               productDescription: postDescription.trim() || null,
               selectedPhotosSnapshot,
             }),
@@ -516,7 +511,6 @@ export function EditingItemPage() {
       photoSelectionOrder,
       photoshootRow,
       postDescription,
-      priceComparison,
       productName,
       tagsSelected,
       detail,
@@ -677,6 +671,14 @@ export function EditingItemPage() {
                 </dt>
                 <dd className="tabular-nums">
                   {formatPhpDisplay(detail.tbhSellingPrice)}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-slate-500 dark:text-slate-400">
+                  Credit card price
+                </dt>
+                <dd className="tabular-nums">
+                  {formatPhpDisplay(detail.creditCardPrice)}
                 </dd>
               </div>
               <div>
@@ -912,22 +914,6 @@ export function EditingItemPage() {
                 >
                   You can search for existing tags or add a new tag.
                 </p>
-              </div>
-
-              <div>
-                <label htmlFor={priceComparisonId} className={fieldLabel}>
-                  Price comparison
-                </label>
-                <input
-                  id={priceComparisonId}
-                  type="text"
-                  inputMode="decimal"
-                  autoComplete="off"
-                  placeholder="0.00"
-                  className={`${inputClass} tabular-nums`}
-                  value={priceComparison}
-                  onChange={(e) => setPriceComparison(e.target.value)}
-                />
               </div>
 
               <div>

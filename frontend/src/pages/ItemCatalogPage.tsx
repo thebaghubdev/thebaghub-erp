@@ -12,7 +12,7 @@ type CatalogItem = {
   category: string | null;
   productName: string;
   price: string | null;
-  priceComparison: string | null;
+  creditCardPrice: string | null;
   onPromo: boolean;
   listPrice: string | null;
   imageUrl: string | null;
@@ -251,7 +251,7 @@ export function ItemCatalogPage() {
                       {formatPhpDisplay(
                         item.onPromo
                           ? item.listPrice
-                          : item.priceComparison,
+                          : item.creditCardPrice,
                       )}
                     </p>
                     <p className="truncate text-sm font-semibold tabular-nums text-violet-700">

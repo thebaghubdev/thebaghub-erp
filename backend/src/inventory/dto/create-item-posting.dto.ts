@@ -26,10 +26,6 @@ export class CreateItemPostingDto {
 
   @IsOptional()
   @IsString()
-  priceComparison?: string | null;
-
-  @IsOptional()
-  @IsString()
   productDescription?: string | null;
 
   @Allow()

@@ -47,6 +47,7 @@ type InventoryRow = {
   retailPrice: string | null;
   consignorPrice: string | null;
   tbhSellingPrice: string | null;
+  creditCardPrice: string | null;
   enableDiscount: boolean;
   assignedToName: string | null;
   authenticationStatus: string;
@@ -138,6 +139,13 @@ function ownersPricePlusProfitFromTbhAndConsignor(
     return "—";
   }
   return formatPhpAmount(cost + (sell - cost));
+}
+
+function creditCardPriceFromTbh(tbhSelling: string | null): string {
+  if (tbhSelling == null || tbhSelling.trim() === "") return "—";
+  const n = parsePhpStringToNumber(tbhSelling);
+  if (n == null) return "—";
+  return formatPhpAmount(n * 1.04);
 }
 
 const columnHelper = createColumnHelper<InventoryRow>();
@@ -404,6 +412,26 @@ export function PricingPage() {
               placeholder="0.00"
               className={cellInputClass}
             />
+          );
+        },
+      }),
+      columnHelper.display({
+        id: "creditCardPrice",
+        header: () => (
+          <span title="TBH selling price + 4% (auto-calculated)">
+            Credit card price
+          </span>
+        ),
+        cell: ({ row }) => {
+          const tbhEffective = pricingEditMode
+            ? (draftTbhByIdRef.current[row.original.id] ?? "").trim() === ""
+              ? null
+              : draftTbhByIdRef.current[row.original.id]
+            : row.original.tbhSellingPrice;
+          return (
+            <span className="tabular-nums text-slate-800 dark:text-slate-200">
+              {creditCardPriceFromTbh(tbhEffective)}
+            </span>
           );
         },
       }),

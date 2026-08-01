@@ -25,6 +25,7 @@ import { InventoryItem } from './entities/inventory-item.entity';
 import { ItemAuthentication } from './entities/item-authentication.entity';
 import { ItemPhotoshoot } from './entities/item-photoshoot.entity';
 import { ItemPosting } from './entities/item-posting.entity';
+import { computeCreditCardPriceFromTbh } from './credit-card-price.util';
 import { ItemAuthenticationMetric } from './entities/item-authentication-metric.entity';
 import { AuthenticationMetric } from '../authentication-metrics/entities/authentication-metric.entity';
 import {
@@ -163,6 +164,8 @@ export type InventoryListRow = {
   consignorPrice: string | null;
   /** TBH listed selling price (`inventory_items.tbh_selling_price`). */
   tbhSellingPrice: string | null;
+  /** TBH selling price + 4% (`inventory_items.credit_card_price`). */
+  creditCardPrice: string | null;
   onPromo: boolean;
   promoPrice: string | null;
   /** When true, VIP/program discount logic may apply (`inventory_items.enable_discount`). */
@@ -209,6 +212,8 @@ export type InventoryDetailForStaff = {
   inquiryOfferPrice: string | null;
   /** TBH listed selling price (`inventory_items.tbh_selling_price`). */
   tbhSellingPrice: string | null;
+  /** TBH selling price + 4% (`inventory_items.credit_card_price`). */
+  creditCardPrice: string | null;
   onPromo: boolean;
   promoPrice: string | null;
   /** When true, VIP/program discount logic may apply (`inventory_items.enable_discount`). */
@@ -236,7 +241,6 @@ export type ItemPostingForStaff = {
   productName: string;
   collections: string[];
   tags: string[];
-  priceComparison: string | null;
   productDescription: string | null;
   selectedPhotosSnapshot: Array<Record<string, unknown>>;
   shopifyProductId: string | null;
@@ -444,15 +448,6 @@ function normalizePostingDate(value: string | null | undefined): Date | null {
   return d;
 }
 
-function normalizePriceComparison(value: string | null | undefined): string | null {
-  if (value == null || String(value).trim() === '') return null;
-  const n = Number(String(value).trim());
-  if (!Number.isFinite(n) || n < 0) {
-    throw new BadRequestException('Invalid price comparison.');
-  }
-  return n.toFixed(2);
-}
-
 function selectedPhotoKeys(
   value: Array<Record<string, unknown>>,
 ): Array<{ key: string; position: number }> {
@@ -503,10 +498,10 @@ function buildShopifyProductPayload(
     inventory_quantity: 1,
   };
   if (
-    posting.priceComparison != null &&
-    String(posting.priceComparison).trim() !== ''
+    item.creditCardPrice != null &&
+    String(item.creditCardPrice).trim() !== ''
   ) {
-    variant.compare_at_price = String(posting.priceComparison).trim();
+    variant.compare_at_price = String(item.creditCardPrice).trim();
   }
 
   return {
@@ -738,11 +733,6 @@ export class InventoryService {
       productName: posting.productName,
       collections: posting.collections,
       tags: posting.tags,
-      priceComparison:
-        posting.priceComparison != null &&
-        String(posting.priceComparison).trim() !== ''
-          ? String(posting.priceComparison)
-          : null,
       productDescription: posting.productDescription,
       selectedPhotosSnapshot: await this.loadPostingPhotosSnapshot(posting.id),
       shopifyProductId:
@@ -1509,6 +1499,11 @@ export class InventoryService {
           String(r.tbhSellingPrice).trim() !== ''
             ? String(r.tbhSellingPrice)
             : null,
+        creditCardPrice:
+          r.creditCardPrice != null &&
+          String(r.creditCardPrice).trim() !== ''
+            ? String(r.creditCardPrice)
+            : null,
         onPromo: r.onPromo,
         promoPrice:
           r.promoPrice != null && String(r.promoPrice).trim() !== ''
@@ -1529,6 +1524,7 @@ export class InventoryService {
   ): Promise<{
     id: string;
     tbhSellingPrice: string | null;
+    creditCardPrice: string | null;
     enableDiscount: boolean;
     status: string;
   }> {
@@ -1573,6 +1569,7 @@ export class InventoryService {
         );
       }
       priceChanged = storedTbh !== next;
+      item.creditCardPrice = computeCreditCardPriceFromTbh(next);
       if (priceChanged) {
         item.tbhSellingPrice = next;
         nextTbh = next;
@@ -1602,6 +1599,7 @@ export class InventoryService {
     return {
       id: item.id,
       tbhSellingPrice: nextTbh,
+      creditCardPrice: item.creditCardPrice,
       enableDiscount: item.enableDiscount,
       status: item.status,
     };
@@ -1626,7 +1624,6 @@ export class InventoryService {
     const postingDate = shouldUpdatePostingDate
       ? normalizePostingDate(dto.postingDate)
       : null;
-    const priceComparison = normalizePriceComparison(dto.priceComparison);
     const collections = normalizeStringArray(dto.collections);
     if (collections.length === 0) {
       throw new BadRequestException('Collection is required.');
@@ -1675,7 +1672,6 @@ export class InventoryService {
       posting.productName = productName;
       posting.collections = collections;
       posting.tags = tags;
-      posting.priceComparison = priceComparison;
       posting.productDescription = productDescription;
       posting.updatedById = actorUserId;
       await em.save(posting);
@@ -1777,6 +1773,10 @@ export class InventoryService {
       tbhSellingPrice:
         r.tbhSellingPrice != null && String(r.tbhSellingPrice).trim() !== ''
           ? String(r.tbhSellingPrice)
+          : null,
+      creditCardPrice:
+        r.creditCardPrice != null && String(r.creditCardPrice).trim() !== ''
+          ? String(r.creditCardPrice)
           : null,
       onPromo: r.onPromo,
       promoPrice:
@@ -1996,7 +1996,6 @@ export class InventoryService {
             productName: itemLabelFromSnapshot(item.itemSnapshot),
             collections: [],
             tags: [],
-            priceComparison: null,
             productDescription: null,
             createdById: actorUserId,
           });

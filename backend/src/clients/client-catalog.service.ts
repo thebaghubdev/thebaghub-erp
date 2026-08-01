@@ -51,7 +51,7 @@ export type ClientCatalogItem = {
   category: string | null;
   productName: string;
   price: string | null;
-  priceComparison: string | null;
+  creditCardPrice: string | null;
   onPromo: boolean;
   listPrice: string | null;
   productDescription: string | null;
@@ -245,10 +245,10 @@ export class ClientCatalogService {
           price: priceFields.price,
           onPromo: priceFields.onPromo,
           listPrice: priceFields.listPrice,
-          priceComparison:
-            posting?.priceComparison != null &&
-            String(posting.priceComparison).trim() !== ''
-              ? String(posting.priceComparison)
+          creditCardPrice:
+            item.creditCardPrice != null &&
+            String(item.creditCardPrice).trim() !== ''
+              ? String(item.creditCardPrice)
               : null,
           productDescription:
             posting?.productDescription != null &&
@@ -303,10 +303,10 @@ export class ClientCatalogService {
       price: priceFields.price,
       onPromo: priceFields.onPromo,
       listPrice: priceFields.listPrice,
-      priceComparison:
-        posting?.priceComparison != null &&
-        String(posting.priceComparison).trim() !== ''
-          ? String(posting.priceComparison)
+      creditCardPrice:
+        item.creditCardPrice != null &&
+        String(item.creditCardPrice).trim() !== ''
+          ? String(item.creditCardPrice)
           : null,
       productDescription:
         posting?.productDescription != null &&

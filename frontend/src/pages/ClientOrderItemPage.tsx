@@ -47,7 +47,7 @@ type CatalogItemDetail = {
   category: string | null;
   productName: string;
   price: string | null;
-  priceComparison: string | null;
+  creditCardPrice: string | null;
   productDescription: string | null;
   dateReceived: string;
   status: string;

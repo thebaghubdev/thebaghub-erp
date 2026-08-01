@@ -11,7 +11,6 @@ type ItemPosting = {
   productName: string;
   collections: string[];
   tags: string[];
-  priceComparison: string | null;
   productDescription: string | null;
   selectedPhotosSnapshot: Array<Record<string, unknown>>;
   shopifyProductId: string | null;
@@ -25,6 +24,7 @@ type InventoryDetailForStaff = {
   status: string;
   consignorName: string | null;
   tbhSellingPrice: string | null;
+  creditCardPrice: string | null;
   itemSnapshot: {
     form: Record<string, unknown>;
   };
@@ -364,9 +364,11 @@ export function PostingItemPage() {
             </div>
             <div>
               <dt className="text-slate-500 dark:text-slate-400">
-                Price comparison
+                Credit card price
               </dt>
-              <dd>{posting.priceComparison ?? "—"}</dd>
+              <dd className="tabular-nums">
+                {formatPhpDisplay(detail.creditCardPrice)}
+              </dd>
             </div>
             <div>
               <dt className="text-slate-500 dark:text-slate-400">

@@ -73,6 +73,15 @@ export class InventoryItem extends AuditedEntity {
   })
   tbhSellingPrice: string | null;
 
+  @Column({
+    name: 'credit_card_price',
+    type: 'numeric',
+    precision: 12,
+    scale: 2,
+    nullable: true,
+  })
+  creditCardPrice: string | null;
+
   @Column({ name: 'enable_discount', type: 'boolean', default: false })
   enableDiscount: boolean;
 
