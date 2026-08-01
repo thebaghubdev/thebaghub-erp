@@ -76,6 +76,15 @@ export class Order extends AuditedEntity {
   fullPaymentPrice: string | null;
 
   @Column({
+    name: 'order_total_price',
+    type: 'numeric',
+    precision: 12,
+    scale: 2,
+    nullable: true,
+  })
+  orderTotalPrice: string | null;
+
+  @Column({
     name: 'reservation_payment_proof_uploaded_at',
     type: 'timestamptz',
     nullable: true,

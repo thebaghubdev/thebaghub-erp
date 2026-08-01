@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ConfirmDialog } from "../components/ConfirmDialog";
-import { FullPaymentProofUpload } from "../components/FullPaymentProofUpload";
 import { InventoryStatusBadge } from "../components/InventoryStatusBadge";
 import { OrderInstallmentSchedule } from "../components/OrderInstallmentSchedule";
+import { OrderPaymentsSection } from "../components/OrderPaymentsSection";
 import { OrderStatusBadge } from "../components/OrderStatusBadge";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { usePortalAuth } from "../context/portal-auth";
@@ -27,6 +27,7 @@ import {
   pickupOptionLabel,
 } from "../lib/order-pickup-labels";
 import type { OrderInstallmentRow } from "../lib/order-installments";
+import type { OrderPaymentRow } from "../lib/order-payments";
 
 type OrderDetail = {
   id: string;
@@ -38,7 +39,9 @@ type OrderDetail = {
   layawayMonthlyPayment: string | null;
   fullPaymentPrice: string | null;
   fullPaymentTotalPrice: string | null;
+  creditCardPrice: string | null;
   remainingBalancePrice: string | null;
+  orderTotalPrice: string | null;
   reservationPaymentProofUrl: string | null;
   fullPaymentProofUrl: string | null;
   shippingFeeCareOf: string | null;
@@ -70,6 +73,7 @@ type OrderDetail = {
     status: string;
   };
   installments: OrderInstallmentRow[];
+  payments: OrderPaymentRow[];
 };
 
 const cardClass =
@@ -699,14 +703,12 @@ export function OrderDetailPage() {
     isCreditLineOrder
       ? detail.status === "Item Received - Paid"
       : isPostPaymentOrder || !canEditOrder;
-  const showReservationPaymentProofs =
-    detail.paymentType === "full_payment" &&
-    (detail.status === "Reservation" ||
-      (isPostPaymentOrder && detail.reservationPaymentProofUrl != null));
-  const showFullPaymentProof =
+  const showOrderPayments =
     detail.paymentType === "full_payment" &&
     (detail.status === "For Payment" ||
-      (isPostPaymentOrder && detail.reservationPaymentProofUrl == null));
+      detail.status === "Reservation" ||
+      isPostPaymentOrder);
+  const orderPaymentsReadOnly = isPostPaymentOrder || !canEditOrder;
   const showLayawaySchedule =
     isInstallmentPaymentType(detail.paymentType) &&
     detail.installments.length > 0 &&
@@ -970,15 +972,23 @@ export function OrderDetailPage() {
                   ) : null}
                 </div>
               </DetailField>
-              <DetailField label="Full payment price">
+              <DetailField label="Best price">
                 {formatPhpDisplay(detail.fullPaymentTotalPrice)}
+              </DetailField>
+              <DetailField label="Credit card price">
+                {formatPhpDisplay(detail.creditCardPrice)}
               </DetailField>
             </>
           ) : isFullPaymentLike(detail.paymentType) &&
             !isCancelledOrderStatus(detail.status) ? (
-            <DetailField label="Full payment price">
-              {formatPhpDisplay(detail.fullPaymentPrice)}
-            </DetailField>
+            <>
+              <DetailField label="Best price">
+                {formatPhpDisplay(detail.fullPaymentPrice)}
+              </DetailField>
+              <DetailField label="Credit card price">
+                {formatPhpDisplay(detail.creditCardPrice)}
+              </DetailField>
+            </>
           ) : isInstallmentPaymentType(detail.paymentType) ? (
             <>
               <DetailField label="Layaway months">
@@ -1043,66 +1053,46 @@ export function OrderDetailPage() {
             </a>
           </div>
         ) : null}
-        {showReservationPaymentProofs ? (
-          <>
-            <FullPaymentProofUpload<OrderDetail>
-              orderId={detail.id}
-              token={token}
-              apiBase="/api/orders"
-              endpointPath="reservation-payment-proof"
-              proofUrl={detail.reservationPaymentProofUrl}
-              title="Reservation fee proof of payment"
-              uploadLabel="Upload reservation proof"
-              readOnly={isPostPaymentOrder || !canEditOrder}
-              onUpdated={setDetail}
-            />
-            <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-950/40">
-              <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
-                Remaining balance
-              </p>
-              <p className="mt-0.5 text-sm font-semibold text-slate-900 dark:text-slate-100">
-                {formatPhpDisplay(detail.remainingBalancePrice)}
-              </p>
-              <FullPaymentProofUpload<OrderDetail>
-                orderId={detail.id}
-                token={token}
-                apiBase="/api/orders"
-                endpointPath="full-payment-proof"
-                proofUrl={detail.fullPaymentProofUrl}
-                title="Remaining balance proof of payment"
-                uploadLabel="Upload remaining balance proof"
-                allowMarkPaid={!isPostPaymentOrder}
-                readOnly={isPostPaymentOrder || !canEditOrder}
-                confirmTitle="Mark remaining balance as paid?"
-                confirmDescription="This reservation order will be marked as paid. Make sure the uploaded remaining balance proof has been reviewed."
-                onUpdated={setDetail}
-              />
-            </div>
-          </>
-        ) : null}
-        {showFullPaymentProof ? (
-          <FullPaymentProofUpload<OrderDetail>
+      </div>
+
+      {showOrderPayments ? (
+        <div className={cardClass}>
+          <OrderPaymentsSection
             orderId={detail.id}
             token={token}
-            apiBase="/api/orders"
-            endpointPath="full-payment-proof"
-            proofUrl={detail.fullPaymentProofUrl}
-            title={
-              detail.reservationPaymentProofUrl
-                ? "Remaining balance proof of payment"
-                : "Proof of payment"
+            payments={detail.payments ?? []}
+            remainingBalancePrice={detail.remainingBalancePrice}
+            orderTotalPrice={detail.orderTotalPrice}
+            mode="staff"
+            readOnly={orderPaymentsReadOnly}
+            allowMarkOrderPaid={!isPostPaymentOrder && canEditOrder}
+            onUpdated={(update) =>
+              setDetail((prev) =>
+                prev
+                  ? {
+                      ...prev,
+                      payments: update.payments,
+                      remainingBalancePrice: update.remainingBalancePrice,
+                      holdingPeriod: update.holdingPeriod,
+                      ...(update.orderTotalPrice !== undefined
+                        ? { orderTotalPrice: update.orderTotalPrice }
+                        : {}),
+                      ...(update.fullPaymentTotalPrice !== undefined
+                        ? {
+                            fullPaymentTotalPrice:
+                              update.fullPaymentTotalPrice,
+                          }
+                        : {}),
+                      ...(update.status != null
+                        ? { status: update.status }
+                        : {}),
+                    }
+                  : prev,
+              )
             }
-            uploadLabel={
-              detail.reservationPaymentProofUrl
-                ? "Upload remaining balance proof"
-                : "Upload proof of payment"
-            }
-            allowMarkPaid={!isPostPaymentOrder}
-            readOnly={isPostPaymentOrder || !canEditOrder}
-            onUpdated={setDetail}
           />
-        ) : null}
-      </div>
+        </div>
+      ) : null}
 
       <div className={cardClass}>
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">

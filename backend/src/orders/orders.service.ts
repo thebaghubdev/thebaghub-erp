@@ -16,6 +16,7 @@ import { Client } from '../clients/entities/client.entity';
 import { Employee } from '../employees/entities/employee.entity';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
 import { effectiveInventoryUnitPrice } from '../inventory/inventory-effective-price.util';
+import { computeCreditCardPriceFromTbh } from '../inventory/credit-card-price.util';
 import { calendarDateStringInTimeZone } from '../inventory/sold-warranty.util';
 import { Inquiry } from '../inquiries/entities/inquiry.entity';
 import { ItemAuthentication } from '../inventory/entities/item-authentication.entity';
@@ -35,12 +36,17 @@ import { CreateStaffOrderDto } from './dto/create-staff-order.dto';
 import { CreateReservationOrderDto } from './dto/create-reservation-order.dto';
 import { DeclineLayawayOrderDto } from './dto/decline-layaway-order.dto';
 import { MarkInstallmentPaidDto } from './dto/mark-installment-paid.dto';
+import { MarkOrderPaymentPaidDto } from './dto/mark-order-payment-paid.dto';
 import { UpdateInstallmentAmountPaidDto } from './dto/update-installment-amount-paid.dto';
 import { UpdateInstallmentDueDateDto } from './dto/update-installment-due-date.dto';
 import { UpdateInstallmentPaymentDateDto } from './dto/update-installment-payment-date.dto';
 import { UpdateInstallmentPenaltyDto } from './dto/update-installment-penalty.dto';
 import { UpdateLayawayTermsDto } from './dto/update-layaway-terms.dto';
+import { UpdateOrderPaymentAmountPaidDto } from './dto/update-order-payment-amount-paid.dto';
+import { UpdateOrderPaymentDateDto } from './dto/update-order-payment-date.dto';
+import { UpdateOrderTotalPriceDto } from './dto/update-order-total-price.dto';
 import { OrderInstallment } from './entities/order-installment.entity';
+import { OrderPayment } from './entities/order-payment.entity';
 import { Order } from './entities/order.entity';
 import { Waitlist } from './entities/waitlist.entity';
 import {
@@ -62,6 +68,12 @@ import {
   shouldIncludeInstallmentSchedule,
   type OrderInstallmentView,
 } from './order-installment.util';
+import {
+  buildOrderPaymentViews,
+  computeOrderPaymentRemainingBalance,
+  shouldIncludeOrderPayments,
+  type OrderPaymentView,
+} from './order-payment.util';
 import {
   isOrderOpenForStaffUpdates,
   isSalesAdminPosition,
@@ -103,6 +115,8 @@ import {
   ORDER_STATUS_RESERVATION,
   ORDER_INSTALLMENT_STATUS_PAID,
   ORDER_INSTALLMENT_STATUS_UNPAID,
+  ORDER_PAYMENT_STATUS_CONFIRMED,
+  ORDER_PAYMENT_STATUS_PENDING,
   ORDER_NUMBER_OFFSET,
   PAYMENT_TYPE_CREDIT_LINE,
   PAYMENT_TYPE_FULL,
@@ -128,7 +142,7 @@ const ALLOWED_PROOF_MIMES = new Set([
 
 const RESERVATION_FEE = 5_000;
 
-export type { OrderInstallmentView };
+export type { OrderInstallmentView, OrderPaymentView };
 
 function extFromMime(mime: string): string {
   const m = mime.toLowerCase();
@@ -229,6 +243,7 @@ export type ClientOrderDetail = {
   layawayMonthlyPayment: string | null;
   fullPaymentPrice: string | null;
   fullPaymentTotalPrice: string | null;
+  creditCardPrice: string | null;
   remainingBalancePrice: string | null;
   reservationPaymentProofUrl: string | null;
   fullPaymentProofUrl: string | null;
@@ -246,6 +261,8 @@ export type ClientOrderDetail = {
     itemLabel: string;
   };
   installments: OrderInstallmentView[];
+  payments: OrderPaymentView[];
+  orderTotalPrice: string | null;
 };
 
 export type DailySalesByPriceTierDashboard = {
@@ -281,6 +298,7 @@ export type StaffOrderDetail = {
   layawayMonthlyPayment: string | null;
   fullPaymentPrice: string | null;
   fullPaymentTotalPrice: string | null;
+  creditCardPrice: string | null;
   remainingBalancePrice: string | null;
   reservationPaymentProofUrl: string | null;
   fullPaymentProofUrl: string | null;
@@ -313,6 +331,8 @@ export type StaffOrderDetail = {
     status: string;
   };
   installments: OrderInstallmentView[];
+  payments: OrderPaymentView[];
+  orderTotalPrice: string | null;
 };
 
 function snapshotFormString(
@@ -385,6 +405,8 @@ export class OrdersService {
     private readonly ordersRepo: Repository<Order>,
     @InjectRepository(OrderInstallment)
     private readonly installmentsRepo: Repository<OrderInstallment>,
+    @InjectRepository(OrderPayment)
+    private readonly orderPaymentsRepo: Repository<OrderPayment>,
     @InjectRepository(Waitlist)
     private readonly waitlistsRepo: Repository<Waitlist>,
     @InjectRepository(Client)
@@ -557,6 +579,122 @@ export class OrdersService {
       formatOrderDate(order.layawayPaymentStartDate),
       (row) => proofUrlByInstallmentId.get(row.id) ?? null,
     );
+  }
+
+  private async getPaymentViewsForOrder(
+    order: Order,
+  ): Promise<OrderPaymentView[]> {
+    if (!shouldIncludeOrderPayments(order)) {
+      return [];
+    }
+    const rows = await this.orderPaymentsRepo.find({
+      where: { orderId: order.id },
+      order: { proofUploadedAt: 'ASC' },
+    });
+    const proofUrlByPaymentId = new Map<string, string | null>();
+    for (const row of rows) {
+      proofUrlByPaymentId.set(
+        row.id,
+        await this.media.findFirstUrl(
+          MediaOwnerType.ORDER_PAYMENT,
+          row.id,
+          MediaPurpose.PAYMENT_PROOF,
+        ),
+      );
+    }
+    return buildOrderPaymentViews(
+      rows,
+      (row) => proofUrlByPaymentId.get(row.id) ?? null,
+    );
+  }
+
+  private async loadOrderPayments(orderId: string): Promise<OrderPayment[]> {
+    return this.orderPaymentsRepo.find({
+      where: { orderId },
+      order: { proofUploadedAt: 'ASC' },
+    });
+  }
+
+  private orderCreditCardPrice(order: Order): string | null {
+    const item = order.inventoryItem;
+    if (!item) return null;
+    if (order.status === ORDER_STATUS_RESERVATION) {
+      return this.inventoryCreditCardPrice(item);
+    }
+    if (
+      order.paymentType === PAYMENT_TYPE_FULL &&
+      order.fullPaymentPrice != null
+    ) {
+      const best = parseMoney(order.fullPaymentPrice);
+      if (best != null) {
+        return formatMoney(Math.round(best * 104) / 100);
+      }
+    }
+    return this.inventoryCreditCardPrice(item);
+  }
+
+  private inventoryCreditCardPrice(item: InventoryItem): string | null {
+    if (
+      item.creditCardPrice != null &&
+      String(item.creditCardPrice).trim() !== ''
+    ) {
+      return String(item.creditCardPrice).trim();
+    }
+    return computeCreditCardPriceFromTbh(item.tbhSellingPrice);
+  }
+
+  private orderTotalPriceValue(order: Order): string | null {
+    if (order.orderTotalPrice != null) {
+      return order.orderTotalPrice;
+    }
+    const itemPrice = liveInventoryUnitPrice(order.inventoryItem);
+    if (order.status === ORDER_STATUS_RESERVATION) {
+      return itemPrice == null ? null : formatMoney(itemPrice);
+    }
+    return order.fullPaymentPrice;
+  }
+
+  private remainingBalanceForOrder(
+    order: Order,
+    payments: OrderPayment[],
+  ): string | null {
+    if (!shouldIncludeOrderPayments(order)) {
+      return null;
+    }
+    const itemPrice = liveInventoryUnitPrice(order.inventoryItem);
+    return computeOrderPaymentRemainingBalance(order, payments, itemPrice);
+  }
+
+  private assertOrderPaymentsAccessible(order: Order): void {
+    if (!shouldIncludeOrderPayments(order)) {
+      throw new BadRequestException(
+        'Payments are not available for this order',
+      );
+    }
+    if (
+      order.status !== ORDER_STATUS_FOR_PAYMENT &&
+      order.status !== ORDER_STATUS_RESERVATION
+    ) {
+      throw new BadRequestException(
+        'Payments can only be added while the order is for payment or reservation',
+      );
+    }
+  }
+
+  private async hasLegacyFullPaymentProof(order: Order): Promise<boolean> {
+    return this.media.hasMedia(
+      MediaOwnerType.ORDER,
+      order.id,
+      MediaPurpose.PAYMENT_PROOF,
+      { proofType: 'full' },
+    );
+  }
+
+  private async hasConfirmedOrderPayment(orderId: string): Promise<boolean> {
+    const count = await this.orderPaymentsRepo.count({
+      where: { orderId, status: ORDER_PAYMENT_STATUS_CONFIRMED },
+    });
+    return count > 0;
   }
 
   private async ensureInstallments(
@@ -906,16 +1044,14 @@ export class OrdersService {
   }
 
   private fullPaymentTotalPrice(order: Order): string | null {
-    if (order.status !== ORDER_STATUS_RESERVATION) return order.fullPaymentPrice;
-    const itemPrice = liveInventoryUnitPrice(order.inventoryItem);
-    return itemPrice == null ? null : formatMoney(itemPrice);
+    return this.orderTotalPriceValue(order);
   }
 
-  private remainingBalancePrice(order: Order): string | null {
-    if (order.status !== ORDER_STATUS_RESERVATION) return null;
-    const itemPrice = liveInventoryUnitPrice(order.inventoryItem);
-    if (itemPrice == null) return null;
-    return formatMoney(Math.max(0, itemPrice - RESERVATION_FEE));
+  private remainingBalancePrice(
+    order: Order,
+    payments: OrderPayment[],
+  ): string | null {
+    return this.remainingBalanceForOrder(order, payments);
   }
 
   private async findInstallmentForOrder(
@@ -1012,6 +1148,8 @@ export class OrdersService {
     }
 
     const installments = await this.getInstallmentViewsForOrder(order);
+    const payments = await this.getPaymentViewsForOrder(order);
+    const paymentRows = await this.loadOrderPayments(order.id);
 
     return {
       id: order.id,
@@ -1023,7 +1161,9 @@ export class OrdersService {
       layawayMonthlyPayment: order.layawayMonthlyPayment,
       fullPaymentPrice: order.fullPaymentPrice,
       fullPaymentTotalPrice: this.fullPaymentTotalPrice(order),
-      remainingBalancePrice: this.remainingBalancePrice(order),
+      creditCardPrice: this.orderCreditCardPrice(order),
+      remainingBalancePrice: this.remainingBalancePrice(order, paymentRows),
+      orderTotalPrice: this.orderTotalPriceValue(order),
       reservationPaymentProofUrl: await this.reservationPaymentProofUrl(order),
       fullPaymentProofUrl: await this.fullPaymentProofUrl(order),
       holdingPeriod: order.holdingPeriod?.toISOString() ?? null,
@@ -1040,6 +1180,7 @@ export class OrdersService {
         itemLabel: itemLabelFromSnapshot(order.inventoryItem),
       },
       installments,
+      payments,
     };
   }
 
@@ -1138,6 +1279,8 @@ export class OrdersService {
     }
 
     const installments = await this.getInstallmentViewsForOrder(order);
+    const payments = await this.getPaymentViewsForOrder(order);
+    const paymentRows = await this.loadOrderPayments(order.id);
 
     return {
       id: order.id,
@@ -1149,7 +1292,9 @@ export class OrdersService {
       layawayMonthlyPayment: order.layawayMonthlyPayment,
       fullPaymentPrice: order.fullPaymentPrice,
       fullPaymentTotalPrice: this.fullPaymentTotalPrice(order),
-      remainingBalancePrice: this.remainingBalancePrice(order),
+      creditCardPrice: this.orderCreditCardPrice(order),
+      remainingBalancePrice: this.remainingBalancePrice(order, paymentRows),
+      orderTotalPrice: this.orderTotalPriceValue(order),
       reservationPaymentProofUrl: await this.reservationPaymentProofUrl(order),
       fullPaymentProofUrl: await this.fullPaymentProofUrl(order),
       shippingFeeCareOf: order.shippingFeeCareOf,
@@ -1181,6 +1326,7 @@ export class OrdersService {
         status: order.inventoryItem.status,
       },
       installments,
+      payments,
     };
   }
 
@@ -1466,15 +1612,11 @@ export class OrdersService {
       );
     }
     if (
-      !(await this.media.hasMedia(
-        MediaOwnerType.ORDER,
-        order.id,
-        MediaPurpose.PAYMENT_PROOF,
-        { proofType: 'full' },
-      ))
+      !(await this.hasLegacyFullPaymentProof(order)) &&
+      !(await this.hasConfirmedOrderPayment(order.id))
     ) {
       throw new BadRequestException(
-        'Upload proof of payment before marking this order as paid',
+        'Confirm at least one payment or upload legacy proof before marking this order as paid',
       );
     }
 
@@ -2239,6 +2381,318 @@ export class OrdersService {
     );
 
     return this.findOneForClient(user, orderId);
+  }
+
+  async uploadOrderPaymentProofForStaff(
+    user: JwtUser,
+    orderId: string,
+    proofFile: MulterFile | undefined,
+    amountPaidRaw: string | undefined,
+    paymentDateRaw: string | undefined,
+    modeOfPaymentRaw: string | undefined,
+  ): Promise<StaffOrderDetail> {
+    const order = await this.ordersRepo.findOne({
+      where: { id: orderId },
+      relations: { inventoryItem: true },
+    });
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+    await this.enforceOrderMutationAccessOnOrder(user, order);
+
+    const confirmDto = await this.parseMarkOrderPaymentPaidDto({
+      amountPaid: amountPaidRaw ?? '',
+      paymentDate: paymentDateRaw ?? '',
+      modeOfPayment: modeOfPaymentRaw ?? '',
+    });
+
+    await this.createOrderPaymentWithProof(order, user, proofFile, confirmDto);
+    return this.findOneForStaff(orderId);
+  }
+
+  async uploadOrderPaymentProofForClient(
+    user: JwtUser,
+    orderId: string,
+    proofFile: MulterFile | undefined,
+  ): Promise<ClientOrderDetail> {
+    const client = await this.clientsRepo.findOne({
+      where: { userId: user.userId },
+    });
+    if (!client) {
+      throw new NotFoundException('Client profile not found');
+    }
+
+    const order = await this.ordersRepo.findOne({
+      where: { id: orderId, customerId: client.id },
+      relations: { inventoryItem: true },
+    });
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    await this.createOrderPaymentWithProof(order, user, proofFile);
+    return this.findOneForClient(user, orderId);
+  }
+
+  async markOrderPaymentPaidForStaff(
+    user: JwtUser,
+    orderId: string,
+    paymentId: string,
+    dto: MarkOrderPaymentPaidDto,
+  ): Promise<StaffOrderDetail> {
+    const confirmDto = await this.parseMarkOrderPaymentPaidDto(dto);
+    const amount = parseMoney(confirmDto.amountPaid)!;
+    const paymentDate = formatOrderDate(confirmDto.paymentDate)!;
+
+    await this.enforceOrderMutationAccess(user, orderId);
+
+    await this.dataSource.transaction(async (em) => {
+      const order = await em.findOne(Order, {
+        where: { id: orderId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!order) {
+        throw new NotFoundException('Order not found');
+      }
+      this.assertOrderPaymentsAccessible(order);
+
+      const payment = await em.findOne(OrderPayment, {
+        where: { id: paymentId, orderId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!payment) {
+        throw new NotFoundException('Payment not found');
+      }
+      if (payment.status === ORDER_PAYMENT_STATUS_CONFIRMED) {
+        throw new BadRequestException('Payment is already confirmed');
+      }
+
+      const hasProof = await this.media.hasMedia(
+        MediaOwnerType.ORDER_PAYMENT,
+        payment.id,
+        MediaPurpose.PAYMENT_PROOF,
+      );
+      if (!hasProof) {
+        throw new BadRequestException('Proof of payment is required');
+      }
+
+      const markedPaidAt = new Date();
+      payment.amountPaid = formatMoney(amount);
+      payment.paymentDate = paymentDate;
+      payment.modeOfPayment = confirmDto.modeOfPayment;
+      payment.status = ORDER_PAYMENT_STATUS_CONFIRMED;
+      payment.markedPaidAt = markedPaidAt;
+      payment.markedPaidByUserId = user.userId;
+      payment.updatedById = user.userId;
+      await em.save(payment);
+
+      order.holdingPeriod = null;
+      order.updatedById = user.userId;
+      await em.save(order);
+    });
+
+    return this.findOneForStaff(orderId);
+  }
+
+  private async findOrderPaymentForOrder(
+    orderId: string,
+    paymentId: string,
+  ): Promise<OrderPayment> {
+    const row = await this.orderPaymentsRepo.findOne({
+      where: { id: paymentId, orderId },
+    });
+    if (!row) {
+      throw new NotFoundException('Payment not found');
+    }
+    return row;
+  }
+
+  async setOrderPaymentAmountPaidForStaff(
+    user: JwtUser,
+    orderId: string,
+    paymentId: string,
+    dto: UpdateOrderPaymentAmountPaidDto,
+  ): Promise<StaffOrderDetail> {
+    const order = await this.ordersRepo.findOne({
+      where: { id: orderId },
+      relations: { inventoryItem: true },
+    });
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+    await this.enforceOrderMutationAccessOnOrder(user, order);
+    this.assertOrderPaymentsAccessible(order);
+
+    const amount = parseMoney(dto.amountPaid);
+    if (amount == null || amount < 0) {
+      throw new BadRequestException('Amount paid cannot be negative');
+    }
+
+    const row = await this.findOrderPaymentForOrder(orderId, paymentId);
+    if (row.status !== ORDER_PAYMENT_STATUS_CONFIRMED) {
+      throw new BadRequestException(
+        'Only confirmed payments can have the paid amount updated',
+      );
+    }
+
+    row.amountPaid = formatMoney(amount);
+    row.updatedById = user.userId;
+    await this.orderPaymentsRepo.save(row);
+
+    return this.findOneForStaff(orderId);
+  }
+
+  async setOrderPaymentPaymentDateForStaff(
+    user: JwtUser,
+    orderId: string,
+    paymentId: string,
+    dto: UpdateOrderPaymentDateDto,
+  ): Promise<StaffOrderDetail> {
+    const order = await this.ordersRepo.findOne({ where: { id: orderId } });
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+    await this.enforceOrderMutationAccessOnOrder(user, order);
+    this.assertOrderPaymentsAccessible(order);
+
+    const paymentDate = formatOrderDate(dto.paymentDate);
+    if (!paymentDate) {
+      throw new BadRequestException('Payment date is required');
+    }
+
+    const row = await this.findOrderPaymentForOrder(orderId, paymentId);
+    if (row.status !== ORDER_PAYMENT_STATUS_CONFIRMED) {
+      throw new BadRequestException(
+        'Only confirmed payments can have the payment date updated',
+      );
+    }
+
+    row.paymentDate = paymentDate;
+    row.updatedById = user.userId;
+    await this.orderPaymentsRepo.save(row);
+
+    return this.findOneForStaff(orderId);
+  }
+
+  async setOrderTotalPriceForStaff(
+    user: JwtUser,
+    orderId: string,
+    dto: UpdateOrderTotalPriceDto,
+  ): Promise<StaffOrderDetail> {
+    const order = await this.ordersRepo.findOne({
+      where: { id: orderId },
+      relations: { inventoryItem: true },
+    });
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+    await this.enforceOrderMutationAccessOnOrder(user, order);
+    if (order.paymentType !== PAYMENT_TYPE_FULL) {
+      throw new BadRequestException(
+        'Order total price can only be updated on full payment orders',
+      );
+    }
+    this.assertOrderPaymentsAccessible(order);
+
+    const amount = parseMoney(dto.orderTotalPrice);
+    if (amount == null || amount < 0) {
+      throw new BadRequestException('Order total price cannot be negative');
+    }
+
+    order.orderTotalPrice = formatMoney(amount);
+    order.updatedById = user.userId;
+    await this.ordersRepo.save(order);
+
+    return this.findOneForStaff(orderId);
+  }
+
+  private async parseMarkOrderPaymentPaidDto(
+    raw: MarkOrderPaymentPaidDto,
+  ): Promise<MarkOrderPaymentPaidDto> {
+    const dto = plainToInstance(MarkOrderPaymentPaidDto, raw);
+    try {
+      await validateOrReject(dto);
+    } catch {
+      throw new BadRequestException('Invalid payment details');
+    }
+    const amount = parseMoney(dto.amountPaid);
+    if (amount == null || amount < 0) {
+      throw new BadRequestException('Amount paid cannot be negative');
+    }
+    const paymentDate = formatOrderDate(dto.paymentDate);
+    if (!paymentDate) {
+      throw new BadRequestException('Payment date is required');
+    }
+    return dto;
+  }
+
+  private async createOrderPaymentWithProof(
+    order: Order,
+    user: JwtUser,
+    proofFile: MulterFile | undefined,
+    confirmDto?: MarkOrderPaymentPaidDto,
+  ): Promise<void> {
+    if (!proofFile?.buffer?.length) {
+      throw new BadRequestException('Proof file is required');
+    }
+
+    this.assertOrderPaymentsAccessible(order);
+
+    const mime = proofFile.mimetype?.toLowerCase() ?? '';
+    if (!ALLOWED_PROOF_MIMES.has(mime)) {
+      throw new BadRequestException(
+        `Proof must be an image or PDF (${proofFile.mimetype || 'unknown'})`,
+      );
+    }
+
+    const paymentId = randomUUID();
+    const ext = extFromProofMime(mime);
+    const storageKey = `orders/${order.id}/payments/${paymentId}/proof-${randomUUID()}.${ext}`;
+
+    const uploadedAt = new Date();
+    const confirmedAmount =
+      confirmDto != null ? parseMoney(confirmDto.amountPaid) : null;
+    const confirmedPaymentDate =
+      confirmDto != null ? formatOrderDate(confirmDto.paymentDate) : null;
+
+    const payment = this.orderPaymentsRepo.create({
+      id: paymentId,
+      orderId: order.id,
+      status:
+        confirmDto != null
+          ? ORDER_PAYMENT_STATUS_CONFIRMED
+          : ORDER_PAYMENT_STATUS_PENDING,
+      amountPaid:
+        confirmedAmount != null ? formatMoney(confirmedAmount) : null,
+      paymentDate: confirmedPaymentDate,
+      modeOfPayment: confirmDto?.modeOfPayment ?? null,
+      proofUploadedAt: uploadedAt,
+      proofUploadedByUserId: user.userId,
+      markedPaidAt: confirmDto != null ? uploadedAt : null,
+      markedPaidByUserId: confirmDto != null ? user.userId : null,
+      createdById: user.userId,
+      updatedById: user.userId,
+    });
+    await this.orderPaymentsRepo.save(payment);
+
+    await this.media.replaceSingle(
+      MediaOwnerType.ORDER_PAYMENT,
+      paymentId,
+      MediaPurpose.PAYMENT_PROOF,
+      proofFile,
+      storageKey,
+      {
+        uploadedByUserId: user.userId,
+        createdById: user.userId,
+      },
+    );
+
+    if (confirmDto != null) {
+      await this.ordersRepo.update(order.id, {
+        holdingPeriod: null,
+        updatedById: user.userId,
+      });
+    }
   }
 
   async createOrderForClient(

@@ -12,6 +12,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { ClientOrdersController } from './client-orders.controller';
 import { OrdersController } from './orders.controller';
 import { OrderInstallment } from './entities/order-installment.entity';
+import { OrderPayment } from './entities/order-payment.entity';
 import { Order } from './entities/order.entity';
 import { Waitlist } from './entities/waitlist.entity';
 import { InstallmentPenaltyCron } from './installment-penalty.cron';
@@ -28,6 +29,7 @@ import { OrdersService } from './orders.service';
     TypeOrmModule.forFeature([
       Order,
       OrderInstallment,
+      OrderPayment,
       Waitlist,
       Client,
       Employee,

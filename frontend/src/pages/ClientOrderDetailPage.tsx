@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ConfirmDialog } from "../components/ConfirmDialog";
-import { FullPaymentProofUpload } from "../components/FullPaymentProofUpload";
 import { OrderInstallmentSchedule } from "../components/OrderInstallmentSchedule";
+import { OrderPaymentsSection } from "../components/OrderPaymentsSection";
 import { OrderStatusBadge } from "../components/OrderStatusBadge";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { useClientAuth } from "../context/client-auth";
@@ -21,6 +21,7 @@ import {
   pickupOptionLabel,
 } from "../lib/order-pickup-labels";
 import type { OrderInstallmentRow } from "../lib/order-installments";
+import type { OrderPaymentRow } from "../lib/order-payments";
 
 type ClientOrderDetail = {
   id: string;
@@ -32,7 +33,9 @@ type ClientOrderDetail = {
   layawayMonthlyPayment: string | null;
   fullPaymentPrice: string | null;
   fullPaymentTotalPrice: string | null;
+  creditCardPrice: string | null;
   remainingBalancePrice: string | null;
+  orderTotalPrice: string | null;
   reservationPaymentProofUrl: string | null;
   fullPaymentProofUrl: string | null;
   holdingPeriod: string | null;
@@ -49,6 +52,7 @@ type ClientOrderDetail = {
     itemLabel: string;
   };
   installments: OrderInstallmentRow[];
+  payments: OrderPaymentRow[];
 };
 
 const cardClass = "rounded-2xl border border-slate-200 bg-white p-4 shadow-sm";
@@ -173,16 +177,16 @@ export function ClientOrderDetailPage() {
     detail.paymentType === "credit_line"
       ? detail.status === "Item Received - Paid"
       : isPostPaymentOrder;
-  const showReservationPaymentProofs =
-    detail.paymentType === "full_payment" &&
-    (detail.status === "Reservation" ||
-      ((isPaidOrder || isForPickupOrder || isItemReceivedOrder) &&
-        detail.reservationPaymentProofUrl != null));
-  const showFullPaymentProof =
+  const showOrderPayments =
     detail.paymentType === "full_payment" &&
     (detail.status === "For Payment" ||
-      ((isPaidOrder || isForPickupOrder || isItemReceivedOrder) &&
-        detail.reservationPaymentProofUrl == null));
+      detail.status === "Reservation" ||
+      isPostPaymentOrder);
+  const orderPaymentsReadOnly = isPostPaymentOrder;
+  const showHoldingPeriodNotice =
+    detail.paymentType === "full_payment" &&
+    detail.status === "For Payment" &&
+    detail.holdingPeriod != null;
   const showLayawaySchedule =
     isInstallmentPaymentType(detail.paymentType) &&
     detail.installments.length > 0 &&
@@ -215,6 +219,17 @@ export function ClientOrderDetailPage() {
           {detail.inventoryItem.itemLabel}
         </p>
       </div>
+
+      {showHoldingPeriodNotice ? (
+        <p
+          className="rounded-xl border border-amber-200/80 bg-amber-50/90 px-4 py-3 text-sm leading-relaxed text-amber-950"
+          role="status"
+        >
+          This order has a 3-hour holding period. Upload your proof of payment
+          before the holding period ends (see below). If payment is not
+          confirmed in time, your order will be automatically cancelled.
+        </p>
+      ) : null}
 
       <div className={cardClass}>
         <h2 className="text-sm font-semibold text-slate-900">Order details</h2>
@@ -255,8 +270,11 @@ export function ClientOrderDetailPage() {
                   ) : null}
                 </div>
               </DetailField>
-              <DetailField label="Full payment price">
+              <DetailField label="Best price">
                 {formatPhpDisplay(detail.fullPaymentTotalPrice)}
+              </DetailField>
+              <DetailField label="Credit card price">
+                {formatPhpDisplay(detail.creditCardPrice)}
               </DetailField>
             </>
           ) : isInstallmentPaymentType(detail.paymentType) ? (
@@ -272,9 +290,14 @@ export function ClientOrderDetailPage() {
               </DetailField>
             </>
           ) : isFullPaymentLike(detail.paymentType) ? (
-            <DetailField label="Full payment price">
-              {formatPhpDisplay(detail.fullPaymentPrice)}
-            </DetailField>
+            <>
+              <DetailField label="Best price">
+                {formatPhpDisplay(detail.fullPaymentPrice)}
+              </DetailField>
+              <DetailField label="Credit card price">
+                {formatPhpDisplay(detail.creditCardPrice)}
+              </DetailField>
+            </>
           ) : null}
           {detail.declineReason ? (
             <DetailField label="Reason">
@@ -299,62 +322,45 @@ export function ClientOrderDetailPage() {
             </DetailField>
           ) : null}
         </dl>
-        {showReservationPaymentProofs ? (
-          <>
-            <FullPaymentProofUpload<ClientOrderDetail>
-              orderId={detail.id}
-              token={token}
-              apiBase="/api/client/orders"
-              endpointPath="reservation-payment-proof"
-              proofUrl={detail.reservationPaymentProofUrl}
-              title="Reservation fee proof of payment"
-              uploadLabel="Upload reservation proof"
-              readOnly={isPostPaymentOrder}
-              onUpdated={setDetail}
-            />
-            <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
-              <p className="text-xs font-medium text-slate-500">
-                Remaining balance
-              </p>
-              <p className="mt-0.5 text-sm font-semibold text-slate-900">
-                {formatPhpDisplay(detail.remainingBalancePrice)}
-              </p>
-              <FullPaymentProofUpload<ClientOrderDetail>
-                orderId={detail.id}
-                token={token}
-                apiBase="/api/client/orders"
-                endpointPath="full-payment-proof"
-                proofUrl={detail.fullPaymentProofUrl}
-                title="Remaining balance proof of payment"
-                uploadLabel="Upload remaining balance proof"
-                readOnly={isPostPaymentOrder}
-                onUpdated={setDetail}
-              />
-            </div>
-          </>
-        ) : null}
-        {showFullPaymentProof ? (
-          <FullPaymentProofUpload<ClientOrderDetail>
+      </div>
+
+      {showOrderPayments ? (
+        <div className={cardClass}>
+          <OrderPaymentsSection
             orderId={detail.id}
             token={token}
-            apiBase="/api/client/orders"
-            endpointPath="full-payment-proof"
-            proofUrl={detail.fullPaymentProofUrl}
-            title={
-              detail.reservationPaymentProofUrl
-                ? "Remaining balance proof of payment"
-                : "Proof of payment"
+            payments={detail.payments ?? []}
+            remainingBalancePrice={detail.remainingBalancePrice}
+            orderTotalPrice={detail.orderTotalPrice}
+            mode="client"
+            readOnly={orderPaymentsReadOnly}
+            onUpdated={(update) =>
+              setDetail((prev) =>
+                prev
+                  ? {
+                      ...prev,
+                      payments: update.payments,
+                      remainingBalancePrice: update.remainingBalancePrice,
+                      holdingPeriod: update.holdingPeriod,
+                      ...(update.orderTotalPrice !== undefined
+                        ? { orderTotalPrice: update.orderTotalPrice }
+                        : {}),
+                      ...(update.fullPaymentTotalPrice !== undefined
+                        ? {
+                            fullPaymentTotalPrice:
+                              update.fullPaymentTotalPrice,
+                          }
+                        : {}),
+                      ...(update.status != null
+                        ? { status: update.status }
+                        : {}),
+                    }
+                  : prev,
+              )
             }
-            uploadLabel={
-              detail.reservationPaymentProofUrl
-                ? "Upload remaining balance proof"
-                : "Upload proof of payment"
-            }
-            readOnly={isPostPaymentOrder}
-            onUpdated={setDetail}
           />
-        ) : null}
-      </div>
+        </div>
+      ) : null}
 
       {isForPickupOrder && detail.paymentType !== "credit_line" ? (
         <div className={cardClass}>

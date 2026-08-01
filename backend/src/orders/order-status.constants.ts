@@ -41,6 +41,9 @@ export const PAYMENT_TYPE_CREDIT_LINE = 'credit_line';
 export const ORDER_INSTALLMENT_STATUS_UNPAID = 'Unpaid';
 export const ORDER_INSTALLMENT_STATUS_PAID = 'Paid';
 
+export const ORDER_PAYMENT_STATUS_PENDING = 'Pending';
+export const ORDER_PAYMENT_STATUS_CONFIRMED = 'Confirmed';
+
 /** Hours after order creation before the hold expires. */
 export const FULL_PAYMENT_HOLDING_HOURS = 3;
 export const LAYAWAY_HOLDING_HOURS = 12;

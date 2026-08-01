@@ -275,8 +275,15 @@ export function ClientOrderItemPage() {
       [{ label: "Product name", value: item.productName, valueColSpan: 3 }],
       [
         {
-          label: "Price",
+          label: "Best price",
           value: formatPhpDisplay(item.price),
+          valueColSpan: 3,
+        },
+      ],
+      [
+        {
+          label: "Credit card price",
+          value: formatPhpDisplay(item.creditCardPrice),
           valueColSpan: 3,
         },
       ],

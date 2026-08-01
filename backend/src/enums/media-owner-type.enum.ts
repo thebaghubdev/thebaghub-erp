@@ -6,6 +6,7 @@ export enum MediaOwnerType {
   ITEM_POSTING = 'item_posting',
   ORDER = 'order',
   ORDER_INSTALLMENT = 'order_installment',
+  ORDER_PAYMENT = 'order_payment',
   CLIENT = 'client',
   ITEM_AUTHENTICATION_METRIC = 'item_authentication_metric',
   CONSIGNOR_PAYMENT_GROUP = 'consignor_payment_group',

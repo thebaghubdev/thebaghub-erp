@@ -45,6 +45,7 @@ import { TablePreferencesModule } from './table-preferences/table-preferences.mo
 import { TablePreference } from './table-preferences/entities/table-preference.entity';
 import { Order } from './orders/entities/order.entity';
 import { OrderInstallment } from './orders/entities/order-installment.entity';
+import { OrderPayment } from './orders/entities/order-payment.entity';
 import { Waitlist } from './orders/entities/waitlist.entity';
 import { OrdersModule } from './orders/orders.module';
 import { Media } from './media/entities/media.entity';
@@ -97,6 +98,7 @@ import {
           TablePreference,
           Order,
           OrderInstallment,
+          OrderPayment,
           Waitlist,
           Media,
           Logistics,

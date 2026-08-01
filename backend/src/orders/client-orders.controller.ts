@@ -151,4 +151,22 @@ export class ClientOrdersController {
       proof,
     );
   }
+
+  @Post(':id/payments')
+  @UseInterceptors(
+    FileInterceptor('proof', {
+      limits: { fileSize: 10 * 1024 * 1024 },
+    }),
+  )
+  uploadOrderPaymentProof(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+    @UploadedFile() proof: MulterFile | undefined,
+  ) {
+    return this.ordersService.uploadOrderPaymentProofForClient(
+      req.user,
+      id,
+      proof,
+    );
+  }
 }

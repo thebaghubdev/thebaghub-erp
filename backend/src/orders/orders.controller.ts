@@ -24,11 +24,15 @@ import { BatchAssignSalesAssociateDto } from './dto/batch-assign-sales-associate
 import { CancelOrderDto } from './dto/cancel-order.dto';
 import { DeclineLayawayOrderDto } from './dto/decline-layaway-order.dto';
 import { MarkInstallmentPaidDto } from './dto/mark-installment-paid.dto';
+import { MarkOrderPaymentPaidDto } from './dto/mark-order-payment-paid.dto';
 import { UpdateInstallmentAmountPaidDto } from './dto/update-installment-amount-paid.dto';
 import { UpdateInstallmentDueDateDto } from './dto/update-installment-due-date.dto';
 import { UpdateInstallmentPaymentDateDto } from './dto/update-installment-payment-date.dto';
 import { UpdateInstallmentPenaltyDto } from './dto/update-installment-penalty.dto';
 import { UpdateLayawayTermsDto } from './dto/update-layaway-terms.dto';
+import { UpdateOrderPaymentAmountPaidDto } from './dto/update-order-payment-amount-paid.dto';
+import { UpdateOrderPaymentDateDto } from './dto/update-order-payment-date.dto';
+import { UpdateOrderTotalPriceDto } from './dto/update-order-total-price.dto';
 import { OrdersService } from './orders.service';
 
 @Controller('orders')
@@ -303,5 +307,83 @@ export class OrdersController {
       installmentNumber,
       proof,
     );
+  }
+
+  @Post(':id/payments')
+  @UseInterceptors(
+    FileInterceptor('proof', {
+      limits: { fileSize: 10 * 1024 * 1024 },
+    }),
+  )
+  uploadOrderPaymentProof(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body('amountPaid') amountPaid: string | undefined,
+    @Body('paymentDate') paymentDate: string | undefined,
+    @Body('modeOfPayment') modeOfPayment: string | undefined,
+    @UploadedFile() proof: MulterFile | undefined,
+  ) {
+    return this.ordersService.uploadOrderPaymentProofForStaff(
+      req.user,
+      id,
+      proof,
+      amountPaid,
+      paymentDate,
+      modeOfPayment,
+    );
+  }
+
+  @Post(':id/payments/:paymentId/mark-paid')
+  markOrderPaymentPaid(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('paymentId', ParseUUIDPipe) paymentId: string,
+    @Body() dto: MarkOrderPaymentPaidDto,
+  ) {
+    return this.ordersService.markOrderPaymentPaidForStaff(
+      req.user,
+      id,
+      paymentId,
+      dto,
+    );
+  }
+
+  @Patch(':id/payments/:paymentId/amount-paid')
+  setOrderPaymentAmountPaid(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('paymentId', ParseUUIDPipe) paymentId: string,
+    @Body() dto: UpdateOrderPaymentAmountPaidDto,
+  ) {
+    return this.ordersService.setOrderPaymentAmountPaidForStaff(
+      req.user,
+      id,
+      paymentId,
+      dto,
+    );
+  }
+
+  @Patch(':id/payments/:paymentId/payment-date')
+  setOrderPaymentPaymentDate(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('paymentId', ParseUUIDPipe) paymentId: string,
+    @Body() dto: UpdateOrderPaymentDateDto,
+  ) {
+    return this.ordersService.setOrderPaymentPaymentDateForStaff(
+      req.user,
+      id,
+      paymentId,
+      dto,
+    );
+  }
+
+  @Patch(':id/order-total-price')
+  setOrderTotalPrice(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateOrderTotalPriceDto,
+  ) {
+    return this.ordersService.setOrderTotalPriceForStaff(req.user, id, dto);
   }
 }

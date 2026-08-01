@@ -70,6 +70,7 @@ type InventoryDetailForStaff = {
   sku: string;
   status: string;
   tbhSellingPrice: string | null;
+  creditCardPrice: string | null;
   onPromo?: boolean;
   promoPrice?: string | null;
   consignorId: string | null;
@@ -482,8 +483,15 @@ export function StaffCreateOrderPanel({
       [{ label: "Product name", value: productName, valueColSpan: 3 }],
       [
         {
-          label: "Price",
+          label: "Best price",
           value: formatPhpDisplay(effectiveItemListPrice(itemDetail)),
+          valueColSpan: 3,
+        },
+      ],
+      [
+        {
+          label: "Credit card price",
+          value: formatPhpDisplay(itemDetail.creditCardPrice),
           valueColSpan: 3,
         },
       ],
