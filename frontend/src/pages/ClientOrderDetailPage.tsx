@@ -40,6 +40,7 @@ type ClientOrderDetail = {
   fullPaymentProofUrl: string | null;
   holdingPeriod: string | null;
   declineReason: string | null;
+  convertedToLayawayAt: string | null;
   signatureUrl: string | null;
   pickupOption: string | null;
   pickupBranch: string | null;
@@ -182,6 +183,10 @@ export function ClientOrderDetailPage() {
     (detail.status === "For Payment" ||
       detail.status === "Reservation" ||
       isPostPaymentOrder);
+  const showPriorFullPayments =
+    detail.paymentType === "layaway" &&
+    detail.convertedToLayawayAt != null &&
+    (detail.payments?.length ?? 0) > 0;
   const orderPaymentsReadOnly = isPostPaymentOrder;
   const showHoldingPeriodNotice =
     detail.paymentType === "full_payment" &&
@@ -359,6 +364,26 @@ export function ClientOrderDetailPage() {
               )
             }
           />
+        </div>
+      ) : null}
+
+      {showPriorFullPayments ? (
+        <div className={cardClass}>
+          <OrderPaymentsSection
+            orderId={detail.id}
+            token={token}
+            payments={detail.payments ?? []}
+            remainingBalancePrice={null}
+            orderTotalPrice={null}
+            mode="client"
+            readOnly
+            sectionTitle="Payments before layaway conversion"
+            onUpdated={() => undefined}
+          />
+          <p className="mt-3 text-xs text-slate-500">
+            Credit from confirmed payments has been applied to your layaway
+            schedule below.
+          </p>
         </div>
       ) : null}
 

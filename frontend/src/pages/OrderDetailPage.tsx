@@ -11,11 +11,15 @@ import { apiFetch } from "../lib/api";
 import { canBypassOrderAssignment } from "../lib/employee-position";
 import { formatPhpDisplay } from "../lib/format-php";
 import {
+  calculateLayawayPricing,
+  DEFAULT_LAYAWAY_MONTHS,
+  layawayMonthlyRateLabel,
   MAX_LAYAWAY_MONTHS,
   MIN_LAYAWAY_MONTHS,
 } from "../lib/layaway-pricing";
 import {
   isFullPaymentLike,
+  isInstallmentApprovalStatus,
   isInstallmentPaymentType,
   isItemReceivedOrderStatus,
   paymentTypeLabel,
@@ -28,6 +32,7 @@ import {
 } from "../lib/order-pickup-labels";
 import type { OrderInstallmentRow } from "../lib/order-installments";
 import type { OrderPaymentRow } from "../lib/order-payments";
+import { computeConfirmedPaymentsTotal } from "../lib/order-payments";
 
 type OrderDetail = {
   id: string;
@@ -52,6 +57,7 @@ type OrderDetail = {
   holdingPeriod: string | null;
   layawayPaymentStartDate: string | null;
   consignorPaymentRelease: number | null;
+  convertedToLayawayAt: string | null;
   declineReason: string | null;
   signatureUrl: string | null;
   assignedToEmployeeId: string | null;
@@ -76,6 +82,8 @@ type OrderDetail = {
   payments: OrderPaymentRow[];
 };
 
+const RESERVATION_FEE = 5_000;
+
 const cardClass =
   "rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900";
 
@@ -94,8 +102,8 @@ const layawayDeclineBtn =
 const layawayUpdateTermsBtn =
   "rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50 focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-800";
 
-function isForLayawayApproval(status: string): boolean {
-  return status.trim().toLowerCase() === "for layaway approval";
+function isAwaitingInstallmentApproval(status: string): boolean {
+  return isInstallmentApprovalStatus(status);
 }
 
 function isCancellableOrderStatus(status: string): boolean {
@@ -242,6 +250,15 @@ export function OrderDetailPage() {
   const [itemReceivedError, setItemReceivedError] = useState<string | null>(
     null,
   );
+  const [convertConfirmOpen, setConvertConfirmOpen] = useState(false);
+  const [convertBusy, setConvertBusy] = useState(false);
+  const [convertError, setConvertError] = useState<string | null>(null);
+  const [convertMonths, setConvertMonths] = useState(
+    String(DEFAULT_LAYAWAY_MONTHS),
+  );
+  const [convertPrice, setConvertPrice] = useState("");
+  const [convertConsignorPaymentRelease, setConvertConsignorPaymentRelease] =
+    useState("");
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -453,6 +470,60 @@ export function OrderDetailPage() {
       termsConsignorPaymentRelease !== "") &&
     !termsBusy;
 
+  const convertItemPrice = useMemo(() => {
+    const raw = detail?.fullPaymentPrice ?? detail?.orderTotalPrice;
+    if (raw == null) return null;
+    const value = Number.parseFloat(raw);
+    return Number.isFinite(value) && value > 0 ? value : null;
+  }, [detail?.fullPaymentPrice, detail?.orderTotalPrice]);
+
+  const convertMonthsNumber = useMemo(() => {
+    if (!/^\d+$/.test(convertMonths.trim())) return null;
+    const value = Number.parseInt(convertMonths, 10);
+    if (value < MIN_LAYAWAY_MONTHS || value > MAX_LAYAWAY_MONTHS) return null;
+    return value;
+  }, [convertMonths]);
+
+  const convertPriceNumber = useMemo(
+    () => parsePositiveMoney(convertPrice),
+    [convertPrice],
+  );
+
+  const convertMonthlyPayment =
+    convertMonthsNumber != null && convertPriceNumber != null
+      ? (convertPriceNumber / convertMonthsNumber).toFixed(2)
+      : "";
+
+  const convertPaymentReleaseOptions = useMemo(
+    () => consignorPaymentReleaseOptions(convertMonthsNumber),
+    [convertMonthsNumber],
+  );
+
+  const convertConfirmedCredit = useMemo(() => {
+    if (!detail) return 0;
+    let credit = computeConfirmedPaymentsTotal(detail.payments ?? []);
+    if (
+      isReservationOrderStatus(detail.status) &&
+      detail.reservationPaymentProofUrl != null
+    ) {
+      credit += RESERVATION_FEE;
+    }
+    return credit;
+  }, [detail]);
+
+  const convertRemainingBalance =
+    convertPriceNumber != null
+      ? Math.max(0, convertPriceNumber - convertConfirmedCredit)
+      : null;
+
+  const convertFormValid =
+    convertMonthsNumber != null &&
+    convertPriceNumber != null &&
+    convertConsignorPaymentRelease !== "" &&
+    convertRemainingBalance != null &&
+    convertRemainingBalance > 0 &&
+    !convertBusy;
+
   const approvePaymentReleaseOptions = useMemo(
     () => consignorPaymentReleaseOptions(detail?.layawayMonths ?? null),
     [detail?.layawayMonths],
@@ -475,6 +546,92 @@ export function OrderDetailPage() {
     );
     setTermsConfirmOpen(true);
   }, [detail]);
+
+  const openConvertToLayawayDialog = useCallback(() => {
+    if (!detail) return;
+    setConvertError(null);
+    const months = DEFAULT_LAYAWAY_MONTHS;
+    setConvertMonths(String(months));
+    const itemPrice = Number.parseFloat(
+      detail.fullPaymentPrice ?? detail.orderTotalPrice ?? "",
+    );
+    const pricing =
+      Number.isFinite(itemPrice) && itemPrice > 0
+        ? calculateLayawayPricing(itemPrice, months)
+        : null;
+    setConvertPrice(
+      pricing != null ? pricing.layawayPrice.toFixed(2) : "",
+    );
+    setConvertConsignorPaymentRelease("");
+    setConvertConfirmOpen(true);
+  }, [detail]);
+
+  const confirmConvertToLayaway = useCallback(async () => {
+    if (
+      !id ||
+      !token ||
+      !detail ||
+      convertMonthsNumber == null ||
+      convertPriceNumber == null
+    ) {
+      setConvertError("Enter valid layaway months and layaway price.");
+      return;
+    }
+    const consignorPaymentRelease = Number.parseInt(
+      convertConsignorPaymentRelease,
+      10,
+    );
+    if (
+      !Number.isFinite(consignorPaymentRelease) ||
+      consignorPaymentRelease < 1
+    ) {
+      setConvertError("Please select a consignor payment release.");
+      return;
+    }
+    if (convertRemainingBalance != null && convertRemainingBalance <= 0) {
+      setConvertError(
+        "Confirmed payments already cover this layaway price. Mark the order as paid instead.",
+      );
+      return;
+    }
+
+    setConvertError(null);
+    setConvertBusy(true);
+    try {
+      const res = await apiFetch(
+        `/api/orders/${id}/convert-to-layaway`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            layawayMonths: convertMonthsNumber,
+            layawayPrice: convertPriceNumber.toFixed(2),
+            consignorPaymentRelease,
+          }),
+        },
+        token,
+      );
+      if (!res.ok) throw new Error(await readApiErrorMessage(res));
+      const data = (await res.json()) as OrderDetail;
+      setDetail(data);
+      setConvertConfirmOpen(false);
+      setConvertConsignorPaymentRelease("");
+    } catch (e) {
+      setConvertError(
+        e instanceof Error ? e.message : "Could not convert to layaway",
+      );
+    } finally {
+      setConvertBusy(false);
+    }
+  }, [
+    convertConsignorPaymentRelease,
+    convertMonthsNumber,
+    convertPriceNumber,
+    convertRemainingBalance,
+    detail,
+    id,
+    token,
+  ]);
 
   const confirmUpdateLayawayTerms = useCallback(async () => {
     if (!id || !token || !detail || termsMonthsNumber == null || termsPriceNumber == null) {
@@ -688,6 +845,7 @@ export function OrderDetailPage() {
     approveBusy ||
     declineBusy ||
     termsBusy ||
+    convertBusy ||
     cancelBusy ||
     reservationCancelBusy ||
     outForDeliveryBusy ||
@@ -708,6 +866,13 @@ export function OrderDetailPage() {
     (detail.status === "For Payment" ||
       detail.status === "Reservation" ||
       isPostPaymentOrder);
+  const showPriorFullPayments =
+    detail.paymentType === "layaway" &&
+    detail.convertedToLayawayAt != null &&
+    (detail.payments?.length ?? 0) > 0;
+  const showConvertToLayaway =
+    detail.paymentType === "full_payment" &&
+    (detail.status === "For Payment" || isReservationOrderStatus(detail.status));
   const orderPaymentsReadOnly = isPostPaymentOrder || !canEditOrder;
   const showLayawaySchedule =
     isInstallmentPaymentType(detail.paymentType) &&
@@ -769,7 +934,7 @@ export function OrderDetailPage() {
         </p>
       ) : null}
 
-      {isForLayawayApproval(detail.status) ? (
+      {isAwaitingInstallmentApproval(detail.status) ? (
         <div className={cardClass}>
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
             {isCreditLineOrder ? "Credit line approval" : "Layaway approval"}
@@ -781,7 +946,11 @@ export function OrderDetailPage() {
               disabled={actionsLocked}
               onClick={() => {
                 setApproveError(null);
-                setApproveConsignorPaymentRelease("");
+                setApproveConsignorPaymentRelease(
+                  detail.consignorPaymentRelease != null
+                    ? String(detail.consignorPaymentRelease)
+                    : "",
+                );
                 setApproveConfirmOpen(true);
               }}
             >
@@ -808,6 +977,13 @@ export function OrderDetailPage() {
               Update terms
             </button>
           </div>
+          {detail.convertedToLayawayAt != null ? (
+            <p className="mt-3 text-sm text-slate-600 dark:text-slate-400">
+              Converted from full payment. Confirmed payments will be applied as
+              credit to the layaway schedule when this order is approved or
+              terms are saved.
+            </p>
+          ) : null}
         </div>
       ) : null}
 
@@ -816,7 +992,17 @@ export function OrderDetailPage() {
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
             Reservation actions
           </h2>
-          <div className="mt-4">
+          <div className="mt-4 flex flex-wrap gap-2">
+            {showConvertToLayaway ? (
+              <button
+                type="button"
+                className={primaryActionBtn}
+                disabled={actionsLocked}
+                onClick={openConvertToLayawayDialog}
+              >
+                Convert to layaway
+              </button>
+            ) : null}
             <button
               type="button"
               className={layawayDeclineBtn}
@@ -846,6 +1032,17 @@ export function OrderDetailPage() {
                 onClick={() => openForPickupModal(true)}
               >
                 For pick-up
+              </button>
+            ) : null}
+            {showConvertToLayaway &&
+            !isReservationOrderStatus(detail.status) ? (
+              <button
+                type="button"
+                className={primaryActionBtn}
+                disabled={actionsLocked}
+                onClick={openConvertToLayawayDialog}
+              >
+                Convert to layaway
               </button>
             ) : null}
             {isCancellableOrderStatus(detail.status) ? (
@@ -1094,6 +1291,26 @@ export function OrderDetailPage() {
         </div>
       ) : null}
 
+      {showPriorFullPayments ? (
+        <div className={cardClass}>
+          <OrderPaymentsSection
+            orderId={detail.id}
+            token={token}
+            payments={detail.payments ?? []}
+            remainingBalancePrice={null}
+            orderTotalPrice={null}
+            mode="staff"
+            readOnly
+            sectionTitle="Payments before layaway conversion"
+            onUpdated={() => undefined}
+          />
+          <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+            Credit from confirmed payments has been applied to the layaway
+            schedule below.
+          </p>
+        </div>
+      ) : null}
+
       <div className={cardClass}>
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
           Customer
@@ -1158,6 +1375,12 @@ export function OrderDetailPage() {
                 ? "The order status will change to For pick-up and the installment schedule will begin today. The client can receive the item once staff marks it as received."
                 : "The order status will change to For Payment and the layaway payment start date will be set to today."}
             </p>
+            {detail?.convertedToLayawayAt != null ? (
+              <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-950 dark:border-emerald-900/50 dark:bg-emerald-950/25 dark:text-emerald-100">
+                Confirmed full-payment credit will be applied to the installment
+                schedule when you approve.
+              </p>
+            ) : null}
             {!isCreditLineOrder ? (
               <label className="block">
                 <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
@@ -1391,6 +1614,145 @@ export function OrderDetailPage() {
           setTermsConfirmOpen(false);
         }}
         onConfirm={confirmUpdateLayawayTerms}
+      />
+
+      <ConfirmDialog
+        open={convertConfirmOpen}
+        title="Convert to layaway?"
+        description={
+          <div className="space-y-3">
+            <p>
+              This order will move to{" "}
+              <span className="font-medium">For Layaway Approval</span>. After
+              a staff member approves it, confirmed payments already recorded
+              will be kept and applied as credit toward the layaway schedule.
+            </p>
+            {convertConfirmedCredit > 0 ? (
+              <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-950 dark:border-emerald-900/50 dark:bg-emerald-950/25 dark:text-emerald-100">
+                Confirmed payment credit to apply on approval:{" "}
+                <span className="font-medium tabular-nums">
+                  {formatPhpDisplay(String(convertConfirmedCredit.toFixed(2)))}
+                </span>
+              </p>
+            ) : null}
+            {convertItemPrice != null ? (
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Suggested layaway rate:{" "}
+                {layawayMonthlyRateLabel(convertItemPrice)} per month (based on
+                item price).
+              </p>
+            ) : null}
+            <label className="block">
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                Layaway months
+              </span>
+              <input
+                type="number"
+                min={MIN_LAYAWAY_MONTHS}
+                max={MAX_LAYAWAY_MONTHS}
+                step={1}
+                value={convertMonths}
+                onChange={(e) => {
+                  const nextMonths = e.target.value;
+                  setConvertMonths(nextMonths);
+                  setConvertConsignorPaymentRelease("");
+                  if (convertError) setConvertError(null);
+                  const parsed = Number.parseInt(nextMonths, 10);
+                  if (
+                    convertItemPrice != null &&
+                    Number.isInteger(parsed) &&
+                    parsed >= MIN_LAYAWAY_MONTHS &&
+                    parsed <= MAX_LAYAWAY_MONTHS
+                  ) {
+                    const pricing = calculateLayawayPricing(
+                      convertItemPrice,
+                      parsed,
+                    );
+                    if (pricing != null) {
+                      setConvertPrice(pricing.layawayPrice.toFixed(2));
+                    }
+                  }
+                }}
+                disabled={convertBusy}
+                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-500/30 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+              />
+              <span className="mt-1 block text-xs text-slate-500 dark:text-slate-400">
+                Allowed range: {MIN_LAYAWAY_MONTHS} to {MAX_LAYAWAY_MONTHS}{" "}
+                months.
+              </span>
+            </label>
+            <label className="block">
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                Layaway price
+              </span>
+              <input
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={convertPrice}
+                onChange={(e) => {
+                  setConvertPrice(e.target.value);
+                  if (convertError) setConvertError(null);
+                }}
+                disabled={convertBusy}
+                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-500/30 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                placeholder="0.00"
+              />
+            </label>
+            <label className="block">
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                Monthly payment
+              </span>
+              <input
+                type="text"
+                value={convertMonthlyPayment}
+                readOnly
+                className="mt-1 w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-900 shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                placeholder="Calculated automatically"
+              />
+            </label>
+            {convertRemainingBalance != null ? (
+              <p className="text-sm text-slate-700 dark:text-slate-300">
+                Remaining layaway balance after credit:{" "}
+                <span className="font-medium tabular-nums">
+                  {formatPhpDisplay(convertRemainingBalance.toFixed(2))}
+                </span>
+              </p>
+            ) : null}
+            <label className="block">
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                Consignor payment release
+              </span>
+              <select
+                value={convertConsignorPaymentRelease}
+                onChange={(e) => setConvertConsignorPaymentRelease(e.target.value)}
+                disabled={
+                  convertBusy || convertPaymentReleaseOptions.length === 0
+                }
+                className={formSelectClass}
+              >
+                <option value="">Select…</option>
+                {convertPaymentReleaseOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        }
+        confirmLabel="Submit for layaway approval"
+        cancelLabel="Cancel"
+        busy={convertBusy}
+        confirmDisabled={!convertFormValid}
+        errorMessage={convertError}
+        onCancel={() => {
+          if (convertBusy) return;
+          setConvertError(null);
+          setConvertConsignorPaymentRelease("");
+          setConvertConfirmOpen(false);
+        }}
+        onConfirm={confirmConvertToLayaway}
       />
 
       {outForDeliveryOpen ? (

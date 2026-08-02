@@ -342,3 +342,43 @@ export function computeInstallmentViews(
     };
   });
 }
+
+export type ApplyPaymentCreditResult = {
+  fullyPaidInstallmentNumbers: number[];
+};
+
+/** Applies pre-conversion full-payment credit across installments in order. */
+export function applyPaymentCreditToInstallments(
+  rows: OrderInstallment[],
+  credit: number,
+  paymentDate: string,
+  markedPaidAt: Date,
+): ApplyPaymentCreditResult {
+  const sorted = [...rows].sort(
+    (a, b) => a.installmentNumber - b.installmentNumber,
+  );
+  let remaining = Math.max(0, Math.round(credit * 100) / 100);
+  const fullyPaidInstallmentNumbers: number[] = [];
+
+  for (const row of sorted) {
+    if (remaining <= 0) break;
+
+    const scheduled = parseMoney(row.scheduledAmount);
+    if (remaining >= scheduled) {
+      row.amountPaid = formatMoney(scheduled);
+      row.paymentDate = paymentDate;
+      row.status = ORDER_INSTALLMENT_STATUS_PAID;
+      row.markedPaidAt = markedPaidAt;
+      fullyPaidInstallmentNumbers.push(row.installmentNumber);
+      remaining = Math.round((remaining - scheduled) * 100) / 100;
+    } else if (remaining > 0) {
+      row.amountPaid = formatMoney(remaining);
+      row.paymentDate = paymentDate;
+      row.status = ORDER_INSTALLMENT_STATUS_UNPAID;
+      row.markedPaidAt = null;
+      remaining = 0;
+    }
+  }
+
+  return { fullyPaidInstallmentNumbers };
+}

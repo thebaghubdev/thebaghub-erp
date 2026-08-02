@@ -1,6 +1,8 @@
 import {
+  computeFullPaymentCredit,
   computeOrderPaymentRemainingBalance,
   reservationFeeCredit,
+  shouldShowPriorFullPayments,
   sumConfirmedOrderPayments,
 } from './order-payment.util';
 import { OrderPayment } from './entities/order-payment.entity';
@@ -11,6 +13,7 @@ import {
   ORDER_STATUS_FOR_PAYMENT,
   ORDER_STATUS_RESERVATION,
   PAYMENT_TYPE_FULL,
+  PAYMENT_TYPE_LAYAWAY,
 } from './order-status.constants';
 
 function baseOrder(overrides: Partial<Order> = {}): Order {
@@ -86,5 +89,41 @@ describe('order-payment.util', () => {
         { amountPaid: '50.00', status: ORDER_PAYMENT_STATUS_PENDING },
       ] as OrderPayment[]),
     ).toBe(100);
+  });
+
+  it('computes full payment credit including reservation fee', () => {
+    const order = baseOrder({
+      status: ORDER_STATUS_RESERVATION,
+      reservationPaymentProofUploadedAt: new Date('2026-01-01'),
+    });
+    const payments = [
+      { amountPaid: '2500.00', status: ORDER_PAYMENT_STATUS_CONFIRMED },
+    ] as OrderPayment[];
+
+    expect(computeFullPaymentCredit(order, payments)).toBe(7500);
+  });
+
+  it('shows prior full payments only for converted layaway orders', () => {
+    expect(
+      shouldShowPriorFullPayments(
+        {
+          paymentType: PAYMENT_TYPE_LAYAWAY,
+          convertedToLayawayAt: new Date('2026-01-01'),
+        } as Order,
+        2,
+      ),
+    ).toBe(true);
+    expect(
+      shouldShowPriorFullPayments(
+        { paymentType: PAYMENT_TYPE_LAYAWAY, convertedToLayawayAt: null } as Order,
+        2,
+      ),
+    ).toBe(false);
+    expect(
+      shouldShowPriorFullPayments(
+        { paymentType: PAYMENT_TYPE_FULL, convertedToLayawayAt: null } as Order,
+        2,
+      ),
+    ).toBe(false);
   });
 });

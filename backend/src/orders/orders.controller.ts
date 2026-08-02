@@ -22,6 +22,7 @@ import type { MulterFile } from '../inquiries/multer-file.type';
 import { ApproveLayawayOrderDto } from './dto/approve-layaway-order.dto';
 import { BatchAssignSalesAssociateDto } from './dto/batch-assign-sales-associate.dto';
 import { CancelOrderDto } from './dto/cancel-order.dto';
+import { ConvertToLayawayDto } from './dto/convert-to-layaway.dto';
 import { DeclineLayawayOrderDto } from './dto/decline-layaway-order.dto';
 import { MarkInstallmentPaidDto } from './dto/mark-installment-paid.dto';
 import { MarkOrderPaymentPaidDto } from './dto/mark-order-payment-paid.dto';
@@ -118,6 +119,15 @@ export class OrdersController {
     @Body() dto: UpdateLayawayTermsDto,
   ) {
     return this.ordersService.updateLayawayTermsForStaff(req.user, id, dto);
+  }
+
+  @Post(':id/convert-to-layaway')
+  convertToLayaway(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ConvertToLayawayDto,
+  ) {
+    return this.ordersService.convertToLayawayForStaff(req.user, id, dto);
   }
 
   @Post(':id/cancel')

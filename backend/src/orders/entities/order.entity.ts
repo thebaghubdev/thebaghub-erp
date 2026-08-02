@@ -121,6 +121,13 @@ export class Order extends AuditedEntity {
   @Column({ name: 'consignor_payment_release', type: 'int', nullable: true })
   consignorPaymentRelease: number | null;
 
+  @Column({
+    name: 'converted_to_layaway_at',
+    type: 'timestamptz',
+    nullable: true,
+  })
+  convertedToLayawayAt: Date | null;
+
   @Column({ name: 'decline_reason', type: 'text', nullable: true })
   declineReason: string | null;
 

@@ -1,5 +1,6 @@
 export const ORDER_STATUS_FILTER_OPTIONS = [
   { value: "For Layaway Approval", label: "For Layaway Approval" },
+  { value: "For Credit Line Approval", label: "For Credit Line Approval" },
   { value: "For Payment", label: "For Payment" },
   { value: "Paid", label: "Paid" },
   { value: "For pick-up", label: "For pick-up" },
@@ -30,6 +31,11 @@ export function orderPaymentTypeOptions(isCreditLine: boolean): Array<{
 
 export function isInstallmentPaymentType(paymentType: string): boolean {
   return paymentType === "layaway" || paymentType === "credit_line";
+}
+
+export function isInstallmentApprovalStatus(status: string): boolean {
+  const key = status.trim().toLowerCase();
+  return key === "for layaway approval" || key === "for credit line approval";
 }
 
 export function isFullPaymentLike(paymentType: string): boolean {

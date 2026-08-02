@@ -31,6 +31,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { ApproveLayawayOrderDto } from './dto/approve-layaway-order.dto';
 import { BatchAssignSalesAssociateDto } from './dto/batch-assign-sales-associate.dto';
 import { CancelOrderDto } from './dto/cancel-order.dto';
+import { ConvertToLayawayDto } from './dto/convert-to-layaway.dto';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { CreateStaffOrderDto } from './dto/create-staff-order.dto';
 import { CreateReservationOrderDto } from './dto/create-reservation-order.dto';
@@ -61,6 +62,7 @@ import {
   computeDefaultDueDate,
   computeInstallmentViews,
   computeRemainingBalance,
+  applyPaymentCreditToInstallments,
   effectiveDueDateForInstallment,
   formatMoney,
   isInstallmentPaidStatus,
@@ -70,8 +72,10 @@ import {
 } from './order-installment.util';
 import {
   buildOrderPaymentViews,
+  computeFullPaymentCredit,
   computeOrderPaymentRemainingBalance,
   shouldIncludeOrderPayments,
+  shouldLoadOrderPaymentViews,
   type OrderPaymentView,
 } from './order-payment.util';
 import {
@@ -85,6 +89,8 @@ import {
 import { resolveOrderPickupFields } from './order-pickup-fields.util';
 import {
   isCreditLinePaymentType,
+  installmentApprovalStatusForPaymentType,
+  isInstallmentApprovalStatus,
   isInstallmentPaymentType,
 } from './order-payment-type.util';
 import {
@@ -106,6 +112,7 @@ import {
   ORDER_STATUS_DECLINED,
   ORDER_STATUS_EXPIRED,
   ORDER_STATUS_FOR_LAYAWAY_APPROVAL,
+  ORDER_STATUS_FOR_CREDIT_LINE_APPROVAL,
   ORDER_STATUS_FOR_PAYMENT,
   ORDER_STATUS_FOR_PICKUP,
   ORDER_STATUS_ITEM_RECEIVED,
@@ -249,6 +256,7 @@ export type ClientOrderDetail = {
   fullPaymentProofUrl: string | null;
   holdingPeriod: string | null;
   declineReason: string | null;
+  convertedToLayawayAt: string | null;
   signatureUrl: string | null;
   pickupOption: string | null;
   pickupBranch: string | null;
@@ -310,6 +318,7 @@ export type StaffOrderDetail = {
   holdingPeriod: string | null;
   layawayPaymentStartDate: string | null;
   consignorPaymentRelease: number | null;
+  convertedToLayawayAt: string | null;
   declineReason: string | null;
   signatureUrl: string | null;
   assignedToEmployeeId: string | null;
@@ -584,13 +593,13 @@ export class OrdersService {
   private async getPaymentViewsForOrder(
     order: Order,
   ): Promise<OrderPaymentView[]> {
-    if (!shouldIncludeOrderPayments(order)) {
-      return [];
-    }
     const rows = await this.orderPaymentsRepo.find({
       where: { orderId: order.id },
       order: { proofUploadedAt: 'ASC' },
     });
+    if (!shouldLoadOrderPaymentViews(order, rows.length)) {
+      return [];
+    }
     const proofUrlByPaymentId = new Map<string, string | null>();
     for (const row of rows) {
       proofUrlByPaymentId.set(
@@ -805,6 +814,113 @@ export class OrdersService {
         updatedById: userId,
       });
       await em.save(row);
+    }
+  }
+
+  private latestConfirmedPaymentDate(payments: OrderPayment[]): string {
+    let latest: string | null = null;
+    for (const row of payments) {
+      if (row.status?.trim() !== ORDER_PAYMENT_STATUS_CONFIRMED) continue;
+      const date = formatOrderDate(row.paymentDate);
+      if (date != null && (latest == null || date > latest)) {
+        latest = date;
+      }
+    }
+    return latest ?? todayDateString();
+  }
+
+  private async recordConsignorPaymentReleaseForLayaway(
+    em: typeof this.ordersRepo.manager,
+    order: Order,
+    item: InventoryItem,
+    markedPaidAt: Date,
+  ): Promise<void> {
+    if (order.paymentType !== PAYMENT_TYPE_LAYAWAY) return;
+    if (item.inquiryId && item.transactionType === 'consignment') {
+      const consignorClientId =
+        item.consignorId ?? item.inquiry?.consignorId ?? null;
+      if (consignorClientId) {
+        const auditDate = computeConsignorPaymentAuditDate(markedPaidAt);
+        await this.consignorPaymentsService.recordItemForSoldFinalConsignment(
+          em,
+          {
+            inquiryId: item.inquiryId,
+            consignorClientId,
+            auditDate,
+          },
+        );
+      }
+    }
+  }
+
+  private async applyPreConversionPaymentCredit(
+    em: typeof this.ordersRepo.manager,
+    order: Order,
+    userId: string,
+  ): Promise<void> {
+    if (order.convertedToLayawayAt == null) {
+      return;
+    }
+
+    const paymentRows = await em.find(OrderPayment, {
+      where: { orderId: order.id },
+      order: { proofUploadedAt: 'ASC' },
+    });
+    const credit = computeFullPaymentCredit(order, paymentRows);
+    if (credit <= 0) {
+      return;
+    }
+
+    const installments = await em.find(OrderInstallment, {
+      where: { orderId: order.id },
+      order: { installmentNumber: 'ASC' },
+    });
+    if (installments.length === 0) {
+      return;
+    }
+
+    const item = await em.findOne(InventoryItem, {
+      where: { id: order.inventoryItemId },
+      relations: { inquiry: true },
+    });
+    if (!item) {
+      return;
+    }
+
+    const paymentDate = this.latestConfirmedPaymentDate(paymentRows);
+    const markedPaidAt = new Date();
+    const { fullyPaidInstallmentNumbers } = applyPaymentCreditToInstallments(
+      installments,
+      credit,
+      paymentDate,
+      markedPaidAt,
+    );
+
+    for (const row of installments) {
+      row.updatedById = userId;
+      await em.save(row);
+    }
+
+    for (const installmentNumber of fullyPaidInstallmentNumbers) {
+      if (
+        order.consignorPaymentRelease != null &&
+        installmentNumber === order.consignorPaymentRelease
+      ) {
+        await this.recordConsignorPaymentReleaseForLayaway(
+          em,
+          order,
+          item,
+          markedPaidAt,
+        );
+      }
+      if (
+        order.layawayMonths != null &&
+        installmentNumber === order.layawayMonths
+      ) {
+        order.status = ORDER_STATUS_PAID;
+        order.updatedById = userId;
+        await em.save(order);
+      }
     }
   }
 
@@ -1168,6 +1284,7 @@ export class OrdersService {
       fullPaymentProofUrl: await this.fullPaymentProofUrl(order),
       holdingPeriod: order.holdingPeriod?.toISOString() ?? null,
       declineReason: order.declineReason,
+      convertedToLayawayAt: order.convertedToLayawayAt?.toISOString() ?? null,
       signatureUrl: await this.signatureUrlForOrder(order.id),
       pickupOption: order.pickupOption,
       pickupBranch: order.pickupBranch,
@@ -1305,6 +1422,7 @@ export class OrdersService {
       holdingPeriod: order.holdingPeriod?.toISOString() ?? null,
       layawayPaymentStartDate: formatOrderDate(order.layawayPaymentStartDate),
       consignorPaymentRelease: order.consignorPaymentRelease,
+      convertedToLayawayAt: order.convertedToLayawayAt?.toISOString() ?? null,
       declineReason: order.declineReason,
       signatureUrl: await this.signatureUrlForOrder(order.id),
       assignedToEmployeeId: order.assignedToId ?? null,
@@ -1344,9 +1462,9 @@ export class OrdersService {
       if (!order) {
         throw new NotFoundException('Order not found');
       }
-      if (order.status !== ORDER_STATUS_FOR_LAYAWAY_APPROVAL) {
+      if (!isInstallmentApprovalStatus(order.status)) {
         throw new BadRequestException(
-          'Only orders awaiting layaway approval can be approved',
+          'Only orders awaiting approval can be approved',
         );
       }
       if (!isInstallmentPaymentType(order.paymentType)) {
@@ -1394,6 +1512,7 @@ export class OrdersService {
       await em.save(item);
 
       await this.createInstallmentsForOrder(order, em, user.userId);
+      await this.applyPreConversionPaymentCredit(em, order, user.userId);
     });
 
     return this.findOneForStaff(id);
@@ -1418,9 +1537,9 @@ export class OrdersService {
       if (!order) {
         throw new NotFoundException('Order not found');
       }
-      if (order.status !== ORDER_STATUS_FOR_LAYAWAY_APPROVAL) {
+      if (!isInstallmentApprovalStatus(order.status)) {
         throw new BadRequestException(
-          'Only orders awaiting layaway approval can be declined',
+          'Only orders awaiting approval can be declined',
         );
       }
       if (!isInstallmentPaymentType(order.paymentType)) {
@@ -1472,9 +1591,9 @@ export class OrdersService {
       if (!order) {
         throw new NotFoundException('Order not found');
       }
-      if (order.status !== ORDER_STATUS_FOR_LAYAWAY_APPROVAL) {
+      if (!isInstallmentApprovalStatus(order.status)) {
         throw new BadRequestException(
-          'Only orders awaiting layaway approval can have terms updated',
+          'Only orders awaiting approval can have terms updated',
         );
       }
       if (!isInstallmentPaymentType(order.paymentType)) {
@@ -1528,6 +1647,96 @@ export class OrdersService {
       await em.save(item);
 
       await this.createInstallmentsForOrder(order, em, user.userId);
+      await this.applyPreConversionPaymentCredit(em, order, user.userId);
+    });
+
+    return this.findOneForStaff(id);
+  }
+
+  async convertToLayawayForStaff(
+    user: JwtUser,
+    id: string,
+    dto: ConvertToLayawayDto,
+  ): Promise<StaffOrderDetail> {
+    await this.enforceOrderMutationAccess(user, id);
+    const layawayPrice = parseMoney(dto.layawayPrice);
+    if (layawayPrice <= 0) {
+      throw new BadRequestException('Layaway price must be greater than zero');
+    }
+
+    await this.dataSource.transaction(async (em) => {
+      const order = await em.findOne(Order, {
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!order) {
+        throw new NotFoundException('Order not found');
+      }
+      if (order.paymentType !== PAYMENT_TYPE_FULL) {
+        throw new BadRequestException(
+          'Only full payment orders can be converted to layaway',
+        );
+      }
+      if (order.convertedToLayawayAt != null) {
+        throw new BadRequestException('Order has already been converted to layaway');
+      }
+      if (
+        order.status !== ORDER_STATUS_FOR_PAYMENT &&
+        order.status !== ORDER_STATUS_RESERVATION
+      ) {
+        throw new BadRequestException(
+          'Only orders for payment or reservation can be converted to layaway',
+        );
+      }
+
+      const item = await em.findOne(InventoryItem, {
+        where: { id: order.inventoryItemId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!item) {
+        throw new NotFoundException('Inventory item not found');
+      }
+
+      const auth = await em.findOne(ItemAuthentication, {
+        where: { inventoryItemId: item.id },
+      });
+      const layawayEligibility = getLayawayEligibility(
+        auth?.rating ?? null,
+        categoryFromItemSnapshot(item.itemSnapshot),
+      );
+      if (!layawayEligibility.allowed) {
+        throw new BadRequestException(layawayEligibility.reasons.join(' '));
+      }
+
+      assertConsignorPaymentReleaseWithinTerms(
+        dto.consignorPaymentRelease,
+        dto.layawayMonths,
+      );
+
+      const paymentRows = await em.find(OrderPayment, {
+        where: { orderId: order.id },
+        order: { proofUploadedAt: 'ASC' },
+      });
+      const credit = computeFullPaymentCredit(order, paymentRows);
+      if (credit >= layawayPrice) {
+        throw new BadRequestException(
+          'Total confirmed payments already cover the layaway price. Mark the order as paid instead of converting to layaway.',
+        );
+      }
+
+      order.paymentType = PAYMENT_TYPE_LAYAWAY;
+      order.layawayMonths = dto.layawayMonths;
+      order.layawayPrice = formatMoney(layawayPrice);
+      order.layawayMonthlyPayment = formatMoney(
+        layawayPrice / dto.layawayMonths,
+      );
+      order.consignorPaymentRelease = dto.consignorPaymentRelease;
+      order.convertedToLayawayAt = new Date();
+      order.status = ORDER_STATUS_FOR_LAYAWAY_APPROVAL;
+      order.layawayPaymentStartDate = null;
+      order.holdingPeriod = addHours(new Date(), LAYAWAY_HOLDING_HOURS);
+      order.updatedById = user.userId;
+      await em.save(order);
     });
 
     return this.findOneForStaff(id);
@@ -2797,7 +3006,7 @@ export class OrdersService {
       layawayMonths = dto.layawayMonths!;
       layawayPrice = formatDecimal(pricing.layawayPrice);
       layawayMonthlyPayment = formatDecimal(pricing.monthlyPayment);
-      status = ORDER_STATUS_FOR_LAYAWAY_APPROVAL;
+      status = installmentApprovalStatusForPaymentType(dto.paymentType);
       holdingHours = LAYAWAY_HOLDING_HOURS;
     } else {
       fullPaymentPrice = formatDecimal(itemPrice);
@@ -2969,7 +3178,7 @@ export class OrdersService {
       layawayMonths = dto.layawayMonths!;
       layawayPrice = formatDecimal(pricing.layawayPrice);
       layawayMonthlyPayment = formatDecimal(pricing.monthlyPayment);
-      status = ORDER_STATUS_FOR_LAYAWAY_APPROVAL;
+      status = installmentApprovalStatusForPaymentType(dto.paymentType);
       holdingHours = LAYAWAY_HOLDING_HOURS;
     } else {
       fullPaymentPrice = formatDecimal(itemPrice);
@@ -3236,6 +3445,7 @@ export class OrdersService {
         statuses: [
           ORDER_STATUS_FOR_PAYMENT,
           ORDER_STATUS_FOR_LAYAWAY_APPROVAL,
+          ORDER_STATUS_FOR_CREDIT_LINE_APPROVAL,
           ORDER_STATUS_RESERVATION,
         ],
       })
@@ -3255,6 +3465,7 @@ export class OrdersService {
           !lockedOrder ||
           (lockedOrder.status !== ORDER_STATUS_FOR_PAYMENT &&
             lockedOrder.status !== ORDER_STATUS_FOR_LAYAWAY_APPROVAL &&
+            lockedOrder.status !== ORDER_STATUS_FOR_CREDIT_LINE_APPROVAL &&
             lockedOrder.status !== ORDER_STATUS_RESERVATION)
         ) {
           return false;

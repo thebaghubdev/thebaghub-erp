@@ -4,6 +4,7 @@ import {
   ORDER_PAYMENT_STATUS_CONFIRMED,
   ORDER_STATUS_RESERVATION,
   PAYMENT_TYPE_FULL,
+  PAYMENT_TYPE_LAYAWAY,
 } from './order-status.constants';
 import { formatMoney, parseMoney } from './order-installment.util';
 
@@ -34,8 +35,38 @@ export function isOrderPaymentConfirmed(status: string): boolean {
   return status.trim() === ORDER_PAYMENT_STATUS_CONFIRMED;
 }
 
-export function shouldIncludeOrderPayments(order: Order): boolean {
+export function shouldIncludeOrderPayments(
+  order: Pick<Order, 'paymentType'>,
+): boolean {
   return order.paymentType === PAYMENT_TYPE_FULL;
+}
+
+export function shouldShowPriorFullPayments(
+  order: Pick<Order, 'paymentType' | 'convertedToLayawayAt'>,
+  paymentCount: number,
+): boolean {
+  return (
+    order.paymentType === PAYMENT_TYPE_LAYAWAY &&
+    order.convertedToLayawayAt != null &&
+    paymentCount > 0
+  );
+}
+
+export function shouldLoadOrderPaymentViews(
+  order: Pick<Order, 'paymentType' | 'convertedToLayawayAt'>,
+  paymentCount: number,
+): boolean {
+  return (
+    shouldIncludeOrderPayments(order) ||
+    shouldShowPriorFullPayments(order, paymentCount)
+  );
+}
+
+export function computeFullPaymentCredit(
+  order: Pick<Order, 'status' | 'reservationPaymentProofUploadedAt'>,
+  payments: Pick<OrderPayment, 'amountPaid' | 'status'>[],
+): number {
+  return reservationFeeCredit(order) + sumConfirmedOrderPayments(payments);
 }
 
 export function orderPaymentTotalPrice(
@@ -60,7 +91,9 @@ export function orderPaymentTotalPrice(
   return parseMoney(order.fullPaymentPrice);
 }
 
-export function reservationFeeCredit(order: Order): number {
+export function reservationFeeCredit(
+  order: Pick<Order, 'status' | 'reservationPaymentProofUploadedAt'>,
+): number {
   if (order.status !== ORDER_STATUS_RESERVATION) return 0;
   if (order.reservationPaymentProofUploadedAt != null) {
     return RESERVATION_FEE;

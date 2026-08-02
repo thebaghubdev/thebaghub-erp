@@ -28,6 +28,7 @@ type OrderPaymentsSectionProps = {
   mode: "staff" | "client";
   readOnly?: boolean;
   allowMarkOrderPaid?: boolean;
+  sectionTitle?: string;
   onUpdated: (update: OrderPaymentsUpdate) => void;
 };
 
@@ -99,6 +100,7 @@ export function OrderPaymentsSection({
   mode,
   readOnly = false,
   allowMarkOrderPaid = false,
+  sectionTitle = "Payments",
   onUpdated,
 }: OrderPaymentsSectionProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -347,7 +349,7 @@ export function OrderPaymentsSection({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
-            Payments
+            {sectionTitle}
           </h3>
           {orderTotalPrice != null || canEditOrderTotal ? (
             <div className="mt-1">

@@ -1,4 +1,5 @@
 import {
+  applyPaymentCreditToInstallments,
   computeAmountDueForInstallment,
   computeAutoPenalty,
   computeInstallmentViews,
@@ -7,6 +8,7 @@ import {
   daysBetweenYmd,
 } from './order-installment.util';
 import { OrderInstallment } from './entities/order-installment.entity';
+import { ORDER_INSTALLMENT_STATUS_PAID, ORDER_INSTALLMENT_STATUS_UNPAID } from './order-status.constants';
 
 function installmentRow(
   installmentNumber: number,
@@ -124,5 +126,45 @@ describe('installment penalty', () => {
     );
     expect(views[0].penalty).toBe('1000.00');
     expect(views[0].penaltyOverridden).toBe(false);
+  });
+});
+
+describe('applyPaymentCreditToInstallments', () => {
+  it('marks fully covered installments as paid and applies partial credit', () => {
+    const rows = [
+      {
+        installmentNumber: 1,
+        scheduledAmount: '10000.00',
+        amountPaid: null,
+        status: ORDER_INSTALLMENT_STATUS_UNPAID,
+      },
+      {
+        installmentNumber: 2,
+        scheduledAmount: '10000.00',
+        amountPaid: null,
+        status: ORDER_INSTALLMENT_STATUS_UNPAID,
+      },
+      {
+        installmentNumber: 3,
+        scheduledAmount: '5000.00',
+        amountPaid: null,
+        status: ORDER_INSTALLMENT_STATUS_UNPAID,
+      },
+    ] as OrderInstallment[];
+
+    const markedPaidAt = new Date('2026-01-15T12:00:00Z');
+    const result = applyPaymentCreditToInstallments(
+      rows,
+      15000,
+      '2026-01-10',
+      markedPaidAt,
+    );
+
+    expect(result.fullyPaidInstallmentNumbers).toEqual([1]);
+    expect(rows[0].status).toBe(ORDER_INSTALLMENT_STATUS_PAID);
+    expect(rows[0].amountPaid).toBe('10000.00');
+    expect(rows[1].status).toBe(ORDER_INSTALLMENT_STATUS_UNPAID);
+    expect(rows[1].amountPaid).toBe('5000.00');
+    expect(rows[2].amountPaid).toBeNull();
   });
 });
