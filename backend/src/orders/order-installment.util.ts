@@ -29,6 +29,7 @@ export type OrderInstallmentView = {
   proofUrl: string | null;
   dueDate: string | null;
   paymentDate: string | null;
+  modeOfPayment: string | null;
 };
 
 const ORDINALS = [
@@ -339,6 +340,7 @@ export function computeInstallmentViews(
         row.paymentDate != null && String(row.paymentDate).trim() !== ''
           ? String(row.paymentDate).slice(0, 10)
           : null,
+      modeOfPayment: row.modeOfPayment,
     };
   });
 }

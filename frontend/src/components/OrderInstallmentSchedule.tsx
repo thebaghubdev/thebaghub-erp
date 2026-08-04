@@ -3,6 +3,7 @@ import { HorizontalScrollMirror } from "./HorizontalScrollMirror";
 import { DatePickerField } from "./DatePickerField";
 import { MarkInstallmentPaidDialog } from "./MarkInstallmentPaidDialog";
 import { PhpPriceInput } from "./PhpPriceInput";
+import { UseVoucherDialog } from "./UseVoucherDialog";
 import { apiFetch } from "../lib/api";
 import { formatPhpDisplay, formatPhpAmount } from "../lib/format-php";
 import {
@@ -29,8 +30,15 @@ type OrderInstallmentScheduleProps = {
   consignorPaymentRelease?: number | null;
   mode: "staff" | "client";
   readOnly?: boolean;
+  canUseVoucher?: boolean;
+  voucherAmountDue?: number;
+  customerId?: string | null;
+  onVoucherApplied?: (orderDetail?: unknown) => void | Promise<void>;
   onUpdated: (update: OrderInstallmentScheduleUpdate) => void;
 };
+
+const useVoucherBtnClass =
+  "inline-flex items-center justify-center rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5 text-sm font-medium text-violet-900 transition-colors hover:bg-violet-100 focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500 disabled:opacity-50 dark:border-violet-800 dark:bg-violet-950/60 dark:text-violet-100 dark:hover:bg-violet-900/80";
 
 const iconEditButtonClass =
   "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-800 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100";
@@ -67,9 +75,14 @@ export function OrderInstallmentSchedule({
   consignorPaymentRelease = null,
   mode,
   readOnly = false,
+  canUseVoucher = false,
+  voucherAmountDue = 0,
+  customerId = null,
+  onVoucherApplied,
   onUpdated,
 }: OrderInstallmentScheduleProps) {
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [useVoucherOpen, setUseVoucherOpen] = useState(false);
   const [markPaidInstallmentNumber, setMarkPaidInstallmentNumber] = useState<
     number | null
   >(null);
@@ -231,9 +244,20 @@ export function OrderInstallmentSchedule({
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-      <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
-        Layaway payment schedule
-      </h2>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
+          Layaway payment schedule
+        </h2>
+        {canUseVoucher && !readOnly && token != null && voucherAmountDue > 0 ? (
+          <button
+            type="button"
+            className={useVoucherBtnClass}
+            onClick={() => setUseVoucherOpen(true)}
+          >
+            Use voucher
+          </button>
+        ) : null}
+      </div>
       {error ? (
         <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
           {error}
@@ -251,6 +275,7 @@ export function OrderInstallmentSchedule({
                 <th className="px-3 py-2.5">Total amount due</th>
                 <th className="px-3 py-2.5">Amount paid</th>
                 <th className="px-3 py-2.5">Payment date</th>
+                <th className="px-3 py-2.5">Mode of payment</th>
                 <th className="px-3 py-2.5">Proof of payment</th>
                 <th className="px-3 py-2.5">Status</th>
               </tr>
@@ -401,6 +426,9 @@ export function OrderInstallmentSchedule({
                     <td className="px-3 py-3 text-slate-700 dark:text-slate-300">
                       {formatDueDate(row.paymentDate)}
                     </td>
+                    <td className="px-3 py-3 text-slate-700 dark:text-slate-300">
+                      {row.modeOfPayment?.trim() ? row.modeOfPayment : "—"}
+                    </td>
                     <td className="px-3 py-3">
                       <div className="flex min-w-[8rem] flex-col gap-2">
                         {row.proofUrl ? (
@@ -472,7 +500,7 @@ export function OrderInstallmentSchedule({
                     {formatPhpAmount(remainingBalance)}
                   </span>
                 </td>
-                <td colSpan={6} />
+                <td colSpan={7} />
               </tr>
             </tfoot>
           </table>
@@ -504,6 +532,19 @@ export function OrderInstallmentSchedule({
           onErrorChange={setMarkPaidError}
         />
       ) : null}
+      <UseVoucherDialog
+        open={useVoucherOpen}
+        orderId={orderId}
+        token={token}
+        mode={mode}
+        customerId={customerId}
+        amountDue={voucherAmountDue}
+        onCancel={() => setUseVoucherOpen(false)}
+        onApplied={async (orderDetail) => {
+          setUseVoucherOpen(false);
+          await onVoucherApplied?.(orderDetail);
+        }}
+      />
     </div>
   );
 }

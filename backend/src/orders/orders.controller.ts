@@ -34,6 +34,7 @@ import { UpdateLayawayTermsDto } from './dto/update-layaway-terms.dto';
 import { UpdateOrderPaymentAmountPaidDto } from './dto/update-order-payment-amount-paid.dto';
 import { UpdateOrderPaymentDateDto } from './dto/update-order-payment-date.dto';
 import { UpdateOrderTotalPriceDto } from './dto/update-order-total-price.dto';
+import { ApplyVoucherDto } from './dto/apply-voucher.dto';
 import { OrdersService } from './orders.service';
 
 @Controller('orders')
@@ -317,6 +318,15 @@ export class OrdersController {
       installmentNumber,
       proof,
     );
+  }
+
+  @Post(':id/apply-voucher')
+  applyVoucher(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ApplyVoucherDto,
+  ) {
+    return this.ordersService.applyVoucherForStaff(req.user, id, dto);
   }
 
   @Post(':id/payments')

@@ -21,11 +21,12 @@ export type OrderPaymentView = {
 
 const RESERVATION_FEE = 5_000;
 
+export const PAYMENT_MODE_CREDIT_VOUCHER = 'Credit Voucher';
+
 export const ORDER_PAYMENT_MODE_OPTIONS = [
   'Bank transfer',
   'Cash',
   'Credit card',
-  'Store voucher',
   'Other',
 ] as const;
 

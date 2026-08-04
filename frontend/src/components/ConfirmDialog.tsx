@@ -14,6 +14,8 @@ export type ConfirmDialogProps = {
   /** Optional error shown between the description and actions (e.g. API failure). */
   errorMessage?: string | null;
   confirmDisabled?: boolean;
+  /** Override stacking when nested inside another modal (default z-[100]). */
+  overlayClassName?: string;
   onCancel: () => void;
   onConfirm: () => void | Promise<void>;
 };
@@ -28,6 +30,7 @@ export function ConfirmDialog({
   busy = false,
   errorMessage = null,
   confirmDisabled = false,
+  overlayClassName = "z-[100]",
   onCancel,
   onConfirm,
 }: ConfirmDialogProps) {
@@ -51,7 +54,7 @@ export function ConfirmDialog({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[100] flex items-end justify-center p-4 sm:items-center"
+      className={`fixed inset-0 flex items-end justify-center p-4 sm:items-center ${overlayClassName}`}
       role="alertdialog"
       aria-modal="true"
       aria-labelledby={titleId}

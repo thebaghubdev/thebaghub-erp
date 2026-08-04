@@ -12,6 +12,7 @@ export type OrderInstallmentRow = {
   proofUrl: string | null;
   dueDate: string | null;
   paymentDate: string | null;
+  modeOfPayment: string | null;
 };
 
 function installmentStatusBadgeClass(status: string): string {

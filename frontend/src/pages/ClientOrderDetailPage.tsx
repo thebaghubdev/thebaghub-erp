@@ -3,11 +3,12 @@ import { Link, useParams } from "react-router-dom";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { OrderInstallmentSchedule } from "../components/OrderInstallmentSchedule";
 import { OrderPaymentsSection } from "../components/OrderPaymentsSection";
+import { computeInstallmentVoucherAmountDue } from "../components/UseVoucherDialog";
 import { OrderStatusBadge } from "../components/OrderStatusBadge";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { useClientAuth } from "../context/client-auth";
 import { apiFetch } from "../lib/api";
-import { formatPhpDisplay } from "../lib/format-php";
+import { formatPhpDisplay, parsePhpStringToNumber } from "../lib/format-php";
 import {
   isFullPaymentLike,
   isInstallmentPaymentType,
@@ -22,6 +23,7 @@ import {
 } from "../lib/order-pickup-labels";
 import type { OrderInstallmentRow } from "../lib/order-installments";
 import type { OrderPaymentRow } from "../lib/order-payments";
+import { isVoucherApplicableOrderStatus } from "../lib/order-voucher-payment";
 
 type ClientOrderDetail = {
   id: string;
@@ -126,6 +128,17 @@ export function ClientOrderDetailPage() {
     void load();
   }, [load]);
 
+  const handleVoucherApplied = useCallback(
+    async (orderDetail?: unknown) => {
+      if (orderDetail) {
+        setDetail(orderDetail as ClientOrderDetail);
+      } else {
+        await load();
+      }
+    },
+    [load],
+  );
+
   const confirmItemReceived = useCallback(async () => {
     if (!id || !token) return;
     setItemReceivedError(null);
@@ -203,6 +216,21 @@ export function ClientOrderDetailPage() {
         isPaidOrder ||
         isForPickupOrder ||
         isItemReceivedOrder);
+
+  const voucherApplicable = isVoucherApplicableOrderStatus(detail.status);
+  const fullPaymentVoucherDue =
+    parsePhpStringToNumber(detail.remainingBalancePrice ?? "") ?? 0;
+  const installmentVoucherDue = computeInstallmentVoucherAmountDue(
+    detail.installments,
+  );
+  const canUseFullPaymentVoucher =
+    voucherApplicable && !orderPaymentsReadOnly && fullPaymentVoucherDue > 0;
+  const canUseInstallmentVoucher =
+    showLayawaySchedule &&
+    isInstallmentPaymentType(detail.paymentType) &&
+    voucherApplicable &&
+    !installmentScheduleReadOnly &&
+    installmentVoucherDue > 0;
 
   return (
     <div className="w-full min-w-0 space-y-4">
@@ -339,6 +367,9 @@ export function ClientOrderDetailPage() {
             orderTotalPrice={detail.orderTotalPrice}
             mode="client"
             readOnly={orderPaymentsReadOnly}
+            canUseVoucher={canUseFullPaymentVoucher}
+            voucherAmountDue={fullPaymentVoucherDue}
+            onVoucherApplied={handleVoucherApplied}
             onUpdated={(update) =>
               setDetail((prev) =>
                 prev
@@ -414,6 +445,9 @@ export function ClientOrderDetailPage() {
           installments={detail.installments}
           mode="client"
           readOnly={installmentScheduleReadOnly}
+          canUseVoucher={canUseInstallmentVoucher}
+          voucherAmountDue={installmentVoucherDue}
+          onVoucherApplied={handleVoucherApplied}
           onUpdated={(update) =>
             setDetail((prev) =>
               prev ? { ...prev, installments: update.installments } : prev,

@@ -2,6 +2,7 @@ export function voucherStatusLabel(status: string): string {
   const normalized = status.trim().toLowerCase();
   if (normalized === "active") return "Active";
   if (normalized === "forfeited") return "Forfeited";
+  if (normalized === "redeemed") return "Redeemed";
   return status;
 }
 
@@ -12,6 +13,9 @@ export function voucherStatusBadgeClass(status: string): string {
   }
   if (normalized === "forfeited") {
     return "bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200";
+  }
+  if (normalized === "redeemed") {
+    return "bg-violet-100 text-violet-800 dark:bg-violet-950/50 dark:text-violet-200";
   }
   return "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300";
 }

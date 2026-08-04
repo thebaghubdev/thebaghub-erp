@@ -15,6 +15,7 @@ import { OrderInstallment } from './entities/order-installment.entity';
 import { OrderPayment } from './entities/order-payment.entity';
 import { Order } from './entities/order.entity';
 import { Waitlist } from './entities/waitlist.entity';
+import { Voucher } from '../vouchers/entities/voucher.entity';
 import { InstallmentPenaltyCron } from './installment-penalty.cron';
 import { OrdersExpiryCron } from './orders-expiry.cron';
 import { OrdersService } from './orders.service';
@@ -35,6 +36,7 @@ import { OrdersService } from './orders.service';
       Employee,
       InventoryItem,
       ItemAuthentication,
+      Voucher,
     ]),
   ],
   controllers: [ClientOrdersController, OrdersController],

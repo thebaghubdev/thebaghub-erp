@@ -4,12 +4,13 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { InventoryStatusBadge } from "../components/InventoryStatusBadge";
 import { OrderInstallmentSchedule } from "../components/OrderInstallmentSchedule";
 import { OrderPaymentsSection } from "../components/OrderPaymentsSection";
+import { computeInstallmentVoucherAmountDue } from "../components/UseVoucherDialog";
 import { OrderStatusBadge } from "../components/OrderStatusBadge";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
 import { canBypassOrderAssignment } from "../lib/employee-position";
-import { formatPhpDisplay } from "../lib/format-php";
+import { formatPhpDisplay, parsePhpStringToNumber } from "../lib/format-php";
 import {
   calculateLayawayPricing,
   DEFAULT_LAYAWAY_MONTHS,
@@ -33,6 +34,7 @@ import {
 import type { OrderInstallmentRow } from "../lib/order-installments";
 import type { OrderPaymentRow } from "../lib/order-payments";
 import { computeConfirmedPaymentsTotal } from "../lib/order-payments";
+import { isVoucherApplicableOrderStatus } from "../lib/order-voucher-payment";
 
 type OrderDetail = {
   id: string;
@@ -286,6 +288,17 @@ export function OrderDetailPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const handleVoucherApplied = useCallback(
+    async (orderDetail?: unknown) => {
+      if (orderDetail) {
+        setDetail(orderDetail as OrderDetail);
+      } else {
+        await load();
+      }
+    },
+    [load],
+  );
 
   const canEditOrder = useMemo(() => {
     if (!detail) return false;
@@ -886,6 +899,21 @@ export function OrderDetailPage() {
         isForPickupOrder ||
         isItemReceivedOrder);
 
+  const voucherApplicable = isVoucherApplicableOrderStatus(detail.status);
+  const fullPaymentVoucherDue =
+    parsePhpStringToNumber(detail.remainingBalancePrice ?? "") ?? 0;
+  const installmentVoucherDue = computeInstallmentVoucherAmountDue(
+    detail.installments,
+  );
+  const canUseFullPaymentVoucher =
+    voucherApplicable && !orderPaymentsReadOnly && fullPaymentVoucherDue > 0;
+  const canUseInstallmentVoucher =
+    showLayawaySchedule &&
+    isInstallmentPaymentType(detail.paymentType) &&
+    voucherApplicable &&
+    !installmentScheduleReadOnly &&
+    installmentVoucherDue > 0;
+
   return (
     <div className="w-full min-w-0 space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -1103,6 +1131,10 @@ export function OrderDetailPage() {
           }
           mode="staff"
           readOnly={installmentScheduleReadOnly}
+          canUseVoucher={canUseInstallmentVoucher}
+          voucherAmountDue={installmentVoucherDue}
+          customerId={detail.customer.id}
+          onVoucherApplied={handleVoucherApplied}
           onUpdated={(update) =>
             setDetail((prev) =>
               prev
@@ -1263,6 +1295,10 @@ export function OrderDetailPage() {
             mode="staff"
             readOnly={orderPaymentsReadOnly}
             allowMarkOrderPaid={!isPostPaymentOrder && canEditOrder}
+            canUseVoucher={canUseFullPaymentVoucher}
+            voucherAmountDue={fullPaymentVoucherDue}
+            customerId={detail.customer.id}
+            onVoucherApplied={handleVoucherApplied}
             onUpdated={(update) =>
               setDetail((prev) =>
                 prev

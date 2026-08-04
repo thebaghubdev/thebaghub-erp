@@ -17,6 +17,7 @@ import { JwtUser } from '../auth/jwt-user';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ClientOnlyGuard } from '../auth/client-only.guard';
 import type { MulterFile } from '../inquiries/multer-file.type';
+import { ApplyVoucherDto } from './dto/apply-voucher.dto';
 import { OrdersService } from './orders.service';
 
 @Controller('client/orders')
@@ -150,6 +151,15 @@ export class ClientOrdersController {
       installmentNumber,
       proof,
     );
+  }
+
+  @Post(':id/apply-voucher')
+  applyVoucher(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ApplyVoucherDto,
+  ) {
+    return this.ordersService.applyVoucherForClient(req.user, id, dto);
   }
 
   @Post(':id/payments')

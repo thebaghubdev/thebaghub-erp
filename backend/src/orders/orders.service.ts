@@ -10,7 +10,7 @@ import { randomUUID } from 'crypto';
 import { plainToInstance } from 'class-transformer';
 import { validateOrReject } from 'class-validator';
 import { ConfigService } from '@nestjs/config';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 import { JwtUser } from '../auth/jwt-user';
 import { Client } from '../clients/entities/client.entity';
 import { Employee } from '../employees/entities/employee.entity';
@@ -28,6 +28,7 @@ import { MailService } from '../mail/mail.service';
 import { computeConsignorPaymentAuditDate } from '../consignor-payments/consignor-payment-audit-date.util';
 import { ConsignorPaymentsService } from '../consignor-payments/consignor-payments.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { ApplyVoucherDto } from './dto/apply-voucher.dto';
 import { ApproveLayawayOrderDto } from './dto/approve-layaway-order.dto';
 import { BatchAssignSalesAssociateDto } from './dto/batch-assign-sales-associate.dto';
 import { CancelOrderDto } from './dto/cancel-order.dto';
@@ -74,10 +75,20 @@ import {
   buildOrderPaymentViews,
   computeFullPaymentCredit,
   computeOrderPaymentRemainingBalance,
+  PAYMENT_MODE_CREDIT_VOUCHER,
   shouldIncludeOrderPayments,
   shouldLoadOrderPaymentViews,
   type OrderPaymentView,
 } from './order-payment.util';
+import {
+  computeVoucherAppliedAmount,
+  isVoucherApplicableOrderStatus,
+} from './order-voucher-payment.util';
+import { Voucher } from '../vouchers/entities/voucher.entity';
+import {
+  VOUCHER_STATUS_ACTIVE,
+  VOUCHER_STATUS_REDEEMED,
+} from '../vouchers/voucher-status.constants';
 import {
   isOrderOpenForStaffUpdates,
   isSalesAdminPosition,
@@ -3491,6 +3502,331 @@ export class OrdersService {
     }
 
     return expiredCount;
+  }
+
+  async applyVoucherForStaff(
+    user: JwtUser,
+    orderId: string,
+    dto: ApplyVoucherDto,
+  ): Promise<StaffOrderDetail> {
+    await this.enforceOrderMutationAccess(user, orderId);
+    await this.applyVoucherToOrder(user.userId, orderId, dto.voucherId);
+    return this.findOneForStaff(orderId);
+  }
+
+  async applyVoucherForClient(
+    user: JwtUser,
+    orderId: string,
+    dto: ApplyVoucherDto,
+  ): Promise<ClientOrderDetail> {
+    const client = await this.clientsRepo.findOne({
+      where: { userId: user.userId },
+    });
+    if (!client) {
+      throw new NotFoundException('Client profile not found');
+    }
+    const order = await this.ordersRepo.findOne({
+      where: { id: orderId, customerId: client.id },
+    });
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+    await this.applyVoucherToOrder(user.userId, orderId, dto.voucherId);
+    return this.findOneForClient(user, orderId);
+  }
+
+  private voucherExpirationYmd(expirationDate: Date | string): string {
+    if (typeof expirationDate === 'string') {
+      return expirationDate.slice(0, 10);
+    }
+    const y = expirationDate.getUTCFullYear();
+    const m = String(expirationDate.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(expirationDate.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+
+  private async applyVoucherToOrder(
+    userId: string,
+    orderId: string,
+    voucherId: string,
+  ): Promise<void> {
+    const orderPreview = await this.ordersRepo.findOne({
+      where: { id: orderId },
+      relations: { inventoryItem: true },
+    });
+    if (!orderPreview) {
+      throw new NotFoundException('Order not found');
+    }
+    if (isInstallmentPaymentType(orderPreview.paymentType)) {
+      this.assertInstallmentScheduleAccessible(orderPreview);
+      await this.ensureInstallments(orderPreview, userId);
+    }
+
+    await this.dataSource.transaction(async (em) => {
+      const order = await em.findOne(Order, {
+        where: { id: orderId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!order) {
+        throw new NotFoundException('Order not found');
+      }
+      if (!isVoucherApplicableOrderStatus(order.status)) {
+        throw new BadRequestException(
+          'Vouchers cannot be applied while the order is in this status',
+        );
+      }
+
+      const voucher = await em.findOne(Voucher, {
+        where: { id: voucherId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!voucher) {
+        throw new NotFoundException('Voucher not found');
+      }
+      if (voucher.clientId !== order.customerId) {
+        throw new BadRequestException(
+          'Voucher does not belong to this customer',
+        );
+      }
+      if (voucher.status !== VOUCHER_STATUS_ACTIVE) {
+        throw new BadRequestException('Voucher is not active');
+      }
+      const today = calendarDateStringInTimeZone(new Date());
+      if (this.voucherExpirationYmd(voucher.expirationDate) < today) {
+        throw new BadRequestException('Voucher has expired');
+      }
+
+      const voucherAmount = parseMoney(voucher.amount);
+      if (voucherAmount <= 0) {
+        throw new BadRequestException('Voucher amount is invalid');
+      }
+
+      const paymentDate = today;
+      const now = new Date();
+
+      if (isInstallmentPaymentType(order.paymentType)) {
+        await this.applyVoucherToNextInstallment(
+          em,
+          order,
+          voucher,
+          voucherAmount,
+          userId,
+          paymentDate,
+          now,
+        );
+      } else if (order.paymentType === PAYMENT_TYPE_FULL) {
+        const inventoryItem = await em.findOne(InventoryItem, {
+          where: { id: order.inventoryItemId },
+        });
+        if (!inventoryItem) {
+          throw new NotFoundException('Inventory item not found');
+        }
+        order.inventoryItem = inventoryItem;
+        await this.applyVoucherToFullPaymentOrder(
+          em,
+          order,
+          voucher,
+          voucherAmount,
+          userId,
+          paymentDate,
+          now,
+        );
+      } else {
+        throw new BadRequestException(
+          'Vouchers cannot be applied to this payment type',
+        );
+      }
+
+      voucher.status = VOUCHER_STATUS_REDEEMED;
+      voucher.updatedById = userId;
+      await em.save(voucher);
+    });
+  }
+
+  private async applyVoucherToFullPaymentOrder(
+    em: EntityManager,
+    order: Order,
+    voucher: Voucher,
+    voucherAmount: number,
+    userId: string,
+    paymentDate: string,
+    now: Date,
+  ): Promise<void> {
+    if (!shouldIncludeOrderPayments(order)) {
+      throw new BadRequestException('Payments are not available for this order');
+    }
+    if (
+      order.status !== ORDER_STATUS_FOR_PAYMENT &&
+      order.status !== ORDER_STATUS_RESERVATION
+    ) {
+      throw new BadRequestException('Payments are not available for this order');
+    }
+
+    const paymentRows = await em.find(OrderPayment, {
+      where: { orderId: order.id },
+    });
+    const itemPrice = liveInventoryUnitPrice(order.inventoryItem);
+    const remainingStr = computeOrderPaymentRemainingBalance(
+      order,
+      paymentRows,
+      itemPrice,
+    );
+    const amountDue = parseMoney(remainingStr);
+    if (amountDue <= 0) {
+      throw new BadRequestException('Nothing remaining to pay on this order');
+    }
+
+    const { appliedAmount } = computeVoucherAppliedAmount(
+      voucherAmount,
+      amountDue,
+    );
+    if (appliedAmount <= 0) {
+      throw new BadRequestException('Nothing remaining to pay on this order');
+    }
+
+    const payment = em.create(OrderPayment, {
+      id: randomUUID(),
+      orderId: order.id,
+      status: ORDER_PAYMENT_STATUS_CONFIRMED,
+      amountPaid: formatMoney(appliedAmount),
+      paymentDate,
+      modeOfPayment: PAYMENT_MODE_CREDIT_VOUCHER,
+      voucherId: voucher.id,
+      proofUploadedAt: now,
+      proofUploadedByUserId: userId,
+      markedPaidAt: now,
+      markedPaidByUserId: userId,
+      createdById: userId,
+      updatedById: userId,
+    });
+    await em.save(payment);
+
+    order.holdingPeriod = null;
+    order.updatedById = userId;
+    await em.save(order);
+  }
+
+  private async applyVoucherToNextInstallment(
+    em: EntityManager,
+    order: Order,
+    voucher: Voucher,
+    voucherAmount: number,
+    userId: string,
+    paymentDate: string,
+    now: Date,
+  ): Promise<void> {
+    this.assertInstallmentScheduleAccessible(order);
+
+    const rows = await em.find(OrderInstallment, {
+      where: { orderId: order.id },
+      order: { installmentNumber: 'ASC' },
+    });
+    const row = rows.find(
+      (installment) =>
+        (installment.status?.trim() || ORDER_INSTALLMENT_STATUS_UNPAID) !==
+        ORDER_INSTALLMENT_STATUS_PAID,
+    );
+    if (!row) {
+      throw new BadRequestException('No unpaid installments remain');
+    }
+
+    const installmentNumber = row.installmentNumber;
+    const amountDue = computeAmountDueForInstallment(rows, installmentNumber);
+    const paymentStartDate = formatOrderDate(order.layawayPaymentStartDate);
+    const dueDate = effectiveDueDateForInstallment(row, paymentStartDate);
+
+    if (!row.penaltyOverridden) {
+      const autoPenalty = computeAutoPenalty(
+        amountDue,
+        row.amountPaid,
+        dueDate,
+        paymentDate,
+      );
+      row.penalty = autoPenalty > 0 ? formatMoney(autoPenalty) : null;
+    }
+
+    const penaltyAmount = parseMoney(row.penalty);
+    const totalRequired = amountDue + penaltyAmount;
+    if (totalRequired <= 0) {
+      throw new BadRequestException('Nothing remaining to pay on this installment');
+    }
+
+    const { appliedAmount } = computeVoucherAppliedAmount(
+      voucherAmount,
+      totalRequired,
+    );
+    if (appliedAmount <= 0) {
+      throw new BadRequestException('Nothing remaining to pay on this installment');
+    }
+
+    row.amountPaid = formatMoney(appliedAmount);
+    row.paymentDate = paymentDate;
+    row.modeOfPayment = PAYMENT_MODE_CREDIT_VOUCHER;
+    row.voucherId = voucher.id;
+    row.status = ORDER_INSTALLMENT_STATUS_PAID;
+    row.markedPaidAt = now;
+    row.updatedById = userId;
+    await em.save(row);
+
+    await this.runInstallmentPaidSideEffects(
+      em,
+      order,
+      installmentNumber,
+      now,
+      userId,
+    );
+  }
+
+  private async runInstallmentPaidSideEffects(
+    em: EntityManager,
+    order: Order,
+    installmentNumber: number,
+    markedPaidAt: Date,
+    userId: string,
+  ): Promise<void> {
+    if (
+      order.consignorPaymentRelease != null &&
+      installmentNumber === order.consignorPaymentRelease &&
+      order.paymentType === PAYMENT_TYPE_LAYAWAY
+    ) {
+      const item = await em.findOne(InventoryItem, {
+        where: { id: order.inventoryItemId },
+        relations: { inquiry: true },
+      });
+      if (item?.inquiryId && item.transactionType === 'consignment') {
+        const consignorClientId =
+          item.consignorId ?? item.inquiry?.consignorId ?? null;
+        if (consignorClientId) {
+          const auditDate = computeConsignorPaymentAuditDate(markedPaidAt);
+          await this.consignorPaymentsService.recordItemForSoldFinalConsignment(
+            em,
+            {
+              inquiryId: item.inquiryId,
+              consignorClientId,
+              auditDate,
+            },
+          );
+        }
+      }
+    }
+
+    if (
+      order.layawayMonths != null &&
+      installmentNumber === order.layawayMonths
+    ) {
+      if (isCreditLinePaymentType(order.paymentType)) {
+        if (
+          order.status === ORDER_STATUS_ITEM_RECEIVED_UNPAID ||
+          order.status === ORDER_STATUS_ITEM_RECEIVED
+        ) {
+          order.status = ORDER_STATUS_ITEM_RECEIVED_PAID;
+        }
+      } else {
+        order.status = ORDER_STATUS_PAID;
+      }
+      order.updatedById = userId;
+      await em.save(order);
+    }
   }
 
   private toClientSummary(order: Order): ClientOrderSummary {

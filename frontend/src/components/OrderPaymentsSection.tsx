@@ -6,6 +6,7 @@ import { MarkOrderPaymentDialog } from "./MarkOrderPaymentDialog";
 import { PhpPriceInput } from "./PhpPriceInput";
 import { SubmittedAtCell } from "./SubmittedAtCell";
 import { UploadOrderPaymentDialog } from "./UploadOrderPaymentDialog";
+import { UseVoucherDialog } from "./UseVoucherDialog";
 import { apiFetch } from "../lib/api";
 import { formatPhpDisplay } from "../lib/format-php";
 import {
@@ -28,6 +29,10 @@ type OrderPaymentsSectionProps = {
   mode: "staff" | "client";
   readOnly?: boolean;
   allowMarkOrderPaid?: boolean;
+  canUseVoucher?: boolean;
+  voucherAmountDue?: number;
+  customerId?: string | null;
+  onVoucherApplied?: (orderDetail?: unknown) => void | Promise<void>;
   sectionTitle?: string;
   onUpdated: (update: OrderPaymentsUpdate) => void;
 };
@@ -100,6 +105,10 @@ export function OrderPaymentsSection({
   mode,
   readOnly = false,
   allowMarkOrderPaid = false,
+  canUseVoucher = false,
+  voucherAmountDue = 0,
+  customerId = null,
+  onVoucherApplied,
   sectionTitle = "Payments",
   onUpdated,
 }: OrderPaymentsSectionProps) {
@@ -133,6 +142,7 @@ export function OrderPaymentsSection({
   const [orderTotalDraft, setOrderTotalDraft] = useState(
     orderTotalPrice ?? "",
   );
+  const [useVoucherOpen, setUseVoucherOpen] = useState(false);
 
   useEffect(() => {
     setOrderTotalDraft(orderTotalPrice ?? "");
@@ -412,44 +422,55 @@ export function OrderPaymentsSection({
             </div>
           ) : null}
         </div>
-        {canUpload ? (
-          <div>
-            {mode === "client" ? (
-              <>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*,application/pdf"
-                  className="sr-only"
-                  disabled={clientUploadBusy}
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    e.target.value = "";
-                    if (file) void uploadProof(file);
-                  }}
-                />
-                <button
-                  type="button"
-                  className={uploadBtnClass}
-                  disabled={clientUploadBusy}
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  {clientUploadBusy ? "Uploading…" : "Upload proof of payment"}
-                </button>
-              </>
-            ) : (
+        {canUpload || (canUseVoucher && !readOnly && token != null) ? (
+          <div className="flex flex-wrap gap-2">
+            {canUseVoucher && !readOnly && token != null && voucherAmountDue > 0 ? (
               <button
                 type="button"
                 className={uploadBtnClass}
-                disabled={uploadBusy}
-                onClick={() => {
-                  setUploadError(null);
-                  setUploadDialogOpen(true);
-                }}
+                onClick={() => setUseVoucherOpen(true)}
               >
-                Upload proof of payment
+                Use voucher
               </button>
-            )}
+            ) : null}
+            {canUpload ? (
+              mode === "client" ? (
+                <>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*,application/pdf"
+                    className="sr-only"
+                    disabled={clientUploadBusy}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      e.target.value = "";
+                      if (file) void uploadProof(file);
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className={uploadBtnClass}
+                    disabled={clientUploadBusy}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    {clientUploadBusy ? "Uploading…" : "Upload proof of payment"}
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  className={uploadBtnClass}
+                  disabled={uploadBusy}
+                  onClick={() => {
+                    setUploadError(null);
+                    setUploadDialogOpen(true);
+                  }}
+                >
+                  Upload proof of payment
+                </button>
+              )
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -739,6 +760,20 @@ export function OrderPaymentsSection({
           onErrorChange={setUploadError}
         />
       ) : null}
+
+      <UseVoucherDialog
+        open={useVoucherOpen}
+        orderId={orderId}
+        token={token}
+        mode={mode}
+        customerId={customerId}
+        amountDue={voucherAmountDue}
+        onCancel={() => setUseVoucherOpen(false)}
+        onApplied={async (orderDetail) => {
+          setUseVoucherOpen(false);
+          await onVoucherApplied?.(orderDetail);
+        }}
+      />
 
       <ConfirmDialog
         open={markOrderPaidConfirmOpen}

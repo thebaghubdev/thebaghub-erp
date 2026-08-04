@@ -59,4 +59,7 @@ export class OrderPayment extends AuditedEntity {
 
   @Column({ name: 'payment_date', type: 'date', nullable: true })
   paymentDate: string | null;
+
+  @Column({ name: 'voucher_id', type: 'uuid', nullable: true })
+  voucherId: string | null;
 }

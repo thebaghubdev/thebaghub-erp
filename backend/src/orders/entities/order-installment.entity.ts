@@ -79,4 +79,15 @@ export class OrderInstallment extends AuditedEntity {
 
   @Column({ name: 'payment_date', type: 'date', nullable: true })
   paymentDate: string | null;
+
+  @Column({
+    name: 'mode_of_payment',
+    type: 'varchar',
+    length: 32,
+    nullable: true,
+  })
+  modeOfPayment: string | null;
+
+  @Column({ name: 'voucher_id', type: 'uuid', nullable: true })
+  voucherId: string | null;
 }
