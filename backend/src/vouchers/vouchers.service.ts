@@ -27,6 +27,14 @@ export type VoucherListRow = {
   updatedByName: string;
 };
 
+export type ClientVoucherViewRow = {
+  id: string;
+  amount: string;
+  expirationDate: string;
+  status: string;
+  createdAt: string;
+};
+
 function formatDateOnly(value: Date | string): string {
   if (typeof value === 'string') {
     return value.slice(0, 10);
@@ -69,15 +77,34 @@ export class VouchersService {
       relations: { client: true },
       order: { createdAt: 'DESC' },
     });
-    const userIds = [
-      ...new Set(
-        rows
-          .flatMap((r) => [r.createdById, r.updatedById])
-          .filter((id): id is string => id != null && id !== ''),
-      ),
-    ];
-    const nameByUserId = await this.employeeNamesByUserIds(userIds);
-    return rows.map((row) => this.mapToListRow(row, nameByUserId));
+    return await this.mapRowsToList(rows);
+  }
+
+  async findByClientForStaff(clientId: string): Promise<VoucherListRow[]> {
+    const client = await this.clientRepo.findOne({ where: { id: clientId } });
+    if (!client) {
+      throw new NotFoundException('Client not found');
+    }
+
+    const rows = await this.voucherRepo.find({
+      where: { clientId },
+      relations: { client: true },
+      order: { createdAt: 'DESC' },
+    });
+    return await this.mapRowsToList(rows);
+  }
+
+  async findMineForClient(userId: string): Promise<ClientVoucherViewRow[]> {
+    const client = await this.clientRepo.findOne({ where: { userId } });
+    if (!client) {
+      throw new NotFoundException('Client not found');
+    }
+
+    const rows = await this.voucherRepo.find({
+      where: { clientId: client.id },
+      order: { createdAt: 'DESC' },
+    });
+    return rows.map((row) => this.mapToClientViewRow(row));
   }
 
   async createForStaff(
@@ -143,6 +170,18 @@ export class VouchersService {
     return this.mapToListRow(voucher, nameByUserId);
   }
 
+  private async mapRowsToList(rows: Voucher[]): Promise<VoucherListRow[]> {
+    const userIds = [
+      ...new Set(
+        rows
+          .flatMap((r) => [r.createdById, r.updatedById])
+          .filter((id): id is string => id != null && id !== ''),
+      ),
+    ];
+    const nameByUserId = await this.employeeNamesByUserIds(userIds);
+    return rows.map((row) => this.mapToListRow(row, nameByUserId));
+  }
+
   private async employeeNamesByUserIds(
     userIds: string[],
   ): Promise<Map<string, string>> {
@@ -156,6 +195,16 @@ export class VouchersService {
         [e.firstName, e.lastName].filter(Boolean).join(' ').trim() || 'Staff',
       ]),
     );
+  }
+
+  private mapToClientViewRow(row: Voucher): ClientVoucherViewRow {
+    return {
+      id: row.id,
+      amount: String(row.amount),
+      expirationDate: formatDateOnly(row.expirationDate),
+      status: row.status,
+      createdAt: row.createdAt.toISOString(),
+    };
   }
 
   private mapToListRow(

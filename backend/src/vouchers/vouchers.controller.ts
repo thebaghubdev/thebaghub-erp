@@ -18,6 +18,11 @@ import { VouchersService } from './vouchers.service';
 export class VouchersController {
   constructor(private readonly vouchersService: VouchersService) {}
 
+  @Get('by-client/:clientId')
+  findByClient(@Param('clientId', ParseUUIDPipe) clientId: string) {
+    return this.vouchersService.findByClientForStaff(clientId);
+  }
+
   @Get()
   findAll() {
     return this.vouchersService.findAllForStaff();

@@ -1,5 +1,8 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { createColumnHelper } from "@tanstack/react-table";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
+import { DataTable } from "../components/data-table/DataTable";
+import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
 import { branchLabel } from "../lib/consignment-schedule-labels";
@@ -15,6 +18,11 @@ import {
   type ClientVipStatus,
 } from "../lib/client-payment-preference";
 import { formatPhpDisplay } from "../lib/format-php";
+import {
+  formatVoucherDate,
+  voucherStatusBadgeClass,
+  voucherStatusLabel,
+} from "../lib/vouchers-display";
 
 type ClientAccountDetail = {
   id: string;
@@ -42,6 +50,57 @@ type ClientAccountDetail = {
   createdAt: string;
   updatedAt: string;
 };
+
+type ClientVoucherRow = {
+  id: string;
+  amount: string;
+  expirationDate: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  createdByName: string;
+  updatedByName: string;
+};
+
+const voucherColumnHelper = createColumnHelper<ClientVoucherRow>();
+
+const clientVoucherColumns = [
+  voucherColumnHelper.accessor("amount", {
+    header: "Amount",
+    cell: ({ getValue }) => formatPhpDisplay(getValue()),
+  }),
+  voucherColumnHelper.accessor("expirationDate", {
+    header: "Expiration",
+    cell: ({ getValue }) => formatVoucherDate(getValue()),
+  }),
+  voucherColumnHelper.accessor("status", {
+    header: "Status",
+    cell: ({ getValue }) => {
+      const status = getValue();
+      return (
+        <span
+          className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${voucherStatusBadgeClass(status)}`}
+        >
+          {voucherStatusLabel(status)}
+        </span>
+      );
+    },
+  }),
+  voucherColumnHelper.accessor("createdByName", {
+    header: "Created by",
+  }),
+  voucherColumnHelper.accessor("createdAt", {
+    header: "Created at",
+    cell: ({ getValue }) => <SubmittedAtCell iso={getValue()} />,
+  }),
+  voucherColumnHelper.accessor("updatedByName", {
+    header: "Updated by",
+  }),
+  voucherColumnHelper.accessor("updatedAt", {
+    header: "Updated at",
+    cell: ({ getValue }) => <SubmittedAtCell iso={getValue()} />,
+  }),
+];
 
 const cardClass =
   "rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900";
@@ -119,6 +178,34 @@ export function ClientAccountDetailPage() {
   const [accountNameEdit, setAccountNameEdit] = useState("");
   const [paymentEditError, setPaymentEditError] = useState<string | null>(null);
   const [paymentEditSaving, setPaymentEditSaving] = useState(false);
+  const [vouchers, setVouchers] = useState<ClientVoucherRow[]>([]);
+  const [vouchersLoading, setVouchersLoading] = useState(false);
+  const [vouchersError, setVouchersError] = useState<string | null>(null);
+
+  const loadVouchers = useCallback(async () => {
+    if (!token || !clientId) return;
+    setVouchersError(null);
+    setVouchersLoading(true);
+    try {
+      const res = await apiFetch(
+        `/api/vouchers/by-client/${clientId}`,
+        {},
+        token,
+      );
+      if (!res.ok) {
+        throw new Error(`Request failed (${res.status})`);
+      }
+      const data = (await res.json()) as ClientVoucherRow[];
+      setVouchers(data);
+    } catch (e) {
+      setVouchers([]);
+      setVouchersError(
+        e instanceof Error ? e.message : "Failed to load store vouchers",
+      );
+    } finally {
+      setVouchersLoading(false);
+    }
+  }, [clientId, token]);
 
   const loadDetail = useCallback(async () => {
     if (!token || !clientId) return;
@@ -145,6 +232,19 @@ export function ClientAccountDetailPage() {
   useEffect(() => {
     void loadDetail();
   }, [loadDetail]);
+
+  useEffect(() => {
+    void loadVouchers();
+  }, [loadVouchers]);
+
+  const activeVoucherTotal = useMemo(() => {
+    return vouchers
+      .filter((v) => v.status.trim().toLowerCase() === "active")
+      .reduce((sum, v) => {
+        const n = Number(v.amount);
+        return Number.isFinite(n) ? sum + n : sum;
+      }, 0);
+  }, [vouchers]);
 
   function openVipEdit() {
     if (!detail) return;
@@ -487,6 +587,40 @@ export function ClientAccountDetailPage() {
             value={formatPhpDisplay(detail.totalPurchases)}
           />
         </dl>
+      </section>
+
+      <section className={cardClass}>
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+              Store vouchers
+            </h2>
+            <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+              Active balance: {formatPhpDisplay(activeVoucherTotal)}
+            </p>
+          </div>
+          <Link
+            to="/portal/vouchers"
+            className="text-sm font-medium text-violet-700 hover:text-violet-800 dark:text-violet-300 dark:hover:text-violet-200"
+          >
+            Manage vouchers
+          </Link>
+        </div>
+        {vouchersError ? (
+          <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+            {vouchersError}
+          </p>
+        ) : null}
+        <DataTable
+          tableId={`client-vouchers-${clientId}`}
+          data={vouchers}
+          columns={clientVoucherColumns}
+          isLoading={vouchersLoading}
+          emptyMessage="No store vouchers for this client."
+          hideEmptyState={!!vouchersError}
+          getRowId={(r) => r.id}
+          paginationItemLabel="vouchers"
+        />
       </section>
 
       {vipEditOpen ? (

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useId, useMemo, useState, type FormEvent } from "react";
 import { useClientAuth } from "../context/client-auth";
 import { apiFetch } from "../lib/api";
 import { branchLabel } from "../lib/consignment-schedule-labels";
@@ -12,6 +12,19 @@ import {
   type ClientPaymentMethod,
 } from "../lib/client-payment-preference";
 import { formatPhpDisplay } from "../lib/format-php";
+import {
+  formatVoucherDate,
+  voucherStatusBadgeClass,
+  voucherStatusLabel,
+} from "../lib/vouchers-display";
+
+type ClientVoucherRow = {
+  id: string;
+  amount: string;
+  expirationDate: string;
+  status: string;
+  createdAt: string;
+};
 
 function bankDisplayName(code: string | null | undefined): string {
   if (code === "bdo") return "BDO";
@@ -50,6 +63,43 @@ export function ClientMyAccountPage() {
   const [paymentSaveError, setPaymentSaveError] = useState<string | null>(
     null,
   );
+  const [vouchers, setVouchers] = useState<ClientVoucherRow[]>([]);
+  const [vouchersLoading, setVouchersLoading] = useState(false);
+  const [vouchersError, setVouchersError] = useState<string | null>(null);
+
+  const loadVouchers = useCallback(async () => {
+    if (!token) return;
+    setVouchersError(null);
+    setVouchersLoading(true);
+    try {
+      const res = await apiFetch("/api/client/vouchers", {}, token);
+      if (!res.ok) {
+        throw new Error(`Request failed (${res.status})`);
+      }
+      const data = (await res.json()) as ClientVoucherRow[];
+      setVouchers(data);
+    } catch (e) {
+      setVouchers([]);
+      setVouchersError(
+        e instanceof Error ? e.message : "Failed to load store vouchers",
+      );
+    } finally {
+      setVouchersLoading(false);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    void loadVouchers();
+  }, [loadVouchers]);
+
+  const activeVoucherTotal = useMemo(() => {
+    return vouchers
+      .filter((v) => v.status.trim().toLowerCase() === "active")
+      .reduce((sum, v) => {
+        const n = Number(v.amount);
+        return Number.isFinite(n) ? sum + n : sum;
+      }, 0);
+  }, [vouchers]);
 
   const openBankModal = useCallback(() => {
     if (!c) return;
@@ -331,6 +381,68 @@ export function ClientMyAccountPage() {
             </dd>
           </div>
         </dl>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 className="text-sm font-semibold text-slate-900">Store vouchers</h2>
+        <p className="mt-1 text-xs text-slate-500">
+          Credit vouchers issued to your account. Active balance:{" "}
+          {formatPhpDisplay(activeVoucherTotal)}
+        </p>
+        {vouchersError ? (
+          <p className="mt-4 text-sm text-red-600" role="alert">
+            {vouchersError}
+          </p>
+        ) : vouchersLoading ? (
+          <p className="mt-4 text-sm text-slate-500">Loading vouchers…</p>
+        ) : vouchers.length === 0 ? (
+          <p className="mt-4 text-sm text-slate-500">No store vouchers yet.</p>
+        ) : (
+          <div className="mt-4 overflow-x-auto">
+            <table className="min-w-full text-left text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 text-xs font-medium uppercase tracking-wide text-slate-500">
+                  <th className="px-2 py-2 pr-4">Amount</th>
+                  <th className="px-2 py-2 pr-4">Expiration</th>
+                  <th className="px-2 py-2 pr-4">Status</th>
+                  <th className="px-2 py-2">Issued</th>
+                </tr>
+              </thead>
+              <tbody>
+                {vouchers.map((voucher) => (
+                  <tr
+                    key={voucher.id}
+                    className="border-b border-slate-100 last:border-0"
+                  >
+                    <td className="px-2 py-3 pr-4 font-medium text-slate-900">
+                      {formatPhpDisplay(voucher.amount)}
+                    </td>
+                    <td className="px-2 py-3 pr-4 text-slate-900">
+                      {formatVoucherDate(voucher.expirationDate)}
+                    </td>
+                    <td className="px-2 py-3 pr-4">
+                      <span
+                        className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${voucherStatusBadgeClass(voucher.status)}`}
+                      >
+                        {voucherStatusLabel(voucher.status)}
+                      </span>
+                    </td>
+                    <td className="px-2 py-3 text-slate-600">
+                      {new Date(voucher.createdAt).toLocaleDateString(
+                        undefined,
+                        {
+                          year: "numeric",
+                          month: "short",
+                          day: "numeric",
+                        },
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
