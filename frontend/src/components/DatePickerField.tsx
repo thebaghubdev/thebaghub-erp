@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { DayPicker } from "react-day-picker";
+import { DayPicker, getDefaultClassNames } from "react-day-picker";
 import { format, parse, startOfDay } from "date-fns";
 import "react-day-picker/style.css";
 
@@ -31,33 +31,29 @@ export type DatePickerFieldProps = {
   defaultOpen?: boolean;
 };
 
+const defaultClassNames = getDefaultClassNames();
+
 const dayPickerClassNames = {
-  months: "flex flex-col sm:flex-row gap-4",
-  month: "space-y-2",
-  month_caption: "flex justify-center pt-1 relative items-center w-full",
-  caption_label:
-    "text-sm font-semibold text-slate-900 dark:text-slate-100",
-  nav: "flex items-center gap-1",
-  button_previous:
-    "absolute left-1 top-1 inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700",
-  button_next:
-    "absolute right-1 top-1 inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700",
-  month_grid: "border-collapse",
-  weekdays: "flex",
-  weekday:
-    "w-9 text-[0.7rem] font-medium uppercase text-slate-500 dark:text-slate-400",
-  week: "mt-1 flex w-full",
-  day: "group relative h-9 w-9 p-0 text-center text-sm",
-  day_button:
-    "inline-flex h-9 w-9 items-center justify-center rounded-md text-slate-800 hover:bg-violet-100 hover:text-violet-900 dark:text-slate-200 dark:hover:bg-violet-950 dark:hover:text-violet-100",
-  selected:
-    "font-semibold [&_button]:bg-violet-600 [&_button]:text-white [&_button]:hover:bg-violet-600 [&_button]:hover:text-white dark:[&_button]:bg-violet-600",
-  today: "font-semibold text-violet-700 dark:text-violet-300",
-  outside: "text-slate-300 dark:text-slate-600",
-  /** Muted inner button — overrides day_button hover/text so disabled days read clearly. */
-  disabled:
-    "[&_button]:pointer-events-none [&_button]:cursor-not-allowed [&_button]:text-slate-400 [&_button]:opacity-80 dark:[&_button]:text-slate-500 [&_button]:hover:!bg-transparent [&_button]:hover:!text-slate-400 dark:[&_button]:hover:!text-slate-500 [&_button]:focus-visible:!ring-0 [&_button]:focus-visible:!ring-offset-0",
-  hidden: "invisible",
+  ...defaultClassNames,
+  months: `${defaultClassNames.months} flex flex-col sm:flex-row gap-4`,
+  month: `${defaultClassNames.month} space-y-2`,
+  month_caption: `${defaultClassNames.month_caption} text-sm font-semibold text-slate-900 dark:text-slate-100`,
+  caption_label: `${defaultClassNames.caption_label} text-sm font-semibold text-slate-900 dark:text-slate-100`,
+  nav: `${defaultClassNames.nav} flex items-center gap-1`,
+  button_previous: `${defaultClassNames.button_previous} rounded-md border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700`,
+  button_next: `${defaultClassNames.button_next} rounded-md border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700`,
+  chevron: `${defaultClassNames.chevron} fill-violet-600 dark:fill-violet-400`,
+  month_grid: `${defaultClassNames.month_grid} border-collapse`,
+  weekdays: `${defaultClassNames.weekdays} flex`,
+  weekday: `${defaultClassNames.weekday} w-9 text-[0.7rem] font-medium uppercase text-slate-500 dark:text-slate-400`,
+  week: `${defaultClassNames.week} mt-1 flex w-full`,
+  day: `${defaultClassNames.day} group relative h-9 w-9 p-0 text-center text-sm`,
+  day_button: `${defaultClassNames.day_button} inline-flex h-9 w-9 items-center justify-center rounded-md text-slate-800 hover:bg-violet-100 hover:text-violet-900 dark:text-slate-200 dark:hover:bg-violet-950 dark:hover:text-violet-100`,
+  selected: `${defaultClassNames.selected} font-semibold [&_button]:bg-violet-600 [&_button]:text-white [&_button]:hover:bg-violet-600 [&_button]:hover:text-white dark:[&_button]:bg-violet-600`,
+  today: `${defaultClassNames.today} font-semibold text-violet-700 dark:text-violet-300`,
+  outside: `${defaultClassNames.outside} text-slate-300 dark:text-slate-600`,
+  disabled: `${defaultClassNames.disabled} [&_button]:pointer-events-none [&_button]:cursor-not-allowed [&_button]:text-slate-400 [&_button]:opacity-80 dark:[&_button]:text-slate-500 [&_button]:hover:!bg-transparent [&_button]:hover:!text-slate-400 dark:[&_button]:hover:!text-slate-500 [&_button]:focus-visible:!ring-0 [&_button]:focus-visible:!ring-offset-0`,
+  hidden: `${defaultClassNames.hidden} invisible`,
 } as const;
 
 /**
@@ -173,6 +169,7 @@ export function DatePickerField({
             >
               <DayPicker
                 mode="single"
+                navLayout="around"
                 required={false}
                 selected={selected}
                 onSelect={(d) => {

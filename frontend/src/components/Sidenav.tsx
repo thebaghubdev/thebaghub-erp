@@ -122,6 +122,15 @@ export function Sidenav() {
           Promotions
         </NavLink>
         <NavLink
+          to="/portal/vouchers"
+          end
+          className={({ isActive }) =>
+            [linkClass, isActive ? activeClass : ""].join(" ")
+          }
+        >
+          Store Vouchers
+        </NavLink>
+        <NavLink
           to="/portal/logistics"
           end
           className={({ isActive }) =>

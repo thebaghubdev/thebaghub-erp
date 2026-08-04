@@ -60,6 +60,8 @@ import {
   Promotion,
   PromotionItem,
 } from './promotions/entities/promotion.entities';
+import { VouchersModule } from './vouchers/vouchers.module';
+import { Voucher } from './vouchers/entities/voucher.entity';
 
 @Module({
   imports: [
@@ -105,6 +107,7 @@ import {
           LogisticsItem,
           Promotion,
           PromotionItem,
+          Voucher,
         ],
         synchronize:
           config.get<string>('NODE_ENV', 'development') !== 'production',
@@ -127,6 +130,7 @@ import {
     MediaModule,
     LogisticsModule,
     PromotionsModule,
+    VouchersModule,
   ],
   controllers: [AppController],
   providers: [
