@@ -107,6 +107,15 @@ export class ClientConsignmentInquiryController {
     return this.inquiriesService.cancelInquiryForClient(req.user, id);
   }
 
+  /** Consignor requests early pullout while the item is being processed. */
+  @Post(':id/request-pullout')
+  requestPullout(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.inquiriesService.requestPulloutForClient(req.user, id);
+  }
+
   /** Append more item photos (multipart field `photos`, active inquiries only). */
   @Post(':id/photos')
   @UseInterceptors(

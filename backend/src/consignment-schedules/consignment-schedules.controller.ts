@@ -54,6 +54,17 @@ export class ConsignmentSchedulesController {
     );
   }
 
+  @Post(':id/complete-pullout')
+  completePullout(
+    @Req() req: { user: JwtUser },
+    @Param('id') id: string,
+  ) {
+    return this.consignmentSchedulesService.completePulloutForStaff(
+      id,
+      req.user.userId,
+    );
+  }
+
   @Delete(':id')
   remove(@Req() req: { user: JwtUser }, @Param('id') id: string) {
     return this.consignmentSchedulesService.removeForStaff(id, req.user.userId);

@@ -89,6 +89,9 @@ type InquiryDetail = {
   walkInBranch: string | null;
   contractStartDate: string | null;
   contractExpirationDate: string | null;
+  pulloutFee: string | null;
+  pulloutReason: string | null;
+  pulloutPaymentProofUrl: string | null;
   /** Present when an inventory line references this inquiry. */
   linkedInventoryItemId: string | null;
   /** Present when an inventory line references this inquiry. */
@@ -125,12 +128,26 @@ function isThirdPartyAuthPaymentFlowStatus(status: string): boolean {
   );
 }
 
-function isAvailableForPurchaseStatus(status: string | null | undefined): boolean {
+function isAvailableForPurchaseStatus(
+  status: string | null | undefined,
+): boolean {
   return status?.trim().toLowerCase() === "available for purchase";
 }
 
 function isForContractRenewalStatus(status: string): boolean {
   return status.trim().toLowerCase() === "for_contract_renewal";
+}
+
+function isForProcessingStatus(status: string): boolean {
+  return status.trim().toLowerCase() === "for_processing";
+}
+
+function isPulloutRequestedStatus(status: string): boolean {
+  return status.trim().toLowerCase() === "pullout_requested";
+}
+
+function canStaffPulloutInquiry(status: string): boolean {
+  return isForProcessingStatus(status) || isPulloutRequestedStatus(status);
 }
 
 function formatClientPaymentMethod(
@@ -241,6 +258,15 @@ function isImageFile(file: File): boolean {
   return /\.(jpe?g|png|gif|webp|heic|heif|bmp|avif)$/i.test(name);
 }
 
+function isPdfFile(file: File): boolean {
+  if (file.type === "application/pdf") return true;
+  return /\.pdf$/i.test(file.name.trim());
+}
+
+function isAcceptedPulloutProofFile(file: File): boolean {
+  return isImageFile(file) || isPdfFile(file);
+}
+
 type ProofPaymentPreview = { id: string; file: File; previewUrl: string };
 
 function OfferModalAskingPrices({ detail }: { detail: InquiryDetail }) {
@@ -300,6 +326,7 @@ export function InquiryDetailPage() {
     | "cancelContractRenewal"
     | "uploadThirdPartyProof"
     | "markThirdPartyPaid"
+    | "pullout"
     | null
   >(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -325,6 +352,15 @@ export function InquiryDetailPage() {
     useState("");
   const [cancelRenewContractConfirmOpen, setCancelRenewContractConfirmOpen] =
     useState(false);
+  const [pulloutModalOpen, setPulloutModalOpen] = useState(false);
+  const [pulloutFeeInput, setPulloutFeeInput] = useState("");
+  const [pulloutReasonDraft, setPulloutReasonDraft] = useState("");
+  const [pulloutProof, setPulloutProof] = useState<ProofPaymentPreview | null>(
+    null,
+  );
+  const [pulloutProofDropActive, setPulloutProofDropActive] = useState(false);
+  const pulloutModalTitleId = useId();
+  const pulloutProofInputId = useId();
   const [proofPaymentModalOpen, setProofPaymentModalOpen] = useState(false);
   const [proofPaymentImages, setProofPaymentImages] = useState<
     ProofPaymentPreview[]
@@ -473,6 +509,57 @@ export function InquiryDetailPage() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [renewContractModalOpen, closeRenewContractModal]);
+
+  const closePulloutModal = useCallback(() => {
+    if (actionBusy === "pullout") return;
+    setPulloutProof((prev) => {
+      if (prev?.previewUrl) URL.revokeObjectURL(prev.previewUrl);
+      return null;
+    });
+    setPulloutProofDropActive(false);
+    setPulloutModalOpen(false);
+  }, [actionBusy]);
+
+  useEffect(() => {
+    if (!pulloutModalOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closePulloutModal();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [pulloutModalOpen, closePulloutModal]);
+
+  const openPulloutModal = useCallback(() => {
+    setActionError(null);
+    setPulloutFeeInput("");
+    setPulloutReasonDraft("");
+    setPulloutProof((prev) => {
+      if (prev?.previewUrl) URL.revokeObjectURL(prev.previewUrl);
+      return null;
+    });
+    setPulloutProofDropActive(false);
+    setPulloutModalOpen(true);
+  }, []);
+
+  const setPulloutProofFile = useCallback((fileList: FileList | File[]) => {
+    const file = Array.from(fileList).find(isAcceptedPulloutProofFile);
+    if (!file) return;
+    setPulloutProof((prev) => {
+      if (prev?.previewUrl) URL.revokeObjectURL(prev.previewUrl);
+      return {
+        id: randomId(),
+        file,
+        previewUrl: isImageFile(file) ? URL.createObjectURL(file) : "",
+      };
+    });
+  }, []);
+
+  const removePulloutProof = useCallback(() => {
+    setPulloutProof((prev) => {
+      if (prev?.previewUrl) URL.revokeObjectURL(prev.previewUrl);
+      return null;
+    });
+  }, []);
 
   useEffect(() => {
     if (!moreActionsOpen) return;
@@ -970,6 +1057,55 @@ export function InquiryDetailPage() {
     }
   }, [id, token]);
 
+  const submitPullout = useCallback(
+    async (e: FormEvent) => {
+      e.preventDefault();
+      if (!id || !token) return;
+      const fee = parsePhpStringToNumber(pulloutFeeInput);
+      if (fee == null || fee < 0) {
+        setActionError("Enter a valid pullout fee.");
+        return;
+      }
+      const reason = pulloutReasonDraft.trim();
+      if (!reason) {
+        setActionError("Enter a reason for pullout.");
+        return;
+      }
+      setActionError(null);
+      setActionBusy("pullout");
+      try {
+        const fd = new FormData();
+        fd.append("pulloutFee", fee.toFixed(2));
+        fd.append("pulloutReason", reason);
+        if (pulloutProof) {
+          fd.append("proof", pulloutProof.file);
+        }
+        const res = await apiFetch(
+          `/api/inquiries/${id}/pullout`,
+          { method: "POST", body: fd },
+          token,
+        );
+        if (!res.ok) throw new Error(await readApiErrorMessage(res));
+        const data = (await res.json()) as InquiryDetail;
+        setDetail(data);
+        setAuditRows(null);
+        setPulloutProof((prev) => {
+          if (prev?.previewUrl) URL.revokeObjectURL(prev.previewUrl);
+          return null;
+        });
+        setPulloutProofDropActive(false);
+        setPulloutModalOpen(false);
+      } catch (err) {
+        setActionError(
+          err instanceof Error ? err.message : "Could not save pullout",
+        );
+      } finally {
+        setActionBusy(null);
+      }
+    },
+    [id, token, pulloutFeeInput, pulloutReasonDraft, pulloutProof],
+  );
+
   const form = detail?.itemSnapshot.form ?? {};
   const showThirdPartyActions =
     detail != null &&
@@ -980,10 +1116,13 @@ export function InquiryDetailPage() {
     isAvailableForPurchaseStatus(detail.linkedInventoryItemStatus);
   const showContractRenewalActions =
     detail != null && isForContractRenewalStatus(detail.status);
+  const showPulloutAction =
+    detail != null && canStaffPulloutInquiry(detail.status);
   const showMoreActions =
     showThirdPartyActions ||
     showAvailableForPurchaseActions ||
-    showContractRenewalActions;
+    showContractRenewalActions ||
+    showPulloutAction;
 
   return (
     <div className="mx-auto max-w-4xl space-y-4">
@@ -1010,6 +1149,7 @@ export function InquiryDetailPage() {
       !createNewOfferModalOpen &&
       !repricingModalOpen &&
       !renewContractModalOpen &&
+      !pulloutModalOpen &&
       !cancelRenewContractConfirmOpen ? (
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
           {actionError}
@@ -1238,6 +1378,25 @@ export function InquiryDetailPage() {
                           </button>
                         </li>
                       ) : null}
+                      {showPulloutAction ? (
+                        <li role="none">
+                          <button
+                            type="button"
+                            role="menuitem"
+                            disabled={actionBusy !== null}
+                            onClick={() => {
+                              setActionError(null);
+                              setMoreActionsOpen(false);
+                              openPulloutModal();
+                            }}
+                            className="flex w-full items-center px-3 py-2 text-left text-sm text-slate-800 hover:bg-slate-50 disabled:opacity-50 dark:text-slate-100 dark:hover:bg-slate-800"
+                          >
+                            {actionBusy === "pullout"
+                              ? "Saving pullout…"
+                              : "Pullout"}
+                          </button>
+                        </li>
+                      ) : null}
                     </ul>
                   ) : null}
                 </div>
@@ -1444,7 +1603,11 @@ export function InquiryDetailPage() {
                           key={`${url}-${i}`}
                           className="overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900"
                         >
-                          <a href={url} target="_blank" rel="noopener noreferrer">
+                          <a
+                            href={url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
                             <img
                               src={url}
                               alt={`Issue ${i + 1}`}
@@ -1538,6 +1701,49 @@ export function InquiryDetailPage() {
                     {formatContractDateOnly(detail.contractExpirationDate)}
                   </dd>
                 </div>
+              ) : null}
+              {detail.pulloutFee != null ||
+              detail.pulloutReason ||
+              detail.pulloutPaymentProofUrl ? (
+                <>
+                  {detail.pulloutFee != null ? (
+                    <div>
+                      <dt className="text-slate-500 dark:text-slate-400">
+                        Pullout fee
+                      </dt>
+                      <dd className="tabular-nums text-slate-900 dark:text-slate-100">
+                        {formatPhpDisplay(detail.pulloutFee)}
+                      </dd>
+                    </div>
+                  ) : null}
+                  {detail.pulloutPaymentProofUrl ? (
+                    <div>
+                      <dt className="text-slate-500 dark:text-slate-400">
+                        Pullout fee proof
+                      </dt>
+                      <dd>
+                        <a
+                          href={detail.pulloutPaymentProofUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-medium text-violet-700 hover:text-violet-900 dark:text-violet-300 dark:hover:text-violet-100"
+                        >
+                          View proof
+                        </a>
+                      </dd>
+                    </div>
+                  ) : null}
+                  {detail.pulloutReason ? (
+                    <div className="sm:col-span-2">
+                      <dt className="text-slate-500 dark:text-slate-400">
+                        Pullout reason
+                      </dt>
+                      <dd className="whitespace-pre-wrap text-slate-900 dark:text-slate-100">
+                        {detail.pulloutReason}
+                      </dd>
+                    </div>
+                  ) : null}
+                </>
               ) : null}
             </dl>
 
@@ -2186,8 +2392,8 @@ export function InquiryDetailPage() {
                       Update consignment price
                     </h2>
                     <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
-                      Save the consignor's agreed lower offer and upload proof of
-                      agreement. The item will move to For Repricing.
+                      Save the consignor's agreed lower offer and upload proof
+                      of agreement. The item will move to For Repricing.
                     </p>
                     <form
                       onSubmit={(e) => void submitConsignmentPriceUpdate(e)}
@@ -2253,9 +2459,7 @@ export function InquiryDetailPage() {
                           onDragLeave={(e) => {
                             e.preventDefault();
                             if (
-                              !e.currentTarget.contains(
-                                e.relatedTarget as Node,
-                              )
+                              !e.currentTarget.contains(e.relatedTarget as Node)
                             ) {
                               setRepricingProofDropActive(false);
                             }
@@ -2412,6 +2616,201 @@ export function InquiryDetailPage() {
               )
             : null}
 
+          {pulloutModalOpen && detail && typeof document !== "undefined"
+            ? createPortal(
+                <div
+                  className="fixed inset-0 z-[100] flex items-end justify-center p-4 sm:items-center"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby={pulloutModalTitleId}
+                >
+                  <button
+                    type="button"
+                    className="absolute inset-0 bg-slate-900/50"
+                    aria-label="Close pullout"
+                    onClick={closePulloutModal}
+                  />
+                  <div className="relative z-10 w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+                    <h2
+                      id={pulloutModalTitleId}
+                      className="text-base font-semibold text-slate-900 dark:text-slate-100"
+                    >
+                      Pullout item
+                    </h2>
+                    <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+                      Record the early pullout fee and reason. The inquiry and
+                      linked inventory item will move to For Pullout.
+                    </p>
+                    <form
+                      onSubmit={(e) => void submitPullout(e)}
+                      className="mt-4 space-y-3"
+                    >
+                      {actionError && pulloutModalOpen ? (
+                        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+                          {actionError}
+                        </p>
+                      ) : null}
+                      <div>
+                        <label
+                          htmlFor="pullout-fee"
+                          className="block text-sm font-medium text-slate-700 dark:text-slate-300"
+                        >
+                          Pullout fee (PHP)
+                        </label>
+                        <div className="mt-1">
+                          <PhpPriceInput
+                            id="pullout-fee"
+                            value={pulloutFeeInput}
+                            onChange={setPulloutFeeInput}
+                            disabled={actionBusy !== null}
+                            required
+                            className="w-full rounded-lg border border-slate-300 bg-white py-2 pr-3 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
+                            placeholder="0.00"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label
+                          htmlFor="pullout-reason"
+                          className="block text-sm font-medium text-slate-700 dark:text-slate-300"
+                        >
+                          Reason for pullout
+                        </label>
+                        <textarea
+                          id="pullout-reason"
+                          rows={4}
+                          value={pulloutReasonDraft}
+                          onChange={(e) =>
+                            setPulloutReasonDraft(e.target.value)
+                          }
+                          disabled={actionBusy !== null}
+                          required
+                          className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
+                        />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                          Proof of payment for pullout fee
+                          <span className="ml-1 font-normal text-slate-500 dark:text-slate-400">
+                            (optional)
+                          </span>
+                        </p>
+                        <input
+                          id={pulloutProofInputId}
+                          type="file"
+                          accept="image/*,application/pdf"
+                          className="sr-only"
+                          aria-label="Select proof of payment for pullout fee"
+                          disabled={actionBusy !== null}
+                          onChange={(e) => {
+                            if (e.target.files?.length) {
+                              setPulloutProofFile(e.target.files);
+                            }
+                            e.target.value = "";
+                          }}
+                        />
+                        <label
+                          htmlFor={pulloutProofInputId}
+                          className={`${proofPaymentDropzoneClass} mt-2 ${pulloutProofDropActive ? "border-violet-500 bg-violet-50 dark:border-violet-400 dark:bg-violet-950/50" : ""}`}
+                          onDragEnter={(e) => {
+                            e.preventDefault();
+                            setPulloutProofDropActive(true);
+                          }}
+                          onDragLeave={(e) => {
+                            e.preventDefault();
+                            if (
+                              !e.currentTarget.contains(e.relatedTarget as Node)
+                            ) {
+                              setPulloutProofDropActive(false);
+                            }
+                          }}
+                          onDragOver={(e) => {
+                            e.preventDefault();
+                            e.dataTransfer.dropEffect = "copy";
+                          }}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setPulloutProofDropActive(false);
+                            if (e.dataTransfer.files?.length) {
+                              setPulloutProofFile(e.dataTransfer.files);
+                            }
+                          }}
+                        >
+                          <span className="text-sm font-medium text-slate-800 dark:text-slate-100">
+                            Drop proof here or click to choose
+                          </span>
+                          <span className="text-xs text-slate-500 dark:text-slate-400">
+                            PNG, JPG, or PDF.
+                          </span>
+                        </label>
+                        {pulloutProof ? (
+                          <div className="mt-3 overflow-hidden rounded-lg border border-slate-200 bg-slate-50 dark:border-slate-600 dark:bg-slate-800">
+                            {pulloutProof.previewUrl ? (
+                              <div className="relative aspect-video">
+                                <img
+                                  src={pulloutProof.previewUrl}
+                                  alt=""
+                                  className="h-full w-full object-cover"
+                                />
+                                <button
+                                  type="button"
+                                  disabled={actionBusy !== null}
+                                  onClick={removePulloutProof}
+                                  className="absolute right-2 top-2 rounded bg-slate-900/70 px-2 py-0.5 text-xs font-medium text-white hover:bg-slate-900 disabled:opacity-50"
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center justify-between gap-3 px-4 py-3">
+                                <div className="min-w-0">
+                                  <p className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">
+                                    {pulloutProof.file.name}
+                                  </p>
+                                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                                    PDF document
+                                  </p>
+                                </div>
+                                <button
+                                  type="button"
+                                  disabled={actionBusy !== null}
+                                  onClick={removePulloutProof}
+                                  className="shrink-0 rounded bg-slate-900/70 px-2 py-0.5 text-xs font-medium text-white hover:bg-slate-900 disabled:opacity-50"
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        ) : null}
+                      </div>
+                      <div className="flex flex-wrap justify-end gap-2 border-t border-slate-200 pt-3 dark:border-slate-600">
+                        <button
+                          type="button"
+                          disabled={actionBusy !== null}
+                          onClick={closePulloutModal}
+                          className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={actionBusy !== null}
+                          className="rounded-lg bg-cyan-700 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-cyan-800 disabled:opacity-50 dark:bg-cyan-700 dark:hover:bg-cyan-600"
+                        >
+                          {actionBusy === "pullout"
+                            ? "Saving…"
+                            : "Save pullout"}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>,
+                document.body,
+              )
+            : null}
+
           {notesModalOpen && detail && typeof document !== "undefined"
             ? createPortal(
                 <div
@@ -2521,7 +2920,9 @@ export function InquiryDetailPage() {
                     </h2>
                     <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
                       These notes appear under{" "}
-                      <span className="font-medium">Requested for reauthentication</span>{" "}
+                      <span className="font-medium">
+                        Requested for reauthentication
+                      </span>{" "}
                       on this inquiry for your team and the consignor.
                     </p>
                     <form

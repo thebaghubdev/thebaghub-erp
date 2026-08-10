@@ -9,6 +9,8 @@ export const INQUIRY_STATUS_VALUES = [
   "for_delivery_scheduled",
   "for_pullout_scheduled",
   "for_processing",
+  "pullout_requested",
+  "pulled_out",
   "authenticated_returned",
   "authenticated_new_offer",
   "authenticated_requested_for_reauthentication",

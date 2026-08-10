@@ -199,6 +199,13 @@ export function ConsignmentScheduleDetailPage() {
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
+  const [pulloutCompleteConfirmOpen, setPulloutCompleteConfirmOpen] =
+    useState(false);
+  const [pulloutCompleteBusy, setPulloutCompleteBusy] = useState(false);
+  const [pulloutCompleteError, setPulloutCompleteError] = useState<string | null>(
+    null,
+  );
+
   const [receivedOpen, setReceivedOpen] = useState(false);
   const [receivedChecked, setReceivedChecked] = useState<Record<string, boolean>>(
     {},
@@ -465,6 +472,11 @@ export function ConsignmentScheduleDetailPage() {
 
   const openReceived = useCallback(() => {
     if (!detail?.inquiries.length) return;
+    if (detail.type === "pullout") {
+      setPulloutCompleteError(null);
+      setPulloutCompleteConfirmOpen(true);
+      return;
+    }
     const next: Record<string, boolean> = {};
     for (const q of detail.inquiries) next[q.id] = false;
     setReceivedChecked(next);
@@ -478,6 +490,31 @@ export function ConsignmentScheduleDetailPage() {
     setItemVerifyLoading(false);
     setReceivedOpen(true);
   }, [detail]);
+
+  const confirmPulloutComplete = useCallback(async () => {
+    if (!id || !token) return;
+    setPulloutCompleteError(null);
+    setPulloutCompleteBusy(true);
+    try {
+      const res = await apiFetch(
+        `/api/consignment-schedules/${id}/complete-pullout`,
+        { method: "POST" },
+        token,
+      );
+      if (!res.ok) {
+        setPulloutCompleteError(await readApiErrorMessage(res));
+        return;
+      }
+      setPulloutCompleteConfirmOpen(false);
+      navigate("/portal/consignment-scheduling");
+    } catch (e) {
+      setPulloutCompleteError(
+        e instanceof Error ? e.message : "Could not complete pullout.",
+      );
+    } finally {
+      setPulloutCompleteBusy(false);
+    }
+  }, [id, token, navigate]);
 
   const closeReceived = useCallback(() => {
     itemVerifySeq.current += 1;
@@ -1426,6 +1463,31 @@ export function ConsignmentScheduleDetailPage() {
         busy={rescheduleBusy}
         onCancel={closeRescheduleLimitDialog}
         onConfirm={confirmRescheduleDespiteDailyLimit}
+      />
+
+      <ConfirmDialog
+        open={pulloutCompleteConfirmOpen}
+        title="Complete pullout?"
+        description={
+          detail
+            ? `This will remove ${detail.inquiryCount} ${
+                detail.inquiryCount === 1 ? "item" : "items"
+              } from inventory and mark ${
+                detail.inquiryCount === 1 ? "the inquiry" : "each inquiry"
+              } as Pulled-out. This cannot be undone.`
+            : ""
+        }
+        cancelLabel="Cancel"
+        confirmLabel="Complete pullout"
+        busy={pulloutCompleteBusy}
+        errorMessage={pulloutCompleteError}
+        onCancel={() => {
+          if (!pulloutCompleteBusy) {
+            setPulloutCompleteError(null);
+            setPulloutCompleteConfirmOpen(false);
+          }
+        }}
+        onConfirm={confirmPulloutComplete}
       />
 
       <ConfirmDialog

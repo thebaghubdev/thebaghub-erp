@@ -2,6 +2,8 @@ const STATUS_LABELS: Record<string, string> = {
   for_delivery_scheduled: "For Delivery: Scheduled",
   for_pullout_scheduled: "For Pullout: Scheduled",
   for_processing: "For Processing",
+  pullout_requested: "Pullout Requested",
+  pulled_out: "Pulled-out",
   authenticated_returned: "Authenticated: For renegotiation",
   authenticated_new_offer: "Authenticated: New Offer",
   authenticated_requested_for_reauthentication:

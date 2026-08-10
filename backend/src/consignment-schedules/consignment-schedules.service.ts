@@ -302,6 +302,11 @@ export class ConsignmentSchedulesService {
       if (!schedule) {
         throw new NotFoundException('Schedule not found');
       }
+      if (schedule.type === 'pullout') {
+        throw new BadRequestException(
+          'Use complete pullout for pullout schedules',
+        );
+      }
       const links = schedule.items ?? [];
       if (links.length === 0) {
         throw new BadRequestException('Schedule has no inquiries');
@@ -364,6 +369,64 @@ export class ConsignmentSchedulesService {
       await em.remove(schedule);
 
       return { received: links.length };
+    });
+  }
+
+  /**
+   * Completes a pullout schedule: removes linked inventory rows and marks inquiries
+   * as pulled out, then deletes the schedule.
+   */
+  async completePulloutForStaff(
+    scheduleId: string,
+    staffUserId: string,
+  ): Promise<{ completed: number }> {
+    return await this.scheduleRepo.manager.transaction(async (em) => {
+      const schedule = await em.findOne(ConsignmentSchedule, {
+        where: { id: scheduleId },
+        relations: { items: { inquiry: true } },
+      });
+      if (!schedule) {
+        throw new NotFoundException('Schedule not found');
+      }
+      if (schedule.type !== 'pullout') {
+        throw new BadRequestException('Schedule is not a pullout batch');
+      }
+      const links = schedule.items ?? [];
+      if (links.length === 0) {
+        throw new BadRequestException('Schedule has no inquiries');
+      }
+
+      const staffLabel = await this.inquiryAudit.staffActorLabel(staffUserId);
+      const staffActor = { userId: staffUserId, label: staffLabel };
+
+      for (const link of links) {
+        const inquiry = link.inquiry;
+        if (inquiry.status !== InquiryStatus.FOR_PULLOUT_SCHEDULED) {
+          throw new BadRequestException(
+            `Inquiry ${inquiry.sku} is not in a scheduled pullout state`,
+          );
+        }
+
+        await this.inventoryService.removeInventoryItemForInquiryPullout(
+          em,
+          inquiry.id,
+        );
+
+        const before = cloneInquiryForAudit(inquiry);
+        inquiry.status = InquiryStatus.PULLED_OUT;
+        await em.save(inquiry);
+        await this.inquiryAudit.recordDiff(
+          inquiry.id,
+          before,
+          inquiry,
+          staffActor,
+          em,
+        );
+      }
+
+      await em.remove(schedule);
+
+      return { completed: links.length };
     });
   }
 

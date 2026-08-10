@@ -9,6 +9,10 @@ export enum InquiryStatus {
   FOR_PULLOUT_SCHEDULED = 'for_pullout_scheduled',
   /** Received at branch; inventory record created — awaiting authentication. */
   FOR_PROCESSING = 'for_processing',
+  /** Consignor requested early pullout while item is being processed. */
+  PULLOUT_REQUESTED = 'pullout_requested',
+  /** Item was pulled out and removed from inventory. */
+  PULLED_OUT = 'pulled_out',
   /** Authenticator sent item back for coordinator renegotiation (inventory: Authenticated: For renegotiation). */
   AUTHENTICATED_RETURNED = 'authenticated_returned',
   /** Staff set a new offer price after authentication return; awaiting next step. */

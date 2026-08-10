@@ -74,6 +74,28 @@ export class InquiriesController {
     return this.inquiriesService.declineInquiry(id, req.user);
   }
 
+  @Post(':id/pullout')
+  @UseInterceptors(
+    FileInterceptor('proof', {
+      limits: { fileSize: 25 * 1024 * 1024 },
+    }),
+  )
+  pullout(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body('pulloutFee') pulloutFee: string,
+    @Body('pulloutReason') pulloutReason: string,
+    @UploadedFile() proof: MulterFile | undefined,
+  ) {
+    return this.inquiriesService.pulloutInquiryForStaff(
+      id,
+      pulloutFee,
+      pulloutReason,
+      proof,
+      req.user,
+    );
+  }
+
   @Post(':id/offer')
   submitOffer(
     @Req() req: { user: JwtUser },

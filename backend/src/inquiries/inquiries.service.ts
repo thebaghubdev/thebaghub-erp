@@ -82,11 +82,16 @@ function extFromMime(mime: string): string {
   return 'bin';
 }
 
+const ALLOWED_PULLOUT_PROOF_MIMES = new Set([
+  ...ALLOWED_IMAGE_MIMES,
+  'application/pdf',
+]);
 const MAX_AUTH_RETURN_PHOTO_BYTES = 15 * 1024 * 1024;
 const MAX_AUTH_RETURN_PHOTOS = 20;
 const AVAILABLE_FOR_PURCHASE_INVENTORY_STATUS = 'Available For Purchase';
 const FOR_REPRICING_INVENTORY_STATUS = 'For Repricing';
 const FOR_CONTRACT_RENEWAL_INVENTORY_STATUS = 'For Contract Renewal';
+const FOR_PULLOUT_INVENTORY_STATUS = 'For Pullout';
 
 function parseImageDataUrl(
   dataUrl: string,
@@ -227,6 +232,9 @@ export type StaffInquiryRow = {
   walkInBranch: string | null;
   contractStartDate: string | null;
   contractExpirationDate: string | null;
+  pulloutFee: string | null;
+  pulloutReason: string | null;
+  pulloutPaymentProofUrl: string | null;
 };
 
 /** Client/staff API shape (public URL for signature image). */
@@ -401,6 +409,24 @@ export class InquiriesService {
       .catch((err: unknown) => {
         this.logger.error(
           'Failed to notify coordinators of offer confirmation',
+          err,
+        );
+      });
+  }
+
+  private notifyCoordinatorsPulloutRequested(inquiry: {
+    id: string;
+    sku: string;
+  }): void {
+    void this.notifications
+      .notify({
+        message: `Consignor requested pullout for inquiry ${inquiry.sku}.`,
+        receiverRole: CONSIGNMENT_COORDINATOR_POSITION,
+        inquiryId: inquiry.id,
+      })
+      .catch((err: unknown) => {
+        this.logger.error(
+          'Failed to notify coordinators of pullout request',
           err,
         );
       });
@@ -989,6 +1015,11 @@ export class InquiriesService {
       r.id,
       MediaPurpose.REPRICING_PROOF,
     );
+    const pulloutPaymentProofUrl = await this.media.findFirstUrl(
+      MediaOwnerType.INQUIRY,
+      r.id,
+      MediaPurpose.PULLOUT_PAYMENT_PROOF,
+    );
     return {
       id: r.id,
       sku: r.sku,
@@ -1039,6 +1070,15 @@ export class InquiriesService {
           : null,
       contractStartDate: inquiryDateOnlyToIso(r.contractStartDate),
       contractExpirationDate: inquiryDateOnlyToIso(r.contractExpirationDate),
+      pulloutFee:
+        r.pulloutFee != null && r.pulloutFee !== ''
+          ? String(r.pulloutFee)
+          : null,
+      pulloutReason:
+        r.pulloutReason != null && String(r.pulloutReason).trim() !== ''
+          ? String(r.pulloutReason).trim()
+          : null,
+      pulloutPaymentProofUrl,
     };
   }
 
@@ -1465,7 +1505,8 @@ export class InquiriesService {
     }
     if (
       r.status !== InquiryStatus.PENDING &&
-      r.status !== InquiryStatus.FOR_OFFER_CONFIRMATION
+      r.status !== InquiryStatus.FOR_OFFER_CONFIRMATION &&
+      r.status !== InquiryStatus.FOR_DELIVERY
     ) {
       throw new BadRequestException(
         'Only active inquiries can be cancelled by the consignor',
@@ -1481,6 +1522,124 @@ export class InquiriesService {
       this.inquiryAudit.consignorActor(user.userId),
     );
     return this.findOneForClient(user, id);
+  }
+
+  /** Consignor requests early pullout while the item is being processed at branch. */
+  async requestPulloutForClient(
+    user: JwtUser,
+    id: string,
+  ): Promise<ClientInquiryDetail> {
+    const client = await this.clientsRepo.findOne({
+      where: { userId: user.userId },
+    });
+    if (!client) {
+      throw new NotFoundException('Client profile not found');
+    }
+    const r = await this.inquiriesRepo.findOne({
+      where: { id, consignorId: client.id },
+    });
+    if (!r) {
+      throw new NotFoundException('Inquiry not found');
+    }
+    if (r.status !== InquiryStatus.FOR_PROCESSING) {
+      throw new BadRequestException(
+        'Pullout can only be requested while the item is being processed',
+      );
+    }
+    const before = cloneInquiryForAudit(r);
+    r.status = InquiryStatus.PULLOUT_REQUESTED;
+    await this.inquiriesRepo.save(r);
+    await this.inquiryAudit.recordDiff(
+      r.id,
+      before,
+      r,
+      this.inquiryAudit.consignorActor(user.userId),
+    );
+    this.notifyCoordinatorsPulloutRequested({ id: r.id, sku: r.sku });
+    return this.findOneForClient(user, id);
+  }
+
+  /** Staff initiates pullout while the item is being processed at branch. */
+  async pulloutInquiryForStaff(
+    id: string,
+    rawPulloutFee: string | undefined,
+    rawPulloutReason: string | undefined,
+    proof: MulterFile | undefined,
+    user: JwtUser,
+  ): Promise<StaffInquiryDetail> {
+    const parsedPulloutFee = Number(
+      String(rawPulloutFee ?? '')
+        .trim()
+        .replace(/,/g, '')
+        .replace(/^\u20b1\s?/i, ''),
+    );
+    if (!Number.isFinite(parsedPulloutFee) || parsedPulloutFee < 0) {
+      throw new BadRequestException('Enter a valid pullout fee.');
+    }
+    const reason = rawPulloutReason?.trim() ?? '';
+    if (!reason) {
+      throw new BadRequestException('Pullout reason is required');
+    }
+
+    const label = await this.inquiryAudit.staffActorLabel(user.userId);
+    const staffActor = { userId: user.userId, label };
+
+    await this.inquiriesRepo.manager.transaction(async (em) => {
+      const r = await em.findOne(Inquiry, { where: { id } });
+      if (!r) {
+        throw new NotFoundException('Inquiry not found');
+      }
+      if (
+        r.status !== InquiryStatus.FOR_PROCESSING &&
+        r.status !== InquiryStatus.PULLOUT_REQUESTED
+      ) {
+        throw new BadRequestException(
+          'Pullout is only available while the inquiry is being processed or has a pullout request',
+        );
+      }
+
+      const inv = await em.findOne(InventoryItem, { where: { inquiryId: id } });
+      if (!inv) {
+        throw new BadRequestException(
+          'No linked inventory item was found for this inquiry.',
+        );
+      }
+
+      const before = cloneInquiryForAudit(r);
+      r.pulloutFee = parsedPulloutFee.toFixed(2);
+      r.pulloutReason = reason;
+      r.status = InquiryStatus.FOR_PULLOUT;
+      r.updatedById = user.userId;
+      await em.save(r);
+
+      inv.status = FOR_PULLOUT_INVENTORY_STATUS;
+      inv.updatedById = user.userId;
+      await em.save(inv);
+
+      await this.inquiryAudit.recordDiff(id, before, r, staffActor, em);
+    });
+
+    if (proof?.buffer?.length) {
+      const mime = proof.mimetype?.toLowerCase() ?? '';
+      if (!ALLOWED_PULLOUT_PROOF_MIMES.has(mime)) {
+        throw new BadRequestException(
+          `Unsupported file type: ${proof.mimetype || 'unknown'}`,
+        );
+      }
+      const ext =
+        mime === 'application/pdf' ? 'pdf' : extFromMime(mime);
+      const key = `inquiries/${id}/pullout-payment-proof/${randomUUID()}.${ext}`;
+      await this.media.replaceSingle(
+        MediaOwnerType.INQUIRY,
+        id,
+        MediaPurpose.PULLOUT_PAYMENT_PROOF,
+        proof,
+        key,
+        { uploadedByUserId: user.userId },
+      );
+    }
+
+    return this.findOneForStaff(id);
   }
 
   /** Append images to an existing inquiry (non-terminal statuses only). */
@@ -2177,6 +2336,11 @@ export class InquiriesService {
     if (r.status === InquiryStatus.FOR_PROCESSING) {
       throw new BadRequestException(
         'Cannot submit an offer for an inquiry that is in processing',
+      );
+    }
+    if (r.status === InquiryStatus.PULLOUT_REQUESTED) {
+      throw new BadRequestException(
+        'Cannot submit an offer for an inquiry with a pending pullout request',
       );
     }
     if (r.status === InquiryStatus.AUTHENTICATED_RETURNED) {

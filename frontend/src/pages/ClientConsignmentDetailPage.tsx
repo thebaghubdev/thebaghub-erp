@@ -90,7 +90,11 @@ type ClientInquiryDetail = {
 
 function canClientCancelInquiry(status: string): boolean {
   const s = status.trim().toLowerCase();
-  return s === "pending" || s === "for_offer_confirmation";
+  return (
+    s === "pending" ||
+    s === "for_offer_confirmation" ||
+    s === "for_delivery"
+  );
 }
 
 function isAwaitingOfferConfirmation(status: string): boolean {
@@ -119,6 +123,10 @@ function isForContractRenewalStatus(status: string): boolean {
 
 function isForDeliveryStatus(status: string): boolean {
   return status.trim().toLowerCase() === "for_delivery";
+}
+
+function isForProcessingStatus(status: string): boolean {
+  return status.trim().toLowerCase() === "for_processing";
 }
 
 function displayOrDash(v: string | null | undefined): string {
@@ -203,6 +211,8 @@ export function ClientConsignmentDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
   const [cancelBusy, setCancelBusy] = useState(false);
+  const [pulloutConfirmOpen, setPulloutConfirmOpen] = useState(false);
+  const [pulloutBusy, setPulloutBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [uploadBusy, setUploadBusy] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -283,6 +293,29 @@ export function ClientConsignmentDetailPage() {
       );
     } finally {
       setCancelBusy(false);
+    }
+  }, [id, token]);
+
+  const confirmRequestPullout = useCallback(async () => {
+    if (!id || !token) return;
+    setActionError(null);
+    setPulloutBusy(true);
+    try {
+      const res = await apiFetch(
+        `/api/client/consignment-inquiry/${id}/request-pullout`,
+        { method: "POST" },
+        token,
+      );
+      if (!res.ok) throw new Error(await readApiErrorMessage(res));
+      const data = (await res.json()) as ClientInquiryDetail;
+      setDetail(data);
+      setPulloutConfirmOpen(false);
+    } catch (e) {
+      setActionError(
+        e instanceof Error ? e.message : "Could not request pullout",
+      );
+    } finally {
+      setPulloutBusy(false);
     }
   }, [id, token]);
 
@@ -457,7 +490,7 @@ export function ClientConsignmentDetailPage() {
         </p>
       )}
 
-      {actionError && !cancelConfirmOpen ? (
+      {actionError && !cancelConfirmOpen && !pulloutConfirmOpen ? (
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
           {actionError}
         </p>
@@ -481,8 +514,22 @@ export function ClientConsignmentDetailPage() {
             {canClientCancelInquiry(detail.status) ||
             isAwaitingOfferConfirmation(detail.status) ||
             isForContractRenewalStatus(detail.status) ||
-            isForDeliveryStatus(detail.status) ? (
+            isForDeliveryStatus(detail.status) ||
+            isForProcessingStatus(detail.status) ? (
               <div className="mt-4 flex flex-wrap gap-2">
+                {isForProcessingStatus(detail.status) ? (
+                  <button
+                    type="button"
+                    disabled={pulloutBusy}
+                    onClick={() => {
+                      setActionError(null);
+                      setPulloutConfirmOpen(true);
+                    }}
+                    className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-950 shadow-sm hover:bg-amber-100 disabled:opacity-50"
+                  >
+                    {pulloutBusy ? "Requesting…" : "Request pullout"}
+                  </button>
+                ) : null}
                 {isForDeliveryStatus(detail.status) ? (
                   <button
                     type="button"
@@ -1342,6 +1389,22 @@ export function ClientConsignmentDetailPage() {
           setCancelConfirmOpen(false);
         }}
         onConfirm={confirmCancelInquiry}
+      />
+
+      <ConfirmDialog
+        open={pulloutConfirmOpen}
+        title="Request pullout?"
+        description="Are you sure you want to request a pullout? We may charge an early pullout fee."
+        cancelLabel="Keep item in processing"
+        confirmLabel="Request pullout"
+        busy={pulloutBusy}
+        errorMessage={actionError}
+        onCancel={() => {
+          if (pulloutBusy) return;
+          setActionError(null);
+          setPulloutConfirmOpen(false);
+        }}
+        onConfirm={confirmRequestPullout}
       />
     </div>
   );

@@ -53,6 +53,7 @@ import { CONSIGNMENT_COORDINATOR_POSITION } from '../notifications/notification.
 import { NotificationsService } from '../notifications/notifications.service';
 import { Client } from '../clients/entities/client.entity';
 import { Waitlist } from '../orders/entities/waitlist.entity';
+import { Order } from '../orders/entities/order.entity';
 import {
   ShopifyAdminService,
   type ShopifyCreateProductInput,
@@ -884,6 +885,32 @@ export class InventoryService {
       inventoryRow.id,
       MediaPurpose.ITEM_PHOTO,
     );
+  }
+
+  /** Removes a consigned inventory row when a scheduled pullout is completed. */
+  async removeInventoryItemForInquiryPullout(
+    em: EntityManager,
+    inquiryId: string,
+  ): Promise<void> {
+    const item = await em.findOne(InventoryItem, { where: { inquiryId } });
+    if (!item) {
+      throw new BadRequestException(
+        'No inventory item is linked to this inquiry',
+      );
+    }
+
+    const orderCount = await em.count(Order, {
+      where: { inventoryItemId: item.id },
+    });
+    if (orderCount > 0) {
+      throw new BadRequestException(
+        'Cannot remove this item from inventory while it has an active order',
+      );
+    }
+
+    await em.delete(Waitlist, { inventoryItemId: item.id });
+    await this.media.deleteByOwner(MediaOwnerType.INVENTORY_ITEM, item.id);
+    await em.remove(item);
   }
 
   /**

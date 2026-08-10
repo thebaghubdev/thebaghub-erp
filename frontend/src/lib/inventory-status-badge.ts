@@ -12,6 +12,7 @@ const BY_STATUS: Record<string, string> = {
   "reserved - layaway": "text-blue-800 dark:text-blue-300",
   "out for delivery": "text-sky-800 dark:text-sky-300",
   "for pick-up": "text-sky-800 dark:text-sky-300",
+  "for pullout": "text-cyan-800 dark:text-cyan-300",
   "sold under warranty": "text-emerald-800 dark:text-emerald-300",
   "sold final": "text-zinc-700 dark:text-zinc-300",
   "paid to consignor": "text-emerald-800 dark:text-emerald-300",

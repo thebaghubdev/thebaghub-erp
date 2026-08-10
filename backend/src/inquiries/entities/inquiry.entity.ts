@@ -137,4 +137,18 @@ export class Inquiry extends AuditedEntity {
   /** One line item per inquiry row (form fields only; images in `media`). */
   @Column({ type: 'jsonb', name: 'item_snapshot' })
   itemSnapshot: InquiryItemSnapshot;
+
+  /** Early pullout fee charged to consignor (PHP). */
+  @Column({
+    name: 'pullout_fee',
+    type: 'numeric',
+    precision: 12,
+    scale: 2,
+    nullable: true,
+  })
+  pulloutFee: string | null;
+
+  /** Narrative for why the item is being pulled out early. */
+  @Column({ name: 'pullout_reason', type: 'text', nullable: true })
+  pulloutReason: string | null;
 }
