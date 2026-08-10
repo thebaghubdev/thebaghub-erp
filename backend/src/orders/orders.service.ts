@@ -266,6 +266,7 @@ export type ClientOrderDetail = {
   reservationPaymentProofUrl: string | null;
   fullPaymentProofUrl: string | null;
   holdingPeriod: string | null;
+  layawayPaymentStartDate: string | null;
   declineReason: string | null;
   convertedToLayawayAt: string | null;
   signatureUrl: string | null;
@@ -1294,6 +1295,7 @@ export class OrdersService {
       reservationPaymentProofUrl: await this.reservationPaymentProofUrl(order),
       fullPaymentProofUrl: await this.fullPaymentProofUrl(order),
       holdingPeriod: order.holdingPeriod?.toISOString() ?? null,
+      layawayPaymentStartDate: formatOrderDate(order.layawayPaymentStartDate),
       declineReason: order.declineReason,
       convertedToLayawayAt: order.convertedToLayawayAt?.toISOString() ?? null,
       signatureUrl: await this.signatureUrlForOrder(order.id),

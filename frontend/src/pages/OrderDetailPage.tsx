@@ -34,6 +34,11 @@ import {
 import type { OrderInstallmentRow } from "../lib/order-installments";
 import type { OrderPaymentRow } from "../lib/order-payments";
 import { computeConfirmedPaymentsTotal } from "../lib/order-payments";
+import {
+  canPrintLayawayAgreement,
+  openLayawayAgreementPrintTab,
+  type LayawayAgreementDetail,
+} from "../lib/layaway-agreement-print";
 import { isVoucherApplicableOrderStatus } from "../lib/order-voucher-payment";
 
 type OrderDetail = {
@@ -173,6 +178,35 @@ function consignorPaymentReleaseOptions(months: number | null) {
   });
 }
 
+function toLayawayAgreementDetail(detail: OrderDetail): LayawayAgreementDetail {
+  const customerName =
+    `${detail.customer.firstName} ${detail.customer.lastName}`.trim() ||
+    detail.customer.email;
+  return {
+    orderNumber: detail.orderNumber,
+    customer: {
+      name: customerName,
+      email: detail.customer.email,
+      contactNumber: detail.customer.contactNumber,
+      completeAddress: detail.customer.completeAddress,
+    },
+    inventoryItem: {
+      sku: detail.inventoryItem.sku,
+      itemLabel: detail.inventoryItem.itemLabel,
+    },
+    layawayMonths: detail.layawayMonths,
+    layawayPrice: detail.layawayPrice,
+    layawayMonthlyPayment: detail.layawayMonthlyPayment,
+    layawayPaymentStartDate: detail.layawayPaymentStartDate,
+    consignorPaymentRelease: detail.consignorPaymentRelease,
+    pickupOption: detail.pickupOption,
+    pickupBranch: detail.pickupBranch,
+    courierService: detail.courierService,
+    installments: detail.installments,
+    signatureUrl: detail.signatureUrl,
+  };
+}
+
 const formSelectClass =
   "mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-500/30 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100";
 
@@ -252,6 +286,7 @@ export function OrderDetailPage() {
   const [itemReceivedError, setItemReceivedError] = useState<string | null>(
     null,
   );
+  const [printError, setPrintError] = useState<string | null>(null);
   const [convertConfirmOpen, setConvertConfirmOpen] = useState(false);
   const [convertBusy, setConvertBusy] = useState(false);
   const [convertError, setConvertError] = useState<string | null>(null);
@@ -913,6 +948,7 @@ export function OrderDetailPage() {
     voucherApplicable &&
     !installmentScheduleReadOnly &&
     installmentVoucherDue > 0;
+  const showPrintLayawayAgreement = canPrintLayawayAgreement(detail);
 
   return (
     <div className="w-full min-w-0 space-y-6">
@@ -959,6 +995,12 @@ export function OrderDetailPage() {
             You can review the order below, but your account cannot approve,
             cancel, upload proofs, or change installment details.
           </span>
+        </p>
+      ) : null}
+
+      {printError ? (
+        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+          {printError}
         </p>
       ) : null}
 
@@ -1154,12 +1196,34 @@ export function OrderDetailPage() {
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
             Order details
           </h2>
-          <Link
-            to={`/portal/inventory/${detail.inventoryItem.id}`}
-            className={recordActionBtn}
-          >
-            View inventory item
-          </Link>
+          <div className="flex flex-wrap items-center gap-2">
+            {showPrintLayawayAgreement ? (
+              <button
+                type="button"
+                className={layawayUpdateTermsBtn}
+                onClick={() => {
+                  setPrintError(null);
+                  void openLayawayAgreementPrintTab(
+                    toLayawayAgreementDetail(detail),
+                  ).catch((err) => {
+                    setPrintError(
+                      err instanceof Error
+                        ? err.message
+                        : "Could not open layaway agreement",
+                    );
+                  });
+                }}
+              >
+                Print layaway agreement
+              </button>
+            ) : null}
+            <Link
+              to={`/portal/inventory/${detail.inventoryItem.id}`}
+              className={recordActionBtn}
+            >
+              View inventory item
+            </Link>
+          </div>
         </div>
         <dl className="mt-4 grid grid-cols-1 gap-x-8 gap-y-4 text-sm sm:grid-cols-2">
           <DetailField label="Assigned to">

@@ -7,6 +7,7 @@ import { computeInstallmentVoucherAmountDue } from "../components/UseVoucherDial
 import { OrderStatusBadge } from "../components/OrderStatusBadge";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { useClientAuth } from "../context/client-auth";
+import type { ClientProfile } from "../context/auth-user";
 import { apiFetch } from "../lib/api";
 import { formatPhpDisplay, parsePhpStringToNumber } from "../lib/format-php";
 import {
@@ -23,6 +24,11 @@ import {
 } from "../lib/order-pickup-labels";
 import type { OrderInstallmentRow } from "../lib/order-installments";
 import type { OrderPaymentRow } from "../lib/order-payments";
+import {
+  canPrintLayawayAgreement,
+  openLayawayAgreementPrintTab,
+  type LayawayAgreementDetail,
+} from "../lib/layaway-agreement-print";
 import { isVoucherApplicableOrderStatus } from "../lib/order-voucher-payment";
 
 type ClientOrderDetail = {
@@ -41,6 +47,7 @@ type ClientOrderDetail = {
   reservationPaymentProofUrl: string | null;
   fullPaymentProofUrl: string | null;
   holdingPeriod: string | null;
+  layawayPaymentStartDate: string | null;
   declineReason: string | null;
   convertedToLayawayAt: string | null;
   signatureUrl: string | null;
@@ -62,6 +69,9 @@ const cardClass = "rounded-2xl border border-slate-200 bg-white p-4 shadow-sm";
 
 const actionBtnClassName =
   "rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50";
+
+const secondaryActionBtnClassName =
+  "rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50";
 
 async function readApiErrorMessage(res: Response): Promise<string> {
   try {
@@ -89,12 +99,46 @@ function DetailField({
   );
 }
 
+function toClientLayawayAgreementDetail(
+  detail: ClientOrderDetail,
+  client: ClientProfile | null | undefined,
+): LayawayAgreementDetail {
+  const customerName =
+    `${client?.firstName ?? ""} ${client?.lastName ?? ""}`.trim() ||
+    client?.email ||
+    "—";
+  return {
+    orderNumber: detail.orderNumber,
+    customer: {
+      name: customerName,
+      email: client?.email ?? "—",
+      contactNumber: client?.contactNumber ?? "—",
+      completeAddress: client?.completeAddress ?? null,
+    },
+    inventoryItem: {
+      sku: detail.inventoryItem.sku,
+      itemLabel: detail.inventoryItem.itemLabel,
+    },
+    layawayMonths: detail.layawayMonths,
+    layawayPrice: detail.layawayPrice,
+    layawayMonthlyPayment: detail.layawayMonthlyPayment,
+    layawayPaymentStartDate: detail.layawayPaymentStartDate,
+    consignorPaymentRelease: null,
+    pickupOption: detail.pickupOption,
+    pickupBranch: detail.pickupBranch,
+    courierService: detail.courierService,
+    installments: detail.installments,
+    signatureUrl: detail.signatureUrl,
+  };
+}
+
 export function ClientOrderDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { token } = useClientAuth();
+  const { token, user } = useClientAuth();
   const [detail, setDetail] = useState<ClientOrderDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [printError, setPrintError] = useState<string | null>(null);
   const [itemReceivedConfirmOpen, setItemReceivedConfirmOpen] = useState(false);
   const [itemReceivedBusy, setItemReceivedBusy] = useState(false);
   const [itemReceivedError, setItemReceivedError] = useState<string | null>(
@@ -231,6 +275,7 @@ export function ClientOrderDetailPage() {
     voucherApplicable &&
     !installmentScheduleReadOnly &&
     installmentVoucherDue > 0;
+  const showPrintLayawayAgreement = canPrintLayawayAgreement(detail);
 
   return (
     <div className="w-full min-w-0 space-y-4">
@@ -264,8 +309,36 @@ export function ClientOrderDetailPage() {
         </p>
       ) : null}
 
+      {printError ? (
+        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+          {printError}
+        </p>
+      ) : null}
+
       <div className={cardClass}>
-        <h2 className="text-sm font-semibold text-slate-900">Order details</h2>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-sm font-semibold text-slate-900">Order details</h2>
+          {showPrintLayawayAgreement ? (
+            <button
+              type="button"
+              className={secondaryActionBtnClassName}
+              onClick={() => {
+                setPrintError(null);
+                void openLayawayAgreementPrintTab(
+                  toClientLayawayAgreementDetail(detail, user?.client),
+                ).catch((err) => {
+                  setPrintError(
+                    err instanceof Error
+                      ? err.message
+                      : "Could not open layaway agreement",
+                  );
+                });
+              }}
+            >
+              Print layaway agreement
+            </button>
+          ) : null}
+        </div>
         <dl className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
           <DetailField label="Status">
             <OrderStatusBadge status={detail.status} />
