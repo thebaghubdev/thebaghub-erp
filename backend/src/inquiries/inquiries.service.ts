@@ -210,6 +210,7 @@ export type StaffInquiryRow = {
   consignorName: string;
   consignorEmail: string;
   consignorPhone: string;
+  consignorAddress: string;
   brand: string;
   category: string;
   itemModel: string;
@@ -1029,6 +1030,10 @@ export class InquiriesService {
       consignorName: name || '—',
       consignorEmail: c?.email?.trim() ?? '—',
       consignorPhone: c?.contactNumber?.trim() ?? '—',
+      consignorAddress:
+        c?.completeAddress != null && String(c.completeAddress).trim() !== ''
+          ? String(c.completeAddress).trim()
+          : '—',
       brand: snapshotFormString(form, 'brand') || '—',
       category: snapshotFormString(form, 'category') || '—',
       itemModel: snapshotFormString(form, 'itemModel') || '—',
