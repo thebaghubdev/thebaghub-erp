@@ -29,6 +29,7 @@ import {
   parseClientPaymentBranch,
   parseClientPaymentMethod,
 } from "../lib/client-payment-preference";
+import { openConsignmentContractPrintTab } from "../lib/consignment-contract-print";
 
 type TransactionType = "consignment" | "direct_purchase";
 
@@ -53,6 +54,7 @@ type ClientInquiryDetail = {
   consignorName: string;
   consignorEmail: string;
   consignorPhone: string;
+  consignorAddress: string;
   brand: string;
   category: string;
   itemModel: string;
@@ -518,17 +520,37 @@ export function ClientConsignmentDetailPage() {
             isForProcessingStatus(detail.status) ? (
               <div className="mt-4 flex flex-wrap gap-2">
                 {isForProcessingStatus(detail.status) ? (
-                  <button
-                    type="button"
-                    disabled={pulloutBusy}
-                    onClick={() => {
-                      setActionError(null);
-                      setPulloutConfirmOpen(true);
-                    }}
-                    className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-950 shadow-sm hover:bg-amber-100 disabled:opacity-50"
-                  >
-                    {pulloutBusy ? "Requesting…" : "Request pullout"}
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActionError(null);
+                        void openConsignmentContractPrintTab(detail).catch(
+                          (err) => {
+                            setActionError(
+                              err instanceof Error
+                                ? err.message
+                                : "Could not open print contract",
+                            );
+                          },
+                        );
+                      }}
+                      className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50"
+                    >
+                      Print contract
+                    </button>
+                    <button
+                      type="button"
+                      disabled={pulloutBusy}
+                      onClick={() => {
+                        setActionError(null);
+                        setPulloutConfirmOpen(true);
+                      }}
+                      className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-950 shadow-sm hover:bg-amber-100 disabled:opacity-50"
+                    >
+                      {pulloutBusy ? "Requesting…" : "Request pullout"}
+                    </button>
+                  </>
                 ) : null}
                 {isForDeliveryStatus(detail.status) ? (
                   <button
