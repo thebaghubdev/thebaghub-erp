@@ -317,7 +317,9 @@ export function ClientOrderDetailPage() {
 
       <div className={cardClass}>
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-sm font-semibold text-slate-900">Order details</h2>
+          <h2 className="text-sm font-semibold text-slate-900">
+            Order details
+          </h2>
           {showPrintLayawayAgreement ? (
             <button
               type="button"
@@ -456,8 +458,7 @@ export function ClientOrderDetailPage() {
                         : {}),
                       ...(update.fullPaymentTotalPrice !== undefined
                         ? {
-                            fullPaymentTotalPrice:
-                              update.fullPaymentTotalPrice,
+                            fullPaymentTotalPrice: update.fullPaymentTotalPrice,
                           }
                         : {}),
                       ...(update.status != null
@@ -493,7 +494,9 @@ export function ClientOrderDetailPage() {
 
       {isForPickupOrder && detail.paymentType !== "credit_line" ? (
         <div className={cardClass}>
-          <h2 className="text-sm font-semibold text-slate-900">Order actions</h2>
+          <h2 className="text-sm font-semibold text-slate-900">
+            Order actions
+          </h2>
           <div className="mt-4">
             <button
               type="button"

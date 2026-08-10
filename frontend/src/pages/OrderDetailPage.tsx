@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import { Link, useParams } from "react-router-dom";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { InventoryStatusBadge } from "../components/InventoryStatusBadge";
@@ -338,10 +344,7 @@ export function OrderDetailPage() {
   const canEditOrder = useMemo(() => {
     if (!detail) return false;
     if (
-      canBypassOrderAssignment(
-        Boolean(user?.isAdmin),
-        user?.employee?.position,
-      )
+      canBypassOrderAssignment(Boolean(user?.isAdmin), user?.employee?.position)
     ) {
       return true;
     }
@@ -361,8 +364,7 @@ export function OrderDetailPage() {
     );
     if (
       !isCreditLineOrder &&
-      (!Number.isFinite(consignorPaymentRelease) ||
-        consignorPaymentRelease < 1)
+      (!Number.isFinite(consignorPaymentRelease) || consignorPaymentRelease < 1)
     ) {
       setApproveError("Please select a consignor payment release.");
       return;
@@ -377,9 +379,7 @@ export function OrderDetailPage() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(
-            isCreditLineOrder
-              ? {}
-              : { consignorPaymentRelease },
+            isCreditLineOrder ? {} : { consignorPaymentRelease },
           ),
         },
         token,
@@ -404,7 +404,9 @@ export function OrderDetailPage() {
     if (!id || !token) return;
     const reason = declineReason.trim();
     if (!reason) {
-      setDeclineError("Please enter a reason for declining this layaway order.");
+      setDeclineError(
+        "Please enter a reason for declining this layaway order.",
+      );
       return;
     }
 
@@ -585,7 +587,9 @@ export function OrderDetailPage() {
   const openUpdateTermsDialog = useCallback(() => {
     if (!detail) return;
     setTermsError(null);
-    setTermsMonths(detail.layawayMonths != null ? String(detail.layawayMonths) : "");
+    setTermsMonths(
+      detail.layawayMonths != null ? String(detail.layawayMonths) : "",
+    );
     setTermsPrice(normalizeMoneyInput(detail.layawayPrice));
     setTermsConsignorPaymentRelease(
       detail.consignorPaymentRelease != null
@@ -607,9 +611,7 @@ export function OrderDetailPage() {
       Number.isFinite(itemPrice) && itemPrice > 0
         ? calculateLayawayPricing(itemPrice, months)
         : null;
-    setConvertPrice(
-      pricing != null ? pricing.layawayPrice.toFixed(2) : "",
-    );
+    setConvertPrice(pricing != null ? pricing.layawayPrice.toFixed(2) : "");
     setConvertConsignorPaymentRelease("");
     setConvertConfirmOpen(true);
   }, [detail]);
@@ -682,7 +684,13 @@ export function OrderDetailPage() {
   ]);
 
   const confirmUpdateLayawayTerms = useCallback(async () => {
-    if (!id || !token || !detail || termsMonthsNumber == null || termsPriceNumber == null) {
+    if (
+      !id ||
+      !token ||
+      !detail ||
+      termsMonthsNumber == null ||
+      termsPriceNumber == null
+    ) {
       setTermsError("Enter valid layaway months and layaway price.");
       return;
     }
@@ -693,8 +701,7 @@ export function OrderDetailPage() {
     );
     if (
       !isCreditLineOrder &&
-      (!Number.isFinite(consignorPaymentRelease) ||
-        consignorPaymentRelease < 1)
+      (!Number.isFinite(consignorPaymentRelease) || consignorPaymentRelease < 1)
     ) {
       setTermsError("Please select a consignor payment release.");
       return;
@@ -823,9 +830,7 @@ export function OrderDetailPage() {
       setCourierService("");
     } catch (e) {
       setOutForDeliveryError(
-        e instanceof Error
-          ? e.message
-          : "Could not mark order as for pick-up",
+        e instanceof Error ? e.message : "Could not mark order as for pick-up",
       );
     } finally {
       setOutForDeliveryBusy(false);
@@ -905,10 +910,9 @@ export function OrderDetailPage() {
   const isItemReceivedOrder = isItemReceivedOrderStatus(detail.status);
   const isPostPaymentOrder =
     isPaidOrder || isForPickupOrder || isItemReceivedOrder;
-  const installmentScheduleReadOnly =
-    isCreditLineOrder
-      ? detail.status === "Item Received - Paid"
-      : isPostPaymentOrder || !canEditOrder;
+  const installmentScheduleReadOnly = isCreditLineOrder
+    ? detail.status === "Item Received - Paid"
+    : isPostPaymentOrder || !canEditOrder;
   const showOrderPayments =
     detail.paymentType === "full_payment" &&
     (detail.status === "For Payment" ||
@@ -920,7 +924,8 @@ export function OrderDetailPage() {
     (detail.payments?.length ?? 0) > 0;
   const showConvertToLayaway =
     detail.paymentType === "full_payment" &&
-    (detail.status === "For Payment" || isReservationOrderStatus(detail.status));
+    (detail.status === "For Payment" ||
+      isReservationOrderStatus(detail.status));
   const orderPaymentsReadOnly = isPostPaymentOrder || !canEditOrder;
   const showLayawaySchedule =
     isInstallmentPaymentType(detail.paymentType) &&
@@ -1376,8 +1381,7 @@ export function OrderDetailPage() {
                         : {}),
                       ...(update.fullPaymentTotalPrice !== undefined
                         ? {
-                            fullPaymentTotalPrice:
-                              update.fullPaymentTotalPrice,
+                            fullPaymentTotalPrice: update.fullPaymentTotalPrice,
                           }
                         : {}),
                       ...(update.status != null
@@ -1417,7 +1421,9 @@ export function OrderDetailPage() {
         </h2>
         <dl className="mt-4 grid grid-cols-1 gap-x-8 gap-y-4 text-sm sm:grid-cols-2">
           <DetailField label="Name">{customerName}</DetailField>
-          <DetailField label="Email">{displayOrDash(detail.customer.email)}</DetailField>
+          <DetailField label="Email">
+            {displayOrDash(detail.customer.email)}
+          </DetailField>
           <DetailField label="Contact number">
             {displayOrDash(detail.customer.contactNumber)}
           </DetailField>
@@ -1433,7 +1439,9 @@ export function OrderDetailPage() {
         </h2>
         <dl className="mt-4 grid grid-cols-1 gap-x-8 gap-y-4 text-sm sm:grid-cols-2">
           <DetailField label="SKU">
-            <span className="break-all font-mono text-sm">{detail.inventoryItem.sku}</span>
+            <span className="break-all font-mono text-sm">
+              {detail.inventoryItem.sku}
+            </span>
           </DetailField>
           <DetailField label="Item">
             {detail.inventoryItem.itemLabel}
@@ -1488,8 +1496,12 @@ export function OrderDetailPage() {
                 </span>
                 <select
                   value={approveConsignorPaymentRelease}
-                  onChange={(e) => setApproveConsignorPaymentRelease(e.target.value)}
-                  disabled={approveBusy || approvePaymentReleaseOptions.length === 0}
+                  onChange={(e) =>
+                    setApproveConsignorPaymentRelease(e.target.value)
+                  }
+                  disabled={
+                    approveBusy || approvePaymentReleaseOptions.length === 0
+                  }
                   className={formSelectClass}
                 >
                   <option value="">Select…</option>
@@ -1645,7 +1657,8 @@ export function OrderDetailPage() {
                 className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-500/30 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
               />
               <span className="mt-1 block text-xs text-slate-500 dark:text-slate-400">
-                Allowed range: {MIN_LAYAWAY_MONTHS} to {MAX_LAYAWAY_MONTHS} months.
+                Allowed range: {MIN_LAYAWAY_MONTHS} to {MAX_LAYAWAY_MONTHS}{" "}
+                months.
               </span>
             </label>
             <label className="block">
@@ -1688,7 +1701,9 @@ export function OrderDetailPage() {
                   onChange={(e) =>
                     setTermsConsignorPaymentRelease(e.target.value)
                   }
-                  disabled={termsBusy || termsPaymentReleaseOptions.length === 0}
+                  disabled={
+                    termsBusy || termsPaymentReleaseOptions.length === 0
+                  }
                   className={formSelectClass}
                 >
                   <option value="">Select…</option>
@@ -1723,9 +1738,9 @@ export function OrderDetailPage() {
           <div className="space-y-3">
             <p>
               This order will move to{" "}
-              <span className="font-medium">For Layaway Approval</span>. After
-              a staff member approves it, confirmed payments already recorded
-              will be kept and applied as credit toward the layaway schedule.
+              <span className="font-medium">For Layaway Approval</span>. After a
+              staff member approves it, confirmed payments already recorded will
+              be kept and applied as credit toward the layaway schedule.
             </p>
             {convertConfirmedCredit > 0 ? (
               <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-950 dark:border-emerald-900/50 dark:bg-emerald-950/25 dark:text-emerald-100">
@@ -1825,7 +1840,9 @@ export function OrderDetailPage() {
               </span>
               <select
                 value={convertConsignorPaymentRelease}
-                onChange={(e) => setConvertConsignorPaymentRelease(e.target.value)}
+                onChange={(e) =>
+                  setConvertConsignorPaymentRelease(e.target.value)
+                }
                 disabled={
                   convertBusy || convertPaymentReleaseOptions.length === 0
                 }
