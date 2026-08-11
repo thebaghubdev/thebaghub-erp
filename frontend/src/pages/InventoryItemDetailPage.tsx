@@ -8,6 +8,12 @@ import { apiFetch } from "../lib/api";
 import { branchLabel } from "../lib/consignment-schedule-labels";
 import { formatOfferTransactionLabel } from "../lib/format-offer-transaction-type";
 import { formatPhpDisplay } from "../lib/format-php";
+import {
+  clientVipStatusBadgeClassName,
+  formatClientVipStatus,
+  type ClientVipStatus,
+} from "../lib/client-payment-preference";
+import { logisticsStatusBadgeClass } from "../lib/logistics-display";
 
 type InventoryDetailForStaff = {
   id: string;
@@ -16,6 +22,7 @@ type InventoryDetailForStaff = {
   createdAt: string;
   updatedAt: string;
   status: string;
+  logisticsStatus: string;
   transactionType: string | null;
   currentBranch: string;
   inquiryId: string | null;
@@ -24,8 +31,15 @@ type InventoryDetailForStaff = {
   consignorName: string | null;
   consignorEmail: string | null;
   consignorPhone: string | null;
+  consignorVipStatus: ClientVipStatus | null;
+  consignorIsCreditLine: boolean | null;
   inquiryOfferPrice: string | null;
   tbhSellingPrice: string | null;
+  creditCardPrice: string | null;
+  authenticationDetails: {
+    dimensions: string | null;
+    rating: string | null;
+  } | null;
   itemSnapshot: {
     clientItemId: string;
     form: Record<string, unknown>;
@@ -48,6 +62,13 @@ type InventoryItemWaitlistClientRow = {
   email: string;
   contactNumber: string;
   createdAt: string;
+};
+
+type ItemPhotoshootForInventory = {
+  id: string;
+  inventoryItemId: string;
+  photoshootDate: string;
+  photos: Array<{ key: string; url: string }>;
 };
 
 type ClientAccountRow = {
@@ -81,6 +102,10 @@ function str(v: unknown): string {
   return String(v).trim();
 }
 
+function hasText(value: string | null | undefined): boolean {
+  return value != null && value.trim() !== "";
+}
+
 function yesNo(v: unknown): string {
   return v === true || v === "true" ? "Yes" : "No";
 }
@@ -107,6 +132,17 @@ function isSoldUnderWarrantyStatus(status: string): boolean {
   return status.trim().toLowerCase() === "sold under warranty";
 }
 
+function formatPhotoshootDate(raw: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw);
+  if (!m) return raw;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  return new Date(y, mo - 1, d).toLocaleDateString(undefined, {
+    dateStyle: "medium",
+  });
+}
+
 function clientName(row: InventoryItemWaitlistClientRow): string {
   return `${row.firstName} ${row.lastName}`.trim() || row.email;
 }
@@ -126,6 +162,8 @@ export function InventoryItemDetailPage() {
   const addClientModalTitleId = useId();
   const { token } = usePortalAuth();
   const [detail, setDetail] = useState<InventoryDetailForStaff | null>(null);
+  const [photoshootRow, setPhotoshootRow] =
+    useState<ItemPhotoshootForInventory | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [waitlistModalOpen, setWaitlistModalOpen] = useState(false);
@@ -153,19 +191,35 @@ export function InventoryItemDetailPage() {
     setError(null);
     setLoading(true);
     try {
-      const res = await apiFetch(`/api/inventory/${id}`, {}, token);
-      if (!res.ok) {
+      const [detailRes, photoshootRes] = await Promise.all([
+        apiFetch(`/api/inventory/${id}`, {}, token),
+        apiFetch(`/api/inventory/${id}/item-photoshoot`, {}, token),
+      ]);
+      if (!detailRes.ok) {
         const msg =
-          res.status === 404
+          detailRes.status === 404
             ? "Inventory item not found."
-            : `Request failed (${res.status})`;
+            : `Request failed (${detailRes.status})`;
         throw new Error(msg);
       }
-      const data = (await res.json()) as InventoryDetailForStaff;
+      const data = (await detailRes.json()) as InventoryDetailForStaff;
       setDetail(data);
+
+      if (photoshootRes.ok) {
+        const photoshootData =
+          (await photoshootRes.json()) as ItemPhotoshootForInventory | null;
+        setPhotoshootRow(
+          photoshootData != null && photoshootData.photos.length > 0
+            ? photoshootData
+            : null,
+        );
+      } else {
+        setPhotoshootRow(null);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load item");
       setDetail(null);
+      setPhotoshootRow(null);
     } finally {
       setLoading(false);
     }
@@ -459,6 +513,18 @@ export function InventoryItemDetailPage() {
               <InventoryStatusBadge status={detail.status} />
             </dd>
           </div>
+          <div>
+            <dt className="text-slate-500 dark:text-slate-400">
+              Logistics status
+            </dt>
+            <dd>
+              <span
+                className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${logisticsStatusBadgeClass(detail.logisticsStatus || "In Stock")}`}
+              >
+                {detail.logisticsStatus || "In Stock"}
+              </span>
+            </dd>
+          </div>
           {detail.itemPosting?.shopifyProductId ? (
             <div className="sm:col-span-2">
               <dt className="text-slate-500 dark:text-slate-400">
@@ -524,6 +590,28 @@ export function InventoryItemDetailPage() {
               <div>
                 <dt className="text-slate-500 dark:text-slate-400">Phone</dt>
                 <dd>{detail.consignorPhone}</dd>
+              </div>
+            ) : null}
+            {detail.consignorVipStatus != null ? (
+              <div>
+                <dt className="text-slate-500 dark:text-slate-400">
+                  VIP status
+                </dt>
+                <dd>
+                  <span
+                    className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${clientVipStatusBadgeClassName(detail.consignorVipStatus)}`}
+                  >
+                    {formatClientVipStatus(detail.consignorVipStatus)}
+                  </span>
+                </dd>
+              </div>
+            ) : null}
+            {detail.consignorIsCreditLine != null ? (
+              <div>
+                <dt className="text-slate-500 dark:text-slate-400">
+                  Credit line status
+                </dt>
+                <dd>{detail.consignorIsCreditLine ? "Yes" : "No"}</dd>
               </div>
             ) : null}
             {detail.consignorId ? (
@@ -597,25 +685,49 @@ export function InventoryItemDetailPage() {
               <dd>{str(form.sourceOfPurchase)}</dd>
             </div>
           ) : null}
-          {showPricing ? (
-            <>
-              <div>
-                <dt className="text-slate-500 dark:text-slate-400">
-                  Consignor price
-                </dt>
-                <dd className="tabular-nums">
-                  {formatPhpDisplay(detail.inquiryOfferPrice)}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-slate-500 dark:text-slate-400">
-                  TBH selling price
-                </dt>
-                <dd className="tabular-nums">
-                  {formatPhpDisplay(detail.tbhSellingPrice)}
-                </dd>
-              </div>
-            </>
+          {hasText(detail.inquiryOfferPrice) ? (
+            <div>
+              <dt className="text-slate-500 dark:text-slate-400">
+                Consignor price
+              </dt>
+              <dd className="tabular-nums">
+                {formatPhpDisplay(detail.inquiryOfferPrice)}
+              </dd>
+            </div>
+          ) : null}
+          {hasText(detail.tbhSellingPrice) ? (
+            <div>
+              <dt className="text-slate-500 dark:text-slate-400">
+                TBH selling price
+              </dt>
+              <dd className="tabular-nums">
+                {formatPhpDisplay(detail.tbhSellingPrice)}
+              </dd>
+            </div>
+          ) : null}
+          {hasText(detail.creditCardPrice) ? (
+            <div>
+              <dt className="text-slate-500 dark:text-slate-400">
+                Credit card price
+              </dt>
+              <dd className="tabular-nums">
+                {formatPhpDisplay(detail.creditCardPrice)}
+              </dd>
+            </div>
+          ) : null}
+          {hasText(detail.authenticationDetails?.rating) ? (
+            <div>
+              <dt className="text-slate-500 dark:text-slate-400">Rating</dt>
+              <dd>{detail.authenticationDetails?.rating}</dd>
+            </div>
+          ) : null}
+          {hasText(detail.authenticationDetails?.dimensions) ? (
+            <div className="sm:col-span-2">
+              <dt className="text-slate-500 dark:text-slate-400">Dimensions</dt>
+              <dd className="whitespace-pre-wrap">
+                {detail.authenticationDetails?.dimensions}
+              </dd>
+            </div>
           ) : null}
           {str(form.consignmentSellingPrice) ? (
             <div>
@@ -666,6 +778,42 @@ export function InventoryItemDetailPage() {
           </div>
         </dl>
       </div>
+
+      {photoshootRow ? (
+        <div className={cardClass}>
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
+              Photoshoot photos
+            </h2>
+            {photoshootRow.photoshootDate ? (
+              <p className="text-sm text-slate-500 dark:text-slate-400">
+                Scheduled: {formatPhotoshootDate(photoshootRow.photoshootDate)}
+              </p>
+            ) : null}
+          </div>
+          <ul className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {photoshootRow.photos.map((photo) => (
+              <li
+                key={photo.key}
+                className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-950"
+              >
+                <a
+                  href={photo.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block"
+                >
+                  <img
+                    src={photo.url}
+                    alt=""
+                    className="aspect-square w-full object-cover"
+                  />
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       {waitlistModalOpen ? (
         <div

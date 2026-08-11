@@ -8,6 +8,7 @@ import { apiFetch } from "../lib/api";
 import { InventoryStatusBadge } from "../components/InventoryStatusBadge";
 import { branchLabel } from "../lib/consignment-schedule-labels";
 import { formatOfferTransactionLabel } from "../lib/format-offer-transaction-type";
+import { formatPhpDisplay } from "../lib/format-php";
 import { INVENTORY_ITEM_STATUS_FILTER_OPTIONS } from "../lib/inventory-item-status-filter-options";
 import { logisticsStatusBadgeClass } from "../lib/logistics-display";
 
@@ -22,6 +23,9 @@ type InventoryRow = {
   currentBranch: string;
   itemLabel: string;
   inclusions: string;
+  rating: string | null;
+  consignorPrice: string | null;
+  tbhSellingPrice: string | null;
   assignedToName: string | null;
   authenticationStatus: string;
   logisticsStatus: string;
@@ -64,6 +68,33 @@ const columns = [
         }
       >
         {row.original.inclusions}
+      </span>
+    ),
+  }),
+  columnHelper.accessor("rating", {
+    header: "Rating",
+    cell: ({ getValue }) => {
+      const rating = getValue()?.trim() ?? "";
+      return (
+        <span className="tabular-nums text-slate-800 dark:text-slate-200">
+          {rating || "—"}
+        </span>
+      );
+    },
+  }),
+  columnHelper.accessor("consignorPrice", {
+    header: "Consignor price",
+    cell: ({ getValue }) => (
+      <span className="tabular-nums text-slate-800 dark:text-slate-200">
+        {formatPhpDisplay(getValue())}
+      </span>
+    ),
+  }),
+  columnHelper.accessor("tbhSellingPrice", {
+    header: "TBH selling price",
+    cell: ({ getValue }) => (
+      <span className="tabular-nums text-slate-800 dark:text-slate-200">
+        {formatPhpDisplay(getValue())}
       </span>
     ),
   }),

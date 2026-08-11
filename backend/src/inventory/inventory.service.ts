@@ -34,6 +34,8 @@ import {
 } from '../orders/order-status.constants';
 import { isSoldDateEligibleForFinalStatus } from './sold-warranty.util';
 import { CreateItemPhotoshootsDto } from './dto/create-item-photoshoots.dto';
+import { normalizeClientVipStatus } from '../clients/client-vip-status.util';
+import type { ClientVipStatus } from '../clients/client-vip-status.util';
 import { BatchAssignAuthenticatorDto } from './dto/batch-assign-authenticator.dto';
 import type { MulterFile } from '../inquiries/multer-file.type';
 import { MediaOwnerType } from '../enums/media-owner-type.enum';
@@ -194,11 +196,17 @@ export type InventoryDetailForStaff = {
   consignorName: string | null;
   consignorEmail: string | null;
   consignorPhone: string | null;
+  /** VIP tier of linked consignor client, if any. */
+  consignorVipStatus: ClientVipStatus | null;
+  /** Credit line eligibility of linked consignor client, if any. */
+  consignorIsCreditLine: boolean | null;
   /** Employee id when an authenticator is assigned (item_authentication.assigned_to_id). */
   assignedToEmployeeId: string | null;
   assignedToName: string | null;
   /** `item_authentication.authentication_status` (e.g. Pending, Approved). */
   authenticationStatus: string;
+  /** Current logistics location state (e.g. In Stock, In Transit). */
+  logisticsStatus: string;
   thirdPartyAuthentication: {
     selectedAuthenticator: 'LegitGrails' | 'Entrupy' | null;
     certificateLink: string | null;
@@ -1779,9 +1787,12 @@ export class InventoryService {
       consignorName: name || null,
       consignorEmail: c?.email?.trim() ?? null,
       consignorPhone: c?.contactNumber?.trim() ?? null,
+      consignorVipStatus: c ? normalizeClientVipStatus(c.vipStatus) : null,
+      consignorIsCreditLine: c ? Boolean(c.isCreditLine) : null,
       assignedToEmployeeId: auth?.assignedToId ?? null,
       assignedToName: formatEmployeeName(auth?.assignedTo ?? null),
       authenticationStatus: auth?.authenticationStatus ?? 'Pending',
+      logisticsStatus: r.logisticsStatus ?? 'In Stock',
       thirdPartyAuthentication: await this.loadThirdPartyAuthenticationView(
         auth,
         id,
