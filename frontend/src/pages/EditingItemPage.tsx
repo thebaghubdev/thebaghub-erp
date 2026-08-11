@@ -350,8 +350,10 @@ export function EditingItemPage() {
       if (!shootRes.ok) {
         setPhotoshootRow(null);
       } else {
-        const shootJson =
-          (await shootRes.json()) as PhotoshootCalendarRow | null;
+        const raw = (await shootRes.text()).trim();
+        const shootJson = raw
+          ? (JSON.parse(raw) as PhotoshootCalendarRow | null)
+          : null;
         setPhotoshootRow(shootJson);
       }
     } catch (e) {
@@ -611,12 +613,7 @@ export function EditingItemPage() {
                   Transaction
                 </dt>
                 <dd>
-                  {formatOfferTransactionLabel(
-                    detail.transactionType as
-                      | "consignment"
-                      | "direct_purchase"
-                      | null,
-                  )}
+                  {formatOfferTransactionLabel(detail.transactionType)}
                 </dd>
               </div>
               <div>

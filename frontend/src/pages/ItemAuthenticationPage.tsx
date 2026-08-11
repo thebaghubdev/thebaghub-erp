@@ -72,6 +72,7 @@ const authInputClass =
 type ItemAuthenticationPayload = {
   sku: string;
   status: string;
+  inquiryId: string | null;
   assignedToEmployeeId: string | null;
   assignedToName: string | null;
   consignorName: string | null;
@@ -1293,7 +1294,10 @@ export function ItemAuthenticationPage() {
     detail.status === FOR_AUTHENTICATION_INVENTORY_STATUS ||
     detail.status === AUTHENTICATED_FOR_THIRD_PARTY_INVENTORY_STATUS ||
     isForThirdPartyAuthenticationStatus(detail.authenticationStatus);
+  /** Stock / no-inquiry items: approve or reject only. */
+  const hasLinkedInquiry = Boolean(detail.inquiryId);
   const hideRequestThirdPartyMenuItem =
+    !hasLinkedInquiry ||
     isForThirdPartyAuthenticationStatus(detail.authenticationStatus) ||
     detail.status === AUTHENTICATED_FOR_THIRD_PARTY_INVENTORY_STATUS;
 
@@ -1446,19 +1450,21 @@ export function ItemAuthenticationPage() {
                       Approve
                     </button>
                   </li>
-                  <li role="none">
-                    <button
-                      type="button"
-                      role="menuitem"
-                      className="flex w-full items-center px-3 py-2 text-left text-sm text-amber-950 hover:bg-amber-50 dark:text-amber-100 dark:hover:bg-amber-950/50"
-                      onClick={() => {
-                        setActionsMenuOpen(false);
-                        openReturnCoordinatorModal();
-                      }}
-                    >
-                      Renegotiate
-                    </button>
-                  </li>
+                  {hasLinkedInquiry ? (
+                    <li role="none">
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="flex w-full items-center px-3 py-2 text-left text-sm text-amber-950 hover:bg-amber-50 dark:text-amber-100 dark:hover:bg-amber-950/50"
+                        onClick={() => {
+                          setActionsMenuOpen(false);
+                          openReturnCoordinatorModal();
+                        }}
+                      >
+                        Renegotiate
+                      </button>
+                    </li>
+                  ) : null}
                   {!hideRequestThirdPartyMenuItem ? (
                     <li role="none">
                       <button

@@ -1,6 +1,7 @@
 import { createColumnHelper } from "@tanstack/react-table";
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { AddStockInventoryItemForm } from "../components/AddStockInventoryItemForm";
 import { DataTable } from "../components/data-table/DataTable";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { usePortalAuth } from "../context/portal-auth";
@@ -114,12 +115,7 @@ const columns = [
     header: "Transaction",
     cell: ({ row }) => (
       <span className="text-slate-700 dark:text-slate-300">
-        {formatOfferTransactionLabel(
-          row.original.transactionType as
-            | "consignment"
-            | "direct_purchase"
-            | null,
-        )}
+        {formatOfferTransactionLabel(row.original.transactionType)}
       </span>
     ),
   }),
@@ -153,6 +149,7 @@ export function InventoryPage() {
   const [rows, setRows] = useState<InventoryRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [addSuccess, setAddSuccess] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -252,7 +249,31 @@ export function InventoryPage() {
           role="tabpanel"
           aria-labelledby="tab-inventory-add"
           className="min-h-[12rem]"
-        />
+        >
+          {addSuccess ? (
+            <p
+              className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200"
+              role="status"
+            >
+              {addSuccess}{" "}
+              <button
+                type="button"
+                className="font-medium text-violet-700 underline dark:text-violet-300"
+                onClick={() => setTab("all")}
+              >
+                View all items
+              </button>
+            </p>
+          ) : null}
+          <AddStockInventoryItemForm
+            portalToken={token}
+            onCreated={({ sku }) => {
+              setAddSuccess(
+                `Added ${sku} (For Authentication). You can add another item below.`,
+              );
+            }}
+          />
+        </section>
       )}
     </div>
   );

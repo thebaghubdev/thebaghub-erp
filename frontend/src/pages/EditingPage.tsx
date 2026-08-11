@@ -84,12 +84,7 @@ const columns = [
     header: "Transaction",
     cell: ({ row }) => (
       <span className="text-slate-700 dark:text-slate-300">
-        {formatOfferTransactionLabel(
-          row.original.transactionType as
-            | "consignment"
-            | "direct_purchase"
-            | null,
-        )}
+        {formatOfferTransactionLabel(row.original.transactionType)}
       </span>
     ),
   }),

@@ -34,6 +34,7 @@ import {
 } from '../orders/order-status.constants';
 import { isSoldDateEligibleForFinalStatus } from './sold-warranty.util';
 import { CreateItemPhotoshootsDto } from './dto/create-item-photoshoots.dto';
+import { CreateStockInventoryItemDto } from './dto/create-stock-inventory-item.dto';
 import { normalizeClientVipStatus } from '../clients/client-vip-status.util';
 import type { ClientVipStatus } from '../clients/client-vip-status.util';
 import { BatchAssignAuthenticatorDto } from './dto/batch-assign-authenticator.dto';
@@ -292,6 +293,56 @@ function inclusionsFromSnapshot(
   if (v == null) return '—';
   const s = String(v).trim();
   return s.length > 0 ? s : '—';
+}
+
+const STOCK_TRANSACTION_TYPE = 'stock';
+
+function sourceOfPurchaseFromSnapshot(
+  snapshot: InquiryItemSnapshot | null | undefined,
+): string {
+  if (!snapshot?.form) return '';
+  const v = snapshot.form['sourceOfPurchase'];
+  if (v == null) return '';
+  return String(v).trim();
+}
+
+/** Display label for the Consignor column (real client, or Stock - source). */
+function consignorDisplayName(opts: {
+  transactionType: string | null | undefined;
+  consignor:
+    | Pick<Client, 'firstName' | 'lastName'>
+    | null
+    | undefined;
+  itemSnapshot: InquiryItemSnapshot | null | undefined;
+}): string | null {
+  if (opts.transactionType === STOCK_TRANSACTION_TYPE) {
+    const source = sourceOfPurchaseFromSnapshot(opts.itemSnapshot);
+    return source ? `Stock - ${source}` : 'Stock';
+  }
+  const c = opts.consignor;
+  if (!c) return null;
+  const name = [c.firstName, c.lastName].filter(Boolean).join(' ').trim();
+  return name || null;
+}
+
+function parseStockDateReceived(value: string): Date {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+  if (!m) {
+    throw new BadRequestException('dateReceived must be YYYY-MM-DD');
+  }
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  const date = new Date(Date.UTC(y, mo - 1, d, 12, 0, 0, 0));
+  if (
+    Number.isNaN(date.getTime()) ||
+    date.getUTCFullYear() !== y ||
+    date.getUTCMonth() !== mo - 1 ||
+    date.getUTCDate() !== d
+  ) {
+    throw new BadRequestException('Invalid dateReceived');
+  }
+  return date;
 }
 
 function priceFieldFromSnapshot(
@@ -835,6 +886,84 @@ export class InventoryService {
       }
     }
     return auth;
+  }
+
+  /**
+   * Staff-created company stock: no inquiry/consignor. Status For Authentication;
+   * transactionType `stock` (excluded from consignor payments).
+   */
+  async createStockInventoryItem(
+    dto: CreateStockInventoryItemDto,
+    actorUserId: string,
+  ): Promise<{ id: string; sku: string; status: string }> {
+    const dateReceived = parseStockDateReceived(dto.dateReceived);
+    const source = dto.form.sourceOfPurchase.trim();
+    if (!source) {
+      throw new BadRequestException('Source of purchase is required.');
+    }
+
+    return this.inventoryRepo.manager.transaction(async (em) => {
+      await em.query(
+        `SELECT pg_advisory_xact_lock(hashtext($1::text)::bigint)`,
+        [utcInventoryDayLockKey(dateReceived)],
+      );
+      const bounds = utcDayRange(dateReceived);
+      const countDay = await em.count(InventoryItem, {
+        where: { dateReceived: Between(bounds.start, bounds.end) },
+      });
+      const seq = countDay + 1;
+      const sku = formatInventorySku(dateReceived, seq);
+
+      const itemSnapshot: InquiryItemSnapshot = {
+        clientItemId: randomUUID(),
+        form: {
+          itemModel: dto.form.itemModel.trim(),
+          brand: dto.form.brand.trim(),
+          category: dto.form.category.trim(),
+          serialNumber: (dto.form.serialNumber ?? '').trim(),
+          color: (dto.form.color ?? '').trim(),
+          material: (dto.form.material ?? '').trim(),
+          condition: dto.form.condition.trim(),
+          inclusions: dto.form.inclusions.trim(),
+          datePurchased: (dto.form.datePurchased ?? '').trim(),
+          sourceOfPurchase: source,
+          specialInstructions: '',
+          consignmentSellingPrice: '',
+          directPurchaseSellingPrice: '',
+          consentDirectPurchase: false,
+          consentPriceNomination: false,
+        },
+      };
+
+      const inventoryRow = em.create(InventoryItem, {
+        sku,
+        dateReceived,
+        inquiryId: null,
+        consignorId: null,
+        status: FOR_AUTHENTICATION_INVENTORY_STATUS,
+        transactionType: STOCK_TRANSACTION_TYPE,
+        currentBranch: dto.currentBranch,
+        itemSnapshot,
+        createdById: actorUserId,
+        updatedById: actorUserId,
+      });
+      await em.save(inventoryRow);
+
+      const itemAuth = em.create(ItemAuthentication, {
+        inventoryItemId: inventoryRow.id,
+        assignedToId: null,
+        authenticationStatus: 'Pending',
+        createdById: actorUserId,
+        updatedById: actorUserId,
+      });
+      await em.save(itemAuth);
+
+      return {
+        id: inventoryRow.id,
+        sku: inventoryRow.sku,
+        status: inventoryRow.status,
+      };
+    });
   }
 
   /**
@@ -1502,12 +1631,11 @@ export class InventoryService {
       authByItemId = new Map(auths.map((a) => [a.inventoryItemId, a]));
     }
     return rows.map((r) => {
-      const name = r.consignor
-        ? [r.consignor.firstName, r.consignor.lastName]
-            .filter(Boolean)
-            .join(' ')
-            .trim()
-        : '';
+      const name = consignorDisplayName({
+        transactionType: r.transactionType,
+        consignor: r.consignor,
+        itemSnapshot: r.itemSnapshot,
+      });
       const auth = authByItemId.get(r.id);
       const itemLabel = itemLabelFromSnapshot(r.itemSnapshot);
       const productName =
@@ -1517,7 +1645,7 @@ export class InventoryService {
         sku: r.sku,
         dateReceived: r.dateReceived.toISOString(),
         inquiryId: r.inquiryId,
-        consignorName: name || null,
+        consignorName: name,
         status: r.status,
         transactionType: r.transactionType,
         currentBranch: r.currentBranch,
@@ -1761,9 +1889,11 @@ export class InventoryService {
       throw new NotFoundException('Inventory item not found');
     }
     const c = r.consignor;
-    const name = c
-      ? [c.firstName, c.lastName].filter(Boolean).join(' ').trim()
-      : '';
+    const name = consignorDisplayName({
+      transactionType: r.transactionType,
+      consignor: c,
+      itemSnapshot: r.itemSnapshot,
+    });
     const auth = await this.itemAuthRepo.findOne({
       where: { inventoryItemId: id },
       relations: { assignedTo: true },
@@ -1784,7 +1914,7 @@ export class InventoryService {
       inquiryId: r.inquiryId,
       inquirySku: r.inquiry?.sku ?? null,
       consignorId: r.consignorId,
-      consignorName: name || null,
+      consignorName: name,
       consignorEmail: c?.email?.trim() ?? null,
       consignorPhone: c?.contactNumber?.trim() ?? null,
       consignorVipStatus: c ? normalizeClientVipStatus(c.vipStatus) : null,
@@ -1982,10 +2112,11 @@ export class InventoryService {
     });
     return rows.map((p) => {
       const inv = p.inventoryItem;
-      const c = inv?.consignor ?? null;
-      const consignorName = c
-        ? [c.firstName, c.lastName].filter(Boolean).join(' ').trim()
-        : '';
+      const consignorName = consignorDisplayName({
+        transactionType: inv?.transactionType,
+        consignor: inv?.consignor ?? null,
+        itemSnapshot: inv?.itemSnapshot,
+      });
       return {
         id: p.id,
         inventoryItemId: p.inventoryItemId,
@@ -1993,7 +2124,7 @@ export class InventoryService {
         sku: inv?.sku ?? '',
         itemLabel: itemLabelFromSnapshot(inv?.itemSnapshot),
         inclusions: inclusionsFromSnapshot(inv?.itemSnapshot),
-        consignorName: consignorName || null,
+        consignorName,
         productName: p.productName,
         collections: p.collections,
         tags: p.tags,
@@ -2297,10 +2428,11 @@ export class InventoryService {
     p: ItemPhotoshoot,
   ): Promise<ItemPhotoshootCalendarRow> {
     const inv = p.inventoryItem;
-    const c = inv.consignor;
-    const name = c
-      ? [c.firstName, c.lastName].filter(Boolean).join(' ').trim()
-      : '';
+    const consignorName = consignorDisplayName({
+      transactionType: inv.transactionType,
+      consignor: inv.consignor,
+      itemSnapshot: inv.itemSnapshot,
+    });
     const photos = this.media.toKeyUrlList(
       await this.media.findByOwner(
         MediaOwnerType.ITEM_PHOTOSHOOT,
@@ -2315,7 +2447,7 @@ export class InventoryService {
       sku: inv.sku,
       itemLabel: itemLabelFromSnapshot(inv.itemSnapshot),
       inclusions: inclusionsFromSnapshot(inv.itemSnapshot),
-      consignorName: name.length > 0 ? name : null,
+      consignorName,
       photos,
     };
   }

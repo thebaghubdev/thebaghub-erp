@@ -9,15 +9,18 @@ import {
   Patch,
   Post,
   Req,
+  Res,
   UploadedFiles,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
+import type { Response } from 'express';
 import { JwtUser } from '../auth/jwt-user';
 import { StaffOnlyGuard } from '../auth/staff-only.guard';
 import type { MulterFile } from '../inquiries/multer-file.type';
 import { CreateItemPhotoshootsDto } from './dto/create-item-photoshoots.dto';
+import { CreateStockInventoryItemDto } from './dto/create-stock-inventory-item.dto';
 import { BatchAssignAuthenticatorDto } from './dto/batch-assign-authenticator.dto';
 import { SaveItemAuthenticationMetricsDto } from './dto/save-item-authentication-metrics.dto';
 import { ForThirdPartyAuthenticationDto } from './dto/for-third-party-authentication.dto';
@@ -37,6 +40,18 @@ export class InventoryController {
   @Get()
   findAll() {
     return this.inventoryService.findAllForStaff();
+  }
+
+  @Post('stock')
+  @HttpCode(HttpStatus.CREATED)
+  createStockItem(
+    @Body() dto: CreateStockInventoryItemDto,
+    @Req() req: { user: JwtUser },
+  ) {
+    return this.inventoryService.createStockInventoryItem(
+      dto,
+      req.user.userId,
+    );
   }
 
   @Get('authenticators')
@@ -220,8 +235,17 @@ export class InventoryController {
   }
 
   @Get(':id/item-photoshoot')
-  findItemPhotoshootForInventory(@Param('id', ParseUUIDPipe) id: string) {
-    return this.inventoryService.findItemPhotoshootByInventoryItemIdForStaff(id);
+  async findItemPhotoshootForInventory(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Res() res: Response,
+  ) {
+    // Nest omits the body when handlers return `null`; clients then fail on
+    // Response.json(). Always send explicit JSON (row or null).
+    const row =
+      await this.inventoryService.findItemPhotoshootByInventoryItemIdForStaff(
+        id,
+      );
+    res.status(HttpStatus.OK).json(row);
   }
 
   @Post(':id/item-posting')

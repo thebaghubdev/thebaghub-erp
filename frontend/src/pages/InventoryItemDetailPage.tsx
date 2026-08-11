@@ -206,8 +206,10 @@ export function InventoryItemDetailPage() {
       setDetail(data);
 
       if (photoshootRes.ok) {
-        const photoshootData =
-          (await photoshootRes.json()) as ItemPhotoshootForInventory | null;
+        const raw = (await photoshootRes.text()).trim();
+        const photoshootData = raw
+          ? (JSON.parse(raw) as ItemPhotoshootForInventory | null)
+          : null;
         setPhotoshootRow(
           photoshootData != null && photoshootData.photos.length > 0
             ? photoshootData
@@ -538,12 +540,7 @@ export function InventoryItemDetailPage() {
           <div>
             <dt className="text-slate-500 dark:text-slate-400">Transaction</dt>
             <dd>
-              {formatOfferTransactionLabel(
-                detail.transactionType as
-                  | "consignment"
-                  | "direct_purchase"
-                  | null,
-              )}
+              {formatOfferTransactionLabel(detail.transactionType)}
             </dd>
           </div>
           <div>
@@ -565,10 +562,11 @@ export function InventoryItemDetailPage() {
         </dl>
       </div>
 
-      {detail.consignorName ||
-      detail.consignorEmail ||
-      detail.consignorPhone ||
-      detail.consignorId ? (
+      {detail.transactionType !== "stock" &&
+      (detail.consignorName ||
+        detail.consignorEmail ||
+        detail.consignorPhone ||
+        detail.consignorId) ? (
         <div className={cardClass}>
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
             Consignor
