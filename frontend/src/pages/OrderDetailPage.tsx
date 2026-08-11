@@ -209,7 +209,6 @@ function toLayawayAgreementDetail(detail: OrderDetail): LayawayAgreementDetail {
     layawayPrice: detail.layawayPrice,
     layawayMonthlyPayment: detail.layawayMonthlyPayment,
     layawayPaymentStartDate: detail.layawayPaymentStartDate,
-    consignorPaymentRelease: detail.consignorPaymentRelease,
     pickupOption: detail.pickupOption,
     pickupBranch: detail.pickupBranch,
     courierService: detail.courierService,

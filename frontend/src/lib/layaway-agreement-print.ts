@@ -25,7 +25,6 @@ export type LayawayAgreementDetail = {
   layawayPrice: string | null;
   layawayMonthlyPayment: string | null;
   layawayPaymentStartDate: string | null;
-  consignorPaymentRelease: number | null;
   pickupOption: string | null;
   pickupBranch: string | null;
   courierService: string | null;
@@ -60,18 +59,6 @@ function formatAgreementDate(raw: string | null | undefined): string {
       dateStyle: "medium",
     }),
   );
-}
-
-function consignorPaymentReleaseLabel(paymentNumber: number): string {
-  const mod10 = paymentNumber % 10;
-  const mod100 = paymentNumber % 100;
-  let suffix = "th";
-  if (mod100 < 11 || mod100 > 13) {
-    if (mod10 === 1) suffix = "st";
-    else if (mod10 === 2) suffix = "nd";
-    else if (mod10 === 3) suffix = "rd";
-  }
-  return `${paymentNumber}${suffix} payment`;
 }
 
 export function canPrintLayawayAgreement(detail: {
@@ -294,16 +281,6 @@ export function buildLayawayAgreementHtml(
       "Payment start date",
       formatAgreementDate(detail.layawayPaymentStartDate),
     ),
-    ...(detail.consignorPaymentRelease != null
-      ? [
-          field(
-            "Consignor payment release",
-            escapeHtml(
-              consignorPaymentReleaseLabel(detail.consignorPaymentRelease),
-            ),
-          ),
-        ]
-      : []),
     ...(detail.pickupOption
       ? [
           field(
