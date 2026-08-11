@@ -45,6 +45,11 @@ import {
   openLayawayAgreementPrintTab,
   type LayawayAgreementDetail,
 } from "../lib/layaway-agreement-print";
+import {
+  canPrintOrderSalesContract,
+  openOrderSalesContractPrintTab,
+  type OrderSalesContractDetail,
+} from "../lib/order-sales-contract-print";
 import { isVoucherApplicableOrderStatus } from "../lib/order-voucher-payment";
 
 type OrderDetail = {
@@ -209,6 +214,35 @@ function toLayawayAgreementDetail(detail: OrderDetail): LayawayAgreementDetail {
     pickupBranch: detail.pickupBranch,
     courierService: detail.courierService,
     installments: detail.installments,
+    signatureUrl: detail.signatureUrl,
+  };
+}
+
+function toOrderSalesContractDetail(detail: OrderDetail): OrderSalesContractDetail {
+  const customerName =
+    `${detail.customer.firstName} ${detail.customer.lastName}`.trim() ||
+    detail.customer.email;
+  return {
+    orderNumber: detail.orderNumber,
+    status: detail.status,
+    paymentType: detail.paymentType,
+    documentDate: detail.updatedAt,
+    customer: {
+      name: customerName,
+      email: detail.customer.email,
+      contactNumber: detail.customer.contactNumber,
+      completeAddress: detail.customer.completeAddress,
+    },
+    inventoryItem: {
+      sku: detail.inventoryItem.sku,
+      itemLabel: detail.inventoryItem.itemLabel,
+    },
+    orderTotalPrice: detail.orderTotalPrice,
+    layawayPrice: detail.layawayPrice,
+    pickupOption: detail.pickupOption,
+    assignedToName: detail.assignedToName,
+    installments: detail.installments,
+    payments: detail.payments,
     signatureUrl: detail.signatureUrl,
   };
 }
@@ -954,6 +988,10 @@ export function OrderDetailPage() {
     !installmentScheduleReadOnly &&
     installmentVoucherDue > 0;
   const showPrintLayawayAgreement = canPrintLayawayAgreement(detail);
+  const showPrintOrderSalesContract = canPrintOrderSalesContract(
+    detail.status,
+    detail.inventoryItem.status,
+  );
 
   return (
     <div className="w-full min-w-0 space-y-6">
@@ -1220,6 +1258,26 @@ export function OrderDetailPage() {
                 }}
               >
                 Print layaway agreement
+              </button>
+            ) : null}
+            {showPrintOrderSalesContract ? (
+              <button
+                type="button"
+                className={layawayUpdateTermsBtn}
+                onClick={() => {
+                  setPrintError(null);
+                  void openOrderSalesContractPrintTab(
+                    toOrderSalesContractDetail(detail),
+                  ).catch((err) => {
+                    setPrintError(
+                      err instanceof Error
+                        ? err.message
+                        : "Could not open sales contract",
+                    );
+                  });
+                }}
+              >
+                Print acknowledgement receipt & sales contract
               </button>
             ) : null}
             <Link
