@@ -55,7 +55,10 @@ function compareClients(a: ClientAccountRow, b: ClientAccountRow): number {
   const aLast = a.lastName.trim().toLowerCase();
   const bLast = b.lastName.trim().toLowerCase();
   if (aLast !== bLast) return aLast.localeCompare(bLast);
-  return a.firstName.trim().toLowerCase().localeCompare(b.firstName.trim().toLowerCase());
+  return a.firstName
+    .trim()
+    .toLowerCase()
+    .localeCompare(b.firstName.trim().toLowerCase());
 }
 
 export function VouchersPage() {
@@ -303,19 +306,10 @@ export function VouchersPage() {
 
   return (
     <div className="w-full min-w-0">
-      <div className="mb-4">
-        <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-100">
-          Store Vouchers
-        </h1>
-        <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-          Issue store credit vouchers to clients and manage their status.
-        </p>
-      </div>
-
       <div
         className="mb-6 flex items-end gap-2 border-b border-slate-200 dark:border-slate-800"
         role="tablist"
-        aria-label="Store vouchers sections"
+        aria-label="Credit vouchers sections"
       >
         <button
           type="button"

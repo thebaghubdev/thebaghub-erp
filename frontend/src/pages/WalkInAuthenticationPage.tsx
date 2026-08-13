@@ -377,9 +377,7 @@ export function WalkInAuthenticationPage() {
         cell: (info) => {
           const v = info.getValue();
           if (!v) return "—";
-          return (
-            <span className={walkInAuthResultBadgeClassName(v)}>{v}</span>
-          );
+          return <span className={walkInAuthResultBadgeClassName(v)}>{v}</span>;
         },
       }),
       columnHelper.accessor("createdAt", {
@@ -396,10 +394,6 @@ export function WalkInAuthenticationPage() {
         <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-100">
           Walk-in Authentication
         </h1>
-        <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-          Record walk-in authentication requests without adding items to
-          inventory.
-        </p>
       </div>
 
       <div className="flex gap-2 border-b border-slate-200 dark:border-slate-700">
@@ -701,9 +695,7 @@ export function WalkInAuthenticationPage() {
                 type="file"
                 accept="image/*,application/pdf"
                 className="block w-full text-sm text-slate-700 dark:text-slate-200"
-                onChange={(e) =>
-                  setProofFile(e.target.files?.[0] ?? null)
-                }
+                onChange={(e) => setProofFile(e.target.files?.[0] ?? null)}
                 required
               />
             </div>

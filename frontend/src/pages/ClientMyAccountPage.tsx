@@ -81,7 +81,7 @@ export function ClientMyAccountPage() {
     } catch (e) {
       setVouchers([]);
       setVouchersError(
-        e instanceof Error ? e.message : "Failed to load store vouchers",
+        e instanceof Error ? e.message : "Failed to load credit vouchers",
       );
     } finally {
       setVouchersLoading(false);
@@ -384,7 +384,7 @@ export function ClientMyAccountPage() {
       </div>
 
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <h2 className="text-sm font-semibold text-slate-900">Store vouchers</h2>
+        <h2 className="text-sm font-semibold text-slate-900">Credit vouchers</h2>
         <p className="mt-1 text-xs text-slate-500">
           Credit vouchers issued to your account. Active balance:{" "}
           {formatPhpDisplay(activeVoucherTotal)}
@@ -396,7 +396,7 @@ export function ClientMyAccountPage() {
         ) : vouchersLoading ? (
           <p className="mt-4 text-sm text-slate-500">Loading vouchers…</p>
         ) : vouchers.length === 0 ? (
-          <p className="mt-4 text-sm text-slate-500">No store vouchers yet.</p>
+          <p className="mt-4 text-sm text-slate-500">No credit vouchers yet.</p>
         ) : (
           <div className="mt-4 overflow-x-auto">
             <table className="min-w-full text-left text-sm">

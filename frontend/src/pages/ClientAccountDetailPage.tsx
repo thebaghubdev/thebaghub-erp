@@ -200,7 +200,7 @@ export function ClientAccountDetailPage() {
     } catch (e) {
       setVouchers([]);
       setVouchersError(
-        e instanceof Error ? e.message : "Failed to load store vouchers",
+        e instanceof Error ? e.message : "Failed to load credit vouchers",
       );
     } finally {
       setVouchersLoading(false);
@@ -593,7 +593,7 @@ export function ClientAccountDetailPage() {
         <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-              Store vouchers
+              Credit vouchers
             </h2>
             <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
               Active balance: {formatPhpDisplay(activeVoucherTotal)}
@@ -616,7 +616,7 @@ export function ClientAccountDetailPage() {
           data={vouchers}
           columns={clientVoucherColumns}
           isLoading={vouchersLoading}
-          emptyMessage="No store vouchers for this client."
+          emptyMessage="No credit vouchers for this client."
           hideEmptyState={!!vouchersError}
           getRowId={(r) => r.id}
           paginationItemLabel="vouchers"

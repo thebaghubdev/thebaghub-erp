@@ -66,7 +66,7 @@ const dateTriggerClass =
   "rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100";
 
 const tabBtn =
-  "border-b-2 px-3 pb-2 text-sm font-medium transition-colors focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500";
+  "-mb-px border-b-2 border-transparent px-4 py-2 text-sm font-medium transition-colors focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500";
 
 const listColumnHelper = createColumnHelper<PromotionListRow>();
 
@@ -207,9 +207,7 @@ export function PromotionsPage() {
   const onPromoPriceChange = useCallback(
     (inventoryId: string, promoPrice: string) => {
       setPricingRows((rows) =>
-        rows.map((r) =>
-          r.id === inventoryId ? { ...r, promoPrice } : r,
-        ),
+        rows.map((r) => (r.id === inventoryId ? { ...r, promoPrice } : r)),
       );
     },
     [],
@@ -236,9 +234,7 @@ export function PromotionsPage() {
       const data = (await res.json()) as PromotionListRow[];
       setRows(data);
     } catch (e) {
-      setError(
-        e instanceof Error ? e.message : "Failed to load promotions",
-      );
+      setError(e instanceof Error ? e.message : "Failed to load promotions");
       setRows([]);
     } finally {
       setLoading(false);
@@ -316,7 +312,10 @@ export function PromotionsPage() {
 
   const beginEdit = useCallback(
     async (row: PromotionListRow) => {
-      if (row.lifecycleStatus === "ended" || row.lifecycleStatus === "cancelled") {
+      if (
+        row.lifecycleStatus === "ended" ||
+        row.lifecycleStatus === "cancelled"
+      ) {
         return;
       }
       setTab("create");
@@ -344,9 +343,7 @@ export function PromotionsPage() {
         setPricingRows(pricing);
         setPickerSelected(new Set(pricing.map((p) => p.id)));
         if (row.lifecycleStatus === "active") {
-          setInventoryRows(
-            pricing.map(({ promoPrice: _p, ...rest }) => rest),
-          );
+          setInventoryRows(pricing.map(({ promoPrice: _p, ...rest }) => rest));
         } else {
           setWizardStep(1);
         }
@@ -465,9 +462,7 @@ export function PromotionsPage() {
       setCancelTarget(null);
       void loadPromotions();
     } catch (e) {
-      setError(
-        e instanceof Error ? e.message : "Failed to cancel promotion",
-      );
+      setError(e instanceof Error ? e.message : "Failed to cancel promotion");
     } finally {
       setCancelBusy(false);
     }
@@ -526,9 +521,7 @@ export function PromotionsPage() {
               disabled={isActiveEdit}
               onChange={() => {
                 if (isActiveEdit) return;
-                setPickerSelected(
-                  allSelected ? new Set() : new Set(allIds),
-                );
+                setPickerSelected(allSelected ? new Set() : new Set(allIds));
               }}
             />
           );
@@ -639,18 +632,9 @@ export function PromotionsPage() {
   );
 
   return (
-    <div className="w-full min-w-0 space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-100">
-          Promotions
-        </h1>
-        <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-          Schedule promotional pricing for catalog items available for purchase.
-        </p>
-      </div>
-
+    <div className="w-full min-w-0">
       <div
-        className="flex items-end gap-2 border-b border-slate-200 dark:border-slate-800"
+        className="mb-6 flex items-end gap-2 border-b border-slate-200 dark:border-slate-800"
         role="tablist"
         aria-label="Promotions sections"
       >
@@ -658,10 +642,12 @@ export function PromotionsPage() {
           type="button"
           role="tab"
           aria-selected={tab === "list"}
+          id="tab-promotions-list"
+          aria-controls="panel-promotions-list"
           className={`${tabBtn} ${
             tab === "list"
               ? "border-violet-600 text-violet-700 dark:text-violet-300"
-              : "text-slate-600 hover:text-slate-900 dark:text-slate-400"
+              : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
           }`}
           onClick={() => {
             setTab("list");
@@ -674,10 +660,12 @@ export function PromotionsPage() {
           type="button"
           role="tab"
           aria-selected={tab === "create"}
+          id="tab-promotions-create"
+          aria-controls="panel-promotions-create"
           className={`${tabBtn} ${
             tab === "create"
               ? "border-violet-600 text-violet-700 dark:text-violet-300"
-              : "text-slate-600 hover:text-slate-900 dark:text-slate-400"
+              : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
           }`}
           onClick={() => {
             setTab("create");
@@ -689,7 +677,11 @@ export function PromotionsPage() {
       </div>
 
       {tab === "list" && (
-        <section role="tabpanel">
+        <section
+          id="panel-promotions-list"
+          role="tabpanel"
+          aria-labelledby="tab-promotions-list"
+        >
           {error ? (
             <p
               role="alert"
@@ -714,7 +706,12 @@ export function PromotionsPage() {
       )}
 
       {tab === "create" && (
-        <section role="tabpanel" className="max-w-4xl space-y-6">
+        <section
+          id="panel-promotions-create"
+          role="tabpanel"
+          aria-labelledby="tab-promotions-create"
+          className="max-w-4xl space-y-6"
+        >
           <p className="text-sm text-slate-600 dark:text-slate-400">
             Step {wizardStep} of 3 —{" "}
             {wizardStep === 1
@@ -856,9 +853,7 @@ export function PromotionsPage() {
                 <button
                   type="button"
                   className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-800 dark:border-slate-600 dark:text-slate-200"
-                  onClick={() =>
-                    setWizardStep(isActiveEdit ? 1 : 2)
-                  }
+                  onClick={() => setWizardStep(isActiveEdit ? 1 : 2)}
                 >
                   Back
                 </button>
@@ -968,7 +963,9 @@ export function PromotionsPage() {
                     paginationItemLabel="items"
                   />
                 ) : (
-                  <p className="text-sm text-red-700">Could not load details.</p>
+                  <p className="text-sm text-red-700">
+                    Could not load details.
+                  </p>
                 )}
               </div>
             </div>,

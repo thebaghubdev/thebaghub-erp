@@ -136,7 +136,7 @@ export function Sidenav() {
             [linkClass, isActive ? activeClass : ""].join(" ")
           }
         >
-          Store Vouchers
+          Credit Vouchers
         </NavLink>
         <NavLink
           to="/portal/logistics"
