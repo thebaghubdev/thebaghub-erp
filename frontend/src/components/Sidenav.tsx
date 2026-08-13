@@ -60,14 +60,6 @@ export function Sidenav() {
           Authentication
         </NavLink>
         <NavLink
-          to="/portal/walk-in-authentication"
-          className={({ isActive }) =>
-            [linkClass, isActive ? activeClass : ""].join(" ")
-          }
-        >
-          Walk-in Authentication
-        </NavLink>
-        <NavLink
           to="/portal/photoshoot"
           className={({ isActive }) =>
             [linkClass, isActive ? activeClass : ""].join(" ")
@@ -119,6 +111,14 @@ export function Sidenav() {
           }
         >
           Consignor Payments
+        </NavLink>
+        <NavLink
+          to="/portal/walk-in-authentication"
+          className={({ isActive }) =>
+            [linkClass, isActive ? activeClass : ""].join(" ")
+          }
+        >
+          Walk-in Authentication
         </NavLink>
         <NavLink
           to="/portal/promotions"
