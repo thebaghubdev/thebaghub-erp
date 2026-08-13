@@ -6,6 +6,7 @@ const pathLabels: Record<string, string> = {
   "/portal/consignment-scheduling": "Consignment Scheduling",
   "/portal/inventory": "Inventory",
   "/portal/authentication": "Authentication",
+  "/portal/walk-in-authentication": "Walk-in Authentication",
   "/portal/photoshoot": "Photoshoot",
   "/portal/pricing": "Pricing",
   "/portal/editing": "Editing",
@@ -154,6 +155,22 @@ function crumbsForPath(pathname: string): Crumb[] {
         current: false,
       },
       { label: "Item authentication", to: normalized, current: true },
+    ];
+  }
+
+  if (
+    /^\/portal\/walk-in-authentication\/.+/.test(normalized) &&
+    normalized !== "/portal/walk-in-authentication"
+  ) {
+    return [
+      {
+        label:
+          pathLabels["/portal/walk-in-authentication"] ??
+          "Walk-in Authentication",
+        to: "/portal/walk-in-authentication",
+        current: false,
+      },
+      { label: "Walk-in auth details", to: normalized, current: true },
     ];
   }
 

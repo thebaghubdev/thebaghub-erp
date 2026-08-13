@@ -10,4 +10,6 @@ export enum MediaOwnerType {
   CLIENT = 'client',
   ITEM_AUTHENTICATION_METRIC = 'item_authentication_metric',
   CONSIGNOR_PAYMENT_GROUP = 'consignor_payment_group',
+  WALK_IN_AUTHENTICATION = 'walk_in_authentication',
+  WALK_IN_AUTHENTICATION_METRIC = 'walk_in_authentication_metric',
 }

@@ -28,6 +28,8 @@ import { InventoryPage } from './pages/InventoryPage'
 import { ConsignmentScheduleDetailPage } from './pages/ConsignmentScheduleDetailPage'
 import { AuthenticationPage } from './pages/AuthenticationPage'
 import { ItemAuthenticationPage } from './pages/ItemAuthenticationPage'
+import { WalkInAuthenticationPage } from './pages/WalkInAuthenticationPage'
+import { WalkInAuthenticationDetailPage } from './pages/WalkInAuthenticationDetailPage'
 import { ConsignmentSchedulingPage } from './pages/ConsignmentSchedulingPage'
 import { InquiryPage } from './pages/InquiryPage'
 import { EmployeesPage } from './pages/EmployeesPage'
@@ -113,6 +115,14 @@ const router = createBrowserRouter([
             element: <ItemAuthenticationPage />,
           },
           { path: 'authentication', element: <AuthenticationPage /> },
+          {
+            path: 'walk-in-authentication/:id',
+            element: <WalkInAuthenticationDetailPage />,
+          },
+          {
+            path: 'walk-in-authentication',
+            element: <WalkInAuthenticationPage />,
+          },
           { path: 'photoshoot', element: <PhotoshootPage /> },
           { path: 'photoshoot/item/:photoshootId', element: <PhotoshootItemPage /> },
           { path: 'pricing', element: <PricingPage /> },

@@ -62,6 +62,9 @@ import {
 } from './promotions/entities/promotion.entities';
 import { VouchersModule } from './vouchers/vouchers.module';
 import { Voucher } from './vouchers/entities/voucher.entity';
+import { WalkInAuthenticationModule } from './walk-in-authentication/walk-in-authentication.module';
+import { WalkInAuthentication } from './walk-in-authentication/entities/walk-in-authentication.entity';
+import { WalkInAuthenticationMetric } from './walk-in-authentication/entities/walk-in-authentication-metric.entity';
 
 @Module({
   imports: [
@@ -108,6 +111,8 @@ import { Voucher } from './vouchers/entities/voucher.entity';
           Promotion,
           PromotionItem,
           Voucher,
+          WalkInAuthentication,
+          WalkInAuthenticationMetric,
         ],
         synchronize:
           config.get<string>('NODE_ENV', 'development') !== 'production',
@@ -131,6 +136,7 @@ import { Voucher } from './vouchers/entities/voucher.entity';
     LogisticsModule,
     PromotionsModule,
     VouchersModule,
+    WalkInAuthenticationModule,
   ],
   controllers: [AppController],
   providers: [
