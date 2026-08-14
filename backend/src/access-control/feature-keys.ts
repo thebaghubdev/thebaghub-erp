@@ -20,6 +20,7 @@ export const MANAGED_FEATURE_KEYS = [
   'employees',
   'clients',
   'settings',
+  'task-management',
   'access-management',
 ] as const;
 
@@ -43,6 +44,7 @@ export const MANAGED_FEATURE_LABELS: Record<ManagedFeatureKey, string> = {
   employees: 'Employees',
   clients: 'Clients',
   settings: 'Settings',
+  'task-management': 'Task Management',
   'access-management': 'Access Management',
 };
 

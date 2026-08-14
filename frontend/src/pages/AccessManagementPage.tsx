@@ -5,6 +5,7 @@ import { apiFetch } from '../lib/api'
 import {
   MANAGED_FEATURE_KEYS,
   MANAGED_FEATURE_LABELS,
+  isSingleGrantFeature,
   type ManagedFeatureKey,
 } from '../lib/feature-access'
 import { useFeatureAccess } from '../lib/use-feature-access'
@@ -133,7 +134,9 @@ export function AccessManagementPage() {
           body: JSON.stringify({
             features: draft.map((row) => ({
               featureKey: row.featureKey,
-              viewEmployeeIds: row.viewEmployeeIds,
+              viewEmployeeIds: isSingleGrantFeature(row.featureKey)
+                ? []
+                : row.viewEmployeeIds,
               editEmployeeIds: row.editEmployeeIds,
             })),
           }),
@@ -218,7 +221,26 @@ export function AccessManagementPage() {
                 <h2 className="mb-3 text-sm font-semibold text-slate-900 dark:text-slate-100">
                   {label}
                 </h2>
-                <div className="grid gap-4 md:grid-cols-2">
+                {isSingleGrantFeature(row.featureKey) ? (
+                  <EmployeeMultiSelect
+                    label="Staff who can view others' boards and create tasks for them"
+                    options={employeeOptions}
+                    selectedIds={row.editEmployeeIds}
+                    disabled={readOnly}
+                    onChange={(nextIds) => {
+                      setRowErrors((prev) => {
+                        const copy = { ...prev }
+                        delete copy[row.featureKey]
+                        return copy
+                      })
+                      updateRow(row.featureKey, {
+                        editEmployeeIds: nextIds,
+                        viewEmployeeIds: [],
+                      })
+                    }}
+                  />
+                ) : (
+                  <div className="grid gap-4 md:grid-cols-2">
                   <EmployeeMultiSelect
                     label="Edit access"
                     options={employeeOptions}
@@ -264,6 +286,7 @@ export function AccessManagementPage() {
                     }}
                   />
                 </div>
+                )}
                 {rowError ? (
                   <p className="mt-2 text-sm text-red-600 dark:text-red-400" role="alert">
                     {rowError}

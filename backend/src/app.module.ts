@@ -67,6 +67,8 @@ import { WalkInAuthentication } from './walk-in-authentication/entities/walk-in-
 import { WalkInAuthenticationMetric } from './walk-in-authentication/entities/walk-in-authentication-metric.entity';
 import { AccessControlModule } from './access-control/access-control.module';
 import { FeatureAccess } from './access-control/entities/feature-access.entity';
+import { TasksModule } from './tasks/tasks.module';
+import { Task } from './tasks/entities/task.entity';
 
 @Module({
   imports: [
@@ -116,6 +118,7 @@ import { FeatureAccess } from './access-control/entities/feature-access.entity';
           WalkInAuthentication,
           WalkInAuthenticationMetric,
           FeatureAccess,
+          Task,
         ],
         synchronize:
           config.get<string>('NODE_ENV', 'development') !== 'production',
@@ -141,6 +144,7 @@ import { FeatureAccess } from './access-control/entities/feature-access.entity';
     PromotionsModule,
     VouchersModule,
     WalkInAuthenticationModule,
+    TasksModule,
   ],
   controllers: [AppController],
   providers: [

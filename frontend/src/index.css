@@ -102,3 +102,12 @@ html.dark input.password-field-input:-webkit-autofill:active {
   box-shadow: 0 0 0 1000px rgb(15 23 42) inset !important;
   -webkit-text-fill-color: rgb(241 245 249) !important;
 }
+
+html.dark input[type='date']::-webkit-calendar-picker-indicator,
+html.dark input[type='month']::-webkit-calendar-picker-indicator,
+html.dark input[type='datetime-local']::-webkit-calendar-picker-indicator,
+html.dark input[type='time']::-webkit-calendar-picker-indicator {
+  filter: invert(1) brightness(1.4);
+  opacity: 1;
+  cursor: pointer;
+}

@@ -1,6 +1,7 @@
 import { Link, useLocation } from "react-router-dom";
 
 const pathLabels: Record<string, string> = {
+  "/portal/taskboard": "Taskboard",
   "/portal/dashboards": "Dashboards",
   "/portal/inquiries": "Consignment Inquiries",
   "/portal/consignment-scheduling": "Consignment Scheduling",

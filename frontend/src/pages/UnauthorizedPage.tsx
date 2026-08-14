@@ -25,7 +25,7 @@ export function UnauthorizedPage() {
             navigate(from, { replace: true })
             return
           }
-          navigate('/portal/dashboards', { replace: true })
+          navigate('/portal/taskboard', { replace: true })
         }}
         className="rounded-lg bg-violet-700 px-4 py-2 text-sm font-medium text-white hover:bg-violet-800 dark:bg-violet-600 dark:hover:bg-violet-500"
       >

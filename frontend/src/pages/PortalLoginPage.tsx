@@ -3,7 +3,7 @@ import { Navigate, useNavigate } from 'react-router-dom'
 import { PasswordField } from '../components/PasswordField'
 import { usePortalAuth } from '../context/portal-auth'
 
-const STAFF_HOME = '/portal/dashboards'
+const STAFF_HOME = '/portal/taskboard'
 
 export function PortalLoginPage() {
   const { login, token, user, loading: authLoading } = usePortalAuth()

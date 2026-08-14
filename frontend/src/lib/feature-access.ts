@@ -19,12 +19,17 @@ export const MANAGED_FEATURE_KEYS = [
   'employees',
   'clients',
   'settings',
+  'task-management',
   'access-management',
 ] as const
 
 export type ManagedFeatureKey = (typeof MANAGED_FEATURE_KEYS)[number]
 
-export const ALWAYS_OPEN_FEATURE_KEYS = ['dashboards', 'inventory'] as const
+export const ALWAYS_OPEN_FEATURE_KEYS = [
+  'taskboard',
+  'dashboards',
+  'inventory',
+] as const
 export type AlwaysOpenFeatureKey = (typeof ALWAYS_OPEN_FEATURE_KEYS)[number]
 
 export type FeatureKey = ManagedFeatureKey | AlwaysOpenFeatureKey
@@ -49,7 +54,15 @@ export const MANAGED_FEATURE_LABELS: Record<ManagedFeatureKey, string> = {
   employees: 'Employees',
   clients: 'Clients',
   settings: 'Settings',
+  'task-management': 'Task Management',
   'access-management': 'Access Management',
+}
+
+/** Managed features with a single grant (no view-only). Stored as edit access. */
+export const SINGLE_GRANT_FEATURE_KEYS = ['task-management'] as const
+
+export function isSingleGrantFeature(key: ManagedFeatureKey): boolean {
+  return (SINGLE_GRANT_FEATURE_KEYS as readonly string[]).includes(key)
 }
 
 export type PortalNavItem = {
@@ -61,6 +74,7 @@ export type PortalNavItem = {
 }
 
 export const PORTAL_NAV_ITEMS: PortalNavItem[] = [
+  { key: 'taskboard', label: 'Taskboard', to: '/portal/taskboard', alwaysVisible: true, end: true },
   { key: 'dashboards', label: 'Dashboards', to: '/portal/dashboards', alwaysVisible: true, end: true },
   { key: 'inventory', label: 'Inventory', to: '/portal/inventory', alwaysVisible: true },
   { key: 'inquiries', label: 'Consignment Inquiries', to: '/portal/inquiries' },

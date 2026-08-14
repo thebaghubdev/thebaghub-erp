@@ -57,6 +57,7 @@ import { ClientOrdersPage } from './pages/ClientOrdersPage'
 import { RegisterPage } from './pages/RegisterPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { DashboardsPage } from './pages/DashboardsPage'
+import { TaskboardPage } from './pages/TaskboardPage'
 import { UnauthorizedPage } from './pages/UnauthorizedPage'
 import { AccessManagementPage } from './pages/AccessManagementPage'
 import type { FeatureKey } from './lib/feature-access'
@@ -109,8 +110,9 @@ const router = createBrowserRouter([
           </RequirePortalAuth>
         ),
         children: [
-          { index: true, element: <Navigate to="dashboards" replace /> },
+          { index: true, element: <Navigate to="taskboard" replace /> },
           { path: 'unauthorized', element: <UnauthorizedPage /> },
+          { path: 'taskboard', element: <TaskboardPage /> },
           { path: 'dashboards', element: <DashboardsPage /> },
           {
             path: 'inquiries',
@@ -342,7 +344,7 @@ const router = createBrowserRouter([
               </FeatureRoute>
             ),
           },
-          { path: '*', element: <Navigate to="/portal/dashboards" replace /> },
+          { path: '*', element: <Navigate to="/portal/taskboard" replace /> },
         ],
       },
     ],
