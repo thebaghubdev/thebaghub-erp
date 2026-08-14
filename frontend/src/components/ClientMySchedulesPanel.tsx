@@ -277,7 +277,7 @@ function ClientRescheduleModal({
             value={newDate}
             onChange={setNewDate}
             disabled={busy || availabilityLoading}
-            triggerClassName="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
+            triggerClassName="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
             placeholder="Select date"
             dialogAriaLabel="Choose new delivery date"
             disablePast

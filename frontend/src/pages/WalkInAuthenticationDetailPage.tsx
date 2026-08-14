@@ -448,7 +448,7 @@ export function WalkInAuthenticationDetailPage() {
   const readOnly = !canEdit;
 
   return (
-    <div className="flex flex-col gap-6 p-4 sm:p-6">
+    <div className="flex w-full min-w-0 flex-col gap-6">
       {feature.readOnly ? (
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
           You have view-only access to this feature.
