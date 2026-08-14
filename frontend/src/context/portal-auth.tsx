@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from 'react'
 import { apiFetch } from '../lib/api'
+import type { FeatureAccessMap } from '../lib/feature-access'
 import { normalizeClientProfile, type AuthUser } from './auth-user'
 
 const STORAGE_TOKEN = 'baghub_portal_token'
@@ -17,6 +18,9 @@ type PortalAuthContextValue = {
   token: string | null
   user: AuthUser | null
   loading: boolean
+  featureAccess: FeatureAccessMap
+  featureAccessLoading: boolean
+  refreshFeatureAccess: () => Promise<void>
   login: (username: string, password: string) => Promise<void>
   logout: () => void
 }
@@ -62,17 +66,47 @@ export function PortalAuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(session.token)
   const [user, setUser] = useState<AuthUser | null>(session.user)
   const [loading, setLoading] = useState(!!session.token)
+  const [featureAccess, setFeatureAccess] = useState<FeatureAccessMap>({})
+  const [featureAccessLoading, setFeatureAccessLoading] = useState(!!session.token)
 
   const logout = useCallback(() => {
     localStorage.removeItem(STORAGE_TOKEN)
     localStorage.removeItem(STORAGE_USER)
     setToken(null)
     setUser(null)
+    setFeatureAccess({})
+    setFeatureAccessLoading(false)
   }, [])
+
+  const loadFeatureAccess = useCallback(async (accessToken: string) => {
+    setFeatureAccessLoading(true)
+    try {
+      const res = await apiFetch('/api/access-control/me', {}, accessToken)
+      if (!res.ok) {
+        setFeatureAccess({})
+        return
+      }
+      const map = (await res.json()) as FeatureAccessMap
+      setFeatureAccess(map ?? {})
+    } catch {
+      setFeatureAccess({})
+    } finally {
+      setFeatureAccessLoading(false)
+    }
+  }, [])
+
+  const refreshFeatureAccess = useCallback(async () => {
+    if (!token) {
+      setFeatureAccess({})
+      return
+    }
+    await loadFeatureAccess(token)
+  }, [token, loadFeatureAccess])
 
   useEffect(() => {
     if (!token) {
       setLoading(false)
+      setFeatureAccessLoading(false)
       return
     }
 
@@ -95,6 +129,7 @@ export function PortalAuthProvider({ children }: { children: ReactNode }) {
             client: normalizeClientProfile(me.client),
           })
           localStorage.setItem(STORAGE_USER, JSON.stringify(me))
+          await loadFeatureAccess(token)
         }
       } catch {
         if (!cancelled) logout()
@@ -106,43 +141,59 @@ export function PortalAuthProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true
     }
-  }, [token, logout])
+  }, [token, logout, loadFeatureAccess])
 
-  const login = useCallback(async (username: string, password: string) => {
-    const res = await fetch('/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password }),
-    })
-    const body = await res.json().catch(() => null)
-    if (!res.ok) {
-      throw new Error(
-        typeof body?.message === 'string' ? body.message : 'Login failed',
-      )
-    }
-    const accessToken = body.access_token as string
-    const u = body.user as AuthUser
-    if (u.userType === 'client') {
-      throw new Error('Use the client portal to sign in with this account.')
-    }
-    localStorage.setItem(STORAGE_TOKEN, accessToken)
-    localStorage.setItem(STORAGE_USER, JSON.stringify(u))
-    setToken(accessToken)
-    setUser({
-      ...u,
-      client: normalizeClientProfile(u.client),
-    })
-  }, [])
+  const login = useCallback(
+    async (username: string, password: string) => {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      })
+      const body = await res.json().catch(() => null)
+      if (!res.ok) {
+        throw new Error(
+          typeof body?.message === 'string' ? body.message : 'Login failed',
+        )
+      }
+      const accessToken = body.access_token as string
+      const u = body.user as AuthUser
+      if (u.userType === 'client') {
+        throw new Error('Use the client portal to sign in with this account.')
+      }
+      localStorage.setItem(STORAGE_TOKEN, accessToken)
+      localStorage.setItem(STORAGE_USER, JSON.stringify(u))
+      setToken(accessToken)
+      setUser({
+        ...u,
+        client: normalizeClientProfile(u.client),
+      })
+      await loadFeatureAccess(accessToken)
+    },
+    [loadFeatureAccess],
+  )
 
   const value = useMemo(
     () => ({
       token,
       user,
       loading,
+      featureAccess,
+      featureAccessLoading,
+      refreshFeatureAccess,
       login,
       logout,
     }),
-    [token, user, loading, login, logout],
+    [
+      token,
+      user,
+      loading,
+      featureAccess,
+      featureAccessLoading,
+      refreshFeatureAccess,
+      login,
+      logout,
+    ],
   )
 
   return (

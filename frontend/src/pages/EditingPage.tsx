@@ -6,6 +6,7 @@ import { InventoryStatusBadge } from "../components/InventoryStatusBadge";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
+import { useFeatureAccess } from "../lib/use-feature-access";
 import { branchLabel } from "../lib/consignment-schedule-labels";
 import { formatOfferTransactionLabel } from "../lib/format-offer-transaction-type";
 
@@ -101,6 +102,7 @@ const columns = [
 export function EditingPage() {
   const navigate = useNavigate();
   const { token } = usePortalAuth();
+  const { readOnly } = useFeatureAccess("editing");
   const [rows, setRows] = useState<InventoryRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -128,6 +130,11 @@ export function EditingPage() {
 
   return (
     <div className="w-full min-w-0">
+      {readOnly ? (
+        <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
+          You have view-only access to this feature.
+        </p>
+      ) : null}
       {error ? (
         <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
           {error}

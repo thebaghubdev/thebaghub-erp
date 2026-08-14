@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useApp } from "../context/useApp";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
+import { useFeatureAccess } from "../lib/use-feature-access";
 
 const GENERAL_CATEGORY = "General";
 
@@ -53,6 +54,7 @@ function buildStringArrayValue(state: StringArrayEditState): string {
 
 export function SettingsPage() {
   const { token } = usePortalAuth();
+  const { canEdit, readOnly } = useFeatureAccess("settings");
   const { theme, toggleTheme } = useApp();
   const [rows, setRows] = useState<SettingRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -116,6 +118,7 @@ export function SettingsPage() {
   }, [filtered, rows]);
 
   const beginEdit = (s: SettingRow) => {
+    if (!canEdit) return;
     setSaveError(null);
     setStringArrayAdd("");
     setEditingKey(s.key);
@@ -166,7 +169,7 @@ export function SettingsPage() {
   };
 
   const saveEdit = async () => {
-    if (!editingKey || !token) return;
+    if (!canEdit || !editingKey || !token) return;
     const row = rows.find((r) => r.key === editingKey);
     if (!row) return;
 
@@ -304,6 +307,11 @@ export function SettingsPage() {
 
   return (
     <div className="w-full min-w-0">
+      {readOnly ? (
+        <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
+          You have view-only access to this feature.
+        </p>
+      ) : null}
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <label className="min-w-0 flex-1">
           <span className="sr-only">Search settings</span>
@@ -442,6 +450,10 @@ export function SettingsPage() {
                                 </button>
                               </div>
                             </div>
+                          ) : readOnly ? (
+                            <span className="text-xs text-slate-400 dark:text-slate-500">
+                              —
+                            </span>
                           ) : (
                             <button
                               type="button"

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AccessControlModule } from '../access-control/access-control.module';
 import { Client } from '../clients/entities/client.entity';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
 import { Inquiry } from '../inquiries/entities/inquiry.entity';
@@ -17,6 +18,7 @@ import {
 
 @Module({
   imports: [
+    AccessControlModule,
     TypeOrmModule.forFeature([
       ConsignorPayment,
       ConsignorPaymentGroup,

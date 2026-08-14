@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AccessControlModule } from '../access-control/access-control.module';
 import { Employee } from '../employees/entities/employee.entity';
 import { InventoryModule } from '../inventory/inventory.module';
 import { InquiriesModule } from '../inquiries/inquiries.module';
@@ -13,6 +14,7 @@ import {
 
 @Module({
   imports: [
+    AccessControlModule,
     InquiriesModule,
     InventoryModule,
     TypeOrmModule.forFeature([

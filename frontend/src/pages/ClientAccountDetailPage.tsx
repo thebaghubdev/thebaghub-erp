@@ -18,6 +18,7 @@ import {
   type ClientVipStatus,
 } from "../lib/client-payment-preference";
 import { formatPhpDisplay } from "../lib/format-php";
+import { useFeatureAccess } from "../lib/use-feature-access";
 import {
   formatVoucherDate,
   voucherStatusBadgeClass,
@@ -154,6 +155,7 @@ function DetailField({
 export function ClientAccountDetailPage() {
   const { clientId } = useParams<{ clientId: string }>();
   const { token } = usePortalAuth();
+  const { canEdit, readOnly } = useFeatureAccess("clients");
   const [detail, setDetail] = useState<ClientAccountDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -247,7 +249,7 @@ export function ClientAccountDetailPage() {
   }, [vouchers]);
 
   function openVipEdit() {
-    if (!detail) return;
+    if (!canEdit || !detail) return;
     setVipEditError(null);
     setVipEditValue(detail.vipStatus);
     setVipEditOpen(true);
@@ -260,7 +262,7 @@ export function ClientAccountDetailPage() {
 
   async function submitVipEdit(e: FormEvent) {
     e.preventDefault();
-    if (!detail || !token || !clientId) return;
+    if (!canEdit || !detail || !token || !clientId) return;
     setVipEditError(null);
     setVipEditSaving(true);
     try {
@@ -298,7 +300,7 @@ export function ClientAccountDetailPage() {
   }
 
   function openCreditLineEdit() {
-    if (!detail) return;
+    if (!canEdit || !detail) return;
     setCreditLineEditError(null);
     setCreditLineEditValue(detail.isCreditLine);
     setCreditLineEditOpen(true);
@@ -311,7 +313,7 @@ export function ClientAccountDetailPage() {
 
   async function submitCreditLineEdit(e: FormEvent) {
     e.preventDefault();
-    if (!detail || !token || !clientId) return;
+    if (!canEdit || !detail || !token || !clientId) return;
     setCreditLineEditError(null);
     setCreditLineEditSaving(true);
     try {
@@ -349,7 +351,7 @@ export function ClientAccountDetailPage() {
   }
 
   function openPaymentEdit() {
-    if (!detail) return;
+    if (!canEdit || !detail) return;
     setPaymentEditError(null);
     setPaymentMethodEdit(
       parseClientPaymentMethod(detail.preferredPaymentMethod) ?? "check_pickup",
@@ -374,7 +376,7 @@ export function ClientAccountDetailPage() {
 
   async function submitPaymentEdit(e: FormEvent) {
     e.preventDefault();
-    if (!detail || !token || !clientId) return;
+    if (!canEdit || !detail || !token || !clientId) return;
     if (
       !bankCodeEdit.trim() ||
       !accountNumberEdit.trim() ||
@@ -459,6 +461,11 @@ export function ClientAccountDetailPage() {
 
   return (
     <div className="space-y-4">
+      {readOnly ? (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
+          You have view-only access to this feature.
+        </p>
+      ) : null}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <Link to="/portal/clients" className={backLinkClass}>
@@ -499,6 +506,7 @@ export function ClientAccountDetailPage() {
               <dt className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
                 Credit line
               </dt>
+              {!readOnly ? (
               <button
                 type="button"
                 onClick={openCreditLineEdit}
@@ -525,6 +533,7 @@ export function ClientAccountDetailPage() {
                   />
                 </svg>
               </button>
+              ) : null}
             </div>
             <dd className="mt-0.5 text-sm text-slate-900 dark:text-slate-100">
               {detail.isCreditLine ? "Yes" : "No"}
@@ -543,6 +552,7 @@ export function ClientAccountDetailPage() {
               <dt className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
                 VIP status
               </dt>
+              {!readOnly ? (
               <button
                 type="button"
                 onClick={openVipEdit}
@@ -569,6 +579,7 @@ export function ClientAccountDetailPage() {
                   />
                 </svg>
               </button>
+              ) : null}
             </div>
             <dd className="mt-0.5">
               <span
@@ -771,6 +782,7 @@ export function ClientAccountDetailPage() {
               Payment & bank details
             </h2>
           </div>
+          {!readOnly ? (
           <button
             type="button"
             onClick={openPaymentEdit}
@@ -797,6 +809,7 @@ export function ClientAccountDetailPage() {
               />
             </svg>
           </button>
+          ) : null}
         </div>
         <dl className="grid gap-4 sm:grid-cols-2">
           <DetailField

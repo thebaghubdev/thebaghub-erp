@@ -8,6 +8,7 @@ import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
 import { formatPhpDisplay, parsePhpStringToNumber } from "../lib/format-php";
+import { useFeatureAccess } from "../lib/use-feature-access";
 import {
   walkInAuthResultBadgeClassName,
   walkInAuthStatusBadgeClassName,
@@ -104,6 +105,7 @@ type TabId = "queue" | "create";
 
 export function WalkInAuthenticationPage() {
   const { token } = usePortalAuth();
+  const { canEdit, readOnly } = useFeatureAccess("walk-in-authentication");
   const navigate = useNavigate();
   const [tab, setTab] = useState<TabId>("queue");
   const [rows, setRows] = useState<WalkInAuthRow[]>([]);
@@ -210,7 +212,7 @@ export function WalkInAuthenticationPage() {
   );
 
   const openAssignModal = useCallback(async () => {
-    if (!token) return;
+    if (!canEdit || !token) return;
     setAssignError(null);
     setAssignEmployeeId("");
     setAssignModalOpen(true);
@@ -232,10 +234,10 @@ export function WalkInAuthenticationPage() {
     } finally {
       setAuthenticatorsLoading(false);
     }
-  }, [token]);
+  }, [canEdit, token]);
 
   const submitAssign = useCallback(async () => {
-    if (!token) return;
+    if (!canEdit || !token) return;
     if (!assignEmployeeId.trim()) {
       setAssignError("Select an authenticator.");
       return;
@@ -266,10 +268,10 @@ export function WalkInAuthenticationPage() {
     } finally {
       setAssignBusy(false);
     }
-  }, [token, assignEmployeeId, selectedIds, load]);
+  }, [canEdit, token, assignEmployeeId, selectedIds, load]);
 
   const submitCreate = useCallback(async () => {
-    if (!token) return;
+    if (!canEdit || !token) return;
     setCreateError(null);
     setCreateSuccess(null);
 
@@ -337,7 +339,7 @@ export function WalkInAuthenticationPage() {
     } finally {
       setCreateBusy(false);
     }
-  }, [token, form, proofFile, load]);
+  }, [canEdit, token, form, proofFile, load]);
 
   const columns = useMemo(
     () => [
@@ -396,6 +398,12 @@ export function WalkInAuthenticationPage() {
         </h1>
       </div>
 
+      {readOnly ? (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
+          You have view-only access to this feature.
+        </p>
+      ) : null}
+
       <div className="flex gap-2 border-b border-slate-200 dark:border-slate-700">
         <button
           type="button"
@@ -409,31 +417,35 @@ export function WalkInAuthenticationPage() {
         >
           Queue
         </button>
-        <button
-          type="button"
-          className={[
-            "px-3 py-2 text-sm font-medium",
-            tab === "create"
-              ? "border-b-2 border-violet-600 text-violet-800 dark:text-violet-200"
-              : "text-slate-600 hover:text-slate-900 dark:text-slate-400",
-          ].join(" ")}
-          onClick={() => setTab("create")}
-        >
-          Create
-        </button>
+        {!readOnly ? (
+          <button
+            type="button"
+            className={[
+              "px-3 py-2 text-sm font-medium",
+              tab === "create"
+                ? "border-b-2 border-violet-600 text-violet-800 dark:text-violet-200"
+                : "text-slate-600 hover:text-slate-900 dark:text-slate-400",
+            ].join(" ")}
+            onClick={() => setTab("create")}
+          >
+            Create
+          </button>
+        ) : null}
       </div>
 
       {tab === "queue" && (
         <>
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              disabled={selectedIds.size === 0}
-              onClick={() => void openAssignModal()}
-              className="rounded-lg bg-violet-700 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Assign to Authenticator ({selectedIds.size})
-            </button>
+            {!readOnly ? (
+              <button
+                type="button"
+                disabled={selectedIds.size === 0}
+                onClick={() => void openAssignModal()}
+                className="rounded-lg bg-violet-700 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Assign to Authenticator ({selectedIds.size})
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={() => void load()}
@@ -480,7 +492,7 @@ export function WalkInAuthenticationPage() {
         </>
       )}
 
-      {tab === "create" && (
+      {tab === "create" && !readOnly && (
         <form
           className="mx-auto flex w-full max-w-2xl flex-col gap-4"
           onSubmit={(e) => {

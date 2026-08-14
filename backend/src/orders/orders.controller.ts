@@ -16,6 +16,8 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { FeatureAccessGuard } from '../access-control/feature-access.guard';
+import { RequireFeature } from '../access-control/require-feature.decorator';
 import { JwtUser } from '../auth/jwt-user';
 import { StaffOnlyGuard } from '../auth/staff-only.guard';
 import type { MulterFile } from '../inquiries/multer-file.type';
@@ -38,16 +40,18 @@ import { ApplyVoucherDto } from './dto/apply-voucher.dto';
 import { OrdersService } from './orders.service';
 
 @Controller('orders')
-@UseGuards(StaffOnlyGuard)
+@UseGuards(StaffOnlyGuard, FeatureAccessGuard)
 export class OrdersController {
   constructor(private readonly ordersService: OrdersService) {}
 
   @Get()
+  @RequireFeature('orders', 'view')
   findAll() {
     return this.ordersService.findAllForStaff();
   }
 
   @Get('sales-associates')
+  @RequireFeature('orders', 'view')
   listSalesAssociates() {
     return this.ordersService.listSalesAssociates();
   }
@@ -61,6 +65,7 @@ export class OrdersController {
   }
 
   @Post('batch-assign-sales-associate')
+  @RequireFeature('orders', 'edit')
   @HttpCode(HttpStatus.OK)
   batchAssignSalesAssociate(
     @Body() dto: BatchAssignSalesAssociateDto,
@@ -73,6 +78,7 @@ export class OrdersController {
   }
 
   @Post()
+  @RequireFeature('orders', 'edit')
   @UseInterceptors(
     FileInterceptor('signature', {
       limits: { fileSize: 5 * 1024 * 1024 },
@@ -91,11 +97,13 @@ export class OrdersController {
   }
 
   @Get(':id')
+  @RequireFeature('orders', 'view')
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.ordersService.findOneForStaff(id);
   }
 
   @Post(':id/approve-layaway')
+  @RequireFeature('orders', 'edit')
   approveLayaway(
     @Req() req: { user: JwtUser },
     @Param('id', ParseUUIDPipe) id: string,
@@ -105,6 +113,7 @@ export class OrdersController {
   }
 
   @Post(':id/decline-layaway')
+  @RequireFeature('orders', 'edit')
   declineLayaway(
     @Req() req: { user: JwtUser },
     @Param('id', ParseUUIDPipe) id: string,
@@ -114,6 +123,7 @@ export class OrdersController {
   }
 
   @Post(':id/update-layaway-terms')
+  @RequireFeature('orders', 'edit')
   updateLayawayTerms(
     @Req() req: { user: JwtUser },
     @Param('id', ParseUUIDPipe) id: string,
@@ -123,6 +133,7 @@ export class OrdersController {
   }
 
   @Post(':id/convert-to-layaway')
+  @RequireFeature('orders', 'edit')
   convertToLayaway(
     @Req() req: { user: JwtUser },
     @Param('id', ParseUUIDPipe) id: string,
@@ -132,6 +143,7 @@ export class OrdersController {
   }
 
   @Post(':id/cancel')
+  @RequireFeature('orders', 'edit')
   cancelOrder(
     @Req() req: { user: JwtUser },
     @Param('id', ParseUUIDPipe) id: string,
@@ -141,6 +153,7 @@ export class OrdersController {
   }
 
   @Post(':id/mark-paid')
+  @RequireFeature('orders', 'edit')
   markPaid(
     @Req() req: { user: JwtUser },
     @Param('id', ParseUUIDPipe) id: string,
@@ -149,6 +162,7 @@ export class OrdersController {
   }
 
   @Post(':id/item-received')
+  @RequireFeature('orders', 'edit')
   markItemReceived(
     @Req() req: { user: JwtUser },
     @Param('id', ParseUUIDPipe) id: string,
@@ -157,6 +171,7 @@ export class OrdersController {
   }
 
   @Post(':id/for-pick-up')
+  @RequireFeature('orders', 'edit')
   @UseInterceptors(
     FileInterceptor('proof', {
       limits: { fileSize: 10 * 1024 * 1024 },
@@ -183,6 +198,7 @@ export class OrdersController {
   }
 
   @Post(':id/full-payment-proof')
+  @RequireFeature('orders', 'edit')
   @UseInterceptors(
     FileInterceptor('proof', {
       limits: { fileSize: 10 * 1024 * 1024 },
@@ -201,6 +217,7 @@ export class OrdersController {
   }
 
   @Post(':id/reservation-payment-proof')
+  @RequireFeature('orders', 'edit')
   @UseInterceptors(
     FileInterceptor('proof', {
       limits: { fileSize: 10 * 1024 * 1024 },
@@ -219,6 +236,7 @@ export class OrdersController {
   }
 
   @Patch(':id/installments/:installmentNumber/amount-paid')
+  @RequireFeature('orders', 'edit')
   setInstallmentAmountPaid(
     @Req() req: { user: JwtUser },
     @Param('id', ParseUUIDPipe) id: string,
@@ -234,6 +252,7 @@ export class OrdersController {
   }
 
   @Patch(':id/installments/:installmentNumber/penalty')
+  @RequireFeature('orders', 'edit')
   setInstallmentPenalty(
     @Req() req: { user: JwtUser },
     @Param('id', ParseUUIDPipe) id: string,
@@ -249,6 +268,7 @@ export class OrdersController {
   }
 
   @Patch(':id/installments/:installmentNumber/due-date')
+  @RequireFeature('orders', 'edit')
   setInstallmentDueDate(
     @Req() req: { user: JwtUser },
     @Param('id', ParseUUIDPipe) id: string,
@@ -264,6 +284,7 @@ export class OrdersController {
   }
 
   @Patch(':id/installments/:installmentNumber/payment-date')
+  @RequireFeature('orders', 'edit')
   setInstallmentPaymentDate(
     @Req() req: { user: JwtUser },
     @Param('id', ParseUUIDPipe) id: string,
@@ -279,6 +300,7 @@ export class OrdersController {
   }
 
   @Post(':id/installments/:installmentNumber/mark-paid')
+  @RequireFeature('orders', 'edit')
   @UseInterceptors(
     FileInterceptor('proof', {
       limits: { fileSize: 10 * 1024 * 1024 },
@@ -301,6 +323,7 @@ export class OrdersController {
   }
 
   @Post(':id/installments/:installmentNumber/proof')
+  @RequireFeature('orders', 'edit')
   @UseInterceptors(
     FileInterceptor('proof', {
       limits: { fileSize: 10 * 1024 * 1024 },
@@ -321,6 +344,7 @@ export class OrdersController {
   }
 
   @Post(':id/apply-voucher')
+  @RequireFeature('orders', 'edit')
   applyVoucher(
     @Req() req: { user: JwtUser },
     @Param('id', ParseUUIDPipe) id: string,
@@ -330,6 +354,7 @@ export class OrdersController {
   }
 
   @Post(':id/payments')
+  @RequireFeature('orders', 'edit')
   @UseInterceptors(
     FileInterceptor('proof', {
       limits: { fileSize: 10 * 1024 * 1024 },
@@ -354,6 +379,7 @@ export class OrdersController {
   }
 
   @Post(':id/payments/:paymentId/mark-paid')
+  @RequireFeature('orders', 'edit')
   markOrderPaymentPaid(
     @Req() req: { user: JwtUser },
     @Param('id', ParseUUIDPipe) id: string,
@@ -369,6 +395,7 @@ export class OrdersController {
   }
 
   @Patch(':id/payments/:paymentId/amount-paid')
+  @RequireFeature('orders', 'edit')
   setOrderPaymentAmountPaid(
     @Req() req: { user: JwtUser },
     @Param('id', ParseUUIDPipe) id: string,
@@ -384,6 +411,7 @@ export class OrdersController {
   }
 
   @Patch(':id/payments/:paymentId/payment-date')
+  @RequireFeature('orders', 'edit')
   setOrderPaymentPaymentDate(
     @Req() req: { user: JwtUser },
     @Param('id', ParseUUIDPipe) id: string,
@@ -399,6 +427,7 @@ export class OrdersController {
   }
 
   @Patch(':id/order-total-price')
+  @RequireFeature('orders', 'edit')
   setOrderTotalPrice(
     @Req() req: { user: JwtUser },
     @Param('id', ParseUUIDPipe) id: string,

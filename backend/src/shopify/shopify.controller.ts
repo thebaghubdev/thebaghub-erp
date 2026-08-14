@@ -1,5 +1,7 @@
 import { Controller, Get, Req, Res, UseGuards } from '@nestjs/common';
 import type { Request, Response } from 'express';
+import { FeatureAccessGuard } from '../access-control/feature-access.guard';
+import { RequireFeature } from '../access-control/require-feature.decorator';
 import { Public } from '../decorators/public.decorator';
 import { StaffOnlyGuard } from '../auth/staff-only.guard';
 import { ShopifyAdminService } from './shopify-admin.service';
@@ -35,7 +37,8 @@ export class ShopifyController {
   }
 
   @Get('collections')
-  @UseGuards(StaffOnlyGuard)
+  @UseGuards(StaffOnlyGuard, FeatureAccessGuard)
+  @RequireFeature('posting', 'view', { orFeatureKeys: ['editing'] })
   listCollections() {
     return this.shopifyAdmin.listCollections();
   }

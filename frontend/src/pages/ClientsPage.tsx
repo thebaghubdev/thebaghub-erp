@@ -6,6 +6,7 @@ import { usePortalAuth } from '../context/portal-auth'
 import { apiFetch } from '../lib/api'
 import { formatClientVipStatus, clientVipStatusBadgeClassName } from '../lib/client-payment-preference'
 import { formatPhpDisplay } from '../lib/format-php'
+import { useFeatureAccess } from '../lib/use-feature-access'
 import { useClientPagination } from '../hooks/useClientPagination'
 
 type ClientRow = {
@@ -24,6 +25,7 @@ type ClientRow = {
 
 export function ClientsPage() {
   const { token } = usePortalAuth()
+  const { readOnly } = useFeatureAccess('clients')
   const navigate = useNavigate()
   const [clients, setClients] = useState<ClientRow[]>([])
   const [loading, setLoading] = useState(false)
@@ -55,6 +57,11 @@ export function ClientsPage() {
 
   return (
     <div className="w-full min-w-0">
+      {readOnly ? (
+        <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
+          You have view-only access to this feature.
+        </p>
+      ) : null}
       {error && (
         <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
           {error}

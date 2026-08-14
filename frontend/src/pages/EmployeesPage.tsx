@@ -5,6 +5,7 @@ import { HorizontalScrollMirror } from '../components/HorizontalScrollMirror'
 import { TablePaginationBar } from '../components/TablePaginationBar'
 import { usePortalAuth } from '../context/portal-auth'
 import { apiFetch } from '../lib/api'
+import { useFeatureAccess } from '../lib/use-feature-access'
 import { useClientPagination } from '../hooks/useClientPagination'
 
 /** Matches backend `POSITIONS_KEY` / seeded setting `positions`. */
@@ -48,6 +49,7 @@ const field =
 
 export function EmployeesPage() {
   const { token } = usePortalAuth()
+  const { canEdit, readOnly } = useFeatureAccess('employees')
   const [employees, setEmployees] = useState<EmployeeRow[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -106,7 +108,7 @@ export function EmployeesPage() {
   }, [token])
 
   function openEdit(row: EmployeeRow) {
-    if (row.isAdmin) return
+    if (!canEdit || row.isAdmin) return
     setEditError(null)
     setEditRow(row)
     setEfFirst(row.firstName)
@@ -142,7 +144,7 @@ export function EmployeesPage() {
 
   async function submitEdit(e: React.FormEvent) {
     e.preventDefault()
-    if (!editRow || !token) return
+    if (!canEdit || !editRow || !token) return
     setEditError(null)
     if (!efHire.trim()) {
       setEditError('Please select a hire date.')
@@ -189,20 +191,27 @@ export function EmployeesPage() {
 
   return (
     <div className="w-full min-w-0">
+      {readOnly ? (
+        <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
+          You have view-only access to this feature.
+        </p>
+      ) : null}
       {error && (
         <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
           {error}
         </p>
       )}
 
-      <div className="mb-4 flex justify-end">
-        <Link
-          to="/portal/employees/register"
-          className="inline-flex items-center rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-violet-700 focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500"
-        >
-          Register
-        </Link>
-      </div>
+      {!readOnly ? (
+        <div className="mb-4 flex justify-end">
+          <Link
+            to="/portal/employees/register"
+            className="inline-flex items-center rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-violet-700 focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500"
+          >
+            Register
+          </Link>
+        </div>
+      ) : null}
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
         <div className="border-b border-slate-200 bg-slate-50/80 px-3 py-3 dark:border-slate-800 dark:bg-slate-950/40 sm:px-4">
@@ -288,10 +297,14 @@ export function EmployeesPage() {
                     {row.hireDate}
                   </td>
                   <td className="max-w-[10rem] min-w-0 truncate px-4 py-3 text-right">
-                    {row.isAdmin ? (
+                    {row.isAdmin || readOnly ? (
                       <span
                         className="text-xs text-slate-400 dark:text-slate-500"
-                        title="Administrator accounts cannot be edited here"
+                        title={
+                          row.isAdmin
+                            ? 'Administrator accounts cannot be edited here'
+                            : 'View-only access'
+                        }
                       >
                         —
                       </span>

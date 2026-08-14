@@ -10,6 +10,7 @@ import {
 } from "../components/PostingCalendar";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
+import { useFeatureAccess } from "../lib/use-feature-access";
 
 type PostingTab = "calendar" | "scheduling";
 
@@ -138,6 +139,7 @@ export function PostingPage() {
   const scheduleDateId = useId();
   const scheduleTimeId = useId();
   const { token } = usePortalAuth();
+  const { canEdit, readOnly } = useFeatureAccess("posting");
   const [scheduleDate, setScheduleDate] = useState("");
   const [scheduleHour, setScheduleHour] = useState("");
   const [schedulePeriod, setSchedulePeriod] = useState<"AM" | "PM">("AM");
@@ -242,11 +244,13 @@ export function PostingPage() {
   }, []);
 
   const showSchedule =
+    !readOnly &&
     Boolean(scheduleDate.trim()) &&
     Boolean(hourPeriodToTime(scheduleHour, schedulePeriod)) &&
     selectedIds.size > 0;
 
   const handleSchedule = async () => {
+    if (!canEdit) return;
     const scheduleTime = hourPeriodToTime(scheduleHour, schedulePeriod);
     if (!token || !scheduleDate.trim() || !scheduleTime || selectedIds.size === 0) {
       return;
@@ -288,6 +292,11 @@ export function PostingPage() {
 
   return (
     <div className="w-full min-w-0">
+      {readOnly ? (
+        <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
+          You have view-only access to this feature.
+        </p>
+      ) : null}
       <div
         className="mb-6 flex items-end gap-2 border-b border-slate-200 dark:border-slate-800"
         role="tablist"
@@ -308,21 +317,23 @@ export function PostingPage() {
         >
           Posting Calendar
         </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "scheduling"}
-          id="tab-posting-scheduling"
-          aria-controls="panel-posting-scheduling"
-          className={`${tabBtn} ${
-            tab === "scheduling"
-              ? "border-violet-600 text-violet-700 dark:text-violet-300"
-              : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
-          }`}
-          onClick={() => setTab("scheduling")}
-        >
-          Scheduling
-        </button>
+        {!readOnly ? (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "scheduling"}
+            id="tab-posting-scheduling"
+            aria-controls="panel-posting-scheduling"
+            className={`${tabBtn} ${
+              tab === "scheduling"
+                ? "border-violet-600 text-violet-700 dark:text-violet-300"
+                : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
+            }`}
+            onClick={() => setTab("scheduling")}
+          >
+            Scheduling
+          </button>
+        ) : null}
       </div>
 
       {tab === "calendar" && (
@@ -344,7 +355,7 @@ export function PostingPage() {
         </section>
       )}
 
-      {tab === "scheduling" && (
+      {tab === "scheduling" && !readOnly && (
         <section
           id="panel-posting-scheduling"
           role="tabpanel"

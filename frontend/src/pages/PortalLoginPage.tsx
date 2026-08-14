@@ -9,7 +9,7 @@ export function PortalLoginPage() {
   const location = useLocation()
   const redirectTo =
     (location.state as { from?: string } | undefined)?.from ??
-    '/portal/inquiries'
+    '/portal/dashboards'
 
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -25,7 +25,7 @@ export function PortalLoginPage() {
       const target =
         redirectTo.startsWith('/portal') && redirectTo !== '/portal/login'
           ? redirectTo
-          : '/portal/inquiries'
+          : '/portal/dashboards'
       navigate(target, { replace: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed')
@@ -47,7 +47,7 @@ export function PortalLoginPage() {
   }
 
   if (token && user && user.userType !== 'client') {
-    return <Navigate to="/portal/inquiries" replace />
+    return <Navigate to="/portal/dashboards" replace />
   }
 
   return (

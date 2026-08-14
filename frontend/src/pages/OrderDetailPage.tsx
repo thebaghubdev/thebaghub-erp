@@ -17,6 +17,7 @@ import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
 import { canBypassOrderAssignment } from "../lib/employee-position";
 import { formatPhpDisplay, parsePhpStringToNumber } from "../lib/format-php";
+import { useFeatureAccess } from "../lib/use-feature-access";
 import {
   calculateLayawayPricing,
   DEFAULT_LAYAWAY_MONTHS,
@@ -278,6 +279,7 @@ function DetailField({
 export function OrderDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { token, user } = usePortalAuth();
+  const feature = useFeatureAccess("orders");
   const [detail, setDetail] = useState<OrderDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -374,7 +376,7 @@ export function OrderDetailPage() {
     [load],
   );
 
-  const canEditOrder = useMemo(() => {
+  const roleCanEditOrder = useMemo(() => {
     if (!detail) return false;
     if (
       canBypassOrderAssignment(Boolean(user?.isAdmin), user?.employee?.position)
@@ -387,6 +389,8 @@ export function OrderDetailPage() {
     if (!myEmployeeId) return false;
     return myEmployeeId === assigneeId;
   }, [detail, user]);
+
+  const canEditOrder = roleCanEditOrder && feature.canEdit;
 
   const confirmApproveLayaway = useCallback(async () => {
     if (!id || !token || !detail) return;
@@ -1014,7 +1018,13 @@ export function OrderDetailPage() {
         </Link>
       </div>
 
-      {!canEditOrder ? (
+      {feature.readOnly ? (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
+          You have view-only access to this feature.
+        </p>
+      ) : null}
+
+      {!canEditOrder && !feature.readOnly ? (
         <p
           className="rounded-xl border border-amber-200/80 bg-amber-50/90 px-4 py-3 text-sm leading-relaxed text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/25 dark:text-amber-100"
           role="status"

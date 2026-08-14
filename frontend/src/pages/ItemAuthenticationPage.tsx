@@ -17,6 +17,7 @@ import {
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { PhpPriceInput } from "../components/PhpPriceInput";
 import { usePortalAuth } from "../context/portal-auth";
+import { useFeatureAccess } from "../lib/use-feature-access";
 import { apiFetch } from "../lib/api";
 import { formatPhpDisplay, parsePhpStringToNumber } from "../lib/format-php";
 import { randomId } from "../lib/random-id";
@@ -215,6 +216,7 @@ async function filesToDataUrls(files: File[]): Promise<string[]> {
 export function ItemAuthenticationPage() {
   const { id } = useParams<{ id: string }>();
   const { token, user } = usePortalAuth();
+  const feature = useFeatureAccess("authentication");
   const [detail, setDetail] = useState<ItemAuthenticationPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -503,7 +505,7 @@ export function ItemAuthenticationPage() {
     savedSerializedRef.current = serializeDraftRecord(initial);
   }, [filteredMetrics, metricEntries, entriesLoading]);
 
-  const canEditMetrics = useMemo(() => {
+  const roleCanEditMetrics = useMemo(() => {
     if (!detail) return false;
     if (user?.isAdmin) return true;
     const assigneeId = detail.assignedToEmployeeId;
@@ -512,6 +514,8 @@ export function ItemAuthenticationPage() {
     if (!myEmployeeId) return false;
     return myEmployeeId === assigneeId;
   }, [detail, user]);
+
+  const canEditMetrics = roleCanEditMetrics && feature.canEdit;
 
   const metricsDirty = useMemo(() => {
     if (!canEditMetrics || entriesLoading) return false;
@@ -1303,6 +1307,11 @@ export function ItemAuthenticationPage() {
 
   return (
     <div className="w-full min-w-0 space-y-8">
+      {feature.readOnly ? (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
+          You have view-only access to this feature.
+        </p>
+      ) : null}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">

@@ -16,6 +16,8 @@ import {
 } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
+import { FeatureAccessGuard } from '../access-control/feature-access.guard';
+import { RequireFeature } from '../access-control/require-feature.decorator';
 import { JwtUser } from '../auth/jwt-user';
 import { StaffOnlyGuard } from '../auth/staff-only.guard';
 import type { MulterFile } from '../inquiries/multer-file.type';
@@ -33,7 +35,7 @@ import { AddInventoryWaitlistClientDto } from './dto/add-inventory-waitlist-clie
 import { InventoryService } from './inventory.service';
 
 @Controller('inventory')
-@UseGuards(StaffOnlyGuard)
+@UseGuards(StaffOnlyGuard, FeatureAccessGuard)
 export class InventoryController {
   constructor(private readonly inventoryService: InventoryService) {}
 
@@ -55,16 +57,19 @@ export class InventoryController {
   }
 
   @Get('authenticators')
+  @RequireFeature('authentication', 'view')
   listAuthenticators() {
     return this.inventoryService.listAuthenticators();
   }
 
   @Get('item-photoshoots')
+  @RequireFeature('photoshoot', 'view')
   listItemPhotoshoots() {
     return this.inventoryService.listItemPhotoshootsForStaff();
   }
 
   @Get('item-photoshoots/:photoshootId')
+  @RequireFeature('photoshoot', 'view')
   findOneItemPhotoshoot(
     @Param('photoshootId', ParseUUIDPipe) photoshootId: string,
   ) {
@@ -72,6 +77,7 @@ export class InventoryController {
   }
 
   @Post('item-photoshoots')
+  @RequireFeature('photoshoot', 'edit')
   @HttpCode(HttpStatus.CREATED)
   createItemPhotoshoots(
     @Body() dto: CreateItemPhotoshootsDto,
@@ -81,6 +87,7 @@ export class InventoryController {
   }
 
   @Patch('item-photoshoots/:photoshootId/photos')
+  @RequireFeature('photoshoot', 'edit')
   @HttpCode(HttpStatus.OK)
   @UseInterceptors(
     FilesInterceptor('photos', 50, {
@@ -102,6 +109,7 @@ export class InventoryController {
   }
 
   @Post('item-photoshoots/:photoshootId/finish')
+  @RequireFeature('photoshoot', 'edit')
   @HttpCode(HttpStatus.OK)
   finishItemPhotoshoot(
     @Param('photoshootId', ParseUUIDPipe) photoshootId: string,
@@ -114,11 +122,13 @@ export class InventoryController {
   }
 
   @Get('item-postings')
+  @RequireFeature('posting', 'view')
   listItemPostings() {
     return this.inventoryService.listItemPostingsForStaff();
   }
 
   @Patch('item-postings/schedule')
+  @RequireFeature('posting', 'edit')
   @HttpCode(HttpStatus.OK)
   scheduleItemPostings(
     @Body() dto: ScheduleItemPostingsDto,
@@ -128,6 +138,7 @@ export class InventoryController {
   }
 
   @Post('batch-assign-authenticator')
+  @RequireFeature('authentication', 'edit')
   @HttpCode(HttpStatus.OK)
   batchAssignAuthenticator(
     @Body() dto: BatchAssignAuthenticatorDto,
@@ -140,6 +151,7 @@ export class InventoryController {
   }
 
   @Get(':id/item-authentication-metrics')
+  @RequireFeature('authentication', 'view')
   getItemAuthenticationMetrics(
     @Param('id', ParseUUIDPipe) id: string,
   ) {
@@ -168,6 +180,7 @@ export class InventoryController {
   }
 
   @Post(':id/item-authentication-metrics')
+  @RequireFeature('authentication', 'edit')
   @HttpCode(HttpStatus.OK)
   saveItemAuthenticationMetrics(
     @Param('id', ParseUUIDPipe) id: string,
@@ -181,6 +194,7 @@ export class InventoryController {
   }
 
   @Post(':id/approve-authentication')
+  @RequireFeature('authentication', 'edit')
   @HttpCode(HttpStatus.OK)
   approveAuthentication(
     @Param('id', ParseUUIDPipe) id: string,
@@ -193,6 +207,7 @@ export class InventoryController {
   }
 
   @Post(':id/return-to-coordinator')
+  @RequireFeature('authentication', 'edit')
   @HttpCode(HttpStatus.OK)
   returnToCoordinator(
     @Param('id', ParseUUIDPipe) id: string,
@@ -206,6 +221,7 @@ export class InventoryController {
   }
 
   @Post(':id/for-3rd-party-authentication')
+  @RequireFeature('authentication', 'edit')
   @HttpCode(HttpStatus.OK)
   forThirdPartyAuthentication(
     @Param('id', ParseUUIDPipe) id: string,
@@ -223,6 +239,7 @@ export class InventoryController {
   }
 
   @Post(':id/reject-authentication')
+  @RequireFeature('authentication', 'edit')
   @HttpCode(HttpStatus.OK)
   rejectAuthentication(
     @Param('id', ParseUUIDPipe) id: string,
@@ -235,6 +252,7 @@ export class InventoryController {
   }
 
   @Get(':id/item-photoshoot')
+  @RequireFeature('photoshoot', 'view', { orFeatureKeys: ['editing'] })
   async findItemPhotoshootForInventory(
     @Param('id', ParseUUIDPipe) id: string,
     @Res() res: Response,
@@ -249,6 +267,7 @@ export class InventoryController {
   }
 
   @Post(':id/item-posting')
+  @RequireFeature('editing', 'edit')
   @HttpCode(HttpStatus.CREATED)
   createItemPosting(
     @Param('id', ParseUUIDPipe) id: string,
@@ -259,6 +278,7 @@ export class InventoryController {
   }
 
   @Patch(':id/item-posting')
+  @RequireFeature('editing', 'edit')
   @HttpCode(HttpStatus.OK)
   saveItemPosting(
     @Param('id', ParseUUIDPipe) id: string,
@@ -271,18 +291,21 @@ export class InventoryController {
   }
 
   @Post(':id/post-to-shopify')
+  @RequireFeature('posting', 'edit')
   @HttpCode(HttpStatus.OK)
   postItemToShopify(@Param('id', ParseUUIDPipe) id: string) {
     return this.inventoryService.postItemToShopify(id);
   }
 
   @Post(':id/update-shopify')
+  @RequireFeature('posting', 'edit')
   @HttpCode(HttpStatus.OK)
   updateItemOnShopify(@Param('id', ParseUUIDPipe) id: string) {
     return this.inventoryService.updateItemOnShopify(id);
   }
 
   @Post(':id/link-shopify-product')
+  @RequireFeature('posting', 'edit')
   @HttpCode(HttpStatus.OK)
   linkShopifyProduct(
     @Param('id', ParseUUIDPipe) id: string,
@@ -309,6 +332,7 @@ export class InventoryController {
   }
 
   @Patch(':id/pricing')
+  @RequireFeature('pricing', 'edit')
   @HttpCode(HttpStatus.OK)
   updatePricing(
     @Param('id', ParseUUIDPipe) id: string,

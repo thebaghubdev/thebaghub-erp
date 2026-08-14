@@ -12,6 +12,8 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { FeatureAccessGuard } from '../access-control/feature-access.guard';
+import { RequireFeature } from '../access-control/require-feature.decorator';
 import { JwtUser } from '../auth/jwt-user';
 import { StaffOnlyGuard } from '../auth/staff-only.guard';
 import { MulterFile } from '../inquiries/multer-file.type';
@@ -22,21 +24,24 @@ import { SaveWalkInAuthenticationDto } from './dto/save-walk-in-authentication.d
 import { WalkInAuthenticationService } from './walk-in-authentication.service';
 
 @Controller('walk-in-authentication')
-@UseGuards(StaffOnlyGuard)
+@UseGuards(StaffOnlyGuard, FeatureAccessGuard)
 export class WalkInAuthenticationController {
   constructor(private readonly service: WalkInAuthenticationService) {}
 
   @Get('authenticators')
+  @RequireFeature('walk-in-authentication', 'view')
   listAuthenticators() {
     return this.service.listAuthenticators();
   }
 
   @Get()
+  @RequireFeature('walk-in-authentication', 'view')
   listAll() {
     return this.service.listAll();
   }
 
   @Post()
+  @RequireFeature('walk-in-authentication', 'edit')
   @UseInterceptors(
     FileInterceptor('proof', {
       limits: { fileSize: 25 * 1024 * 1024 },
@@ -51,6 +56,7 @@ export class WalkInAuthenticationController {
   }
 
   @Post('batch-assign-authenticator')
+  @RequireFeature('walk-in-authentication', 'edit')
   batchAssign(
     @Req() req: { user: JwtUser },
     @Body() body: BatchAssignWalkInAuthenticatorDto,
@@ -59,11 +65,13 @@ export class WalkInAuthenticationController {
   }
 
   @Get(':id')
+  @RequireFeature('walk-in-authentication', 'view')
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.service.findOne(id);
   }
 
   @Patch(':id')
+  @RequireFeature('walk-in-authentication', 'edit')
   save(
     @Req() req: { user: JwtUser },
     @Param('id', ParseUUIDPipe) id: string,
@@ -76,6 +84,7 @@ export class WalkInAuthenticationController {
   }
 
   @Post(':id/complete')
+  @RequireFeature('walk-in-authentication', 'edit')
   complete(
     @Req() req: { user: JwtUser },
     @Param('id', ParseUUIDPipe) id: string,

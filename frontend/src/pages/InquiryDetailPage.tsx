@@ -26,6 +26,7 @@ import {
 import { formatOfferTransactionLabel } from "../lib/format-offer-transaction-type";
 import { formatPhpDisplay, parsePhpStringToNumber } from "../lib/format-php";
 import { randomId } from "../lib/random-id";
+import { useFeatureAccess } from "../lib/use-feature-access";
 
 type TransactionType = "consignment" | "direct_purchase";
 
@@ -298,6 +299,7 @@ function OfferModalAskingPrices({ detail }: { detail: InquiryDetail }) {
 export function InquiryDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { token } = usePortalAuth();
+  const { canEdit: canEditFeature, readOnly } = useFeatureAccess("inquiries");
   const [detail, setDetail] = useState<InquiryDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -663,7 +665,7 @@ export function InquiryDetailPage() {
   }, [detail]);
 
   const confirmDecline = useCallback(async () => {
-    if (!id || !token) return;
+    if (!canEditFeature || !id || !token) return;
     setActionError(null);
     setActionBusy("decline");
     try {
@@ -684,10 +686,10 @@ export function InquiryDetailPage() {
     } finally {
       setActionBusy(null);
     }
-  }, [id, token]);
+  }, [canEditFeature, id, token]);
 
   const openOfferModal = useCallback(() => {
-    if (!detail) return;
+    if (!canEditFeature || !detail) return;
     setActionError(null);
     setTxnType(
       detail.consentDirectPurchase &&
@@ -704,12 +706,12 @@ export function InquiryDetailPage() {
         : "",
     );
     setOfferModalOpen(true);
-  }, [detail]);
+  }, [canEditFeature, detail]);
 
   const submitOffer = useCallback(
     async (e: FormEvent) => {
       e.preventDefault();
-      if (!id || !token || !detail) return;
+      if (!canEditFeature || !id || !token || !detail) return;
       const price = parsePhpStringToNumber(offerPriceInput);
       if (price == null || price <= 0) {
         setActionError("Enter a valid offer price greater than zero.");
@@ -745,18 +747,18 @@ export function InquiryDetailPage() {
         setActionBusy(null);
       }
     },
-    [id, token, detail, offerPriceInput, txnType],
+    [canEditFeature, id, token, detail, offerPriceInput, txnType],
   );
 
   const openNotesModal = useCallback(() => {
-    if (!detail) return;
+    if (!canEditFeature || !detail) return;
     setActionError(null);
     setNotesDraft(detail.notes ?? "");
     setNotesModalOpen(true);
-  }, [detail]);
+  }, [canEditFeature, detail]);
 
   const openCreateNewOfferModal = useCallback(() => {
-    if (!detail?.authenticatedReturnDetail) return;
+    if (!canEditFeature || !detail?.authenticatedReturnDetail) return;
     setActionError(null);
     setCreateNewOfferPriceInput(
       detail.offerPrice != null && detail.offerPrice !== ""
@@ -767,12 +769,13 @@ export function InquiryDetailPage() {
         : "",
     );
     setCreateNewOfferModalOpen(true);
-  }, [detail]);
+  }, [canEditFeature, detail]);
 
   const submitAuthenticatedReturnNewOffer = useCallback(
     async (e: FormEvent) => {
       e.preventDefault();
-      if (!id || !token || !detail?.authenticatedReturnDetail) return;
+      if (!canEditFeature || !id || !token || !detail?.authenticatedReturnDetail)
+        return;
       const price = parsePhpStringToNumber(createNewOfferPriceInput);
       if (price == null || price <= 0) {
         setActionError("Enter a valid offer price greater than zero.");
@@ -1110,10 +1113,11 @@ export function InquiryDetailPage() {
   const showPrintContractAction =
     detail != null && isForProcessingStatus(detail.status);
   const showMoreActions =
-    showThirdPartyActions ||
-    showAvailableForPurchaseActions ||
-    showContractRenewalActions ||
-    showPulloutAction ||
+    (canEditFeature &&
+      (showThirdPartyActions ||
+        showAvailableForPurchaseActions ||
+        showContractRenewalActions ||
+        showPulloutAction)) ||
     showPrintContractAction;
 
   return (
@@ -1126,6 +1130,12 @@ export function InquiryDetailPage() {
           ← Back to inquiries
         </Link>
       </div>
+
+      {readOnly ? (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
+          You have view-only access to this feature.
+        </p>
+      ) : null}
 
       {error && (
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
@@ -1168,6 +1178,7 @@ export function InquiryDetailPage() {
             ) : null}
 
             <div className="mt-4 flex flex-wrap gap-2">
+              {canEditFeature ? (
               <button
                 type="button"
                 disabled={actionBusy !== null}
@@ -1176,6 +1187,7 @@ export function InquiryDetailPage() {
               >
                 {actionBusy === "notes" ? "Saving…" : "Update Notes"}
               </button>
+              ) : null}
               {detail.linkedInventoryItemId ? (
                 <Link
                   to={`/portal/inventory/${detail.linkedInventoryItemId}`}
@@ -1184,7 +1196,8 @@ export function InquiryDetailPage() {
                   View in Inventory
                 </Link>
               ) : null}
-              {isAuthenticatedReturnedStatus(detail.status) &&
+              {canEditFeature &&
+              isAuthenticatedReturnedStatus(detail.status) &&
               detail.authenticatedReturnDetail ? (
                 <button
                   type="button"
@@ -1195,7 +1208,7 @@ export function InquiryDetailPage() {
                   Create New Offer
                 </button>
               ) : null}
-              {isPending(detail.status) ? (
+              {canEditFeature && isPending(detail.status) ? (
                 <button
                   type="button"
                   disabled={actionBusy !== null}
@@ -1208,7 +1221,7 @@ export function InquiryDetailPage() {
                   {actionBusy === "decline" ? "Declining…" : "Decline"}
                 </button>
               ) : null}
-              {isPending(detail.status) ? (
+              {canEditFeature && isPending(detail.status) ? (
                 <button
                   type="button"
                   disabled={actionBusy !== null}
@@ -1218,7 +1231,7 @@ export function InquiryDetailPage() {
                   Create offer
                 </button>
               ) : null}
-              {canShowUpdateOfferButton(detail.status) ? (
+              {canEditFeature && canShowUpdateOfferButton(detail.status) ? (
                 <button
                   type="button"
                   disabled={actionBusy !== null}
@@ -1263,7 +1276,7 @@ export function InquiryDetailPage() {
                       role="menu"
                       className="absolute right-0 top-full z-50 mt-1 min-w-[16rem] rounded-lg border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-600 dark:bg-slate-900"
                     >
-                      {showAvailableForPurchaseActions ? (
+                      {canEditFeature && showAvailableForPurchaseActions ? (
                         <>
                           <li role="none">
                             <button
@@ -1297,7 +1310,7 @@ export function InquiryDetailPage() {
                           </li>
                         </>
                       ) : null}
-                      {showContractRenewalActions ? (
+                      {canEditFeature && showContractRenewalActions ? (
                         <li role="none">
                           <button
                             type="button"
@@ -1314,7 +1327,8 @@ export function InquiryDetailPage() {
                           </button>
                         </li>
                       ) : null}
-                      {showThirdPartyActions &&
+                      {canEditFeature &&
+                      showThirdPartyActions &&
                       detail.status.trim().toLowerCase() ===
                         "authenticated_requested_for_reauthentication" ? (
                         <>
@@ -1353,7 +1367,7 @@ export function InquiryDetailPage() {
                           </li>
                         </>
                       ) : null}
-                      {showThirdPartyActions ? (
+                      {canEditFeature && showThirdPartyActions ? (
                         <li role="none">
                           <button
                             type="button"
@@ -1395,7 +1409,7 @@ export function InquiryDetailPage() {
                           </button>
                         </li>
                       ) : null}
-                      {showPulloutAction ? (
+                      {canEditFeature && showPulloutAction ? (
                         <li role="none">
                           <button
                             type="button"

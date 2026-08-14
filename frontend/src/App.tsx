@@ -12,6 +12,7 @@ import { ClientLayout } from './components/ClientLayout'
 import { Layout } from './components/Layout'
 import { RequireClientAuth } from './components/RequireClientAuth'
 import { RequirePortalAuth } from './components/RequirePortalAuth'
+import { RequireFeatureAccess } from './components/RequireFeatureAccess'
 import { ClientCreateAccountPage } from './pages/ClientCreateAccountPage'
 import { ClientLoginPage } from './pages/ClientLoginPage'
 import { ClientResendVerificationPage } from './pages/ClientResendVerificationPage'
@@ -56,6 +57,22 @@ import { ClientOrdersPage } from './pages/ClientOrdersPage'
 import { RegisterPage } from './pages/RegisterPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { DashboardsPage } from './pages/DashboardsPage'
+import { UnauthorizedPage } from './pages/UnauthorizedPage'
+import { AccessManagementPage } from './pages/AccessManagementPage'
+import type { FeatureKey } from './lib/feature-access'
+import type { ReactNode } from 'react'
+
+function FeatureRoute({
+  feature,
+  children,
+}: {
+  feature: FeatureKey
+  children: ReactNode
+}) {
+  return (
+    <RequireFeatureAccess feature={feature}>{children}</RequireFeatureAccess>
+  )
+}
 
 function PortalBranch() {
   return (
@@ -92,10 +109,25 @@ const router = createBrowserRouter([
           </RequirePortalAuth>
         ),
         children: [
-          { index: true, element: <Navigate to="inquiries" replace /> },
+          { index: true, element: <Navigate to="dashboards" replace /> },
+          { path: 'unauthorized', element: <UnauthorizedPage /> },
           { path: 'dashboards', element: <DashboardsPage /> },
-          { path: 'inquiries', element: <InquiryPage /> },
-          { path: 'inquiries/:id', element: <InquiryDetailPage /> },
+          {
+            path: 'inquiries',
+            element: (
+              <FeatureRoute feature="inquiries">
+                <InquiryPage />
+              </FeatureRoute>
+            ),
+          },
+          {
+            path: 'inquiries/:id',
+            element: (
+              <FeatureRoute feature="inquiries">
+                <InquiryDetailPage />
+              </FeatureRoute>
+            ),
+          },
           { path: 'inventory', element: <InventoryPage /> },
           {
             path: 'inventory/:id/authentication',
@@ -104,48 +136,213 @@ const router = createBrowserRouter([
           { path: 'inventory/:id', element: <InventoryItemDetailPage /> },
           {
             path: 'consignment-scheduling',
-            element: <ConsignmentSchedulingPage />,
+            element: (
+              <FeatureRoute feature="consignment-scheduling">
+                <ConsignmentSchedulingPage />
+              </FeatureRoute>
+            ),
           },
           {
             path: 'consignment-scheduling/:id',
-            element: <ConsignmentScheduleDetailPage />,
+            element: (
+              <FeatureRoute feature="consignment-scheduling">
+                <ConsignmentScheduleDetailPage />
+              </FeatureRoute>
+            ),
           },
           {
             path: 'authentication/:id',
-            element: <ItemAuthenticationPage />,
+            element: (
+              <FeatureRoute feature="authentication">
+                <ItemAuthenticationPage />
+              </FeatureRoute>
+            ),
           },
-          { path: 'authentication', element: <AuthenticationPage /> },
+          {
+            path: 'authentication',
+            element: (
+              <FeatureRoute feature="authentication">
+                <AuthenticationPage />
+              </FeatureRoute>
+            ),
+          },
           {
             path: 'walk-in-authentication/:id',
-            element: <WalkInAuthenticationDetailPage />,
+            element: (
+              <FeatureRoute feature="walk-in-authentication">
+                <WalkInAuthenticationDetailPage />
+              </FeatureRoute>
+            ),
           },
           {
             path: 'walk-in-authentication',
-            element: <WalkInAuthenticationPage />,
+            element: (
+              <FeatureRoute feature="walk-in-authentication">
+                <WalkInAuthenticationPage />
+              </FeatureRoute>
+            ),
           },
-          { path: 'photoshoot', element: <PhotoshootPage /> },
-          { path: 'photoshoot/item/:photoshootId', element: <PhotoshootItemPage /> },
-          { path: 'pricing', element: <PricingPage /> },
-          { path: 'editing/:itemId', element: <EditingItemPage /> },
-          { path: 'editing', element: <EditingPage /> },
-          { path: 'posting/:itemId', element: <PostingItemPage /> },
-          { path: 'posting', element: <PostingPage /> },
-          { path: 'orders', element: <OrdersPage /> },
-          { path: 'orders/:id', element: <OrderDetailPage /> },
-          { path: 'consignor-payments', element: <ConsignorPaymentsPage /> },
+          {
+            path: 'photoshoot',
+            element: (
+              <FeatureRoute feature="photoshoot">
+                <PhotoshootPage />
+              </FeatureRoute>
+            ),
+          },
+          {
+            path: 'photoshoot/item/:photoshootId',
+            element: (
+              <FeatureRoute feature="photoshoot">
+                <PhotoshootItemPage />
+              </FeatureRoute>
+            ),
+          },
+          {
+            path: 'pricing',
+            element: (
+              <FeatureRoute feature="pricing">
+                <PricingPage />
+              </FeatureRoute>
+            ),
+          },
+          {
+            path: 'editing/:itemId',
+            element: (
+              <FeatureRoute feature="editing">
+                <EditingItemPage />
+              </FeatureRoute>
+            ),
+          },
+          {
+            path: 'editing',
+            element: (
+              <FeatureRoute feature="editing">
+                <EditingPage />
+              </FeatureRoute>
+            ),
+          },
+          {
+            path: 'posting/:itemId',
+            element: (
+              <FeatureRoute feature="posting">
+                <PostingItemPage />
+              </FeatureRoute>
+            ),
+          },
+          {
+            path: 'posting',
+            element: (
+              <FeatureRoute feature="posting">
+                <PostingPage />
+              </FeatureRoute>
+            ),
+          },
+          {
+            path: 'orders',
+            element: (
+              <FeatureRoute feature="orders">
+                <OrdersPage />
+              </FeatureRoute>
+            ),
+          },
+          {
+            path: 'orders/:id',
+            element: (
+              <FeatureRoute feature="orders">
+                <OrderDetailPage />
+              </FeatureRoute>
+            ),
+          },
+          {
+            path: 'consignor-payments',
+            element: (
+              <FeatureRoute feature="consignor-payments">
+                <ConsignorPaymentsPage />
+              </FeatureRoute>
+            ),
+          },
           {
             path: 'consignor-payments/:id',
-            element: <ConsignorPaymentDetailPage />,
+            element: (
+              <FeatureRoute feature="consignor-payments">
+                <ConsignorPaymentDetailPage />
+              </FeatureRoute>
+            ),
           },
-          { path: 'promotions', element: <PromotionsPage /> },
-          { path: 'vouchers', element: <VouchersPage /> },
-          { path: 'logistics', element: <LogisticsPage /> },
-          { path: 'settings', element: <SettingsPage /> },
-          { path: 'employees/register', element: <RegisterPage /> },
-          { path: 'employees', element: <EmployeesPage /> },
-          { path: 'clients/:clientId', element: <ClientAccountDetailPage /> },
-          { path: 'clients', element: <ClientsPage /> },
-          { path: '*', element: <Navigate to="/portal/inquiries" replace /> },
+          {
+            path: 'promotions',
+            element: (
+              <FeatureRoute feature="promotions">
+                <PromotionsPage />
+              </FeatureRoute>
+            ),
+          },
+          {
+            path: 'vouchers',
+            element: (
+              <FeatureRoute feature="vouchers">
+                <VouchersPage />
+              </FeatureRoute>
+            ),
+          },
+          {
+            path: 'logistics',
+            element: (
+              <FeatureRoute feature="logistics">
+                <LogisticsPage />
+              </FeatureRoute>
+            ),
+          },
+          {
+            path: 'settings',
+            element: (
+              <FeatureRoute feature="settings">
+                <SettingsPage />
+              </FeatureRoute>
+            ),
+          },
+          {
+            path: 'access-management',
+            element: (
+              <FeatureRoute feature="access-management">
+                <AccessManagementPage />
+              </FeatureRoute>
+            ),
+          },
+          {
+            path: 'employees/register',
+            element: (
+              <FeatureRoute feature="employees">
+                <RegisterPage />
+              </FeatureRoute>
+            ),
+          },
+          {
+            path: 'employees',
+            element: (
+              <FeatureRoute feature="employees">
+                <EmployeesPage />
+              </FeatureRoute>
+            ),
+          },
+          {
+            path: 'clients/:clientId',
+            element: (
+              <FeatureRoute feature="clients">
+                <ClientAccountDetailPage />
+              </FeatureRoute>
+            ),
+          },
+          {
+            path: 'clients',
+            element: (
+              <FeatureRoute feature="clients">
+                <ClientsPage />
+              </FeatureRoute>
+            ),
+          },
+          { path: '*', element: <Navigate to="/portal/dashboards" replace /> },
         ],
       },
     ],

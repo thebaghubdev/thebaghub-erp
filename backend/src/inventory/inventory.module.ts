@@ -1,5 +1,6 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AccessControlModule } from '../access-control/access-control.module';
 import { AuthenticationMetric } from '../authentication-metrics/entities/authentication-metric.entity';
 import { Client } from '../clients/entities/client.entity';
 import { Employee } from '../employees/entities/employee.entity';
@@ -19,6 +20,7 @@ import { SoldWarrantyFinalizeCron } from './sold-warranty-finalize.cron';
 
 @Module({
   imports: [
+    AccessControlModule,
     forwardRef(() => InquiriesModule),
     MediaModule,
     NotificationsModule,

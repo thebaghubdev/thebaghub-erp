@@ -15,6 +15,7 @@ import {
   sortMetricsForDisplay,
 } from "../lib/filter-authentication-metrics";
 import { formatPhpDisplay, parsePhpStringToNumber } from "../lib/format-php";
+import { useFeatureAccess } from "../lib/use-feature-access";
 import {
   walkInAuthResultBadgeClassName,
   walkInAuthStatusBadgeClassName,
@@ -165,8 +166,9 @@ export function WalkInAuthenticationDetailPage() {
   const [result, setResult] = useState<string>("");
 
   const myEmployeeId = user?.employee?.id ?? null;
+  const feature = useFeatureAccess("walk-in-authentication");
 
-  const canEdit = useMemo(() => {
+  const roleCanEdit = useMemo(() => {
     if (!detail) return false;
     if (detail.status !== ASSIGNED) return false;
     if (user?.isAdmin) return true;
@@ -176,6 +178,8 @@ export function WalkInAuthenticationDetailPage() {
       myEmployeeId === detail.assignedToId
     );
   }, [detail, user?.isAdmin, myEmployeeId]);
+
+  const canEdit = roleCanEdit && feature.canEdit;
 
   const load = useCallback(async () => {
     if (!token || !id) return;
@@ -445,6 +449,11 @@ export function WalkInAuthenticationDetailPage() {
 
   return (
     <div className="flex flex-col gap-6 p-4 sm:p-6">
+      {feature.readOnly ? (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
+          You have view-only access to this feature.
+        </p>
+      ) : null}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <Link

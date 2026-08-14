@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AccessControlModule } from '../access-control/access-control.module';
 import { Employee } from '../employees/entities/employee.entity';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
 import { Promotion, PromotionItem } from './entities/promotion.entities';
@@ -9,6 +10,7 @@ import { PromotionsSyncCron } from './promotions-sync.cron';
 
 @Module({
   imports: [
+    AccessControlModule,
     TypeOrmModule.forFeature([
       Promotion,
       PromotionItem,

@@ -7,6 +7,7 @@ import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
 import { formatPhpDisplay } from "../lib/format-php";
+import { useFeatureAccess } from "../lib/use-feature-access";
 import {
   formatVoucherDate,
   voucherStatusBadgeClass,
@@ -63,6 +64,7 @@ function compareClients(a: ClientAccountRow, b: ClientAccountRow): number {
 
 export function VouchersPage() {
   const { token } = usePortalAuth();
+  const { canEdit, readOnly } = useFeatureAccess("vouchers");
   const expirationDateId = useId();
 
   const [tab, setTab] = useState<VouchersTab>("all");
@@ -140,7 +142,7 @@ export function VouchersPage() {
   }, [tab, resetCreateForm]);
 
   const handleForfeit = useCallback(async () => {
-    if (!forfeitTarget) return;
+    if (!canEdit || !forfeitTarget) return;
     setForfeitBusy(true);
     setForfeitError(null);
     try {
@@ -170,9 +172,10 @@ export function VouchersPage() {
     } finally {
       setForfeitBusy(false);
     }
-  }, [forfeitTarget, token, loadVouchers]);
+  }, [canEdit, forfeitTarget, token, loadVouchers]);
 
   const handleCreate = useCallback(async () => {
+    if (!canEdit) return;
     setSaveError(null);
     if (!selectedClientId) {
       setSaveError("Select a client.");
@@ -223,6 +226,7 @@ export function VouchersPage() {
       setSaveBusy(false);
     }
   }, [
+    canEdit,
     selectedClientId,
     amount,
     expirationDate,
@@ -282,7 +286,10 @@ export function VouchersPage() {
         id: "actions",
         header: "",
         cell: ({ row }) => {
-          if (row.original.status.trim().toLowerCase() !== "active") {
+          if (
+            readOnly ||
+            row.original.status.trim().toLowerCase() !== "active"
+          ) {
             return null;
           }
           return (
@@ -301,11 +308,16 @@ export function VouchersPage() {
         },
       }),
     ],
-    [listColumnHelper],
+    [listColumnHelper, readOnly],
   );
 
   return (
     <div className="w-full min-w-0">
+      {readOnly ? (
+        <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
+          You have view-only access to this feature.
+        </p>
+      ) : null}
       <div
         className="mb-6 flex items-end gap-2 border-b border-slate-200 dark:border-slate-800"
         role="tablist"
@@ -326,21 +338,23 @@ export function VouchersPage() {
         >
           All Vouchers
         </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "create"}
-          id="tab-vouchers-create"
-          aria-controls="panel-vouchers-create"
-          className={`${tabBtn} ${
-            tab === "create"
-              ? "border-violet-600 text-violet-700 dark:text-violet-300"
-              : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
-          }`}
-          onClick={() => setTab("create")}
-        >
-          Create voucher
-        </button>
+        {!readOnly ? (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "create"}
+            id="tab-vouchers-create"
+            aria-controls="panel-vouchers-create"
+            className={`${tabBtn} ${
+              tab === "create"
+                ? "border-violet-600 text-violet-700 dark:text-violet-300"
+                : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
+            }`}
+            onClick={() => setTab("create")}
+          >
+            Create voucher
+          </button>
+        ) : null}
       </div>
 
       {tab === "all" && (
@@ -370,7 +384,7 @@ export function VouchersPage() {
         </section>
       )}
 
-      {tab === "create" && (
+      {tab === "create" && !readOnly && (
         <section
           id="panel-vouchers-create"
           role="tabpanel"

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
+import { useFeatureAccess } from "../lib/use-feature-access";
 import {
   consignorPaymentStatusBadgeClass,
   formatConsignorPaymentAuditDate,
@@ -24,6 +25,7 @@ const listItemClass =
 export function ConsignorPaymentsPage() {
   const navigate = useNavigate();
   const { token } = usePortalAuth();
+  const { readOnly } = useFeatureAccess("consignor-payments");
   const [rows, setRows] = useState<ConsignorPaymentRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -52,6 +54,11 @@ export function ConsignorPaymentsPage() {
 
   return (
     <div className="w-full min-w-0 space-y-6">
+      {readOnly ? (
+        <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
+          You have view-only access to this feature.
+        </p>
+      ) : null}
       <div>
         <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-100">
           Consignor Payments

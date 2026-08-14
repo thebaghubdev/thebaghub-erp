@@ -3,6 +3,7 @@ import { HireDatePicker } from '../components/HireDatePicker'
 import { PasswordField } from '../components/PasswordField'
 import { usePortalAuth } from '../context/portal-auth'
 import { apiFetch } from '../lib/api'
+import { useFeatureAccess } from '../lib/use-feature-access'
 
 /** Matches backend `POSITIONS_KEY` / seeded setting `positions`. */
 const POSITIONS_SETTING_KEY = 'positions'
@@ -28,6 +29,7 @@ function parsePositionsFromSettings(settings: SettingApiRow[]): string[] {
 
 export function RegisterPage() {
   const { token } = usePortalAuth()
+  const { canEdit, readOnly } = useFeatureAccess('employees')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [firstName, setFirstName] = useState('')
@@ -76,6 +78,7 @@ export function RegisterPage() {
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (!canEdit) return
     setError(null)
     setSuccess(null)
     if (!hireDate.trim()) {
@@ -131,10 +134,20 @@ export function RegisterPage() {
 
   return (
     <div className="w-full min-w-0">
+      {readOnly ? (
+        <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
+          You have view-only access to this feature.
+        </p>
+      ) : null}
       <p className="mb-6 text-sm text-slate-600 dark:text-slate-400">
         Creates a new user (employee) and linked employee profile.
       </p>
 
+      {readOnly ? (
+        <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+          You cannot register employees with view-only access.
+        </p>
+      ) : (
       <form
         onSubmit={onSubmit}
         className="max-w-xl space-y-4 rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900"
@@ -288,6 +301,7 @@ export function RegisterPage() {
           {submitting ? 'Saving…' : 'Create employee'}
         </button>
       </form>
+      )}
     </div>
   )
 }

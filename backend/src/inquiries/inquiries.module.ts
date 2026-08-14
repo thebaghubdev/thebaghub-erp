@@ -1,5 +1,6 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AccessControlModule } from '../access-control/access-control.module';
 import { ConsignmentScheduleItem } from '../consignment-schedules/entities/consignment-schedule.entities';
 import { ConsignmentSchedule } from '../consignment-schedules/entities/consignment-schedule.entities';
 import { Client } from '../clients/entities/client.entity';
@@ -21,6 +22,7 @@ import { MailModule } from '../mail/mail.module';
 
 @Module({
   imports: [
+    AccessControlModule,
     forwardRef(() => InventoryModule),
     MediaModule,
     NotificationsModule,

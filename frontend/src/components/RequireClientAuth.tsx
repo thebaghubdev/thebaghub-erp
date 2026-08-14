@@ -25,7 +25,7 @@ export function RequireClientAuth({ children }: { children: ReactNode }) {
   }
 
   if (user && user.userType !== 'client') {
-    return <Navigate to="/portal/inquiries" replace />
+    return <Navigate to="/portal/dashboards" replace />
   }
 
   return children

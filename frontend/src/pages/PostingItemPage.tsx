@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { InventoryStatusBadge } from "../components/InventoryStatusBadge";
 import { apiFetch } from "../lib/api";
+import { useFeatureAccess } from "../lib/use-feature-access";
 import { formatPhpDisplay } from "../lib/format-php";
 import { usePortalAuth } from "../context/portal-auth";
 
@@ -52,6 +53,7 @@ const cardClass =
 export function PostingItemPage() {
   const { itemId } = useParams<{ itemId: string }>();
   const { token } = usePortalAuth();
+  const { canEdit, readOnly } = useFeatureAccess("posting");
   const [detail, setDetail] = useState<InventoryDetailForStaff | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -103,7 +105,7 @@ export function PostingItemPage() {
   };
 
   const postToShopify = useCallback(async () => {
-    if (!itemId || !token) return;
+    if (!canEdit || !itemId || !token) return;
     setShopifyBusy(true);
     setShopifyError(null);
     setShopifyMessage(null);
@@ -135,10 +137,10 @@ export function PostingItemPage() {
     } finally {
       setShopifyBusy(false);
     }
-  }, [itemId, token, load]);
+  }, [canEdit, itemId, token, load]);
 
   const linkShopifyProduct = useCallback(async () => {
-    if (!itemId || !token) return;
+    if (!canEdit || !itemId || !token) return;
     const productId = linkProductId.trim();
     if (!productId) return;
     setLinkingProduct(true);
@@ -176,7 +178,7 @@ export function PostingItemPage() {
     } finally {
       setLinkingProduct(false);
     }
-  }, [itemId, token, linkProductId, load]);
+  }, [canEdit, itemId, token, linkProductId, load]);
 
   if (loading) {
     return (
@@ -207,12 +209,17 @@ export function PostingItemPage() {
   const isForPosting = detail.status === "For Posting";
   const isPosted = detail.status === "Available For Purchase";
   const shopifyProductId = posting?.shopifyProductId ?? null;
-  const canPostToShopify = isForPosting;
-  const canEditPost = !!posting && (isForPosting || isPosted);
+  const canPostToShopify = canEdit && isForPosting;
+  const canEditPost = canEdit && !!posting && (isForPosting || isPosted);
   const needsShopifyLink = isPosted && !shopifyProductId;
 
   return (
     <div className="w-full min-w-0 space-y-6">
+      {readOnly ? (
+        <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
+          You have view-only access to this feature.
+        </p>
+      ) : null}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">

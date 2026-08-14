@@ -3,6 +3,7 @@ import { ConsignmentCalendar } from "../components/ConsignmentCalendar";
 import { CreateScheduleWizard } from "../components/CreateScheduleWizard";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
+import { useFeatureAccess } from "../lib/use-feature-access";
 
 type ConsignmentScheduleRow = {
   id: string;
@@ -21,6 +22,7 @@ type SchedulingTab = "calendar" | "create";
 
 export function ConsignmentSchedulingPage() {
   const { token } = usePortalAuth();
+  const { readOnly } = useFeatureAccess("consignment-scheduling");
   const [tab, setTab] = useState<SchedulingTab>("calendar");
   const [createWizardKey, setCreateWizardKey] = useState(0);
   const [rows, setRows] = useState<ConsignmentScheduleRow[]>([]);
@@ -51,6 +53,11 @@ export function ConsignmentSchedulingPage() {
 
   return (
     <div className="w-full min-w-0">
+      {readOnly ? (
+        <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
+          You have view-only access to this feature.
+        </p>
+      ) : null}
       <div
         className="mb-6 flex items-end gap-2 border-b border-slate-200 dark:border-slate-800"
         role="tablist"
@@ -71,24 +78,26 @@ export function ConsignmentSchedulingPage() {
         >
           Consignment Calendar
         </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "create"}
-          id="tab-sched-create"
-          aria-controls="panel-sched-create"
-          className={`${tabBtn} ${
-            tab === "create"
-              ? "border-violet-600 text-violet-700 dark:text-violet-300"
-              : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
-          }`}
-          onClick={() => {
-            setTab("create");
-            setCreateWizardKey((k) => k + 1);
-          }}
-        >
-          Create a Schedule
-        </button>
+        {!readOnly ? (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "create"}
+            id="tab-sched-create"
+            aria-controls="panel-sched-create"
+            className={`${tabBtn} ${
+              tab === "create"
+                ? "border-violet-600 text-violet-700 dark:text-violet-300"
+                : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
+            }`}
+            onClick={() => {
+              setTab("create");
+              setCreateWizardKey((k) => k + 1);
+            }}
+          >
+            Create a Schedule
+          </button>
+        ) : null}
       </div>
 
       {tab === "calendar" && (
@@ -107,7 +116,7 @@ export function ConsignmentSchedulingPage() {
         </section>
       )}
 
-      {tab === "create" && (
+      {tab === "create" && !readOnly && (
         <section
           key={createWizardKey}
           id="panel-sched-create"

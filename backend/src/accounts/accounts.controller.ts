@@ -7,6 +7,8 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import { FeatureAccessGuard } from '../access-control/feature-access.guard';
+import { RequireFeature } from '../access-control/require-feature.decorator';
 import { StaffOnlyGuard } from '../auth/staff-only.guard';
 import { JwtUser } from '../auth/jwt-user';
 import { AccountsService } from './accounts.service';
@@ -16,26 +18,30 @@ import { UpdateClientVipStatusDto } from './dto/update-client-vip-status.dto';
 import { UpdateClientBankDto } from '../clients/dto/update-client-bank.dto';
 
 @Controller('accounts')
-@UseGuards(StaffOnlyGuard)
+@UseGuards(StaffOnlyGuard, FeatureAccessGuard)
 export class AccountsController {
   constructor(private readonly accountsService: AccountsService) {}
 
   @Get('employees')
+  @RequireFeature('employees', 'view', { orFeatureKeys: ['access-management'] })
   findEmployees() {
     return this.accountsService.findAllEmployees();
   }
 
   @Get('clients')
+  @RequireFeature('clients', 'view')
   findClients() {
     return this.accountsService.findAllClients();
   }
 
   @Get('clients/:id')
+  @RequireFeature('clients', 'view')
   findClient(@Param('id') id: string) {
     return this.accountsService.findClientById(id);
   }
 
   @Patch('clients/:id/vip-status')
+  @RequireFeature('clients', 'edit')
   updateClientVipStatus(
     @Param('id') id: string,
     @Body() dto: UpdateClientVipStatusDto,
@@ -49,6 +55,7 @@ export class AccountsController {
   }
 
   @Patch('clients/:id/credit-line')
+  @RequireFeature('clients', 'edit')
   updateClientCreditLine(
     @Param('id') id: string,
     @Body() dto: UpdateClientCreditLineDto,
@@ -62,6 +69,7 @@ export class AccountsController {
   }
 
   @Patch('clients/:id/payment-profile')
+  @RequireFeature('clients', 'edit')
   updateClientPaymentProfile(
     @Param('id') id: string,
     @Body() dto: UpdateClientBankDto,
@@ -75,6 +83,7 @@ export class AccountsController {
   }
 
   @Patch('employees/:id')
+  @RequireFeature('employees', 'edit')
   updateEmployee(
     @Param('id') id: string,
     @Body() dto: UpdateEmployeeDto,

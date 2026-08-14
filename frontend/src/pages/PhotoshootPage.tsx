@@ -10,6 +10,7 @@ import {
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
 import { InventoryStatusBadge } from "../components/InventoryStatusBadge";
+import { useFeatureAccess } from "../lib/use-feature-access";
 
 type PhotoshootTab = "calendar" | "scheduling";
 
@@ -130,6 +131,7 @@ export function PhotoshootPage() {
   const [tab, setTab] = useState<PhotoshootTab>("calendar");
   const scheduleDateId = useId();
   const { token } = usePortalAuth();
+  const { canEdit, readOnly } = useFeatureAccess("photoshoot");
   const [scheduleDate, setScheduleDate] = useState("");
   const [rows, setRows] = useState<InventoryRow[]>([]);
   const [inventoryLoading, setInventoryLoading] = useState(false);
@@ -235,10 +237,12 @@ export function PhotoshootPage() {
     });
   }, []);
 
-  const showCreate = Boolean(scheduleDate.trim()) && selectedIds.size > 0;
+  const showCreate =
+    !readOnly && Boolean(scheduleDate.trim()) && selectedIds.size > 0;
 
   const handleCreate = async () => {
-    if (!token || !scheduleDate.trim() || selectedIds.size === 0) return;
+    if (!canEdit || !token || !scheduleDate.trim() || selectedIds.size === 0)
+      return;
     setCreateError(null);
     setCreateSubmitting(true);
     try {
@@ -272,6 +276,11 @@ export function PhotoshootPage() {
 
   return (
     <div className="w-full min-w-0">
+      {readOnly ? (
+        <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
+          You have view-only access to this feature.
+        </p>
+      ) : null}
       <div
         className="mb-6 flex items-end gap-2 border-b border-slate-200 dark:border-slate-800"
         role="tablist"
@@ -292,21 +301,23 @@ export function PhotoshootPage() {
         >
           Photoshoot Calendar
         </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "scheduling"}
-          id="tab-photoshoot-scheduling"
-          aria-controls="panel-photoshoot-scheduling"
-          className={`${tabBtn} ${
-            tab === "scheduling"
-              ? "border-violet-600 text-violet-700 dark:text-violet-300"
-              : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
-          }`}
-          onClick={() => setTab("scheduling")}
-        >
-          Scheduling
-        </button>
+        {!readOnly ? (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "scheduling"}
+            id="tab-photoshoot-scheduling"
+            aria-controls="panel-photoshoot-scheduling"
+            className={`${tabBtn} ${
+              tab === "scheduling"
+                ? "border-violet-600 text-violet-700 dark:text-violet-300"
+                : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
+            }`}
+            onClick={() => setTab("scheduling")}
+          >
+            Scheduling
+          </button>
+        ) : null}
       </div>
 
       {tab === "calendar" && (
@@ -328,7 +339,7 @@ export function PhotoshootPage() {
         </section>
       )}
 
-      {tab === "scheduling" && (
+      {tab === "scheduling" && !readOnly && (
         <section
           id="panel-photoshoot-scheduling"
           role="tabpanel"

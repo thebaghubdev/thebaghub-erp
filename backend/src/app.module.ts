@@ -65,6 +65,8 @@ import { Voucher } from './vouchers/entities/voucher.entity';
 import { WalkInAuthenticationModule } from './walk-in-authentication/walk-in-authentication.module';
 import { WalkInAuthentication } from './walk-in-authentication/entities/walk-in-authentication.entity';
 import { WalkInAuthenticationMetric } from './walk-in-authentication/entities/walk-in-authentication-metric.entity';
+import { AccessControlModule } from './access-control/access-control.module';
+import { FeatureAccess } from './access-control/entities/feature-access.entity';
 
 @Module({
   imports: [
@@ -113,6 +115,7 @@ import { WalkInAuthenticationMetric } from './walk-in-authentication/entities/wa
           Voucher,
           WalkInAuthentication,
           WalkInAuthenticationMetric,
+          FeatureAccess,
         ],
         synchronize:
           config.get<string>('NODE_ENV', 'development') !== 'production',
@@ -120,6 +123,7 @@ import { WalkInAuthenticationMetric } from './walk-in-authentication/entities/wa
     }),
     DatabaseModule,
     AuthModule,
+    AccessControlModule,
     ClientsModule,
     InquiriesModule,
     SettingsModule,

@@ -14,6 +14,7 @@ import {
   formatPhpDisplay,
   parsePhpStringToNumber,
 } from "../lib/format-php";
+import { useFeatureAccess } from "../lib/use-feature-access";
 
 const PRICING_PAGE_STATUSES = new Set([
   "For Pricing",
@@ -153,6 +154,7 @@ const columnHelper = createColumnHelper<InventoryRow>();
 export function PricingPage() {
   const navigate = useNavigate();
   const { token } = usePortalAuth();
+  const { canEdit, readOnly } = useFeatureAccess("pricing");
   const [rows, setRows] = useState<InventoryRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -195,6 +197,7 @@ export function PricingPage() {
   }, [load]);
 
   const beginPricingEdit = useCallback(() => {
+    if (!canEdit) return;
     const initialTbh: Record<string, string> = {};
     const initialDiscount: Record<string, boolean> = {};
     for (const r of rows) {
@@ -206,7 +209,7 @@ export function PricingPage() {
     setDraftEnableDiscountById(initialDiscount);
     setPricingSaveError(null);
     setPricingEditMode(true);
-  }, [rows]);
+  }, [canEdit, rows]);
 
   const closeMarkupRangeWarning = useCallback(() => {
     setMarkupRangeWarningOpen(false);
@@ -224,7 +227,7 @@ export function PricingPage() {
 
   const performPricingSave = useCallback(
     async (updates: PricingUpdate[]) => {
-      if (!token || updates.length === 0) return;
+      if (!canEdit || !token || updates.length === 0) return;
       setSavingPricing(true);
       try {
         for (const u of updates) {
@@ -259,19 +262,20 @@ export function PricingPage() {
         setSavingPricing(false);
       }
     },
-    [token, load],
+    [canEdit, token, load],
   );
 
   const confirmMarkupRangeWarning = useCallback(async () => {
+    if (!canEdit) return;
     const updates = [...pendingPricingUpdatesRef.current];
     setMarkupRangeWarningOpen(false);
     pendingPricingUpdatesRef.current = [];
     setMarkupWarningLines([]);
     await performPricingSave(updates);
-  }, [performPricingSave]);
+  }, [canEdit, performPricingSave]);
 
   const savePricing = useCallback(async () => {
-    if (!token) return;
+    if (!canEdit || !token) return;
     setPricingSaveError(null);
     const updates: PricingUpdate[] = [];
     for (const r of rows) {
@@ -336,6 +340,7 @@ export function PricingPage() {
 
     await performPricingSave(updates);
   }, [
+    canEdit,
     token,
     rows,
     draftTbhById,
@@ -672,7 +677,7 @@ export function PricingPage() {
 
   const toolbarRight = (
     <div className="flex flex-wrap items-center justify-end gap-2">
-      {pricingEditMode ? (
+      {!readOnly && pricingEditMode ? (
         <>
           <button
             type="button"
@@ -691,7 +696,7 @@ export function PricingPage() {
             {savingPricing ? "Saving…" : "Save pricing"}
           </button>
         </>
-      ) : (
+      ) : !readOnly ? (
         <button
           type="button"
           className={toolbarPrimaryBtn}
@@ -700,12 +705,17 @@ export function PricingPage() {
         >
           Update pricing
         </button>
-      )}
+      ) : null}
     </div>
   );
 
   return (
     <div className="w-full min-w-0">
+      {readOnly ? (
+        <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
+          You have view-only access to this feature.
+        </p>
+      ) : null}
       {error ? (
         <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
           {error}

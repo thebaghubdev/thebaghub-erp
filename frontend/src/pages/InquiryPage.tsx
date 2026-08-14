@@ -7,6 +7,7 @@ import { StaffWalkInConsignmentWizard } from "../components/StaffWalkInConsignme
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
+import { useFeatureAccess } from "../lib/use-feature-access";
 import { InquiryStatusBadge } from "../components/InquiryStatusBadge";
 import { formatOfferTransactionLabel } from "../lib/format-offer-transaction-type";
 import { formatPhpDisplay } from "../lib/format-php";
@@ -236,6 +237,7 @@ const inquiryColumns = [
 export function InquiryPage() {
   const navigate = useNavigate();
   const { token } = usePortalAuth();
+  const { canEdit, readOnly } = useFeatureAccess("inquiries");
   const [tab, setTab] = useState<InquiryTab>("all");
   const [tabLeaveOpen, setTabLeaveOpen] = useState(false);
   const [pendingInquiryTab, setPendingInquiryTab] =
@@ -372,6 +374,7 @@ export function InquiryPage() {
     "box-border h-11 min-h-11 w-full max-w-xl rounded-lg border border-slate-300 bg-white px-3 py-0 text-sm leading-5 text-slate-900 outline-none ring-violet-500 focus:ring-2 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100";
 
   const requestTab = (next: InquiryTab) => {
+    if (next === "create" && !canEdit) return;
     if (tab === "create" && next === "all" && wizardDirty) {
       setPendingInquiryTab(next);
       setTabLeaveOpen(true);
@@ -382,6 +385,11 @@ export function InquiryPage() {
 
   return (
     <div className="w-full min-w-0">
+      {readOnly ? (
+        <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
+          You have view-only access to this feature.
+        </p>
+      ) : null}
       <ConfirmDialog
         open={tabLeaveOpen}
         title="Unsaved changes"
@@ -418,21 +426,23 @@ export function InquiryPage() {
         >
           All Inquiries
         </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "create"}
-          id="tab-create"
-          aria-controls="panel-create"
-          className={`${tabBtn} ${
-            tab === "create"
-              ? "border-violet-600 text-violet-700 dark:text-violet-300"
-              : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
-          }`}
-          onClick={() => requestTab("create")}
-        >
-          Create Inquiry
-        </button>
+        {!readOnly ? (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "create"}
+            id="tab-create"
+            aria-controls="panel-create"
+            className={`${tabBtn} ${
+              tab === "create"
+                ? "border-violet-600 text-violet-700 dark:text-violet-300"
+                : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
+            }`}
+            onClick={() => requestTab("create")}
+          >
+            Create Inquiry
+          </button>
+        ) : null}
       </div>
 
       {tab === "all" && (
@@ -462,7 +472,7 @@ export function InquiryPage() {
         </section>
       )}
 
-      {tab === "create" && (
+      {tab === "create" && !readOnly && (
         <section
           id="panel-create"
           role="tabpanel"

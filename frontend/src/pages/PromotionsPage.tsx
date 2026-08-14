@@ -20,6 +20,7 @@ import {
   type PromotionLifecycleStatus,
 } from "../lib/promotions-display";
 import { branchLabel } from "../lib/consignment-schedule-labels";
+import { useFeatureAccess } from "../lib/use-feature-access";
 
 type PromotionsTab = "list" | "create";
 
@@ -160,6 +161,7 @@ function PromoPriceInput({
 
 export function PromotionsPage() {
   const { token } = usePortalAuth();
+  const { canEdit, readOnly } = useFeatureAccess("promotions");
   const startDateId = useId();
   const endDateId = useId();
 
@@ -312,6 +314,7 @@ export function PromotionsPage() {
 
   const beginEdit = useCallback(
     async (row: PromotionListRow) => {
+      if (!canEdit) return;
       if (
         row.lifecycleStatus === "ended" ||
         row.lifecycleStatus === "cancelled"
@@ -356,7 +359,7 @@ export function PromotionsPage() {
         setSubmitBusy(false);
       }
     },
-    [token, resetWizard],
+    [canEdit, token, resetWizard],
   );
 
   const step1Valid =
@@ -389,6 +392,7 @@ export function PromotionsPage() {
   }, [pricingRows]);
 
   const handleSubmit = useCallback(async () => {
+    if (!canEdit) return;
     if (!allPricingValid) {
       setWizardError("Set a valid promo price for every item.");
       return;
@@ -438,6 +442,7 @@ export function PromotionsPage() {
       setSubmitBusy(false);
     }
   }, [
+    canEdit,
     allPricingValid,
     promotionName,
     startDate,
@@ -450,7 +455,7 @@ export function PromotionsPage() {
   ]);
 
   const confirmCancel = useCallback(async () => {
-    if (!cancelTarget) return;
+    if (!canEdit || !cancelTarget) return;
     setCancelBusy(true);
     try {
       const res = await apiFetch(
@@ -466,9 +471,10 @@ export function PromotionsPage() {
     } finally {
       setCancelBusy(false);
     }
-  }, [cancelTarget, token, loadPromotions]);
+  }, [canEdit, cancelTarget, token, loadPromotions]);
 
   const applyBulkDiscount = useCallback(() => {
+    if (!canEdit) return;
     setBulkError(null);
     const amount = Number.parseFloat(bulkAmount);
     if (!Number.isFinite(amount)) {
@@ -503,7 +509,7 @@ export function PromotionsPage() {
     setPricingRows(next);
     setBulkModalOpen(false);
     setBulkAmount("");
-  }, [bulkAmount, bulkDiscountType, pricingRows, pricingSelected]);
+  }, [canEdit, bulkAmount, bulkDiscountType, pricingRows, pricingSelected]);
 
   const pickerColumns = useMemo(
     () => [
@@ -633,6 +639,11 @@ export function PromotionsPage() {
 
   return (
     <div className="w-full min-w-0">
+      {readOnly ? (
+        <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
+          You have view-only access to this feature.
+        </p>
+      ) : null}
       <div
         className="mb-6 flex items-end gap-2 border-b border-slate-200 dark:border-slate-800"
         role="tablist"
@@ -656,24 +667,26 @@ export function PromotionsPage() {
         >
           Promotions
         </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "create"}
-          id="tab-promotions-create"
-          aria-controls="panel-promotions-create"
-          className={`${tabBtn} ${
-            tab === "create"
-              ? "border-violet-600 text-violet-700 dark:text-violet-300"
-              : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
-          }`}
-          onClick={() => {
-            setTab("create");
-            if (!editingId) resetWizard();
-          }}
-        >
-          {editingId ? "Edit promotion" : "Create promotion"}
-        </button>
+        {!readOnly ? (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "create"}
+            id="tab-promotions-create"
+            aria-controls="panel-promotions-create"
+            className={`${tabBtn} ${
+              tab === "create"
+                ? "border-violet-600 text-violet-700 dark:text-violet-300"
+                : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
+            }`}
+            onClick={() => {
+              setTab("create");
+              if (!editingId) resetWizard();
+            }}
+          >
+            {editingId ? "Edit promotion" : "Create promotion"}
+          </button>
+        ) : null}
       </div>
 
       {tab === "list" && (
@@ -705,7 +718,7 @@ export function PromotionsPage() {
         </section>
       )}
 
-      {tab === "create" && (
+      {tab === "create" && !readOnly && (
         <section
           id="panel-promotions-create"
           role="tabpanel"
@@ -913,7 +926,8 @@ export function PromotionsPage() {
                     ) : null}
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
-                    {detail &&
+                    {!readOnly &&
+                    detail &&
                     detail.lifecycleStatus !== "ended" &&
                     detail.lifecycleStatus !== "cancelled" ? (
                       <button
@@ -927,7 +941,8 @@ export function PromotionsPage() {
                         Edit
                       </button>
                     ) : null}
-                    {detail &&
+                    {!readOnly &&
+                    detail &&
                     detail.lifecycleStatus !== "ended" &&
                     detail.lifecycleStatus !== "cancelled" ? (
                       <button

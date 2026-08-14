@@ -1,4 +1,6 @@
 import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
+import { FeatureAccessGuard } from '../access-control/feature-access.guard';
+import { RequireFeature } from '../access-control/require-feature.decorator';
 import { StaffOnlyGuard } from './staff-only.guard';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
@@ -43,7 +45,8 @@ export class AuthController {
   }
 
   @Post('register/employee')
-  @UseGuards(StaffOnlyGuard)
+  @UseGuards(StaffOnlyGuard, FeatureAccessGuard)
+  @RequireFeature('employees', 'edit')
   registerEmployee(
     @Body() dto: RegisterEmployeeDto,
     @Req() req: { user: JwtUser },

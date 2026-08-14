@@ -25,6 +25,7 @@ import {
   scheduleTypeLabel,
   type DeliveryTimeSlotCode,
 } from "../lib/consignment-schedule-labels";
+import { useFeatureAccess } from "../lib/use-feature-access";
 
 type ConsignmentScheduleDetail = {
   id: string;
@@ -164,6 +165,7 @@ export function ConsignmentScheduleDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { token } = usePortalAuth();
+  const { canEdit, readOnly } = useFeatureAccess("consignment-scheduling");
   const [detail, setDetail] = useState<ConsignmentScheduleDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -299,7 +301,7 @@ export function ConsignmentScheduleDetailPage() {
   }, [load]);
 
   const openReschedule = useCallback(() => {
-    if (!detail) return;
+    if (!canEdit || !detail) return;
     setRescheduleYmd(isoDeliveryToYmd(detail.deliveryDate));
     setRescheduleTimeSlot(
       (detail.deliveryTimeSlot as DeliveryTimeSlotCode | null) ??
@@ -312,7 +314,7 @@ export function ConsignmentScheduleDetailPage() {
     setRescheduleDailyLimit(null);
     setRescheduleCapacityLoading(true);
     setRescheduleOpen(true);
-  }, [detail]);
+  }, [canEdit, detail]);
 
   const closeReschedule = useCallback(() => {
     if (rescheduleBusy) return;
@@ -471,7 +473,7 @@ export function ConsignmentScheduleDetailPage() {
   }, [executeReschedulePatch]);
 
   const openReceived = useCallback(() => {
-    if (!detail?.inquiries.length) return;
+    if (!canEdit || !detail?.inquiries.length) return;
     if (detail.type === "pullout") {
       setPulloutCompleteError(null);
       setPulloutCompleteConfirmOpen(true);
@@ -489,10 +491,10 @@ export function ConsignmentScheduleDetailPage() {
     setItemVerifyError(null);
     setItemVerifyLoading(false);
     setReceivedOpen(true);
-  }, [detail]);
+  }, [canEdit, detail]);
 
   const confirmPulloutComplete = useCallback(async () => {
-    if (!id || !token) return;
+    if (!canEdit || !id || !token) return;
     setPulloutCompleteError(null);
     setPulloutCompleteBusy(true);
     try {
@@ -514,7 +516,7 @@ export function ConsignmentScheduleDetailPage() {
     } finally {
       setPulloutCompleteBusy(false);
     }
-  }, [id, token, navigate]);
+  }, [canEdit, id, token, navigate]);
 
   const closeReceived = useCallback(() => {
     itemVerifySeq.current += 1;
@@ -604,7 +606,7 @@ export function ConsignmentScheduleDetailPage() {
   }, [itemVerifyInquiryId, itemVerifyLoading, closeItemVerify]);
 
   const submitReceiveAll = useCallback(async () => {
-    if (!id || !token || !detail) return;
+    if (!canEdit || !id || !token || !detail) return;
     const missing = detail.inquiries.some((q) => !receiptItemEdits[q.id]);
     if (missing) {
       setReceiveError(
@@ -641,10 +643,10 @@ export function ConsignmentScheduleDetailPage() {
     } finally {
       setReceiveBusy(false);
     }
-  }, [id, token, detail, receiptItemEdits, navigate]);
+  }, [canEdit, id, token, detail, receiptItemEdits, navigate]);
 
   const confirmDelete = useCallback(async () => {
-    if (!id || !token) return;
+    if (!canEdit || !id || !token) return;
     setDeleteError(null);
     setDeleteBusy(true);
     try {
@@ -666,7 +668,7 @@ export function ConsignmentScheduleDetailPage() {
     } finally {
       setDeleteBusy(false);
     }
-  }, [id, token, navigate]);
+  }, [canEdit, id, token, navigate]);
 
   return (
     <div className="w-full min-w-0 space-y-4">
@@ -678,6 +680,12 @@ export function ConsignmentScheduleDetailPage() {
           ← Back to consignment scheduling
         </Link>
       </div>
+
+      {readOnly ? (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
+          You have view-only access to this feature.
+        </p>
+      ) : null}
 
       {error && (
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
@@ -703,6 +711,7 @@ export function ConsignmentScheduleDetailPage() {
                   batch.
                 </p>
               </div>
+              {!readOnly ? (
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
@@ -732,6 +741,7 @@ export function ConsignmentScheduleDetailPage() {
                   Delete
                 </button>
               </div>
+              ) : null}
             </div>
             <dl className="mt-4 grid grid-cols-1 gap-x-8 gap-y-3 text-sm sm:grid-cols-2">
               <div>

@@ -13,6 +13,7 @@ import { ConsignorPaymentDepositSlipModal } from "../components/ConsignorPayment
 import { ConsignorPaymentUnableToSendModal } from "../components/ConsignorPaymentUnableToSendModal";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
+import { useFeatureAccess } from "../lib/use-feature-access";
 import {
   consignorPaymentGroupStatusBadgeClass,
   consignorPaymentStatusBadgeClass,
@@ -655,6 +656,7 @@ function ConsignorPaymentGroupCard({
 export function ConsignorPaymentDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { token } = usePortalAuth();
+  const { canEdit, readOnly } = useFeatureAccess("consignor-payments");
   const [detail, setDetail] = useState<ConsignorPaymentDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -693,7 +695,7 @@ export function ConsignorPaymentDetailPage() {
   }, [load]);
 
   const confirmApprove = useCallback(async () => {
-    if (!id || !token) return;
+    if (!canEdit || !id || !token) return;
     setApproveError(null);
     setApproveBusy(true);
     try {
@@ -723,7 +725,7 @@ export function ConsignorPaymentDetailPage() {
     } finally {
       setApproveBusy(false);
     }
-  }, [id, token]);
+  }, [canEdit, id, token]);
 
   if (loading) {
     return (
@@ -751,11 +753,17 @@ export function ConsignorPaymentDetailPage() {
   }
 
   const paymentMethodTotals = computePaymentMethodTotals(detail.groups);
-  const showApproveActions = isConsignorPaymentPending(detail.status);
+  const showApproveActions =
+    canEdit && isConsignorPaymentPending(detail.status);
   const batchApproved = isConsignorPaymentApproved(detail.status);
 
   return (
     <div className="w-full min-w-0 space-y-6">
+      {readOnly ? (
+        <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
+          You have view-only access to this feature.
+        </p>
+      ) : null}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
@@ -823,7 +831,7 @@ export function ConsignorPaymentDetailPage() {
               group={group}
               batchApproved={batchApproved}
               token={token}
-              groupActionsDisabled={approveBusy}
+              groupActionsDisabled={approveBusy || !canEdit}
               onDetailUpdated={setDetail}
               onGroupActionError={setGroupActionError}
             />

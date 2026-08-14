@@ -14,6 +14,8 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
+import { FeatureAccessGuard } from '../access-control/feature-access.guard';
+import { RequireFeature } from '../access-control/require-feature.decorator';
 import { JwtUser } from '../auth/jwt-user';
 import { StaffOnlyGuard } from '../auth/staff-only.guard';
 import type { MulterFile } from './multer-file.type';
@@ -25,7 +27,7 @@ import { InquiriesService } from './inquiries.service';
 import { InquiryAuditService } from './inquiry-audit.service';
 
 @Controller('inquiries')
-@UseGuards(StaffOnlyGuard)
+@UseGuards(StaffOnlyGuard, FeatureAccessGuard)
 export class InquiriesController {
   constructor(
     private readonly inquiriesService: InquiriesService,
@@ -33,12 +35,14 @@ export class InquiriesController {
   ) {}
 
   @Get()
+  @RequireFeature('inquiries', 'view')
   findAll(@Query('status') status?: string) {
     return this.inquiriesService.findAllForStaff(status);
   }
 
   /** Walk-in consignment: staff submits on behalf of a selected client (multipart like client flow). */
   @Post('walk-in')
+  @RequireFeature('inquiries', 'edit')
   @UseInterceptors(
     FilesInterceptor('file', 100, {
       limits: { fileSize: 25 * 1024 * 1024 },
@@ -57,16 +61,19 @@ export class InquiriesController {
   }
 
   @Get(':id/audit')
+  @RequireFeature('inquiries', 'view')
   getAudit(@Param('id', ParseUUIDPipe) id: string) {
     return this.inquiryAuditService.findForInquiry(id);
   }
 
   @Get(':id')
+  @RequireFeature('inquiries', 'view')
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.inquiriesService.findOneForStaff(id);
   }
 
   @Post(':id/decline')
+  @RequireFeature('inquiries', 'edit')
   decline(
     @Req() req: { user: JwtUser },
     @Param('id', ParseUUIDPipe) id: string,
@@ -75,6 +82,7 @@ export class InquiriesController {
   }
 
   @Post(':id/pullout')
+  @RequireFeature('inquiries', 'edit')
   @UseInterceptors(
     FileInterceptor('proof', {
       limits: { fileSize: 25 * 1024 * 1024 },
@@ -97,6 +105,7 @@ export class InquiriesController {
   }
 
   @Post(':id/offer')
+  @RequireFeature('inquiries', 'edit')
   submitOffer(
     @Req() req: { user: JwtUser },
     @Param('id', ParseUUIDPipe) id: string,
@@ -106,6 +115,7 @@ export class InquiriesController {
   }
 
   @Post(':id/authenticated-return-new-offer')
+  @RequireFeature('inquiries', 'edit')
   submitAuthenticatedReturnNewOffer(
     @Req() req: { user: JwtUser },
     @Param('id', ParseUUIDPipe) id: string,
@@ -119,6 +129,7 @@ export class InquiriesController {
   }
 
   @Post(':id/consignment-price')
+  @RequireFeature('inquiries', 'edit')
   @UseInterceptors(
     FileInterceptor('proof', {
       limits: { fileSize: 25 * 1024 * 1024 },
@@ -139,6 +150,7 @@ export class InquiriesController {
   }
 
   @Post(':id/contract-renewal')
+  @RequireFeature('inquiries', 'edit')
   renewContract(
     @Req() req: { user: JwtUser },
     @Param('id', ParseUUIDPipe) id: string,
@@ -148,6 +160,7 @@ export class InquiriesController {
   }
 
   @Post(':id/contract-renewal/cancel')
+  @RequireFeature('inquiries', 'edit')
   cancelContractRenewal(
     @Req() req: { user: JwtUser },
     @Param('id', ParseUUIDPipe) id: string,
@@ -156,6 +169,7 @@ export class InquiriesController {
   }
 
   @Patch(':id/notes')
+  @RequireFeature('inquiries', 'edit')
   updateNotes(
     @Req() req: { user: JwtUser },
     @Param('id', ParseUUIDPipe) id: string,
@@ -165,6 +179,7 @@ export class InquiriesController {
   }
 
   @Patch(':id/reauthentication-notes')
+  @RequireFeature('inquiries', 'edit')
   updateReauthenticationNotes(
     @Req() req: { user: JwtUser },
     @Param('id', ParseUUIDPipe) id: string,
@@ -178,6 +193,7 @@ export class InquiriesController {
   }
 
   @Post(':id/third-party-payment-proof')
+  @RequireFeature('inquiries', 'edit')
   @UseInterceptors(
     FilesInterceptor('photos', 20, {
       limits: { fileSize: 25 * 1024 * 1024 },
@@ -196,6 +212,7 @@ export class InquiriesController {
   }
 
   @Post(':id/third-party-payment-paid')
+  @RequireFeature('inquiries', 'edit')
   markThirdPartyPaymentPaid(
     @Req() req: { user: JwtUser },
     @Param('id', ParseUUIDPipe) id: string,

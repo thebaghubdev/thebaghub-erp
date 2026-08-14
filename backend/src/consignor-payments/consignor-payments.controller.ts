@@ -13,6 +13,8 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
+import { FeatureAccessGuard } from '../access-control/feature-access.guard';
+import { RequireFeature } from '../access-control/require-feature.decorator';
 import { JwtUser } from '../auth/jwt-user';
 import { StaffOnlyGuard } from '../auth/staff-only.guard';
 import { CONSIGNOR_PAYMENT_CHECK_PHOTO_MAX_BYTES } from './consignor-payment-image.util';
@@ -21,28 +23,32 @@ import { ConsignorPaymentsService } from './consignor-payments.service';
 import type { MulterFile } from '../inquiries/multer-file.type';
 
 @Controller('consignor-payments')
-@UseGuards(StaffOnlyGuard)
+@UseGuards(StaffOnlyGuard, FeatureAccessGuard)
 export class ConsignorPaymentsController {
   constructor(
     private readonly consignorPaymentsService: ConsignorPaymentsService,
   ) {}
 
   @Get()
+  @RequireFeature('consignor-payments', 'view')
   findAll() {
     return this.consignorPaymentsService.findAllForStaff();
   }
 
   @Get(':id')
+  @RequireFeature('consignor-payments', 'view')
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.consignorPaymentsService.findOneForStaff(id);
   }
 
   @Patch(':id/approve')
+  @RequireFeature('consignor-payments', 'edit')
   approve(@Param('id', ParseUUIDPipe) id: string) {
     return this.consignorPaymentsService.approveForStaff(id);
   }
 
   @Patch(':id/groups/:groupId/status')
+  @RequireFeature('consignor-payments', 'edit')
   updateGroupStatus(
     @Param('id', ParseUUIDPipe) id: string,
     @Param('groupId', ParseUUIDPipe) groupId: string,
@@ -56,6 +62,7 @@ export class ConsignorPaymentsController {
   }
 
   @Post(':id/groups/:groupId/check')
+  @RequireFeature('consignor-payments', 'edit')
   @UseInterceptors(
     FilesInterceptor('photos', 20, {
       limits: { fileSize: CONSIGNOR_PAYMENT_CHECK_PHOTO_MAX_BYTES },
@@ -80,6 +87,7 @@ export class ConsignorPaymentsController {
   }
 
   @Post(':id/groups/:groupId/deposit-slip')
+  @RequireFeature('consignor-payments', 'edit')
   @UseInterceptors(
     FilesInterceptor('photos', 20, {
       limits: { fileSize: CONSIGNOR_PAYMENT_CHECK_PHOTO_MAX_BYTES },
@@ -102,6 +110,7 @@ export class ConsignorPaymentsController {
   }
 
   @Post(':id/groups/:groupId/unable-to-send')
+  @RequireFeature('consignor-payments', 'edit')
   @UseInterceptors(
     FileInterceptor('photo', {
       limits: { fileSize: CONSIGNOR_PAYMENT_CHECK_PHOTO_MAX_BYTES },

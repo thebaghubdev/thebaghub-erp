@@ -19,6 +19,7 @@ import {
   isInventoryEligibleForLogistics,
   logisticsStatusBadgeClass,
 } from "../lib/logistics-display";
+import { useFeatureAccess } from "../lib/use-feature-access";
 
 function isPendingDispatchStatus(status: string): boolean {
   return (
@@ -239,6 +240,7 @@ function todayDateInputValue(): string {
 
 export function LogisticsPage() {
   const { token } = usePortalAuth();
+  const { canEdit, readOnly } = useFeatureAccess("logistics");
   const [tab, setTab] = useState<LogisticsTab>("all");
   const [rows, setRows] = useState<LogisticsListRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -425,6 +427,7 @@ export function LogisticsPage() {
   );
 
   const handleSaveTransfer = async () => {
+    if (!canEdit) return;
     if (selectedIds.size === 0) {
       setSaveError("Select at least one inventory item.");
       return;
@@ -476,7 +479,7 @@ export function LogisticsPage() {
   };
 
   const handleCompleteTransfer = async () => {
-    if (!detail) return;
+    if (!canEdit || !detail) return;
     setCompleteBusy(true);
     setCompleteError(null);
     try {
@@ -513,7 +516,7 @@ export function LogisticsPage() {
   };
 
   const handleDispatchTransfer = async () => {
-    if (!detail) return;
+    if (!canEdit || !detail) return;
     setDispatchBusy(true);
     setDispatchError(null);
     try {
@@ -549,7 +552,7 @@ export function LogisticsPage() {
   };
 
   const handleCancelTransfer = async () => {
-    if (!detail) return;
+    if (!canEdit || !detail) return;
     setCancelBusy(true);
     setCancelError(null);
     try {
@@ -598,6 +601,12 @@ export function LogisticsPage() {
         </p>
       </div>
 
+      {readOnly ? (
+        <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
+          You have view-only access to this feature.
+        </p>
+      ) : null}
+
       <div
         className="mb-6 flex items-end gap-2 border-b border-slate-200 dark:border-slate-800"
         role="tablist"
@@ -618,21 +627,23 @@ export function LogisticsPage() {
         >
           All Transactions
         </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "create"}
-          id="tab-logistics-create"
-          aria-controls="panel-logistics-create"
-          className={`${tabBtn} ${
-            tab === "create"
-              ? "border-violet-600 text-violet-700 dark:text-violet-300"
-              : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
-          }`}
-          onClick={() => setTab("create")}
-        >
-          Create Transaction
-        </button>
+        {!readOnly ? (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "create"}
+            id="tab-logistics-create"
+            aria-controls="panel-logistics-create"
+            className={`${tabBtn} ${
+              tab === "create"
+                ? "border-violet-600 text-violet-700 dark:text-violet-300"
+                : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
+            }`}
+            onClick={() => setTab("create")}
+          >
+            Create Transaction
+          </button>
+        ) : null}
       </div>
 
       {tab === "all" && (
@@ -666,7 +677,7 @@ export function LogisticsPage() {
         </section>
       )}
 
-      {tab === "create" && (
+      {tab === "create" && !readOnly && (
         <section
           id="panel-logistics-create"
           role="tabpanel"
@@ -964,7 +975,7 @@ export function LogisticsPage() {
                     </div>
                   ) : null}
                 </div>
-                {detail && canCancelTransfer(detail.status) ? (
+                {detail && !readOnly && canCancelTransfer(detail.status) ? (
                   <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 px-4 py-3 dark:border-slate-800">
                     <button
                       type="button"

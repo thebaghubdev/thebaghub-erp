@@ -9,6 +9,7 @@ import { StaffCreateOrderPanel } from "../components/StaffCreateOrderPanel";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
+import { useFeatureAccess } from "../lib/use-feature-access";
 import {
   canCreateStaffOrder,
 } from "../lib/employee-position";
@@ -137,6 +138,7 @@ const columns = [
 export function OrdersPage() {
   const navigate = useNavigate();
   const { token, user } = usePortalAuth();
+  const { canEdit, readOnly } = useFeatureAccess("orders");
   const assignModalTitleId = useId();
   const [tab, setTab] = useState<OrdersTab>("all");
   const [rows, setRows] = useState<OrderRow[]>([]);
@@ -159,10 +161,9 @@ export function OrdersPage() {
   const [assignBusy, setAssignBusy] = useState(false);
   const [assignError, setAssignError] = useState<string | null>(null);
 
-  const mayCreateOrder = canCreateStaffOrder(
-    Boolean(user?.isAdmin),
-    user?.employee?.position,
-  );
+  const mayCreateOrder =
+    canEdit &&
+    canCreateStaffOrder(Boolean(user?.isAdmin), user?.employee?.position);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -221,7 +222,7 @@ export function OrdersPage() {
   );
 
   const openAssignModal = useCallback(async () => {
-    if (!token) return;
+    if (!canEdit || !token) return;
     setAssignError(null);
     setAssignEmployeeId("");
     setAssignModalOpen(true);
@@ -239,10 +240,10 @@ export function OrdersPage() {
     } finally {
       setAssociatesLoading(false);
     }
-  }, [token]);
+  }, [canEdit, token]);
 
   const submitAssignSalesAssociate = useCallback(async () => {
-    if (!token) return;
+    if (!canEdit || !token) return;
     if (!assignEmployeeId.trim()) {
       setAssignError("Select a sales associate.");
       return;
@@ -283,7 +284,7 @@ export function OrdersPage() {
     } finally {
       setAssignBusy(false);
     }
-  }, [token, assignEmployeeId, orderSelectedIds, load]);
+  }, [canEdit, token, assignEmployeeId, orderSelectedIds, load]);
 
   const requestTab = (next: OrdersTab) => {
     if (next === "create" && !mayCreateOrder) return;
@@ -300,6 +301,11 @@ export function OrdersPage() {
 
   return (
     <div className="w-full min-w-0">
+      {readOnly ? (
+        <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
+          You have view-only access to this feature.
+        </p>
+      ) : null}
       <ConfirmDialog
         open={tabLeaveOpen}
         title="Unsaved changes"
@@ -383,7 +389,7 @@ export function OrdersPage() {
             paginationItemLabel="orders"
             rowSelection={ordersRowSelection}
             toolbarRight={
-              orderSelectedIds.size > 0 ? (
+              !readOnly && orderSelectedIds.size > 0 ? (
                 <button
                   type="button"
                   onClick={() => void openAssignModal()}

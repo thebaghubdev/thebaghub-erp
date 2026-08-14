@@ -7,6 +7,7 @@ import { DataTable } from "../components/data-table/DataTable";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
+import { useFeatureAccess } from "../lib/use-feature-access";
 import { formatOfferTransactionLabel } from "../lib/format-offer-transaction-type";
 import { InventoryStatusBadge } from "../components/InventoryStatusBadge";
 import { ItemAuthenticationStatusBadge } from "../components/ItemAuthenticationStatusBadge";
@@ -244,6 +245,7 @@ const authenticationMetricsColumns = [
 export function AuthenticationPage() {
   const navigate = useNavigate();
   const { token } = usePortalAuth();
+  const { canEdit, readOnly } = useFeatureAccess("authentication");
   const [tab, setTab] = useState<AuthenticationTab>("items");
   const [allRows, setAllRows] = useState<InventoryRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -483,7 +485,7 @@ export function AuthenticationPage() {
   );
 
   const openAssignModal = useCallback(async () => {
-    if (!token) return;
+    if (!canEdit || !token) return;
     setAssignError(null);
     setAssignEmployeeId("");
     setAssignModalOpen(true);
@@ -501,10 +503,10 @@ export function AuthenticationPage() {
     } finally {
       setAuthenticatorsLoading(false);
     }
-  }, [token]);
+  }, [canEdit, token]);
 
   const submitAssignAuthenticator = useCallback(async () => {
-    if (!token) return;
+    if (!canEdit || !token) return;
     if (!assignEmployeeId.trim()) {
       setAssignError("Select an authenticator.");
       return;
@@ -545,7 +547,7 @@ export function AuthenticationPage() {
     } finally {
       setAssignBusy(false);
     }
-  }, [token, assignEmployeeId, authItemSelectedIds, load]);
+  }, [canEdit, token, assignEmployeeId, authItemSelectedIds, load]);
 
   const toggleMetricRow = useCallback((id: string, selected: boolean) => {
     setMetricSelectedIds((prev) => {
@@ -577,7 +579,7 @@ export function AuthenticationPage() {
   );
 
   const deleteSelectedMetrics = useCallback(async () => {
-    if (!token || metricSelectedIds.size === 0) return;
+    if (!canEdit || !token || metricSelectedIds.size === 0) return;
     setDeleteMetricsBusy(true);
     setDeleteMetricsError(null);
     try {
@@ -610,16 +612,17 @@ export function AuthenticationPage() {
     } finally {
       setDeleteMetricsBusy(false);
     }
-  }, [token, metricSelectedIds, loadMetrics]);
+  }, [canEdit, token, metricSelectedIds, loadMetrics]);
 
   const openCreateModal = useCallback(() => {
+    if (!canEdit) return;
     setCreateForm(emptyCreateForm(itemCategories, brands));
     setCreateError(null);
     setCreateModalOpen(true);
-  }, [itemCategories, brands]);
+  }, [canEdit, itemCategories, brands]);
 
   const submitCreateMetric = useCallback(async () => {
-    if (!token) return;
+    if (!canEdit || !token) return;
     const cat = createForm.category.trim();
     const mc = createForm.metricCategory.trim();
     const m = createForm.metric.trim();
@@ -686,7 +689,7 @@ export function AuthenticationPage() {
     } finally {
       setCreateBusy(false);
     }
-  }, [token, createForm, loadMetrics, itemCategories.length, brands.length]);
+  }, [canEdit, token, createForm, loadMetrics, itemCategories.length, brands.length]);
 
   const rows = useMemo(
     () =>
@@ -703,6 +706,11 @@ export function AuthenticationPage() {
 
   return (
     <div className="w-full min-w-0">
+      {readOnly ? (
+        <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
+          You have view-only access to this feature.
+        </p>
+      ) : null}
       <div
         className="mb-6 flex items-end gap-2 border-b border-slate-200 dark:border-slate-800"
         role="tablist"
@@ -770,7 +778,7 @@ export function AuthenticationPage() {
             paginationItemLabel="items"
             rowSelection={authItemsRowSelection}
             toolbarRight={
-              authItemSelectedIds.size > 0 ? (
+              !readOnly && authItemSelectedIds.size > 0 ? (
                 <button
                   type="button"
                   onClick={() => void openAssignModal()}
@@ -901,7 +909,7 @@ export function AuthenticationPage() {
             rowSelection={metricsRowSelection}
             toolbarRight={
               <div className="flex flex-wrap items-center justify-end gap-2">
-                {metricSelectedIds.size > 0 ? (
+                {!readOnly && metricSelectedIds.size > 0 ? (
                   <button
                     type="button"
                     onClick={() => {
@@ -913,13 +921,15 @@ export function AuthenticationPage() {
                     Delete selected ({metricSelectedIds.size})
                   </button>
                 ) : null}
-                <button
-                  type="button"
-                  onClick={() => openCreateModal()}
-                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50 focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
-                >
-                  Create metric
-                </button>
+                {!readOnly ? (
+                  <button
+                    type="button"
+                    onClick={() => openCreateModal()}
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50 focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+                  >
+                    Create metric
+                  </button>
+                ) : null}
               </div>
             }
           />

@@ -5,6 +5,7 @@ import type { PhotoshootCalendarRow } from "../components/PhotoshootCalendar";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
 import { randomId } from "../lib/random-id";
+import { useFeatureAccess } from "../lib/use-feature-access";
 
 const dropzoneClass =
   "flex min-h-[14rem] cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50/80 px-6 py-12 text-center transition-colors hover:border-violet-400 hover:bg-violet-50/50 focus-within:ring-2 focus-within:ring-violet-500 dark:border-slate-600 dark:bg-slate-900/60 dark:hover:border-violet-500 dark:hover:bg-violet-950/40 sm:min-h-[18rem]";
@@ -66,6 +67,7 @@ export function PhotoshootItemPage() {
   const { photoshootId } = useParams<{ photoshootId: string }>();
   const navigate = useNavigate();
   const { token } = usePortalAuth();
+  const { canEdit, readOnly } = useFeatureAccess("photoshoot");
   const inputId = useId();
   const [meta, setMeta] = useState<PhotoshootCalendarRow | null>(null);
   const [metaError, setMetaError] = useState<string | null>(null);
@@ -127,6 +129,7 @@ export function PhotoshootItemPage() {
   }, [photoshootId, token]);
 
   const addFiles = useCallback((fileList: FileList | File[]) => {
+    if (!canEdit) return;
     const list = Array.from(fileList).filter(isImageFile);
     if (list.length === 0) return;
     setPhotoEntries((prev) => [
@@ -138,15 +141,16 @@ export function PhotoshootItemPage() {
         previewUrl: URL.createObjectURL(file),
       })),
     ]);
-  }, []);
+  }, [canEdit]);
 
   const removeAt = useCallback((id: string) => {
+    if (!canEdit) return;
     setPhotoEntries((prev) => {
       const img = prev.find((i) => i.id === id);
       if (img?.kind === "local") URL.revokeObjectURL(img.previewUrl);
       return prev.filter((i) => i.id !== id);
     });
-  }, []);
+  }, [canEdit]);
 
   const persistPhotos = useCallback(async (): Promise<PhotoshootCalendarRow> => {
     if (!token || !photoshootId) {
@@ -174,6 +178,7 @@ export function PhotoshootItemPage() {
   }, [token, photoshootId, photoEntries]);
 
   const handleSaveChanges = useCallback(async () => {
+    if (!canEdit) return;
     setSaveError(null);
     setSaveSaving(true);
     try {
@@ -190,13 +195,13 @@ export function PhotoshootItemPage() {
     } finally {
       setSaveSaving(false);
     }
-  }, [persistPhotos]);
+  }, [canEdit, persistPhotos]);
 
   const photoCount = photoEntries.length;
   const canFinishPhotoshoot = photoCount >= MIN_PHOTOS_FOR_FINISH;
 
   const handleFinishPhotoshoot = useCallback(async () => {
-    if (!token || !photoshootId || !canFinishPhotoshoot) return;
+    if (!canEdit || !token || !photoshootId || !canFinishPhotoshoot) return;
     setFinishError(null);
     setFinishSaving(true);
     try {
@@ -235,6 +240,7 @@ export function PhotoshootItemPage() {
       setFinishSaving(false);
     }
   }, [
+    canEdit,
     token,
     photoshootId,
     canFinishPhotoshoot,
@@ -277,6 +283,11 @@ export function PhotoshootItemPage() {
 
   return (
     <div className="mx-auto w-full max-w-4xl space-y-6">
+      {readOnly ? (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
+          You have view-only access to this feature.
+        </p>
+      ) : null}
       <div>
         <Link
           to="/portal/photoshoot"
@@ -297,6 +308,7 @@ export function PhotoshootItemPage() {
           Scheduled: {formatPhotoshootDateCell(meta.photoshootDate)}
           {meta.consignorName ? ` · ${meta.consignorName}` : null}
         </p>
+        {!readOnly ? (
         <div className="flex flex-col gap-1 pt-3">
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-start sm:gap-3">
             <button
@@ -328,6 +340,7 @@ export function PhotoshootItemPage() {
             Unsaved images are uploaded automatically when you finish.
           </p>
         </div>
+        ) : null}
         {saveError ? (
           <p className="text-sm text-red-600 dark:text-red-400">{saveError}</p>
         ) : null}
@@ -336,6 +349,7 @@ export function PhotoshootItemPage() {
         ) : null}
       </header>
 
+      {!readOnly ? (
       <div>
         <h2 className="sr-only">Upload photos</h2>
         <input
@@ -397,6 +411,7 @@ export function PhotoshootItemPage() {
           </span>
         </label>
       </div>
+      ) : null}
 
       {photoEntries.length > 0 ? (
         <div>
@@ -418,6 +433,7 @@ export function PhotoshootItemPage() {
                   }
                   className="h-full w-full object-cover"
                 />
+                {!readOnly ? (
                 <button
                   type="button"
                   onClick={() => removeAt(img.id)}
@@ -425,6 +441,7 @@ export function PhotoshootItemPage() {
                 >
                   Remove
                 </button>
+                ) : null}
                 <p className="absolute bottom-0 left-0 right-0 truncate bg-black/55 px-2 py-1 text-[10px] text-white">
                   {img.kind === "saved"
                     ? (img.key.split("/").pop() ?? img.key)
