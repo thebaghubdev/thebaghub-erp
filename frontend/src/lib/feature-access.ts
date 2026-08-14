@@ -2,6 +2,7 @@ export const ACCESS_LEVELS = ['view', 'edit'] as const
 export type AccessLevel = (typeof ACCESS_LEVELS)[number]
 
 export const MANAGED_FEATURE_KEYS = [
+  'add-inventory-item',
   'inquiries',
   'consignment-scheduling',
   'authentication',
@@ -31,6 +32,7 @@ export type FeatureKey = ManagedFeatureKey | AlwaysOpenFeatureKey
 export type FeatureAccessMap = Partial<Record<ManagedFeatureKey, AccessLevel>>
 
 export const MANAGED_FEATURE_LABELS: Record<ManagedFeatureKey, string> = {
+  'add-inventory-item': 'Add Inventory Item',
   inquiries: 'Consignment Inquiries',
   'consignment-scheduling': 'Consignment Scheduling',
   authentication: 'Authentication',

@@ -3,6 +3,7 @@ export type AccessLevel = (typeof ACCESS_LEVELS)[number];
 
 /** Features managed via Access Management (not always-open). */
 export const MANAGED_FEATURE_KEYS = [
+  'add-inventory-item',
   'inquiries',
   'consignment-scheduling',
   'authentication',
@@ -25,6 +26,7 @@ export const MANAGED_FEATURE_KEYS = [
 export type ManagedFeatureKey = (typeof MANAGED_FEATURE_KEYS)[number];
 
 export const MANAGED_FEATURE_LABELS: Record<ManagedFeatureKey, string> = {
+  'add-inventory-item': 'Add Inventory Item',
   inquiries: 'Consignment Inquiries',
   'consignment-scheduling': 'Consignment Scheduling',
   authentication: 'Authentication',

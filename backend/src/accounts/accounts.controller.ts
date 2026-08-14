@@ -29,7 +29,7 @@ export class AccountsController {
   }
 
   @Get('clients')
-  @RequireFeature('clients', 'view')
+  @RequireFeature('clients', 'view', { orFeatureKeys: ['inquiries'] })
   findClients() {
     return this.accountsService.findAllClients();
   }

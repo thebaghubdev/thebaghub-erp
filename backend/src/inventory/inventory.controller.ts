@@ -46,6 +46,7 @@ export class InventoryController {
 
   @Post('stock')
   @HttpCode(HttpStatus.CREATED)
+  @RequireFeature('add-inventory-item', 'edit')
   createStockItem(
     @Body() dto: CreateStockInventoryItemDto,
     @Req() req: { user: JwtUser },

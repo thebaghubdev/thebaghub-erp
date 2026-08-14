@@ -6,6 +6,7 @@ import { DataTable } from "../components/data-table/DataTable";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
+import { useFeatureAccess } from "../lib/use-feature-access";
 import { InventoryStatusBadge } from "../components/InventoryStatusBadge";
 import { branchLabel } from "../lib/consignment-schedule-labels";
 import { formatOfferTransactionLabel } from "../lib/format-offer-transaction-type";
@@ -145,6 +146,9 @@ const columns = [
 export function InventoryPage() {
   const navigate = useNavigate();
   const { token } = usePortalAuth();
+  const { canEdit: canAddInventoryItem } = useFeatureAccess(
+    "add-inventory-item",
+  );
   const [tab, setTab] = useState<InventoryTab>("all");
   const [rows, setRows] = useState<InventoryRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -172,6 +176,12 @@ export function InventoryPage() {
     if (tab === "all") void load();
   }, [tab, load]);
 
+  useEffect(() => {
+    if (tab === "add" && !canAddInventoryItem) {
+      setTab("all");
+    }
+  }, [tab, canAddInventoryItem]);
+
   const tabBtn =
     "-mb-px border-b-2 border-transparent px-4 py-2 text-sm font-medium transition-colors focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500";
 
@@ -197,21 +207,23 @@ export function InventoryPage() {
         >
           All Items
         </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "add"}
-          id="tab-inventory-add"
-          aria-controls="panel-inventory-add"
-          className={`${tabBtn} ${
-            tab === "add"
-              ? "border-violet-600 text-violet-700 dark:text-violet-300"
-              : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
-          }`}
-          onClick={() => setTab("add")}
-        >
-          Add Item
-        </button>
+        {canAddInventoryItem ? (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "add"}
+            id="tab-inventory-add"
+            aria-controls="panel-inventory-add"
+            className={`${tabBtn} ${
+              tab === "add"
+                ? "border-violet-600 text-violet-700 dark:text-violet-300"
+                : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
+            }`}
+            onClick={() => setTab("add")}
+          >
+            Add Item
+          </button>
+        ) : null}
       </div>
 
       {tab === "all" && (
@@ -243,7 +255,7 @@ export function InventoryPage() {
         </section>
       )}
 
-      {tab === "add" && (
+      {tab === "add" && canAddInventoryItem && (
         <section
           id="panel-inventory-add"
           role="tabpanel"

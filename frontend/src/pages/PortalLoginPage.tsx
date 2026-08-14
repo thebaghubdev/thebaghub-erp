@@ -1,15 +1,13 @@
 import { useState } from 'react'
-import { Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { Navigate, useNavigate } from 'react-router-dom'
 import { PasswordField } from '../components/PasswordField'
 import { usePortalAuth } from '../context/portal-auth'
+
+const STAFF_HOME = '/portal/dashboards'
 
 export function PortalLoginPage() {
   const { login, token, user, loading: authLoading } = usePortalAuth()
   const navigate = useNavigate()
-  const location = useLocation()
-  const redirectTo =
-    (location.state as { from?: string } | undefined)?.from ??
-    '/portal/dashboards'
 
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -22,11 +20,7 @@ export function PortalLoginPage() {
     setSubmitting(true)
     try {
       await login(username.trim(), password)
-      const target =
-        redirectTo.startsWith('/portal') && redirectTo !== '/portal/login'
-          ? redirectTo
-          : '/portal/dashboards'
-      navigate(target, { replace: true })
+      navigate(STAFF_HOME, { replace: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed')
     } finally {
@@ -47,7 +41,7 @@ export function PortalLoginPage() {
   }
 
   if (token && user && user.userType !== 'client') {
-    return <Navigate to="/portal/dashboards" replace />
+    return <Navigate to={STAFF_HOME} replace />
   }
 
   return (

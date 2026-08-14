@@ -27,6 +27,7 @@ export function EmployeeMultiSelect({
 }: Props) {
   const listId = useId()
   const rootRef = useRef<HTMLDivElement>(null)
+  const selectAllRef = useRef<HTMLInputElement>(null)
   const [open, setOpen] = useState(false)
 
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds])
@@ -40,6 +41,17 @@ export function EmployeeMultiSelect({
     [options, selectedSet],
   )
 
+  const selectableIds = useMemo(
+    () =>
+      options
+        .filter((o) => selectedSet.has(o.id) || !blockedSet.has(o.id))
+        .map((o) => o.id),
+    [options, selectedSet, blockedSet],
+  )
+  const allSelectableSelected =
+    selectableIds.length > 0 && selectableIds.every((id) => selectedSet.has(id))
+  const someSelectableSelected = selectableIds.some((id) => selectedSet.has(id))
+
   useEffect(() => {
     if (!open) return
     const onDoc = (e: MouseEvent) => {
@@ -50,6 +62,12 @@ export function EmployeeMultiSelect({
     document.addEventListener('mousedown', onDoc)
     return () => document.removeEventListener('mousedown', onDoc)
   }, [open])
+
+  useEffect(() => {
+    if (!selectAllRef.current) return
+    selectAllRef.current.indeterminate =
+      someSelectableSelected && !allSelectableSelected
+  }, [open, someSelectableSelected, allSelectableSelected])
 
   return (
     <div ref={rootRef} className="relative min-w-0">
@@ -84,7 +102,41 @@ export function EmployeeMultiSelect({
           {options.length === 0 ? (
             <li className="px-3 py-2 text-sm text-slate-500">No employees</li>
           ) : (
-            options.map((opt) => {
+            <>
+              <li
+                role="option"
+                aria-selected={allSelectableSelected}
+                className="sticky top-0 z-10 border-b border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900"
+              >
+                <label
+                  className={[
+                    'flex items-start gap-2 px-3 py-2 text-sm',
+                    selectableIds.length === 0
+                      ? 'cursor-not-allowed opacity-70'
+                      : 'cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800',
+                  ].join(' ')}
+                >
+                  <input
+                    ref={selectAllRef}
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={allSelectableSelected}
+                    disabled={selectableIds.length === 0}
+                    onChange={() => {
+                      if (selectableIds.length === 0) return
+                      if (allSelectableSelected) {
+                        onChange([])
+                      } else {
+                        onChange(selectableIds)
+                      }
+                    }}
+                  />
+                  <span className="min-w-0 font-medium text-slate-800 dark:text-slate-100">
+                    Select all
+                  </span>
+                </label>
+              </li>
+              {options.map((opt) => {
               const checked = selectedSet.has(opt.id)
               const blocked = blockedSet.has(opt.id) && !checked
               return (
@@ -117,7 +169,8 @@ export function EmployeeMultiSelect({
                   </label>
                 </li>
               )
-            })
+            })}
+            </>
           )}
         </ul>
       ) : null}
