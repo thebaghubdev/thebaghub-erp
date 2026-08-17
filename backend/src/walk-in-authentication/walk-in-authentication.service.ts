@@ -9,6 +9,7 @@ import { randomUUID } from 'crypto';
 import { Between, Repository } from 'typeorm';
 import { JwtUser } from '../auth/jwt-user';
 import { Employee } from '../employees/entities/employee.entity';
+import { canAssignWorkToOthers } from '../employees/employee-position.util';
 import { MediaOwnerType } from '../enums/media-owner-type.enum';
 import { MediaPurpose } from '../enums/media-purpose.enum';
 import { ThirdPartyAuthenticationData } from '../inventory/entities/item-authentication.types';
@@ -376,15 +377,32 @@ export class WalkInAuthenticationService {
 
   async batchAssign(
     dto: BatchAssignWalkInAuthenticatorDto,
-    actorUserId: string,
+    actor: JwtUser,
   ): Promise<{ updated: number }> {
+    const actorEmployee = await this.employeesRepo.findOne({
+      where: { userId: actor.userId },
+    });
+    if (!canAssignWorkToOthers(actor.isAdmin, actorEmployee?.position)) {
+      if (!actorEmployee?.id) {
+        throw new ForbiddenException(
+          'Your account is not linked to an employee record.',
+        );
+      }
+      if (actorEmployee.id !== dto.employeeId) {
+        throw new ForbiddenException(
+          'Only a supervisor can assign authentication to other staff.',
+        );
+      }
+    }
     const employee = await this.employeesRepo.findOne({
       where: { id: dto.employeeId },
     });
     if (!employee) throw new NotFoundException('Employee not found');
     if (!isAuthenticatorPosition(employee.position)) {
       throw new BadRequestException(
-        'Selected person is not in the Authenticator position.',
+        actorEmployee?.id === dto.employeeId
+          ? 'You must be in the Authenticator position to assign items to yourself.'
+          : 'Selected person is not in the Authenticator position.',
       );
     }
 
@@ -402,7 +420,7 @@ export class WalkInAuthenticationService {
         }
         row.assignedToId = dto.employeeId;
         row.status = WALK_IN_AUTH_STATUS_ASSIGNED;
-        row.updatedById = actorUserId;
+        row.updatedById = actor.userId;
         await em.save(row);
       }
     });

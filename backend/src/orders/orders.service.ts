@@ -14,6 +14,7 @@ import { DataSource, EntityManager, Repository } from 'typeorm';
 import { JwtUser } from '../auth/jwt-user';
 import { Client } from '../clients/entities/client.entity';
 import { Employee } from '../employees/entities/employee.entity';
+import { canAssignWorkToOthers } from '../employees/employee-position.util';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
 import { effectiveInventoryUnitPrice } from '../inventory/inventory-effective-price.util';
 import { computeCreditCardPriceFromTbh } from '../inventory/credit-card-price.util';
@@ -520,8 +521,21 @@ export class OrdersService {
 
   async batchAssignSalesAssociate(
     dto: BatchAssignSalesAssociateDto,
-    actorUserId: string,
+    actor: JwtUser,
   ): Promise<{ updated: number }> {
+    const actorEmployee = await this.employeeForUser(actor.userId);
+    if (!canAssignWorkToOthers(actor.isAdmin, actorEmployee?.position)) {
+      if (!actorEmployee?.id) {
+        throw new ForbiddenException(
+          'Your account is not linked to an employee record.',
+        );
+      }
+      if (actorEmployee.id !== dto.employeeId) {
+        throw new ForbiddenException(
+          'Only a supervisor can assign orders to other staff.',
+        );
+      }
+    }
     const employee = await this.employeesRepo.findOne({
       where: { id: dto.employeeId },
     });
@@ -530,7 +544,9 @@ export class OrdersService {
     }
     if (!isSalesAssociatePosition(employee.position)) {
       throw new BadRequestException(
-        'Selected person is not in the Sales Associate position.',
+        actorEmployee?.id === dto.employeeId
+          ? 'You must be in the Sales Associate position to assign orders to yourself.'
+          : 'Selected person is not in the Sales Associate position.',
       );
     }
 
@@ -549,7 +565,7 @@ export class OrdersService {
           );
         }
         order.assignedToId = dto.employeeId;
-        order.updatedById = actorUserId;
+        order.updatedById = actor.userId;
         await em.save(order);
         assignedOrders.push({ orderNumber: order.orderNumber });
       }
@@ -2107,6 +2123,7 @@ export class OrdersService {
           );
         }
       }
+
     });
   }
 

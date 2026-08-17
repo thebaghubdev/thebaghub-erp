@@ -7,6 +7,7 @@ import { DataTable } from "../components/data-table/DataTable";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
+import { canAssignWorkToOthers } from "../lib/employee-position";
 import { useFeatureAccess } from "../lib/use-feature-access";
 import { formatOfferTransactionLabel } from "../lib/format-offer-transaction-type";
 import { InventoryStatusBadge } from "../components/InventoryStatusBadge";
@@ -244,8 +245,12 @@ const authenticationMetricsColumns = [
 
 export function AuthenticationPage() {
   const navigate = useNavigate();
-  const { token } = usePortalAuth();
+  const { token, user } = usePortalAuth();
   const { canEdit, readOnly } = useFeatureAccess("authentication");
+  const canAssignToOthers = canAssignWorkToOthers(
+    Boolean(user?.isAdmin),
+    user?.employee?.position,
+  );
   const [tab, setTab] = useState<AuthenticationTab>("items");
   const [allRows, setAllRows] = useState<InventoryRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -505,49 +510,69 @@ export function AuthenticationPage() {
     }
   }, [canEdit, token]);
 
-  const submitAssignAuthenticator = useCallback(async () => {
-    if (!canEdit || !token) return;
-    if (!assignEmployeeId.trim()) {
-      setAssignError("Select an authenticator.");
+  const submitAssignAuthenticator = useCallback(
+    async (employeeId: string) => {
+      if (!canEdit || !token) return;
+      if (!employeeId.trim()) {
+        setAssignError("Select an authenticator.");
+        return;
+      }
+      if (authItemSelectedIds.size === 0) return;
+      setAssignBusy(true);
+      setAssignError(null);
+      try {
+        const res = await apiFetch(
+          "/api/inventory/batch-assign-authenticator",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              inventoryItemIds: [...authItemSelectedIds],
+              employeeId: employeeId.trim(),
+            }),
+          },
+          token,
+        );
+        if (!res.ok) {
+          let msg = `Request failed (${res.status})`;
+          try {
+            const j = (await res.json()) as { message?: string | string[] };
+            if (Array.isArray(j.message)) msg = j.message.join("; ");
+            else if (typeof j.message === "string") msg = j.message;
+          } catch {
+            /* ignore */
+          }
+          throw new Error(msg);
+        }
+        setAssignModalOpen(false);
+        setAuthItemSelectedIds(new Set());
+        await load();
+      } catch (e) {
+        setAssignError(
+          e instanceof Error ? e.message : "Could not assign authenticator",
+        );
+      } finally {
+        setAssignBusy(false);
+      }
+    },
+    [canEdit, token, authItemSelectedIds, load],
+  );
+
+  const assignSelectedToSelf = useCallback(async () => {
+    const myId = user?.employee?.id?.trim();
+    if (!myId) {
+      setAssignError("Your account is not linked to an employee record.");
       return;
     }
-    if (authItemSelectedIds.size === 0) return;
-    setAssignBusy(true);
-    setAssignError(null);
-    try {
-      const res = await apiFetch(
-        "/api/inventory/batch-assign-authenticator",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            inventoryItemIds: [...authItemSelectedIds],
-            employeeId: assignEmployeeId.trim(),
-          }),
-        },
-        token,
-      );
-      if (!res.ok) {
-        let msg = `Request failed (${res.status})`;
-        try {
-          const j = (await res.json()) as { message?: string | string[] };
-          if (Array.isArray(j.message)) msg = j.message.join("; ");
-          else if (typeof j.message === "string") msg = j.message;
-        } catch {
-          /* ignore */
-        }
-        throw new Error(msg);
-      }
-      setAssignModalOpen(false);
-      setAuthItemSelectedIds(new Set());
-      await load();
-    } catch (e) {
-      setAssignError(
-        e instanceof Error ? e.message : "Could not assign authenticator",
-      );
-    } finally {
-      setAssignBusy(false);
+    await submitAssignAuthenticator(myId);
+  }, [user?.employee?.id, submitAssignAuthenticator]);
+
+  const onAssignToolbarClick = useCallback(() => {
+    if (canAssignToOthers) {
+      void openAssignModal();
+      return;
     }
-  }, [canEdit, token, assignEmployeeId, authItemSelectedIds, load]);
+    void assignSelectedToSelf();
+  }, [canAssignToOthers, openAssignModal, assignSelectedToSelf]);
 
   const toggleMetricRow = useCallback((id: string, selected: boolean) => {
     setMetricSelectedIds((prev) => {
@@ -760,6 +785,11 @@ export function AuthenticationPage() {
               {error}
             </p>
           ) : null}
+          {!assignModalOpen && assignError ? (
+            <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+              {assignError}
+            </p>
+          ) : null}
 
           <DataTable<InventoryRow>
             data={rows}
@@ -781,10 +811,15 @@ export function AuthenticationPage() {
               !readOnly && authItemSelectedIds.size > 0 ? (
                 <button
                   type="button"
-                  onClick={() => void openAssignModal()}
+                  onClick={onAssignToolbarClick}
+                  disabled={assignBusy}
                   className="rounded-lg bg-violet-600 px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-violet-700 focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500 disabled:opacity-50"
                 >
-                  Assign to Authenticator ({authItemSelectedIds.size})
+                  {assignBusy
+                    ? "Assigning…"
+                    : canAssignToOthers
+                      ? `Assign to Authenticator (${authItemSelectedIds.size})`
+                      : `Assign to me (${authItemSelectedIds.size})`}
                 </button>
               ) : null
             }
@@ -868,7 +903,7 @@ export function AuthenticationPage() {
                           authenticatorsLoading ||
                           authenticators.length === 0
                         }
-                        onClick={() => void submitAssignAuthenticator()}
+                        onClick={() => void submitAssignAuthenticator(assignEmployeeId)}
                       >
                         {assignBusy ? "Saving…" : "Save"}
                       </button>

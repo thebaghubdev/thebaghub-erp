@@ -27,6 +27,11 @@ import { ResendClientVerificationDto } from './dto/resend-client-verification.dt
 import { VerifyClientEmailDto } from './dto/verify-client-email.dto';
 import { JwtUser } from './jwt-user';
 import { TurnstileService } from './turnstile.service';
+import {
+  CEO_POSITION_TAKEN_MESSAGE,
+  countCeoEmployees,
+  isCeoPosition,
+} from '../employees/employee-position.util';
 
 const CLIENT_VERIFICATION_HOURS = 48;
 
@@ -260,6 +265,9 @@ export class AuthService {
     const existing = await this.usersRepo.findOne({ where: { username } });
     if (existing) {
       throw new ConflictException('Username already taken');
+    }
+    if (isCeoPosition(dto.position) && (await countCeoEmployees(this.employeesRepo)) > 0) {
+      throw new ConflictException(CEO_POSITION_TAKEN_MESSAGE);
     }
     const passwordHash = await bcrypt.hash(dto.password, 10);
     const hireDate = new Date(dto.hireDate);

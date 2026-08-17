@@ -1,0 +1,3 @@
+export const DIRECT_PURCHASE_PAYMENT_STATUS_UNPAID = 'Unpaid';
+export const DIRECT_PURCHASE_PAYMENT_STATUS_PAYMENT_SENT = 'Payment sent';
+export const DIRECT_PURCHASE_PAYMENT_STATUS_UNABLE_TO_SEND = 'Unable to send';

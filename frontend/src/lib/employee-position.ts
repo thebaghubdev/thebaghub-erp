@@ -6,6 +6,25 @@ export function isSalesAdminPosition(position: string): boolean {
   return position.trim().toLowerCase() === "sales admin";
 }
 
+export function isCeoPosition(position: string | null | undefined): boolean {
+  return (position ?? "").trim().toLowerCase() === "ceo";
+}
+
+export function isSupervisorPosition(
+  position: string | null | undefined,
+): boolean {
+  return (position ?? "").trim().toLowerCase() === "supervisor";
+}
+
+/** Supervisors (and admins) may assign authentication/orders to other staff. */
+export function canAssignWorkToOthers(
+  isAdmin: boolean,
+  position: string | undefined,
+): boolean {
+  if (isAdmin) return true;
+  return position != null && isSupervisorPosition(position);
+}
+
 export function canBypassOrderAssignment(
   isAdmin: boolean,
   position: string | undefined,

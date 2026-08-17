@@ -61,7 +61,7 @@ export class WalkInAuthenticationController {
     @Req() req: { user: JwtUser },
     @Body() body: BatchAssignWalkInAuthenticatorDto,
   ) {
-    return this.service.batchAssign(body, req.user.userId);
+    return this.service.batchAssign(body, req.user);
   }
 
   @Get(':id')

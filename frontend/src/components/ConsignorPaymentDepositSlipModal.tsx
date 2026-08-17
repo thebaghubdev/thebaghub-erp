@@ -10,13 +10,6 @@ import { apiFetch } from "../lib/api";
 
 type PhotoKeyUrl = { key: string; url: string };
 
-type ConsignorPaymentDetail = {
-  id: string;
-  auditDate: string;
-  status: string;
-  groups: unknown[];
-};
-
 type PhotoPreview = {
   id: string;
   file?: File;
@@ -68,8 +61,7 @@ function previewsFromSavedPhotos(photos: PhotoKeyUrl[]): PhotoPreview[] {
 
 export function ConsignorPaymentDepositSlipModal({
   open,
-  paymentId,
-  groupId,
+  endpointBase,
   consignorName,
   initialPhotos,
   token,
@@ -78,13 +70,12 @@ export function ConsignorPaymentDepositSlipModal({
   onError,
 }: {
   open: boolean;
-  paymentId: string;
-  groupId: string;
+  endpointBase: string;
   consignorName: string;
   initialPhotos: PhotoKeyUrl[];
   token: string | null;
   onClose: () => void;
-  onSaved: (detail: ConsignorPaymentDetail) => void;
+  onSaved: (detail: unknown) => void;
   onError: (message: string | null) => void;
 }) {
   const titleId = useId();
@@ -167,12 +158,12 @@ export function ConsignorPaymentDepositSlipModal({
         if (photo.file) fd.append("photos", photo.file);
       }
       const res = await apiFetch(
-        `/api/consignor-payments/${paymentId}/groups/${groupId}/deposit-slip`,
+        `${endpointBase}/deposit-slip`,
         { method: "POST", body: fd },
         token,
       );
       if (!res.ok) throw new Error(await readApiErrorMessage(res));
-      const data = (await res.json()) as ConsignorPaymentDetail;
+      const data: unknown = await res.json();
       onSaved(data);
       handleClose();
     } catch (err) {

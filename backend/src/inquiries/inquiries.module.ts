@@ -19,6 +19,7 @@ import { InquiryAuditService } from './inquiry-audit.service';
 import { MediaModule } from '../media/media.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { MailModule } from '../mail/mail.module';
+import { DirectPurchasePaymentsModule } from '../direct-purchase-payments/direct-purchase-payments.module';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { MailModule } from '../mail/mail.module';
     MediaModule,
     NotificationsModule,
     MailModule,
+    DirectPurchasePaymentsModule,
     TypeOrmModule.forFeature([
       Inquiry,
       InquiryAuditEntry,

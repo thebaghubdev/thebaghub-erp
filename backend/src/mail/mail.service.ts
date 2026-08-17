@@ -114,6 +114,80 @@ If you did not expect this message, you can ignore it or contact support.`;
     this.logger.log(`Sent inquiry offer notification to ${params.to}`);
   }
 
+  /** Consignor: CEO approved a direct purchase offer (no price in the email). */
+  async sendConsignorDirectPurchaseOfferAvailable(params: {
+    to: string;
+    firstName: string;
+    viewOfferUrl: string;
+  }): Promise<void> {
+    const fromName =
+      this.config.get<string>('MAIL_FROM_NAME', '')?.trim() || 'The Bag Hub';
+    const fromAddr = this.config.get<string>('MAIL_FROM', '')?.trim();
+    if (!fromAddr) {
+      throw new Error('MAIL_FROM is not set.');
+    }
+    const from = `${fromName} <${fromAddr}>`;
+    const subject = 'Your direct purchase offer is ready — The Bag Hub';
+    const text = `Hi ${params.firstName},
+
+An offer for direct purchase has been sent for your consignment inquiry.
+
+Please sign in to your client account and open this link to review the terms and accept or cancel:
+${params.viewOfferUrl}
+
+If you did not expect this message, you can ignore it or contact support.`;
+
+    const html = `<p>Hi ${escapeHtml(params.firstName)},</p>
+<p>An offer for direct purchase has been sent for your consignment inquiry. Please sign in to review the terms and accept or cancel.</p>
+<p><a href="${escapeHtml(params.viewOfferUrl)}">View your inquiry</a></p>
+<p style="color:#64748b;font-size:12px">If you did not expect this message, you can ignore it or contact support.</p>`;
+
+    await this.getTransporter().sendMail({
+      from,
+      to: params.to,
+      subject,
+      text,
+      html,
+    });
+    this.logger.log(`Sent direct purchase offer notification to ${params.to}`);
+  }
+
+  /** Consignor: CEO rejected a direct purchase request (no reason or price). */
+  async sendConsignorDirectPurchaseOfferRejected(params: {
+    to: string;
+    firstName: string;
+  }): Promise<void> {
+    const fromName =
+      this.config.get<string>('MAIL_FROM_NAME', '')?.trim() || 'The Bag Hub';
+    const fromAddr = this.config.get<string>('MAIL_FROM', '')?.trim();
+    if (!fromAddr) {
+      throw new Error('MAIL_FROM is not set.');
+    }
+    const from = `${fromName} <${fromAddr}>`;
+    const subject =
+      'Direct purchase offer was not approved — The Bag Hub';
+    const text = `Hi ${params.firstName},
+
+The direct purchase offer for your consignment inquiry was not approved. Your inquiry is pending again.
+
+If you have questions, please contact support.`;
+
+    const html = `<p>Hi ${escapeHtml(params.firstName)},</p>
+<p>The direct purchase offer for your consignment inquiry was not approved. Your inquiry is pending again.</p>
+<p style="color:#64748b;font-size:12px">If you have questions, please contact support.</p>`;
+
+    await this.getTransporter().sendMail({
+      from,
+      to: params.to,
+      subject,
+      text,
+      html,
+    });
+    this.logger.log(
+      `Sent direct purchase rejection notification to ${params.to}`,
+    );
+  }
+
   /**
    * Consignor must confirm / complete steps after a reauthentication request (3rd party auth).
    */
@@ -337,6 +411,142 @@ ${attachmentHtml}
       })),
     });
     this.logger.log(`Sent unable-to-send consignor payment notice to ${params.to}`);
+  }
+
+  async sendDirectPurchasePaymentSentNotice(params: {
+    to: string;
+    firstName: string;
+    items: Array<{ brandModel: string; priceLabel: string }>;
+    totalAmountLabel: string;
+    attachments: Array<{
+      filename: string;
+      content: Buffer;
+      contentType: string;
+    }>;
+  }): Promise<void> {
+    const fromName =
+      this.config.get<string>('MAIL_FROM_NAME', '')?.trim() || 'The Bag Hub';
+    const fromAddr = this.config.get<string>('MAIL_FROM', '')?.trim();
+    if (!fromAddr) {
+      throw new Error('MAIL_FROM is not set.');
+    }
+    const from = `${fromName} <${fromAddr}>`;
+    const subject = 'Your direct purchase payment has been sent — The Bag Hub';
+
+    const itemLinesText = params.items
+      .map((item) => `- ${item.brandModel}, ${item.priceLabel}`)
+      .join('\n');
+    const itemLinesHtml = params.items
+      .map(
+        (item) =>
+          `<li>${escapeHtml(item.brandModel)}, ${escapeHtml(item.priceLabel)}</li>`,
+      )
+      .join('');
+
+    const depositSlipNote =
+      params.attachments.length > 0
+        ? '\n\nThe deposit slip is attached to this email.'
+        : '';
+
+    const text = `Hi ${params.firstName},
+
+We have sent your direct purchase payment for the following items:
+
+${itemLinesText}
+
+Total amount: ${params.totalAmountLabel}${depositSlipNote}
+
+Thank you for selling with The Bag Hub.`;
+
+    const depositSlipHtml =
+      params.attachments.length > 0
+        ? '<p>The deposit slip is attached to this email.</p>'
+        : '';
+
+    const html = `<p>Hi ${escapeHtml(params.firstName)},</p>
+<p>We have sent your direct purchase payment for the following items:</p>
+<ul>${itemLinesHtml}</ul>
+<p><strong>Total amount:</strong> ${escapeHtml(params.totalAmountLabel)}</p>
+${depositSlipHtml}
+<p style="color:#64748b;font-size:12px">Thank you for selling with The Bag Hub.</p>`;
+
+    await this.getTransporter().sendMail({
+      from,
+      to: params.to,
+      subject,
+      text,
+      html,
+      attachments: params.attachments.map((file) => ({
+        filename: file.filename,
+        content: file.content,
+        contentType: file.contentType,
+      })),
+    });
+    this.logger.log(`Sent direct purchase payment notice to ${params.to}`);
+  }
+
+  async sendDirectPurchasePaymentUnableToSendNotice(params: {
+    to: string;
+    firstName: string;
+    reason: string;
+    attachments: Array<{
+      filename: string;
+      content: Buffer;
+      contentType: string;
+    }>;
+  }): Promise<void> {
+    const fromName =
+      this.config.get<string>('MAIL_FROM_NAME', '')?.trim() || 'The Bag Hub';
+    const fromAddr = this.config.get<string>('MAIL_FROM', '')?.trim();
+    if (!fromAddr) {
+      throw new Error('MAIL_FROM is not set.');
+    }
+    const from = `${fromName} <${fromAddr}>`;
+    const subject = 'Update on your direct purchase payment — The Bag Hub';
+
+    const attachmentNote =
+      params.attachments.length > 0
+        ? '\n\nA supporting image is attached to this email.'
+        : '';
+
+    const text = `Hi ${params.firstName},
+
+We were unable to send your direct purchase payment.
+
+Reason:
+${params.reason}${attachmentNote}
+
+Please contact our coordinators if you have questions or need assistance.
+
+Thank you for selling with The Bag Hub.`;
+
+    const attachmentHtml =
+      params.attachments.length > 0
+        ? '<p>A supporting image is attached to this email.</p>'
+        : '';
+
+    const html = `<p>Hi ${escapeHtml(params.firstName)},</p>
+<p>We were unable to send your direct purchase payment.</p>
+<p><strong>Reason:</strong></p>
+<p>${escapeHtml(params.reason).replace(/\n/g, '<br />')}</p>
+${attachmentHtml}
+<p style="color:#64748b;font-size:12px">Please contact our coordinators if you have questions or need assistance.</p>`;
+
+    await this.getTransporter().sendMail({
+      from,
+      to: params.to,
+      subject,
+      text,
+      html,
+      attachments: params.attachments.map((file) => ({
+        filename: file.filename,
+        content: file.content,
+        contentType: file.contentType,
+      })),
+    });
+    this.logger.log(
+      `Sent unable-to-send direct purchase payment notice to ${params.to}`,
+    );
   }
 }
 

@@ -27,6 +27,9 @@ type AuditState = {
   status: string;
   offerTransactionType: string | null;
   offerPrice: string | null;
+  directPurchaseRequestedPrice: string | null;
+  directPurchaseApproverNotes: string | null;
+  directPurchaseRejectReason: string | null;
   contractRenewalRequestedPrice: string | null;
   offerSignaturePresent: boolean;
   notes: string | null;
@@ -52,6 +55,9 @@ export function cloneInquiryForAudit(r: Inquiry): Inquiry {
       status: r.status,
       offerTransactionType: r.offerTransactionType,
       offerPrice: r.offerPrice,
+      directPurchaseRequestedPrice: r.directPurchaseRequestedPrice,
+      directPurchaseApproverNotes: r.directPurchaseApproverNotes,
+      directPurchaseRejectReason: r.directPurchaseRejectReason,
       contractRenewalRequestedPrice: r.contractRenewalRequestedPrice,
       notes: r.notes,
       itemSnapshot: r.itemSnapshot,
@@ -75,6 +81,21 @@ function toAuditState(
       r.offerPrice != null && String(r.offerPrice).trim() !== ''
         ? String(r.offerPrice)
         : null,
+    directPurchaseRequestedPrice:
+      r.directPurchaseRequestedPrice != null &&
+      String(r.directPurchaseRequestedPrice).trim() !== ''
+        ? String(r.directPurchaseRequestedPrice)
+        : null,
+    directPurchaseApproverNotes: (() => {
+      if (r.directPurchaseApproverNotes == null) return null;
+      const t = String(r.directPurchaseApproverNotes).trim();
+      return t === '' ? null : truncate(t);
+    })(),
+    directPurchaseRejectReason: (() => {
+      if (r.directPurchaseRejectReason == null) return null;
+      const t = String(r.directPurchaseRejectReason).trim();
+      return t === '' ? null : truncate(t);
+    })(),
     contractRenewalRequestedPrice:
       r.contractRenewalRequestedPrice != null &&
       String(r.contractRenewalRequestedPrice).trim() !== ''
@@ -140,6 +161,21 @@ function diffStates(
     after.offerTransactionType,
   );
   push('Offer price', before.offerPrice, after.offerPrice);
+  push(
+    'Direct purchase requested price',
+    before.directPurchaseRequestedPrice,
+    after.directPurchaseRequestedPrice,
+  );
+  push(
+    'Notes for approver',
+    before.directPurchaseApproverNotes,
+    after.directPurchaseApproverNotes,
+  );
+  push(
+    'Direct purchase reject reason',
+    before.directPurchaseRejectReason,
+    after.directPurchaseRejectReason,
+  );
   push(
     'Contract renewal requested price',
     before.contractRenewalRequestedPrice,
@@ -223,6 +259,9 @@ export class InquiryAuditService {
       status: '',
       offerTransactionType: null,
       offerPrice: null,
+      directPurchaseRequestedPrice: null,
+      directPurchaseApproverNotes: null,
+      directPurchaseRejectReason: null,
       contractRenewalRequestedPrice: null,
       offerSignaturePresent: false,
       notes: null,

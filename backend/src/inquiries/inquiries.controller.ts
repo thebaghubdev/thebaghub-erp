@@ -23,6 +23,8 @@ import { UpdateInquiryNotesDto } from './dto/update-inquiry-notes.dto';
 import { UpdateReauthenticationNotesDto } from './dto/update-reauthentication-notes.dto';
 import { SubmitAuthenticatedReturnNewOfferDto } from './dto/submit-authenticated-return-new-offer.dto';
 import { SubmitOfferDto } from './dto/submit-offer.dto';
+import { RequestDirectPurchaseApprovalDto } from './dto/request-direct-purchase-approval.dto';
+import { RejectDirectPurchaseApprovalDto } from './dto/reject-direct-purchase-approval.dto';
 import { InquiriesService } from './inquiries.service';
 import { InquiryAuditService } from './inquiry-audit.service';
 
@@ -112,6 +114,69 @@ export class InquiriesController {
     @Body() body: SubmitOfferDto,
   ) {
     return this.inquiriesService.submitOffer(id, body, req.user);
+  }
+
+  @Post(':id/direct-purchase-approval')
+  @RequireFeature('inquiries', 'edit')
+  requestDirectPurchaseApproval(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: RequestDirectPurchaseApprovalDto,
+  ) {
+    return this.inquiriesService.requestDirectPurchaseApproval(
+      id,
+      body,
+      req.user,
+    );
+  }
+
+  @Patch(':id/direct-purchase-approval')
+  @RequireFeature('inquiries', 'edit')
+  updateDirectPurchaseApproval(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: RequestDirectPurchaseApprovalDto,
+  ) {
+    return this.inquiriesService.updateDirectPurchaseApprovalRequest(
+      id,
+      body,
+      req.user,
+    );
+  }
+
+  @Post(':id/direct-purchase-approval/withdraw')
+  @RequireFeature('inquiries', 'edit')
+  withdrawDirectPurchaseApproval(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.inquiriesService.withdrawDirectPurchaseApprovalRequest(
+      id,
+      req.user,
+    );
+  }
+
+  @Post(':id/direct-purchase-approval/approve')
+  @RequireFeature('inquiries', 'edit')
+  approveDirectPurchaseApproval(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.inquiriesService.approveDirectPurchaseApproval(id, req.user);
+  }
+
+  @Post(':id/direct-purchase-approval/reject')
+  @RequireFeature('inquiries', 'edit')
+  rejectDirectPurchaseApproval(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: RejectDirectPurchaseApprovalDto,
+  ) {
+    return this.inquiriesService.rejectDirectPurchaseApproval(
+      id,
+      body,
+      req.user,
+    );
   }
 
   @Post(':id/authenticated-return-new-offer')

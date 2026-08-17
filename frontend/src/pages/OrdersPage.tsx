@@ -11,6 +11,7 @@ import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
 import { useFeatureAccess } from "../lib/use-feature-access";
 import {
+  canAssignWorkToOthers,
   canCreateStaffOrder,
 } from "../lib/employee-position";
 import { formatPhpDisplay } from "../lib/format-php";
@@ -164,6 +165,10 @@ export function OrdersPage() {
   const mayCreateOrder =
     canEdit &&
     canCreateStaffOrder(Boolean(user?.isAdmin), user?.employee?.position);
+  const canAssignToOthers = canAssignWorkToOthers(
+    Boolean(user?.isAdmin),
+    user?.employee?.position,
+  );
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -242,49 +247,69 @@ export function OrdersPage() {
     }
   }, [canEdit, token]);
 
-  const submitAssignSalesAssociate = useCallback(async () => {
-    if (!canEdit || !token) return;
-    if (!assignEmployeeId.trim()) {
-      setAssignError("Select a sales associate.");
+  const submitAssignSalesAssociate = useCallback(
+    async (employeeId: string) => {
+      if (!canEdit || !token) return;
+      if (!employeeId.trim()) {
+        setAssignError("Select a sales associate.");
+        return;
+      }
+      if (orderSelectedIds.size === 0) return;
+      setAssignBusy(true);
+      setAssignError(null);
+      try {
+        const res = await apiFetch(
+          "/api/orders/batch-assign-sales-associate",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              orderIds: [...orderSelectedIds],
+              employeeId: employeeId.trim(),
+            }),
+          },
+          token,
+        );
+        if (!res.ok) {
+          let msg = `Request failed (${res.status})`;
+          try {
+            const j = (await res.json()) as { message?: string | string[] };
+            if (Array.isArray(j.message)) msg = j.message.join("; ");
+            else if (typeof j.message === "string") msg = j.message;
+          } catch {
+            /* ignore */
+          }
+          throw new Error(msg);
+        }
+        setAssignModalOpen(false);
+        setOrderSelectedIds(new Set());
+        await load();
+      } catch (e) {
+        setAssignError(
+          e instanceof Error ? e.message : "Could not assign sales associate",
+        );
+      } finally {
+        setAssignBusy(false);
+      }
+    },
+    [canEdit, token, orderSelectedIds, load],
+  );
+
+  const assignSelectedToSelf = useCallback(async () => {
+    const myId = user?.employee?.id?.trim();
+    if (!myId) {
+      setAssignError("Your account is not linked to an employee record.");
       return;
     }
-    if (orderSelectedIds.size === 0) return;
-    setAssignBusy(true);
-    setAssignError(null);
-    try {
-      const res = await apiFetch(
-        "/api/orders/batch-assign-sales-associate",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            orderIds: [...orderSelectedIds],
-            employeeId: assignEmployeeId.trim(),
-          }),
-        },
-        token,
-      );
-      if (!res.ok) {
-        let msg = `Request failed (${res.status})`;
-        try {
-          const j = (await res.json()) as { message?: string | string[] };
-          if (Array.isArray(j.message)) msg = j.message.join("; ");
-          else if (typeof j.message === "string") msg = j.message;
-        } catch {
-          /* ignore */
-        }
-        throw new Error(msg);
-      }
-      setAssignModalOpen(false);
-      setOrderSelectedIds(new Set());
-      await load();
-    } catch (e) {
-      setAssignError(
-        e instanceof Error ? e.message : "Could not assign sales associate",
-      );
-    } finally {
-      setAssignBusy(false);
+    await submitAssignSalesAssociate(myId);
+  }, [user?.employee?.id, submitAssignSalesAssociate]);
+
+  const onAssignToolbarClick = useCallback(() => {
+    if (canAssignToOthers) {
+      void openAssignModal();
+      return;
     }
-  }, [canEdit, token, assignEmployeeId, orderSelectedIds, load]);
+    void assignSelectedToSelf();
+  }, [canAssignToOthers, openAssignModal, assignSelectedToSelf]);
 
   const requestTab = (next: OrdersTab) => {
     if (next === "create" && !mayCreateOrder) return;
@@ -372,6 +397,11 @@ export function OrdersPage() {
               {error}
             </p>
           ) : null}
+          {!assignModalOpen && assignError ? (
+            <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+              {assignError}
+            </p>
+          ) : null}
 
           <DataTable
             data={rows}
@@ -392,10 +422,15 @@ export function OrdersPage() {
               !readOnly && orderSelectedIds.size > 0 ? (
                 <button
                   type="button"
-                  onClick={() => void openAssignModal()}
+                  onClick={onAssignToolbarClick}
+                  disabled={assignBusy}
                   className="rounded-lg bg-violet-600 px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-violet-700 focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500 disabled:opacity-50"
                 >
-                  Assign to Sales Associate ({orderSelectedIds.size})
+                  {assignBusy
+                    ? "Assigning…"
+                    : canAssignToOthers
+                      ? `Assign to Sales Associate (${orderSelectedIds.size})`
+                      : `Assign to me (${orderSelectedIds.size})`}
                 </button>
               ) : null
             }
@@ -469,7 +504,7 @@ export function OrdersPage() {
                         type="button"
                         className="rounded-lg bg-violet-600 px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-violet-700 disabled:opacity-50"
                         disabled={assignBusy || associatesLoading}
-                        onClick={() => void submitAssignSalesAssociate()}
+                        onClick={() => void submitAssignSalesAssociate(assignEmployeeId)}
                       >
                         {assignBusy ? "Assigning…" : "Assign"}
                       </button>

@@ -46,10 +46,79 @@ export class SeedService implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
+    await this.ensureInquiryDirectPurchaseSchema();
+    await this.ensureDirectPurchasePaymentsSchema();
     await this.ensureClientVipStatusBackfill();
     await this.ensureAdministrator();
     await this.ensureConsignmentFormSettings();
     await this.ensureAuthenticationMetrics();
+  }
+
+  /** Tables TypeORM synchronize may skip (especially in production). */
+  private async ensureDirectPurchasePaymentsSchema() {
+    try {
+      await this.employeesRepo.query(`
+        CREATE TABLE IF NOT EXISTS direct_purchase_payments (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          client_id uuid NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+          status varchar(128) NOT NULL DEFAULT 'Unpaid',
+          check_number varchar(64),
+          unable_to_send_reason text,
+          created_at timestamptz NOT NULL DEFAULT now()
+        )
+      `);
+      await this.employeesRepo.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS "UQ_direct_purchase_payments_unpaid_client"
+          ON direct_purchase_payments (client_id)
+          WHERE "status" = 'Unpaid'
+      `);
+      await this.employeesRepo.query(`
+        CREATE TABLE IF NOT EXISTS direct_purchase_payments_item (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          inquiry_id uuid NOT NULL UNIQUE REFERENCES inquiries(id) ON DELETE CASCADE,
+          direct_purchase_payment_id uuid NOT NULL REFERENCES direct_purchase_payments(id) ON DELETE CASCADE
+        )
+      `);
+    } catch (err) {
+      this.logger.warn(
+        `Could not ensure direct purchase payments schema: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+
+  /** Columns + enum value TypeORM synchronize may skip (especially in production). */
+  private async ensureInquiryDirectPurchaseSchema() {
+    try {
+      await this.employeesRepo.query(`
+        ALTER TABLE inquiries
+          ADD COLUMN IF NOT EXISTS direct_purchase_requested_price numeric(12,2),
+          ADD COLUMN IF NOT EXISTS direct_purchase_approver_notes text,
+          ADD COLUMN IF NOT EXISTS direct_purchase_reject_reason text
+      `);
+      const enumTypes: Array<{ typname: string }> = await this.employeesRepo.query(
+        `
+        SELECT DISTINCT t.typname
+        FROM pg_type t
+        JOIN pg_enum e ON t.oid = e.enumtypid
+        WHERE e.enumlabel = 'for_offer_confirmation'
+        `,
+      );
+      for (const row of enumTypes) {
+        const name = String(row.typname ?? '').trim();
+        if (!/^[a-zA-Z0-9_]+$/.test(name)) continue;
+        await this.employeesRepo.query(
+          `ALTER TYPE "${name}" ADD VALUE IF NOT EXISTS 'for_direct_purchase_approval'`,
+        );
+      }
+    } catch (err) {
+      this.logger.warn(
+        `Could not ensure inquiry direct-purchase schema: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
   }
 
   private async ensureClientVipStatusBackfill() {

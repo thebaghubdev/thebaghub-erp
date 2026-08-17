@@ -20,7 +20,9 @@ import {
   utcDayRange,
   utcInventoryDayLockKey,
 } from './inventory-sku.util';
+import { JwtUser } from '../auth/jwt-user';
 import { Employee } from '../employees/entities/employee.entity';
+import { canAssignWorkToOthers } from '../employees/employee-position.util';
 import { InventoryItem } from './entities/inventory-item.entity';
 import { ItemAuthentication } from './entities/item-authentication.entity';
 import { ItemPhotoshoot } from './entities/item-photoshoot.entity';
@@ -1566,8 +1568,23 @@ export class InventoryService {
 
   async batchAssignAuthenticator(
     dto: BatchAssignAuthenticatorDto,
-    actorUserId: string,
+    actor: JwtUser,
   ): Promise<{ updated: number }> {
+    const actorEmployee = await this.employeesRepo.findOne({
+      where: { userId: actor.userId },
+    });
+    if (!canAssignWorkToOthers(actor.isAdmin, actorEmployee?.position)) {
+      if (!actorEmployee?.id) {
+        throw new ForbiddenException(
+          'Your account is not linked to an employee record.',
+        );
+      }
+      if (actorEmployee.id !== dto.employeeId) {
+        throw new ForbiddenException(
+          'Only a supervisor can assign authentication to other staff.',
+        );
+      }
+    }
     const employee = await this.employeesRepo.findOne({
       where: { id: dto.employeeId },
     });
@@ -1576,7 +1593,9 @@ export class InventoryService {
     }
     if (!isAuthenticatorPosition(employee.position)) {
       throw new BadRequestException(
-        'Selected person is not in the Authenticator position.',
+        actorEmployee?.id === dto.employeeId
+          ? 'You must be in the Authenticator position to assign items to yourself.'
+          : 'Selected person is not in the Authenticator position.',
       );
     }
     const uniqueIds = [...new Set(dto.inventoryItemIds)];
@@ -1603,12 +1622,12 @@ export class InventoryService {
             inventoryItemId,
             assignedToId: dto.employeeId,
             authenticationStatus: 'Pending',
-            createdById: actorUserId,
-            updatedById: actorUserId,
+            createdById: actor.userId,
+            updatedById: actor.userId,
           });
         } else {
           auth.assignedToId = dto.employeeId;
-          auth.updatedById = actorUserId;
+          auth.updatedById = actor.userId;
         }
         await em.save(auth);
       }

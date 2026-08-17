@@ -27,6 +27,7 @@ import { formatOfferTransactionLabel } from "../lib/format-offer-transaction-typ
 import { formatPhpDisplay, parsePhpStringToNumber } from "../lib/format-php";
 import { randomId } from "../lib/random-id";
 import { useFeatureAccess } from "../lib/use-feature-access";
+import { isCeoPosition } from "../lib/employee-position";
 
 type TransactionType = "consignment" | "direct_purchase";
 
@@ -86,6 +87,9 @@ type InquiryDetail = {
   photoCount: number;
   offerTransactionType: TransactionType | null;
   offerPrice: string | null;
+  directPurchaseRequestedPrice: string | null;
+  directPurchaseApproverNotes: string | null;
+  directPurchaseRejectReason: string | null;
   originalOfferPrice: string | null;
   contractRenewalRequestedPrice: string | null;
   repricingProofUrl: string | null;
@@ -118,13 +122,23 @@ type InquiryDetail = {
 };
 
 /** Staff can change offer price / transaction type for these statuses only. */
-function canShowUpdateOfferButton(status: string): boolean {
+function canShowUpdateOfferButton(
+  status: string,
+  offerTransactionType: TransactionType | null,
+): boolean {
   const s = status.trim().toLowerCase();
-  return s === "for_offer_confirmation" || s === "authenticated_new_offer";
+  if (s === "authenticated_new_offer") return true;
+  return (
+    s === "for_offer_confirmation" && offerTransactionType !== "direct_purchase"
+  );
 }
 
 function isPending(status: string): boolean {
   return status.trim().toLowerCase() === "pending";
+}
+
+function isForDirectPurchaseApproval(status: string): boolean {
+  return status.trim().toLowerCase() === "for_direct_purchase_approval";
 }
 
 function isThirdPartyAuthPaymentFlowStatus(status: string): boolean {
@@ -298,17 +312,29 @@ function OfferModalAskingPrices({ detail }: { detail: InquiryDetail }) {
 
 export function InquiryDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { token } = usePortalAuth();
+  const { token, user } = usePortalAuth();
   const { canEdit: canEditFeature, readOnly } = useFeatureAccess("inquiries");
+  const isCeo = isCeoPosition(user?.employee?.position);
   const [detail, setDetail] = useState<InquiryDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [offerModalOpen, setOfferModalOpen] = useState(false);
-  const [txnType, setTxnType] = useState<TransactionType>("consignment");
   const [offerPriceInput, setOfferPriceInput] = useState("");
+  const [dpRequestModalOpen, setDpRequestModalOpen] = useState(false);
+  const [dpRequestIsEdit, setDpRequestIsEdit] = useState(false);
+  const [dpPriceInput, setDpPriceInput] = useState("");
+  const [dpNotesInput, setDpNotesInput] = useState("");
+  const [dpRejectModalOpen, setDpRejectModalOpen] = useState(false);
+  const [dpRejectReason, setDpRejectReason] = useState("");
+  const [dpWithdrawConfirmOpen, setDpWithdrawConfirmOpen] = useState(false);
+  const [dpApproveConfirmOpen, setDpApproveConfirmOpen] = useState(false);
   const [actionBusy, setActionBusy] = useState<
     | "decline"
     | "offer"
+    | "dpRequest"
+    | "dpWithdraw"
+    | "dpApprove"
+    | "dpReject"
     | "notes"
     | "reauthenticationNotes"
     | "createNewOffer"
@@ -327,6 +353,8 @@ export function InquiryDetailPage() {
   const [reauthNotesModalOpen, setReauthNotesModalOpen] = useState(false);
   const [reauthNotesDraft, setReauthNotesDraft] = useState("");
   const offerModalTitleId = useId();
+  const dpRequestModalTitleId = useId();
+  const dpRejectModalTitleId = useId();
   const notesModalTitleId = useId();
   const reauthNotesModalTitleId = useId();
   const createNewOfferModalTitleId = useId();
@@ -422,13 +450,6 @@ export function InquiryDetailPage() {
     if (auditRows !== null) return;
     void loadAudit();
   }, [auditOpen, id, auditRows, loadAudit]);
-
-  useEffect(() => {
-    if (!offerModalOpen || !detail) return;
-    if (!detail.consentDirectPurchase) {
-      setTxnType("consignment");
-    }
-  }, [offerModalOpen, detail]);
 
   useEffect(() => {
     if (!offerModalOpen) return;
@@ -691,12 +712,6 @@ export function InquiryDetailPage() {
   const openOfferModal = useCallback(() => {
     if (!canEditFeature || !detail) return;
     setActionError(null);
-    setTxnType(
-      detail.consentDirectPurchase &&
-        detail.offerTransactionType === "direct_purchase"
-        ? "direct_purchase"
-        : "consignment",
-    );
     setOfferPriceInput(
       detail.offerPrice != null && detail.offerPrice !== ""
         ? (() => {
@@ -717,9 +732,6 @@ export function InquiryDetailPage() {
         setActionError("Enter a valid offer price greater than zero.");
         return;
       }
-      const tx: TransactionType = detail.consentDirectPurchase
-        ? txnType
-        : "consignment";
       setActionError(null);
       setActionBusy("offer");
       try {
@@ -728,7 +740,7 @@ export function InquiryDetailPage() {
           {
             method: "POST",
             body: JSON.stringify({
-              transactionType: tx,
+              transactionType: "consignment",
               offerPrice: price,
             }),
           },
@@ -747,7 +759,171 @@ export function InquiryDetailPage() {
         setActionBusy(null);
       }
     },
-    [canEditFeature, id, token, detail, offerPriceInput, txnType],
+    [canEditFeature, id, token, detail, offerPriceInput],
+  );
+
+  const prefillDirectPurchasePrice = useCallback((row: InquiryDetail) => {
+    if (
+      row.directPurchaseRequestedPrice != null &&
+      row.directPurchaseRequestedPrice !== ""
+    ) {
+      const n = parsePhpStringToNumber(String(row.directPurchaseRequestedPrice));
+      return n != null ? n.toFixed(2) : String(row.directPurchaseRequestedPrice);
+    }
+    const ask = parsePhpStringToNumber(row.directPurchaseSellingPrice);
+    return ask != null && ask > 0 ? ask.toFixed(2) : "";
+  }, []);
+
+  const openDpRequestModal = useCallback(
+    (asEdit: boolean) => {
+      if (!canEditFeature || !detail) return;
+      setActionError(null);
+      setDpRequestIsEdit(asEdit);
+      setDpPriceInput(prefillDirectPurchasePrice(detail));
+      setDpNotesInput(detail.directPurchaseApproverNotes ?? "");
+      setDpRequestModalOpen(true);
+    },
+    [canEditFeature, detail, prefillDirectPurchasePrice],
+  );
+
+  const submitDpRequest = useCallback(
+    async (e: FormEvent) => {
+      e.preventDefault();
+      if (!canEditFeature || !id || !token || !detail) return;
+      const price = parsePhpStringToNumber(dpPriceInput);
+      if (price == null || price <= 0) {
+        setActionError("Enter a valid offer price greater than zero.");
+        return;
+      }
+      setActionError(null);
+      setActionBusy("dpRequest");
+      try {
+        const res = await apiFetch(
+          `/api/inquiries/${id}/direct-purchase-approval`,
+          {
+            method: dpRequestIsEdit ? "PATCH" : "POST",
+            body: JSON.stringify({
+              offerPrice: price,
+              notes: dpNotesInput,
+            }),
+          },
+          token,
+        );
+        if (!res.ok) throw new Error(await readApiErrorMessage(res));
+        const data = (await res.json()) as InquiryDetail;
+        setDetail(data);
+        setAuditRows(null);
+        setDpRequestModalOpen(false);
+      } catch (err) {
+        setActionError(
+          err instanceof Error
+            ? err.message
+            : "Could not save direct purchase request",
+        );
+      } finally {
+        setActionBusy(null);
+      }
+    },
+    [
+      canEditFeature,
+      id,
+      token,
+      detail,
+      dpPriceInput,
+      dpNotesInput,
+      dpRequestIsEdit,
+    ],
+  );
+
+  const confirmWithdrawDpRequest = useCallback(async () => {
+    if (!canEditFeature || !id || !token) return;
+    setActionError(null);
+    setActionBusy("dpWithdraw");
+    try {
+      const res = await apiFetch(
+        `/api/inquiries/${id}/direct-purchase-approval/withdraw`,
+        { method: "POST" },
+        token,
+      );
+      if (!res.ok) throw new Error(await readApiErrorMessage(res));
+      const data = (await res.json()) as InquiryDetail;
+      setDetail(data);
+      setAuditRows(null);
+      setDpWithdrawConfirmOpen(false);
+    } catch (err) {
+      setActionError(
+        err instanceof Error
+          ? err.message
+          : "Could not withdraw direct purchase request",
+      );
+    } finally {
+      setActionBusy(null);
+    }
+  }, [canEditFeature, id, token]);
+
+  const confirmApproveDp = useCallback(async () => {
+    if (!canEditFeature || !id || !token) return;
+    setActionError(null);
+    setActionBusy("dpApprove");
+    try {
+      const res = await apiFetch(
+        `/api/inquiries/${id}/direct-purchase-approval/approve`,
+        { method: "POST" },
+        token,
+      );
+      if (!res.ok) throw new Error(await readApiErrorMessage(res));
+      const data = (await res.json()) as InquiryDetail;
+      setDetail(data);
+      setAuditRows(null);
+      setDpApproveConfirmOpen(false);
+    } catch (err) {
+      setActionError(
+        err instanceof Error
+          ? err.message
+          : "Could not approve direct purchase request",
+      );
+    } finally {
+      setActionBusy(null);
+    }
+  }, [canEditFeature, id, token]);
+
+  const submitRejectDp = useCallback(
+    async (e: FormEvent) => {
+      e.preventDefault();
+      if (!canEditFeature || !id || !token) return;
+      const reason = dpRejectReason.trim();
+      if (!reason) {
+        setActionError("A reject reason is required.");
+        return;
+      }
+      setActionError(null);
+      setActionBusy("dpReject");
+      try {
+        const res = await apiFetch(
+          `/api/inquiries/${id}/direct-purchase-approval/reject`,
+          {
+            method: "POST",
+            body: JSON.stringify({ reason }),
+          },
+          token,
+        );
+        if (!res.ok) throw new Error(await readApiErrorMessage(res));
+        const data = (await res.json()) as InquiryDetail;
+        setDetail(data);
+        setAuditRows(null);
+        setDpRejectModalOpen(false);
+        setDpRejectReason("");
+      } catch (err) {
+        setActionError(
+          err instanceof Error
+            ? err.message
+            : "Could not reject direct purchase request",
+        );
+      } finally {
+        setActionBusy(null);
+      }
+    },
+    [canEditFeature, id, token, dpRejectReason],
   );
 
   const openNotesModal = useCallback(() => {
@@ -1145,6 +1321,10 @@ export function InquiryDetailPage() {
 
       {actionError &&
       !offerModalOpen &&
+      !dpRequestModalOpen &&
+      !dpRejectModalOpen &&
+      !dpWithdrawConfirmOpen &&
+      !dpApproveConfirmOpen &&
       !declineConfirmOpen &&
       !notesModalOpen &&
       !reauthNotesModalOpen &&
@@ -1228,10 +1408,80 @@ export function InquiryDetailPage() {
                   onClick={openOfferModal}
                   className="rounded-lg bg-violet-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-violet-700 disabled:opacity-50 dark:bg-violet-600 dark:hover:bg-violet-500"
                 >
-                  Create offer
+                  Create Consignment Offer
                 </button>
               ) : null}
-              {canEditFeature && canShowUpdateOfferButton(detail.status) ? (
+              {canEditFeature &&
+              isPending(detail.status) &&
+              detail.consentDirectPurchase ? (
+                <button
+                  type="button"
+                  disabled={actionBusy !== null}
+                  onClick={() => openDpRequestModal(false)}
+                  className="rounded-lg bg-fuchsia-700 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-fuchsia-800 disabled:opacity-50 dark:bg-fuchsia-600 dark:hover:bg-fuchsia-500"
+                >
+                  Request Direct Purchase Approval
+                </button>
+              ) : null}
+              {canEditFeature &&
+              isForDirectPurchaseApproval(detail.status) &&
+              !isCeo ? (
+                <>
+                  <button
+                    type="button"
+                    disabled={actionBusy !== null}
+                    onClick={() => openDpRequestModal(true)}
+                    className="rounded-lg bg-fuchsia-700 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-fuchsia-800 disabled:opacity-50 dark:bg-fuchsia-600 dark:hover:bg-fuchsia-500"
+                  >
+                    Edit Direct Purchase Request
+                  </button>
+                  <button
+                    type="button"
+                    disabled={actionBusy !== null}
+                    onClick={() => {
+                      setActionError(null);
+                      setDpWithdrawConfirmOpen(true);
+                    }}
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-800"
+                  >
+                    Withdraw Request
+                  </button>
+                </>
+              ) : null}
+              {canEditFeature &&
+              isForDirectPurchaseApproval(detail.status) &&
+              isCeo ? (
+                <>
+                  <button
+                    type="button"
+                    disabled={actionBusy !== null}
+                    onClick={() => {
+                      setActionError(null);
+                      setDpApproveConfirmOpen(true);
+                    }}
+                    className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50 dark:bg-emerald-600 dark:hover:bg-emerald-500"
+                  >
+                    Approve
+                  </button>
+                  <button
+                    type="button"
+                    disabled={actionBusy !== null}
+                    onClick={() => {
+                      setActionError(null);
+                      setDpRejectReason("");
+                      setDpRejectModalOpen(true);
+                    }}
+                    className="rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-800 shadow-sm hover:bg-red-50 disabled:opacity-50 dark:border-red-900 dark:bg-slate-950 dark:text-red-200 dark:hover:bg-red-950/40"
+                  >
+                    Reject
+                  </button>
+                </>
+              ) : null}
+              {canEditFeature &&
+              canShowUpdateOfferButton(
+                detail.status,
+                detail.offerTransactionType,
+              ) ? (
                 <button
                   type="button"
                   disabled={actionBusy !== null}
@@ -1448,6 +1698,51 @@ export function InquiryDetailPage() {
                 </p>
               )}
             </div>
+
+            {detail.directPurchaseRequestedPrice != null ||
+            detail.directPurchaseApproverNotes != null ||
+            detail.directPurchaseRejectReason != null ? (
+              <div className="mt-4 rounded-lg border border-fuchsia-200 bg-fuchsia-50/80 p-3 text-sm dark:border-fuchsia-900/50 dark:bg-fuchsia-950/30">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-fuchsia-900 dark:text-fuchsia-200">
+                  Direct purchase approval
+                </h3>
+                <dl className="mt-2 space-y-2 text-slate-800 dark:text-slate-200">
+                  {detail.directPurchaseRequestedPrice != null &&
+                  detail.directPurchaseRequestedPrice !== "" ? (
+                    <div>
+                      <dt className="text-slate-500 dark:text-slate-400">
+                        Direct purchase offer price
+                      </dt>
+                      <dd className="tabular-nums font-medium">
+                        {formatPhpDisplay(detail.directPurchaseRequestedPrice)}
+                      </dd>
+                    </div>
+                  ) : null}
+                  <div>
+                    <dt className="text-slate-500 dark:text-slate-400">
+                      Notes for approver
+                    </dt>
+                    <dd className="whitespace-pre-wrap">
+                      {detail.directPurchaseApproverNotes != null &&
+                      detail.directPurchaseApproverNotes !== ""
+                        ? detail.directPurchaseApproverNotes
+                        : "—"}
+                    </dd>
+                  </div>
+                  {detail.directPurchaseRejectReason != null &&
+                  detail.directPurchaseRejectReason !== "" ? (
+                    <div>
+                      <dt className="text-slate-500 dark:text-slate-400">
+                        Reject reason
+                      </dt>
+                      <dd className="whitespace-pre-wrap">
+                        {detail.directPurchaseRejectReason}
+                      </dd>
+                    </div>
+                  ) : null}
+                </dl>
+              </div>
+            ) : null}
 
             {detail.offerPrice != null && detail.offerPrice !== "" ? (
               <dl className="mt-4 rounded-lg border border-slate-100 bg-slate-50/80 p-3 text-sm dark:border-slate-800 dark:bg-slate-950/50">
@@ -2209,9 +2504,12 @@ export function InquiryDetailPage() {
                       id={offerModalTitleId}
                       className="text-base font-semibold text-slate-900 dark:text-slate-100"
                     >
-                      {canShowUpdateOfferButton(detail.status)
-                        ? "Update the offer"
-                        : "Create offer"}
+                      {canShowUpdateOfferButton(
+                        detail.status,
+                        detail.offerTransactionType,
+                      )
+                        ? "Update the consignment offer"
+                        : "Create Consignment Offer"}
                     </h2>
                     <form
                       onSubmit={(e) => void submitOffer(e)}
@@ -2225,52 +2523,10 @@ export function InquiryDetailPage() {
                       ) : null}
                       <div>
                         <label
-                          htmlFor="offer-txn-type"
-                          className="block text-sm font-medium text-slate-700 dark:text-slate-300"
-                        >
-                          Transaction type
-                        </label>
-                        <select
-                          id="offer-txn-type"
-                          value={
-                            detail.consentDirectPurchase
-                              ? txnType
-                              : "consignment"
-                          }
-                          onChange={(e) =>
-                            setTxnType(e.target.value as TransactionType)
-                          }
-                          disabled={
-                            isAuthenticatedNewOfferStatus(detail.status) ||
-                            !detail.consentDirectPurchase ||
-                            actionBusy !== null
-                          }
-                          className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 disabled:cursor-not-allowed disabled:bg-slate-100 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100 dark:disabled:bg-slate-900"
-                        >
-                          <option value="consignment">Consignment</option>
-                          <option value="direct_purchase">
-                            Direct purchase
-                          </option>
-                        </select>
-                        {isAuthenticatedNewOfferStatus(detail.status) ? (
-                          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                            After an authentication return, only the offer price
-                            can be updated; transaction type stays as set before
-                            return.
-                          </p>
-                        ) : !detail.consentDirectPurchase ? (
-                          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                            The consignor did not consent to direct purchase;
-                            only consignment is available.
-                          </p>
-                        ) : null}
-                      </div>
-                      <div>
-                        <label
                           htmlFor="offer-price"
                           className="block text-sm font-medium text-slate-700 dark:text-slate-300"
                         >
-                          Offer price (PHP)
+                          Consignment offer price (PHP)
                         </label>
                         <div className="mt-1">
                           <PhpPriceInput
@@ -2300,9 +2556,198 @@ export function InquiryDetailPage() {
                         >
                           {actionBusy === "offer"
                             ? "Saving…"
-                            : canShowUpdateOfferButton(detail.status)
+                            : canShowUpdateOfferButton(
+                                detail.status,
+                                detail.offerTransactionType,
+                              )
                               ? "Update the offer"
-                              : "Create offer"}
+                              : "Create Consignment Offer"}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>,
+                document.body,
+              )
+            : null}
+
+          {dpRequestModalOpen && detail && typeof document !== "undefined"
+            ? createPortal(
+                <div
+                  className="fixed inset-0 z-[100] flex items-end justify-center p-4 sm:items-center"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby={dpRequestModalTitleId}
+                >
+                  <button
+                    type="button"
+                    className="absolute inset-0 bg-slate-900/50"
+                    aria-label="Close direct purchase request"
+                    onClick={() =>
+                      actionBusy === null && setDpRequestModalOpen(false)
+                    }
+                  />
+                  <div className="relative z-10 w-full max-w-md rounded-2xl border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+                    <h2
+                      id={dpRequestModalTitleId}
+                      className="text-base font-semibold text-slate-900 dark:text-slate-100"
+                    >
+                      {dpRequestIsEdit
+                        ? "Edit Direct Purchase Request"
+                        : "Request Direct Purchase Approval"}
+                    </h2>
+                    <p className="mt-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950 dark:border-sky-900/60 dark:bg-sky-950/40 dark:text-sky-100">
+                      This will notify the approver (CEO). The consignor will
+                      receive the offer only after it is approved.
+                    </p>
+                    <form
+                      onSubmit={(e) => void submitDpRequest(e)}
+                      className="mt-4 space-y-4"
+                    >
+                      {actionError && dpRequestModalOpen ? (
+                        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+                          {actionError}
+                        </p>
+                      ) : null}
+                      <div>
+                        <label
+                          htmlFor="dp-offer-price"
+                          className="block text-sm font-medium text-slate-700 dark:text-slate-300"
+                        >
+                          Direct Purchase Offer Price (PHP)
+                        </label>
+                        <div className="mt-1">
+                          <PhpPriceInput
+                            id="dp-offer-price"
+                            value={dpPriceInput}
+                            onChange={setDpPriceInput}
+                            disabled={actionBusy !== null}
+                            required
+                            className="w-full rounded-lg border border-slate-300 bg-white py-2 pr-3 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
+                            placeholder="0.00"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label
+                          htmlFor="dp-approver-notes"
+                          className="block text-sm font-medium text-slate-700 dark:text-slate-300"
+                        >
+                          Notes for Approver
+                        </label>
+                        <textarea
+                          id="dp-approver-notes"
+                          value={dpNotesInput}
+                          onChange={(e) => setDpNotesInput(e.target.value)}
+                          disabled={actionBusy !== null}
+                          rows={4}
+                          className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
+                        />
+                      </div>
+                      <div className="flex flex-wrap justify-end gap-2 pt-2">
+                        <button
+                          type="button"
+                          disabled={actionBusy !== null}
+                          onClick={() => setDpRequestModalOpen(false)}
+                          className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={actionBusy !== null}
+                          className="rounded-lg bg-fuchsia-700 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-fuchsia-800 disabled:opacity-50 dark:bg-fuchsia-600 dark:hover:bg-fuchsia-500"
+                        >
+                          {actionBusy === "dpRequest"
+                            ? "Saving…"
+                            : dpRequestIsEdit
+                              ? "Save changes"
+                              : "Submit request"}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>,
+                document.body,
+              )
+            : null}
+
+          {dpRejectModalOpen && detail && typeof document !== "undefined"
+            ? createPortal(
+                <div
+                  className="fixed inset-0 z-[100] flex items-end justify-center p-4 sm:items-center"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby={dpRejectModalTitleId}
+                >
+                  <button
+                    type="button"
+                    className="absolute inset-0 bg-slate-900/50"
+                    aria-label="Close reject form"
+                    onClick={() =>
+                      actionBusy === null && setDpRejectModalOpen(false)
+                    }
+                  />
+                  <div className="relative z-10 w-full max-w-md rounded-2xl border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+                    <h2
+                      id={dpRejectModalTitleId}
+                      className="text-base font-semibold text-slate-900 dark:text-slate-100"
+                    >
+                      Reject Direct Purchase Request
+                    </h2>
+                    {detail.directPurchaseApproverNotes ? (
+                      <p className="mt-2 whitespace-pre-wrap rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200">
+                        <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                          Notes for approver
+                        </span>
+                        {detail.directPurchaseApproverNotes}
+                      </p>
+                    ) : null}
+                    <form
+                      onSubmit={(e) => void submitRejectDp(e)}
+                      className="mt-4 space-y-4"
+                    >
+                      {actionError && dpRejectModalOpen ? (
+                        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+                          {actionError}
+                        </p>
+                      ) : null}
+                      <div>
+                        <label
+                          htmlFor="dp-reject-reason"
+                          className="block text-sm font-medium text-slate-700 dark:text-slate-300"
+                        >
+                          Reject reason
+                        </label>
+                        <textarea
+                          id="dp-reject-reason"
+                          value={dpRejectReason}
+                          onChange={(e) => setDpRejectReason(e.target.value)}
+                          disabled={actionBusy !== null}
+                          required
+                          rows={4}
+                          className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
+                        />
+                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                          Visible to staff only. The consignor is emailed that
+                          the offer was not approved, without this reason.
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap justify-end gap-2 pt-2">
+                        <button
+                          type="button"
+                          disabled={actionBusy !== null}
+                          onClick={() => setDpRejectModalOpen(false)}
+                          className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={actionBusy !== null}
+                          className="rounded-lg bg-red-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-red-700 disabled:opacity-50"
+                        >
+                          {actionBusy === "dpReject" ? "Rejecting…" : "Reject"}
                         </button>
                       </div>
                     </form>
@@ -3174,6 +3619,63 @@ export function InquiryDetailPage() {
           setCancelRenewContractConfirmOpen(false);
         }}
         onConfirm={confirmCancelContractRenewal}
+      />
+
+      <ConfirmDialog
+        open={dpWithdrawConfirmOpen}
+        title="Withdraw direct purchase request?"
+        description="The inquiry will return to pending. The proposed price and notes for approver are kept. The CEO will be notified."
+        confirmLabel="Withdraw"
+        cancelLabel="Keep request"
+        busy={actionBusy === "dpWithdraw"}
+        errorMessage={actionError}
+        onCancel={() => {
+          if (actionBusy !== null) return;
+          setActionError(null);
+          setDpWithdrawConfirmOpen(false);
+        }}
+        onConfirm={confirmWithdrawDpRequest}
+      />
+
+      <ConfirmDialog
+        open={dpApproveConfirmOpen}
+        title="Approve direct purchase offer?"
+        description={
+          detail ? (
+            <div className="space-y-2">
+              <p>
+                Coordinators will be notified and the consignor will be emailed
+                the offer. After approval, only the consignor can accept or
+                cancel.
+              </p>
+              {detail.directPurchaseRequestedPrice ? (
+                <p>
+                  Offer price:{" "}
+                  <span className="font-medium tabular-nums text-slate-800 dark:text-slate-200">
+                    {formatPhpDisplay(detail.directPurchaseRequestedPrice)}
+                  </span>
+                </p>
+              ) : null}
+              {detail.directPurchaseApproverNotes ? (
+                <p className="whitespace-pre-wrap">
+                  Notes for approver: {detail.directPurchaseApproverNotes}
+                </p>
+              ) : null}
+            </div>
+          ) : (
+            "Approve this direct purchase request?"
+          )
+        }
+        confirmLabel="Approve"
+        cancelLabel="Cancel"
+        busy={actionBusy === "dpApprove"}
+        errorMessage={actionError}
+        onCancel={() => {
+          if (actionBusy !== null) return;
+          setActionError(null);
+          setDpApproveConfirmOpen(false);
+        }}
+        onConfirm={confirmApproveDp}
       />
 
       <ConfirmDialog

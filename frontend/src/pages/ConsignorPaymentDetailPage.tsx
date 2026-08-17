@@ -428,8 +428,7 @@ function ConsignorPaymentGroupHeaderActions({
       </div>
       <ConsignorPaymentCheckModal
         open={checkModalOpen}
-        paymentId={paymentId}
-        groupId={group.id}
+        endpointBase={`/api/consignor-payments/${paymentId}/groups/${group.id}`}
         consignorName={group.consignorName}
         initialCheckNumber={group.checkNumber}
         initialPhotos={group.checkPhotos}
@@ -442,8 +441,7 @@ function ConsignorPaymentGroupHeaderActions({
       />
       <ConsignorPaymentDepositSlipModal
         open={depositSlipModalOpen}
-        paymentId={paymentId}
-        groupId={group.id}
+        endpointBase={`/api/consignor-payments/${paymentId}/groups/${group.id}`}
         consignorName={group.consignorName}
         initialPhotos={group.depositSlipPhotos}
         token={token}
@@ -455,8 +453,7 @@ function ConsignorPaymentGroupHeaderActions({
       />
       <ConsignorPaymentUnableToSendModal
         open={unableToSendModalOpen}
-        paymentId={paymentId}
-        groupId={group.id}
+        endpointBase={`/api/consignor-payments/${paymentId}/groups/${group.id}`}
         consignorName={group.consignorName}
         token={token}
         onClose={() => {

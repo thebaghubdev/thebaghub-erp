@@ -30,6 +30,11 @@ import {
   ConsignorPaymentGroup,
   ConsignorPaymentItem,
 } from './consignor-payments/entities/consignor-payment.entities';
+import { DirectPurchasePaymentsModule } from './direct-purchase-payments/direct-purchase-payments.module';
+import {
+  DirectPurchasePayment,
+  DirectPurchasePaymentItem,
+} from './direct-purchase-payments/entities/direct-purchase-payment.entities';
 import { InventoryModule } from './inventory/inventory.module';
 import { InventoryItem } from './inventory/entities/inventory-item.entity';
 import { ItemAuthentication } from './inventory/entities/item-authentication.entity';
@@ -97,6 +102,8 @@ import { Task } from './tasks/entities/task.entity';
           ConsignorPayment,
           ConsignorPaymentGroup,
           ConsignorPaymentItem,
+          DirectPurchasePayment,
+          DirectPurchasePaymentItem,
           InventoryItem,
           ItemAuthentication,
           ItemAuthenticationMetric,
@@ -133,6 +140,7 @@ import { Task } from './tasks/entities/task.entity';
     AccountsModule,
     ConsignmentSchedulesModule,
     ConsignorPaymentsModule,
+    DirectPurchasePaymentsModule,
     InventoryModule,
     AuthenticationMetricsModule,
     NotificationsModule,

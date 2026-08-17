@@ -1,96 +1,112 @@
-import { useEffect, useState } from 'react'
-import { HireDatePicker } from '../components/HireDatePicker'
-import { PasswordField } from '../components/PasswordField'
-import { usePortalAuth } from '../context/portal-auth'
-import { apiFetch } from '../lib/api'
-import { useFeatureAccess } from '../lib/use-feature-access'
+import { useEffect, useState } from "react";
+import { HireDatePicker } from "../components/HireDatePicker";
+import { PasswordField } from "../components/PasswordField";
+import { usePortalAuth } from "../context/portal-auth";
+import { apiFetch } from "../lib/api";
+import { isCeoPosition } from "../lib/employee-position";
+import { useFeatureAccess } from "../lib/use-feature-access";
 
 /** Matches backend `POSITIONS_KEY` / seeded setting `positions`. */
-const POSITIONS_SETTING_KEY = 'positions'
+const POSITIONS_SETTING_KEY = "positions";
 
 type SettingApiRow = {
-  key: string
-  type: string
-  value: string
-}
+  key: string;
+  type: string;
+  value: string;
+};
 
 function parsePositionsFromSettings(settings: SettingApiRow[]): string[] {
-  const row = settings.find((s) => s.key === POSITIONS_SETTING_KEY)
-  if (!row || row.type !== 'string[]') return []
+  const row = settings.find((s) => s.key === POSITIONS_SETTING_KEY);
+  if (!row || row.type !== "string[]") return [];
   try {
-    const v = JSON.parse(row.value) as unknown
-    if (!Array.isArray(v)) return []
-    if (!v.every((x) => typeof x === 'string')) return []
-    return v
+    const v = JSON.parse(row.value) as unknown;
+    if (!Array.isArray(v)) return [];
+    if (!v.every((x) => typeof x === "string")) return [];
+    return v;
   } catch {
-    return []
+    return [];
   }
 }
 
 export function RegisterPage() {
-  const { token } = usePortalAuth()
-  const { canEdit, readOnly } = useFeatureAccess('employees')
-  const [username, setUsername] = useState('')
-  const [password, setPassword] = useState('')
-  const [firstName, setFirstName] = useState('')
-  const [lastName, setLastName] = useState('')
-  const [email, setEmail] = useState('')
-  const [contactNumber, setContactNumber] = useState('')
-  const [hireDate, setHireDate] = useState('')
-  const [position, setPosition] = useState('')
-  const [positions, setPositions] = useState<string[]>([])
-  const [positionsLoading, setPositionsLoading] = useState(true)
-  const [positionsError, setPositionsError] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState<string | null>(null)
-  const [submitting, setSubmitting] = useState(false)
+  const { token } = usePortalAuth();
+  const { canEdit, readOnly } = useFeatureAccess("employees");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [email, setEmail] = useState("");
+  const [contactNumber, setContactNumber] = useState("");
+  const [hireDate, setHireDate] = useState("");
+  const [position, setPosition] = useState("");
+  const [positions, setPositions] = useState<string[]>([]);
+  const [positionsLoading, setPositionsLoading] = useState(true);
+  const [positionsError, setPositionsError] = useState<string | null>(null);
+  const [ceoTaken, setCeoTaken] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (!token) {
-      setPositionsLoading(false)
-      return
+      setPositionsLoading(false);
+      return;
     }
-    let cancelled = false
-    ;(async () => {
-      setPositionsError(null)
-      setPositionsLoading(true)
+    let cancelled = false;
+    (async () => {
+      setPositionsError(null);
+      setPositionsLoading(true);
       try {
-        const res = await apiFetch('/api/settings', {}, token)
-        if (!res.ok) throw new Error(`Could not load positions (${res.status})`)
-        const data = (await res.json()) as SettingApiRow[]
-        if (cancelled) return
-        setPositions(parsePositionsFromSettings(data))
+        const res = await apiFetch("/api/settings", {}, token);
+        if (!res.ok)
+          throw new Error(`Could not load positions (${res.status})`);
+        const data = (await res.json()) as SettingApiRow[];
+        if (cancelled) return;
+        setPositions(parsePositionsFromSettings(data));
+        const empRes = await apiFetch("/api/accounts/employees", {}, token);
+        if (!cancelled && empRes.ok) {
+          const employees = (await empRes.json()) as Array<{
+            position: string;
+          }>;
+          setCeoTaken(employees.some((e) => isCeoPosition(e.position)));
+        }
       } catch (e) {
         if (!cancelled) {
           setPositionsError(
-            e instanceof Error ? e.message : 'Failed to load positions',
-          )
-          setPositions([])
+            e instanceof Error ? e.message : "Failed to load positions",
+          );
+          setPositions([]);
         }
       } finally {
-        if (!cancelled) setPositionsLoading(false)
+        if (!cancelled) setPositionsLoading(false);
       }
-    })()
+    })();
     return () => {
-      cancelled = true
-    }
-  }, [token])
+      cancelled = true;
+    };
+  }, [token]);
 
   async function onSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    if (!canEdit) return
-    setError(null)
-    setSuccess(null)
+    e.preventDefault();
+    if (!canEdit) return;
+    setError(null);
+    setSuccess(null);
     if (!hireDate.trim()) {
-      setError('Please select a hire date.')
-      return
+      setError("Please select a hire date.");
+      return;
     }
-    setSubmitting(true)
+    if (ceoTaken && isCeoPosition(position)) {
+      setError(
+        "A CEO is already registered. Only one employee can have the CEO position.",
+      );
+      return;
+    }
+    setSubmitting(true);
     try {
       const res = await apiFetch(
-        '/api/auth/register/employee',
+        "/api/auth/register/employee",
         {
-          method: 'POST',
+          method: "POST",
           body: JSON.stringify({
             username: username.trim(),
             password,
@@ -103,34 +119,34 @@ export function RegisterPage() {
           }),
         },
         token,
-      )
-      const body = await res.json().catch(() => null)
+      );
+      const body = await res.json().catch(() => null);
       if (!res.ok) {
         const msg = Array.isArray(body?.message)
-          ? body.message.join(', ')
-          : typeof body?.message === 'string'
+          ? body.message.join(", ")
+          : typeof body?.message === "string"
             ? body.message
-            : `Request failed (${res.status})`
-        throw new Error(msg)
+            : `Request failed (${res.status})`;
+        throw new Error(msg);
       }
-      setSuccess(`Created user "${body.username}" and employee record.`)
-      setUsername('')
-      setPassword('')
-      setFirstName('')
-      setLastName('')
-      setEmail('')
-      setContactNumber('')
-      setHireDate('')
-      setPosition('')
+      setSuccess(`Created user "${body.username}" and employee record.`);
+      setUsername("");
+      setPassword("");
+      setFirstName("");
+      setLastName("");
+      setEmail("");
+      setContactNumber("");
+      setHireDate("");
+      setPosition("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Registration failed')
+      setError(err instanceof Error ? err.message : "Registration failed");
     } finally {
-      setSubmitting(false)
+      setSubmitting(false);
     }
   }
 
   const field =
-    'box-border h-10 min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 py-0 text-sm leading-5 text-slate-900 outline-none ring-violet-500 focus:ring-2 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100'
+    "box-border h-10 min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 py-0 text-sm leading-5 text-slate-900 outline-none ring-violet-500 focus:ring-2 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100";
 
   return (
     <div className="w-full min-w-0">
@@ -148,160 +164,189 @@ export function RegisterPage() {
           You cannot register employees with view-only access.
         </p>
       ) : (
-      <form
-        onSubmit={onSubmit}
-        className="max-w-xl space-y-4 rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900"
-      >
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="sm:col-span-2">
-            <label className="mb-1 block text-xs font-medium" htmlFor="reg-username">
-              Username
-            </label>
-            <input
-              id="reg-username"
-              className={field}
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              autoComplete="off"
-              required
-            />
-          </div>
-          <div className="sm:col-span-2">
-            <PasswordField
-              id="reg-password"
-              label="Password"
-              labelClassName="mb-1 block text-xs font-medium"
-              value={password}
-              onChange={setPassword}
-              minLength={8}
-              required
-              autoComplete="new-password"
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium" htmlFor="reg-fn">
-              First name
-            </label>
-            <input
-              id="reg-fn"
-              className={field}
-              value={firstName}
-              onChange={(e) => setFirstName(e.target.value)}
-              required
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium" htmlFor="reg-ln">
-              Last name
-            </label>
-            <input
-              id="reg-ln"
-              className={field}
-              value={lastName}
-              onChange={(e) => setLastName(e.target.value)}
-              required
-            />
-          </div>
-          <div className="sm:col-span-2">
-            <label className="mb-1 block text-xs font-medium" htmlFor="reg-email">
-              Email
-            </label>
-            <input
-              id="reg-email"
-              type="email"
-              className={field}
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-            />
-          </div>
-          <div className="sm:col-span-2">
-            <label className="mb-1 block text-xs font-medium" htmlFor="reg-contact">
-              Contact number
-            </label>
-            <input
-              id="reg-contact"
-              className={field}
-              value={contactNumber}
-              onChange={(e) => setContactNumber(e.target.value)}
-              required
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium" htmlFor="reg-hire">
-              Hire date
-            </label>
-            <HireDatePicker
-              id="reg-hire"
-              value={hireDate}
-              onChange={setHireDate}
-              triggerClassName={field}
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium" htmlFor="reg-position">
-              Position
-            </label>
-            <select
-              id="reg-position"
-              className={field}
-              value={position}
-              onChange={(e) => setPosition(e.target.value)}
-              required
-              disabled={positionsLoading || positions.length === 0}
-            >
-              <option value="" disabled>
-                {positionsLoading
-                  ? 'Loading positions…'
-                  : positions.length === 0
-                    ? 'No positions available'
-                    : 'Select position'}
-              </option>
-              {positions.map((pos) => (
-                <option key={pos} value={pos}>
-                  {pos}
+        <form
+          onSubmit={onSubmit}
+          className="max-w-xl space-y-4 rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900"
+        >
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="sm:col-span-2">
+              <label
+                className="mb-1 block text-xs font-medium"
+                htmlFor="reg-username"
+              >
+                Username
+              </label>
+              <input
+                id="reg-username"
+                className={field}
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                autoComplete="off"
+                required
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <PasswordField
+                id="reg-password"
+                label="Password"
+                labelClassName="mb-1 block text-xs font-medium"
+                value={password}
+                onChange={setPassword}
+                minLength={8}
+                required
+                autoComplete="new-password"
+              />
+            </div>
+            <div>
+              <label
+                className="mb-1 block text-xs font-medium"
+                htmlFor="reg-fn"
+              >
+                First name
+              </label>
+              <input
+                id="reg-fn"
+                className={field}
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                required
+              />
+            </div>
+            <div>
+              <label
+                className="mb-1 block text-xs font-medium"
+                htmlFor="reg-ln"
+              >
+                Last name
+              </label>
+              <input
+                id="reg-ln"
+                className={field}
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                required
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label
+                className="mb-1 block text-xs font-medium"
+                htmlFor="reg-email"
+              >
+                Email
+              </label>
+              <input
+                id="reg-email"
+                type="email"
+                className={field}
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label
+                className="mb-1 block text-xs font-medium"
+                htmlFor="reg-contact"
+              >
+                Contact number
+              </label>
+              <input
+                id="reg-contact"
+                className={field}
+                value={contactNumber}
+                onChange={(e) => setContactNumber(e.target.value)}
+                required
+              />
+            </div>
+            <div>
+              <label
+                className="mb-1 block text-xs font-medium"
+                htmlFor="reg-hire"
+              >
+                Hire date
+              </label>
+              <HireDatePicker
+                id="reg-hire"
+                value={hireDate}
+                onChange={setHireDate}
+                triggerClassName={field}
+              />
+            </div>
+            <div>
+              <label
+                className="mb-1 block text-xs font-medium"
+                htmlFor="reg-position"
+              >
+                Position
+              </label>
+              <select
+                id="reg-position"
+                className={field}
+                value={position}
+                onChange={(e) => setPosition(e.target.value)}
+                required
+                disabled={positionsLoading || positions.length === 0}
+              >
+                <option value="" disabled>
+                  {positionsLoading
+                    ? "Loading positions…"
+                    : positions.length === 0
+                      ? "No positions available"
+                      : "Select position"}
                 </option>
-              ))}
-            </select>
-            {positionsError && (
-              <p className="mt-1 text-xs text-red-600 dark:text-red-400">
-                {positionsError}
-              </p>
-            )}
-            {!positionsLoading &&
-              !positionsError &&
-              positions.length === 0 && (
-                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                  Add positions under Settings (General) or ask an administrator.
+                {positions.map((pos) => (
+                  <option
+                    key={pos}
+                    value={pos}
+                    disabled={ceoTaken && isCeoPosition(pos)}
+                  >
+                    {pos}
+                    {ceoTaken && isCeoPosition(pos)
+                      ? " (already assigned)"
+                      : ""}
+                  </option>
+                ))}
+              </select>
+              {positionsError && (
+                <p className="mt-1 text-xs text-red-600 dark:text-red-400">
+                  {positionsError}
                 </p>
               )}
+              {!positionsLoading &&
+                !positionsError &&
+                positions.length === 0 && (
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    Add positions under Settings (General) or ask an
+                    administrator.
+                  </p>
+                )}
+            </div>
           </div>
-        </div>
 
-        {error && (
-          <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
-            {error}
-          </p>
-        )}
-        {success && (
-          <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-100">
-            {success}
-          </p>
-        )}
+          {error && (
+            <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+              {error}
+            </p>
+          )}
+          {success && (
+            <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-100">
+              {success}
+            </p>
+          )}
 
-        <button
-          type="submit"
-          disabled={
-            submitting ||
-            positionsLoading ||
-            (!positionsLoading && positions.length === 0)
-          }
-          className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-violet-700 disabled:opacity-50"
-        >
-          {submitting ? 'Saving…' : 'Create employee'}
-        </button>
-      </form>
+          <button
+            type="submit"
+            disabled={
+              submitting ||
+              positionsLoading ||
+              (!positionsLoading && positions.length === 0)
+            }
+            className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-violet-700 disabled:opacity-50"
+          >
+            {submitting ? "Saving…" : "Create employee"}
+          </button>
+        </form>
       )}
     </div>
-  )
+  );
 }

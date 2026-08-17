@@ -3,6 +3,7 @@ import { formatInquiryStatus } from "./format-inquiry-status";
 /** Values aligned with `InquiryStatus` in the API (snake_case). */
 export const INQUIRY_STATUS_VALUES = [
   "pending",
+  "for_direct_purchase_approval",
   "for_offer_confirmation",
   "for_delivery",
   "for_pullout",

@@ -1,5 +1,7 @@
 export enum InquiryStatus {
   PENDING = 'pending',
+  /** Staff requested a direct purchase offer; awaiting CEO approve/reject. */
+  FOR_DIRECT_PURCHASE_APPROVAL = 'for_direct_purchase_approval',
   FOR_OFFER_CONFIRMATION = 'for_offer_confirmation',
   FOR_DELIVERY = 'for_delivery',
   FOR_PULLOUT = 'for_pullout',

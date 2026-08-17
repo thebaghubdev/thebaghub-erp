@@ -7,6 +7,7 @@ import { PhpPriceInput } from "../components/PhpPriceInput";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
+import { canAssignWorkToOthers } from "../lib/employee-position";
 import { formatPhpDisplay, parsePhpStringToNumber } from "../lib/format-php";
 import { useFeatureAccess } from "../lib/use-feature-access";
 import {
@@ -104,8 +105,12 @@ const columnHelper = createColumnHelper<WalkInAuthRow>();
 type TabId = "queue" | "create";
 
 export function WalkInAuthenticationPage() {
-  const { token } = usePortalAuth();
+  const { token, user } = usePortalAuth();
   const { canEdit, readOnly } = useFeatureAccess("walk-in-authentication");
+  const canAssignToOthers = canAssignWorkToOthers(
+    Boolean(user?.isAdmin),
+    user?.employee?.position,
+  );
   const navigate = useNavigate();
   const [tab, setTab] = useState<TabId>("queue");
   const [rows, setRows] = useState<WalkInAuthRow[]>([]);
@@ -236,39 +241,59 @@ export function WalkInAuthenticationPage() {
     }
   }, [canEdit, token]);
 
-  const submitAssign = useCallback(async () => {
-    if (!canEdit || !token) return;
-    if (!assignEmployeeId.trim()) {
-      setAssignError("Select an authenticator.");
+  const submitAssign = useCallback(
+    async (employeeId: string) => {
+      if (!canEdit || !token) return;
+      if (!employeeId.trim()) {
+        setAssignError("Select an authenticator.");
+        return;
+      }
+      if (selectedIds.size === 0) return;
+      setAssignBusy(true);
+      setAssignError(null);
+      try {
+        const res = await apiFetch(
+          "/api/walk-in-authentication/batch-assign-authenticator",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              ids: [...selectedIds],
+              employeeId: employeeId.trim(),
+            }),
+          },
+          token,
+        );
+        if (!res.ok) throw new Error(await readApiErrorMessage(res));
+        setAssignModalOpen(false);
+        setSelectedIds(new Set());
+        await load();
+      } catch (e) {
+        setAssignError(
+          e instanceof Error ? e.message : "Could not assign authenticator",
+        );
+      } finally {
+        setAssignBusy(false);
+      }
+    },
+    [canEdit, token, selectedIds, load],
+  );
+
+  const assignSelectedToSelf = useCallback(async () => {
+    const myId = user?.employee?.id?.trim();
+    if (!myId) {
+      setAssignError("Your account is not linked to an employee record.");
       return;
     }
-    if (selectedIds.size === 0) return;
-    setAssignBusy(true);
-    setAssignError(null);
-    try {
-      const res = await apiFetch(
-        "/api/walk-in-authentication/batch-assign-authenticator",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            ids: [...selectedIds],
-            employeeId: assignEmployeeId.trim(),
-          }),
-        },
-        token,
-      );
-      if (!res.ok) throw new Error(await readApiErrorMessage(res));
-      setAssignModalOpen(false);
-      setSelectedIds(new Set());
-      await load();
-    } catch (e) {
-      setAssignError(
-        e instanceof Error ? e.message : "Could not assign authenticator",
-      );
-    } finally {
-      setAssignBusy(false);
+    await submitAssign(myId);
+  }, [user?.employee?.id, submitAssign]);
+
+  const onAssignClick = useCallback(() => {
+    if (canAssignToOthers) {
+      void openAssignModal();
+      return;
     }
-  }, [canEdit, token, assignEmployeeId, selectedIds, load]);
+    void assignSelectedToSelf();
+  }, [canAssignToOthers, openAssignModal, assignSelectedToSelf]);
 
   const submitCreate = useCallback(async () => {
     if (!canEdit || !token) return;
@@ -433,11 +458,15 @@ export function WalkInAuthenticationPage() {
             {!readOnly ? (
               <button
                 type="button"
-                disabled={selectedIds.size === 0}
-                onClick={() => void openAssignModal()}
+                disabled={selectedIds.size === 0 || assignBusy}
+                onClick={onAssignClick}
                 className="rounded-lg bg-violet-700 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
               >
-                Assign to Authenticator ({selectedIds.size})
+                {assignBusy
+                  ? "Assigning…"
+                  : canAssignToOthers
+                    ? `Assign to Authenticator (${selectedIds.size})`
+                    : `Assign to me (${selectedIds.size})`}
               </button>
             ) : null}
             <button
@@ -454,6 +483,11 @@ export function WalkInAuthenticationPage() {
               {error}
             </p>
           )}
+          {!assignModalOpen && assignError ? (
+            <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200">
+              {assignError}
+            </p>
+          ) : null}
           {createSuccess && (
             <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">
               {createSuccess}
@@ -780,7 +814,7 @@ export function WalkInAuthenticationPage() {
                   type="button"
                   disabled={assignBusy}
                   className="rounded-lg bg-violet-700 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
-                  onClick={() => void submitAssign()}
+                  onClick={() => void submitAssign(assignEmployeeId)}
                 >
                   {assignBusy ? "Assigning…" : "Assign"}
                 </button>

@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -11,6 +12,11 @@ import { UpdateClientBankDto } from '../clients/dto/update-client-bank.dto';
 import { normalizeClientVipStatus } from '../clients/client-vip-status.util';
 import type { ClientVipStatus } from '../clients/client-vip-status.util';
 import { Employee } from '../employees/entities/employee.entity';
+import {
+  CEO_POSITION_TAKEN_MESSAGE,
+  countCeoEmployees,
+  isCeoPosition,
+} from '../employees/employee-position.util';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
 
 export type EmployeeAccountRow = {
@@ -228,7 +234,15 @@ export class AccountsService {
     employee.email = dto.email.trim().toLowerCase();
     employee.contactNumber = dto.contactNumber.trim();
     employee.hireDate = new Date(dto.hireDate);
-    employee.position = dto.position.trim();
+    const nextPosition = dto.position.trim();
+    if (
+      isCeoPosition(nextPosition) &&
+      !isCeoPosition(employee.position) &&
+      (await countCeoEmployees(this.employeesRepo, employee.id)) > 0
+    ) {
+      throw new ConflictException(CEO_POSITION_TAKEN_MESSAGE);
+    }
+    employee.position = nextPosition;
     employee.updatedById = actorUserId;
     await this.employeesRepo.save(employee);
 

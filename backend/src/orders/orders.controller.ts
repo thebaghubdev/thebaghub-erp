@@ -73,7 +73,7 @@ export class OrdersController {
   ) {
     return this.ordersService.batchAssignSalesAssociate(
       dto,
-      req.user.userId,
+      req.user,
     );
   }
 

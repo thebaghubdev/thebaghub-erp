@@ -14,6 +14,7 @@ const pathLabels: Record<string, string> = {
   "/portal/posting": "Posting",
   "/portal/orders": "Orders",
   "/portal/consignor-payments": "Consignor Payments",
+  "/portal/direct-purchase-payments": "Direct Purchase Payments",
   "/portal/promotions": "Promotions",
   "/portal/vouchers": "Credit Vouchers",
   "/portal/logistics": "Logistics",
@@ -106,6 +107,22 @@ function crumbsForPath(pathname: string): Crumb[] {
         current: false,
       },
       { label: "Payment batch details", to: normalized, current: true },
+    ];
+  }
+
+  if (
+    /^\/portal\/direct-purchase-payments\/.+/.test(normalized) &&
+    normalized !== "/portal/direct-purchase-payments"
+  ) {
+    return [
+      {
+        label:
+          pathLabels["/portal/direct-purchase-payments"] ??
+          "Direct Purchase Payments",
+        to: "/portal/direct-purchase-payments",
+        current: false,
+      },
+      { label: "Payment details", to: normalized, current: true },
     ];
   }
 

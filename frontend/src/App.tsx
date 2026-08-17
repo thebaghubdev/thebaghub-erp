@@ -46,6 +46,8 @@ import { PricingPage } from './pages/PricingPage'
 import { OrderDetailPage } from './pages/OrderDetailPage'
 import { ConsignorPaymentDetailPage } from './pages/ConsignorPaymentDetailPage'
 import { ConsignorPaymentsPage } from './pages/ConsignorPaymentsPage'
+import { DirectPurchasePaymentDetailPage } from './pages/DirectPurchasePaymentDetailPage'
+import { DirectPurchasePaymentsPage } from './pages/DirectPurchasePaymentsPage'
 import { PromotionsPage } from './pages/PromotionsPage'
 import { VouchersPage } from './pages/VouchersPage'
 import { LogisticsPage } from './pages/LogisticsPage'
@@ -269,6 +271,22 @@ const router = createBrowserRouter([
             element: (
               <FeatureRoute feature="consignor-payments">
                 <ConsignorPaymentDetailPage />
+              </FeatureRoute>
+            ),
+          },
+          {
+            path: 'direct-purchase-payments',
+            element: (
+              <FeatureRoute feature="direct-purchase-payments">
+                <DirectPurchasePaymentsPage />
+              </FeatureRoute>
+            ),
+          },
+          {
+            path: 'direct-purchase-payments/:id',
+            element: (
+              <FeatureRoute feature="direct-purchase-payments">
+                <DirectPurchasePaymentDetailPage />
               </FeatureRoute>
             ),
           },

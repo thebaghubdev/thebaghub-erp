@@ -1,161 +1,174 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { HireDatePicker } from '../components/HireDatePicker'
-import { HorizontalScrollMirror } from '../components/HorizontalScrollMirror'
-import { TablePaginationBar } from '../components/TablePaginationBar'
-import { usePortalAuth } from '../context/portal-auth'
-import { apiFetch } from '../lib/api'
-import { useFeatureAccess } from '../lib/use-feature-access'
-import { useClientPagination } from '../hooks/useClientPagination'
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
+import { HireDatePicker } from "../components/HireDatePicker";
+import { HorizontalScrollMirror } from "../components/HorizontalScrollMirror";
+import { TablePaginationBar } from "../components/TablePaginationBar";
+import { usePortalAuth } from "../context/portal-auth";
+import { apiFetch } from "../lib/api";
+import { isCeoPosition } from "../lib/employee-position";
+import { useFeatureAccess } from "../lib/use-feature-access";
+import { useClientPagination } from "../hooks/useClientPagination";
 
 /** Matches backend `POSITIONS_KEY` / seeded setting `positions`. */
-const POSITIONS_SETTING_KEY = 'positions'
+const POSITIONS_SETTING_KEY = "positions";
 
 type SettingApiRow = {
-  key: string
-  type: string
-  value: string
-}
+  key: string;
+  type: string;
+  value: string;
+};
 
 function parsePositionsFromSettings(settings: SettingApiRow[]): string[] {
-  const row = settings.find((s) => s.key === POSITIONS_SETTING_KEY)
-  if (!row || row.type !== 'string[]') return []
+  const row = settings.find((s) => s.key === POSITIONS_SETTING_KEY);
+  if (!row || row.type !== "string[]") return [];
   try {
-    const v = JSON.parse(row.value) as unknown
-    if (!Array.isArray(v)) return []
-    if (!v.every((x) => typeof x === 'string')) return []
-    return v
+    const v = JSON.parse(row.value) as unknown;
+    if (!Array.isArray(v)) return [];
+    if (!v.every((x) => typeof x === "string")) return [];
+    return v;
   } catch {
-    return []
+    return [];
   }
 }
 
 type EmployeeRow = {
-  id: string
-  userId: string
-  username: string
-  isAdmin: boolean
-  firstName: string
-  lastName: string
-  email: string
-  contactNumber: string
-  hireDate: string
-  position: string
-  createdAt: string
-}
+  id: string;
+  userId: string;
+  username: string;
+  isAdmin: boolean;
+  firstName: string;
+  lastName: string;
+  email: string;
+  contactNumber: string;
+  hireDate: string;
+  position: string;
+  createdAt: string;
+};
 
 const field =
-  'box-border h-10 min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 py-0 text-sm leading-5 text-slate-900 outline-none ring-violet-500 focus:ring-2 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100'
+  "box-border h-10 min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 py-0 text-sm leading-5 text-slate-900 outline-none ring-violet-500 focus:ring-2 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100";
 
 export function EmployeesPage() {
-  const { token } = usePortalAuth()
-  const { canEdit, readOnly } = useFeatureAccess('employees')
-  const [employees, setEmployees] = useState<EmployeeRow[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const { token } = usePortalAuth();
+  const { canEdit, readOnly } = useFeatureAccess("employees");
+  const [employees, setEmployees] = useState<EmployeeRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const [positions, setPositions] = useState<string[]>([])
-  const [positionsLoading, setPositionsLoading] = useState(true)
-  const [positionsError, setPositionsError] = useState<string | null>(null)
+  const [positions, setPositions] = useState<string[]>([]);
+  const [positionsLoading, setPositionsLoading] = useState(true);
+  const [positionsError, setPositionsError] = useState<string | null>(null);
 
-  const [editRow, setEditRow] = useState<EmployeeRow | null>(null)
-  const [efFirst, setEfFirst] = useState('')
-  const [efLast, setEfLast] = useState('')
-  const [efEmail, setEfEmail] = useState('')
-  const [efContact, setEfContact] = useState('')
-  const [efHire, setEfHire] = useState('')
-  const [efPosition, setEfPosition] = useState('')
-  const [editError, setEditError] = useState<string | null>(null)
-  const [editSaving, setEditSaving] = useState(false)
+  const [editRow, setEditRow] = useState<EmployeeRow | null>(null);
+  const [efFirst, setEfFirst] = useState("");
+  const [efLast, setEfLast] = useState("");
+  const [efEmail, setEfEmail] = useState("");
+  const [efContact, setEfContact] = useState("");
+  const [efHire, setEfHire] = useState("");
+  const [efPosition, setEfPosition] = useState("");
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
 
-  const employeesPagination = useClientPagination(employees)
+  const employeesPagination = useClientPagination(employees);
+
+  const ceoTakenByOther = Boolean(
+    editRow &&
+    employees.some((e) => e.id !== editRow.id && isCeoPosition(e.position)),
+  );
 
   const positionOptions = useMemo(() => {
-    const set = new Set(positions)
-    if (efPosition) set.add(efPosition)
-    return Array.from(set).sort((a, b) => a.localeCompare(b))
-  }, [positions, efPosition])
+    const set = new Set(positions);
+    if (efPosition) set.add(efPosition);
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [positions, efPosition]);
 
   useEffect(() => {
     if (!token) {
-      setPositionsLoading(false)
-      return
+      setPositionsLoading(false);
+      return;
     }
-    let cancelled = false
-    ;(async () => {
-      setPositionsError(null)
-      setPositionsLoading(true)
+    let cancelled = false;
+    (async () => {
+      setPositionsError(null);
+      setPositionsLoading(true);
       try {
-        const res = await apiFetch('/api/settings', {}, token)
-        if (!res.ok) throw new Error(`Could not load positions (${res.status})`)
-        const data = (await res.json()) as SettingApiRow[]
-        if (cancelled) return
-        setPositions(parsePositionsFromSettings(data))
+        const res = await apiFetch("/api/settings", {}, token);
+        if (!res.ok)
+          throw new Error(`Could not load positions (${res.status})`);
+        const data = (await res.json()) as SettingApiRow[];
+        if (cancelled) return;
+        setPositions(parsePositionsFromSettings(data));
       } catch (e) {
         if (!cancelled) {
           setPositionsError(
-            e instanceof Error ? e.message : 'Failed to load positions',
-          )
-          setPositions([])
+            e instanceof Error ? e.message : "Failed to load positions",
+          );
+          setPositions([]);
         }
       } finally {
-        if (!cancelled) setPositionsLoading(false)
+        if (!cancelled) setPositionsLoading(false);
       }
-    })()
+    })();
     return () => {
-      cancelled = true
-    }
-  }, [token])
+      cancelled = true;
+    };
+  }, [token]);
 
   function openEdit(row: EmployeeRow) {
-    if (!canEdit || row.isAdmin) return
-    setEditError(null)
-    setEditRow(row)
-    setEfFirst(row.firstName)
-    setEfLast(row.lastName)
-    setEfEmail(row.email)
-    setEfContact(row.contactNumber)
-    setEfHire(row.hireDate)
-    setEfPosition(row.position)
+    if (!canEdit || row.isAdmin) return;
+    setEditError(null);
+    setEditRow(row);
+    setEfFirst(row.firstName);
+    setEfLast(row.lastName);
+    setEfEmail(row.email);
+    setEfContact(row.contactNumber);
+    setEfHire(row.hireDate);
+    setEfPosition(row.position);
   }
 
   function closeEdit() {
-    setEditRow(null)
-    setEditError(null)
+    setEditRow(null);
+    setEditError(null);
   }
 
   const loadEmployees = useCallback(async () => {
-    setError(null)
-    setLoading(true)
+    setError(null);
+    setLoading(true);
     try {
-      const res = await apiFetch('/api/accounts/employees', {}, token)
+      const res = await apiFetch("/api/accounts/employees", {}, token);
       if (res.status === 403) {
-        throw new Error('Administrator access required.')
+        throw new Error("Administrator access required.");
       }
-      if (!res.ok) throw new Error(`Request failed (${res.status})`)
-      const data = (await res.json()) as EmployeeRow[]
-      setEmployees(data)
+      if (!res.ok) throw new Error(`Request failed (${res.status})`);
+      const data = (await res.json()) as EmployeeRow[];
+      setEmployees(data);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load employees')
+      setError(e instanceof Error ? e.message : "Failed to load employees");
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [token])
+  }, [token]);
 
   async function submitEdit(e: React.FormEvent) {
-    e.preventDefault()
-    if (!canEdit || !editRow || !token) return
-    setEditError(null)
+    e.preventDefault();
+    if (!canEdit || !editRow || !token) return;
+    setEditError(null);
     if (!efHire.trim()) {
-      setEditError('Please select a hire date.')
-      return
+      setEditError("Please select a hire date.");
+      return;
     }
-    setEditSaving(true)
+    if (ceoTakenByOther && isCeoPosition(efPosition)) {
+      setEditError(
+        "A CEO is already registered. Only one employee can have the CEO position.",
+      );
+      return;
+    }
+    setEditSaving(true);
     try {
       const res = await apiFetch(
         `/api/accounts/employees/${editRow.id}`,
         {
-          method: 'PATCH',
+          method: "PATCH",
           body: JSON.stringify({
             firstName: efFirst.trim(),
             lastName: efLast.trim(),
@@ -166,28 +179,28 @@ export function EmployeesPage() {
           }),
         },
         token,
-      )
-      const body = await res.json().catch(() => null)
+      );
+      const body = await res.json().catch(() => null);
       if (!res.ok) {
         const msg = Array.isArray(body?.message)
-          ? body.message.join(', ')
-          : typeof body?.message === 'string'
+          ? body.message.join(", ")
+          : typeof body?.message === "string"
             ? body.message
-            : `Request failed (${res.status})`
-        throw new Error(msg)
+            : `Request failed (${res.status})`;
+        throw new Error(msg);
       }
-      closeEdit()
-      void loadEmployees()
+      closeEdit();
+      void loadEmployees();
     } catch (err) {
-      setEditError(err instanceof Error ? err.message : 'Update failed')
+      setEditError(err instanceof Error ? err.message : "Update failed");
     } finally {
-      setEditSaving(false)
+      setEditSaving(false);
     }
   }
 
   useEffect(() => {
-    void loadEmployees()
-  }, [loadEmployees])
+    void loadEmployees();
+  }, [loadEmployees]);
 
   return (
     <div className="w-full min-w-0">
@@ -247,7 +260,10 @@ export function EmployeesPage() {
                 <th scope="col" className="max-w-[10rem] min-w-0 px-4 py-3">
                   Hire date
                 </th>
-                <th scope="col" className="max-w-[10rem] min-w-0 px-4 py-3 text-right">
+                <th
+                  scope="col"
+                  className="max-w-[10rem] min-w-0 px-4 py-3 text-right"
+                >
                   Actions
                 </th>
               </tr>
@@ -302,8 +318,8 @@ export function EmployeesPage() {
                         className="text-xs text-slate-400 dark:text-slate-500"
                         title={
                           row.isAdmin
-                            ? 'Administrator accounts cannot be edited here'
-                            : 'View-only access'
+                            ? "Administrator accounts cannot be edited here"
+                            : "View-only access"
                         }
                       >
                         —
@@ -346,7 +362,10 @@ export function EmployeesPage() {
             <form onSubmit={submitEdit} className="space-y-4">
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
-                  <label className="mb-1 block text-xs font-medium" htmlFor="edit-first">
+                  <label
+                    className="mb-1 block text-xs font-medium"
+                    htmlFor="edit-first"
+                  >
                     First name
                   </label>
                   <input
@@ -358,7 +377,10 @@ export function EmployeesPage() {
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-medium" htmlFor="edit-last">
+                  <label
+                    className="mb-1 block text-xs font-medium"
+                    htmlFor="edit-last"
+                  >
                     Last name
                   </label>
                   <input
@@ -370,7 +392,10 @@ export function EmployeesPage() {
                   />
                 </div>
                 <div className="sm:col-span-2">
-                  <label className="mb-1 block text-xs font-medium" htmlFor="edit-email">
+                  <label
+                    className="mb-1 block text-xs font-medium"
+                    htmlFor="edit-email"
+                  >
                     Email
                   </label>
                   <input
@@ -383,7 +408,10 @@ export function EmployeesPage() {
                   />
                 </div>
                 <div className="sm:col-span-2">
-                  <label className="mb-1 block text-xs font-medium" htmlFor="edit-contact">
+                  <label
+                    className="mb-1 block text-xs font-medium"
+                    htmlFor="edit-contact"
+                  >
                     Contact number
                   </label>
                   <input
@@ -395,7 +423,10 @@ export function EmployeesPage() {
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-medium" htmlFor="edit-hire">
+                  <label
+                    className="mb-1 block text-xs font-medium"
+                    htmlFor="edit-hire"
+                  >
                     Hire date
                   </label>
                   <HireDatePicker
@@ -407,7 +438,10 @@ export function EmployeesPage() {
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-medium" htmlFor="edit-position">
+                  <label
+                    className="mb-1 block text-xs font-medium"
+                    htmlFor="edit-position"
+                  >
                     Position
                   </label>
                   <select
@@ -424,14 +458,21 @@ export function EmployeesPage() {
                   >
                     <option value="" disabled>
                       {positionsLoading
-                        ? 'Loading positions…'
+                        ? "Loading positions…"
                         : positionOptions.length === 0
-                          ? 'No positions available'
-                          : 'Select position'}
+                          ? "No positions available"
+                          : "Select position"}
                     </option>
                     {positionOptions.map((title) => (
-                      <option key={title} value={title}>
+                      <option
+                        key={title}
+                        value={title}
+                        disabled={ceoTakenByOther && isCeoPosition(title)}
+                      >
                         {title}
+                        {ceoTakenByOther && isCeoPosition(title)
+                          ? " (already assigned)"
+                          : ""}
                       </option>
                     ))}
                   </select>
@@ -467,7 +508,7 @@ export function EmployeesPage() {
                   }
                   className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-violet-700 disabled:opacity-50"
                 >
-                  {editSaving ? 'Saving…' : 'Save changes'}
+                  {editSaving ? "Saving…" : "Save changes"}
                 </button>
               </div>
             </form>
@@ -475,5 +516,5 @@ export function EmployeesPage() {
         </div>
       )}
     </div>
-  )
+  );
 }

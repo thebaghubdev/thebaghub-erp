@@ -104,6 +104,10 @@ function isAwaitingOfferConfirmation(status: string): boolean {
   return s === "for_offer_confirmation" || s === "authenticated_new_offer";
 }
 
+function isForDirectPurchaseApproval(status: string): boolean {
+  return status.trim().toLowerCase() === "for_direct_purchase_approval";
+}
+
 /** Extra photos only while the inquiry is still triage / offer phase. */
 function canClientAddPhotos(status: string): boolean {
   const s = status.trim().toLowerCase();
@@ -513,6 +517,13 @@ export function ClientConsignmentDetailPage() {
               <p className="mt-1 text-sm text-slate-600">{detail.itemLabel}</p>
             ) : null}
 
+            {isForDirectPurchaseApproval(detail.status) ? (
+              <p className="mt-3 rounded-lg border border-fuchsia-200 bg-fuchsia-50 px-3 py-2 text-sm text-fuchsia-950">
+                A direct purchase offer is awaiting internal approval. You will
+                be emailed if an offer is sent.
+              </p>
+            ) : null}
+
             {canClientCancelInquiry(detail.status) ||
             isAwaitingOfferConfirmation(detail.status) ||
             isForContractRenewalStatus(detail.status) ||
@@ -757,10 +768,11 @@ export function ClientConsignmentDetailPage() {
               </div>
             ) : null}
 
-            {(detail.offerPrice != null && detail.offerPrice !== "") ||
-            (isForContractRenewalStatus(detail.status) &&
-              detail.contractRenewalRequestedPrice != null &&
-              detail.contractRenewalRequestedPrice !== "") ? (
+            {!isForDirectPurchaseApproval(detail.status) &&
+            ((detail.offerPrice != null && detail.offerPrice !== "") ||
+              (isForContractRenewalStatus(detail.status) &&
+                detail.contractRenewalRequestedPrice != null &&
+                detail.contractRenewalRequestedPrice !== "")) ? (
               <dl className="mt-4 rounded-lg border border-slate-100 bg-slate-50/80 p-3 text-sm">
                 <div className="flex flex-wrap gap-x-6 gap-y-1">
                   {detail.offerPrice != null && detail.offerPrice !== "" ? (

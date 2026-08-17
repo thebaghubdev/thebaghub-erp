@@ -1,4 +1,5 @@
 const STATUS_LABELS: Record<string, string> = {
+  for_direct_purchase_approval: "For Direct Purchase Approval",
   for_delivery_scheduled: "For Delivery: Scheduled",
   for_pullout_scheduled: "For Pullout: Scheduled",
   for_processing: "For Processing",

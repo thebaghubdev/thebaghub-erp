@@ -8,13 +8,6 @@ import {
 import { createPortal } from "react-dom";
 import { apiFetch } from "../lib/api";
 
-type ConsignorPaymentDetail = {
-  id: string;
-  auditDate: string;
-  status: string;
-  groups: unknown[];
-};
-
 type PhotoPreview = {
   id: string;
   file: File;
@@ -51,8 +44,7 @@ async function readApiErrorMessage(res: Response): Promise<string> {
 
 export function ConsignorPaymentUnableToSendModal({
   open,
-  paymentId,
-  groupId,
+  endpointBase,
   consignorName,
   token,
   onClose,
@@ -60,12 +52,11 @@ export function ConsignorPaymentUnableToSendModal({
   onError,
 }: {
   open: boolean;
-  paymentId: string;
-  groupId: string;
+  endpointBase: string;
   consignorName: string;
   token: string | null;
   onClose: () => void;
-  onSaved: (detail: ConsignorPaymentDetail) => void;
+  onSaved: (detail: unknown) => void;
   onError: (message: string | null) => void;
 }) {
   const titleId = useId();
@@ -145,12 +136,12 @@ export function ConsignorPaymentUnableToSendModal({
       fd.append("reason", trimmedReason);
       if (photo?.file) fd.append("photo", photo.file);
       const res = await apiFetch(
-        `/api/consignor-payments/${paymentId}/groups/${groupId}/unable-to-send`,
+        `${endpointBase}/unable-to-send`,
         { method: "POST", body: fd },
         token,
       );
       if (!res.ok) throw new Error(await readApiErrorMessage(res));
-      const data = (await res.json()) as ConsignorPaymentDetail;
+      const data: unknown = await res.json();
       onSaved(data);
       handleClose();
     } catch (err) {

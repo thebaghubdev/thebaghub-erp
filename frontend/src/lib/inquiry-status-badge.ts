@@ -6,6 +6,7 @@ const DEFAULT = "text-slate-700 dark:text-slate-300";
 
 const BY_STATUS: Record<string, string> = {
   pending: "text-amber-800 dark:text-amber-300",
+  for_direct_purchase_approval: "text-fuchsia-800 dark:text-fuchsia-300",
   for_offer_confirmation: "text-violet-800 dark:text-violet-300",
   for_delivery: "text-sky-800 dark:text-sky-300",
   for_pullout: "text-cyan-800 dark:text-cyan-300",

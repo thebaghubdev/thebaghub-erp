@@ -59,6 +59,24 @@ export class Inquiry extends AuditedEntity {
   @Column({ name: 'offer_price', type: 'numeric', precision: 12, scale: 2, nullable: true })
   offerPrice: string | null;
 
+  /** Proposed DP price while awaiting CEO; kept after reject/withdraw. */
+  @Column({
+    name: 'direct_purchase_requested_price',
+    type: 'numeric',
+    precision: 12,
+    scale: 2,
+    nullable: true,
+  })
+  directPurchaseRequestedPrice: string | null;
+
+  /** Coordinator notes for the CEO; staff-only; kept after the decision. */
+  @Column({ name: 'direct_purchase_approver_notes', type: 'text', nullable: true })
+  directPurchaseApproverNotes: string | null;
+
+  /** CEO reject reason; staff-only; not shown to the consignor. */
+  @Column({ name: 'direct_purchase_reject_reason', type: 'text', nullable: true })
+  directPurchaseRejectReason: string | null;
+
   /** First offer price before a posted item was sent for repricing. */
   @Column({
     name: 'original_offer_price',

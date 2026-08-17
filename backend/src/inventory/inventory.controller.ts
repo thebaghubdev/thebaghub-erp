@@ -147,7 +147,7 @@ export class InventoryController {
   ) {
     return this.inventoryService.batchAssignAuthenticator(
       dto,
-      req.user.userId,
+      req.user,
     );
   }
 

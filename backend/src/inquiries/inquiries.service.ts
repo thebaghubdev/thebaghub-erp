@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Inject,
   Injectable,
   Logger,
@@ -44,6 +45,8 @@ import { SubmitAuthenticatedReturnNewOfferDto } from './dto/submit-authenticated
 import { UpdateInquiryNotesDto } from './dto/update-inquiry-notes.dto';
 import { UpdateReauthenticationNotesDto } from './dto/update-reauthentication-notes.dto';
 import { SubmitOfferDto } from './dto/submit-offer.dto';
+import { RequestDirectPurchaseApprovalDto } from './dto/request-direct-purchase-approval.dto';
+import { RejectDirectPurchaseApprovalDto } from './dto/reject-direct-purchase-approval.dto';
 import { ConfirmOfferDto } from './dto/confirm-offer.dto';
 import { SubmitConsignmentInquiryDto } from './dto/submit-consignment-inquiry.dto';
 import { SubmitWalkInConsignmentInquiryDto } from './dto/submit-walk-in-consignment-inquiry.dto';
@@ -60,8 +63,11 @@ import { MediaOwnerType } from '../enums/media-owner-type.enum';
 import { MediaPurpose } from '../enums/media-purpose.enum';
 import type { InquiryMediaAuditSnapshot } from '../media/media.types';
 import { MediaService } from '../media/media.service';
-import { CONSIGNMENT_COORDINATOR_POSITION } from '../notifications/notification.constants';
+import { CEO_POSITION, CONSIGNMENT_COORDINATOR_POSITION } from '../notifications/notification.constants';
+import { isCeoPosition } from '../employees/employee-position.util';
+import { Employee } from '../employees/entities/employee.entity';
 import { NotificationsService } from '../notifications/notifications.service';
+import { DirectPurchasePaymentsService } from '../direct-purchase-payments/direct-purchase-payments.service';
 
 const ALLOWED_IMAGE_MIMES = new Set([
   'image/jpeg',
@@ -224,6 +230,9 @@ export type StaffInquiryRow = {
   photoCount: number;
   offerTransactionType: 'consignment' | 'direct_purchase' | null;
   offerPrice: string | null;
+  directPurchaseRequestedPrice: string | null;
+  directPurchaseApproverNotes: string | null;
+  directPurchaseRejectReason: string | null;
   originalOfferPrice: string | null;
   contractRenewalRequestedPrice: string | null;
   repricingProofUrl: string | null;
@@ -289,7 +298,13 @@ export type ClientDeliveryScheduleInfo = {
 };
 
 /** Client-facing inquiry detail (no internal staff notes). */
-export type ClientInquiryDetail = Omit<StaffInquiryRow, 'notes'> & {
+export type ClientInquiryDetail = Omit<
+  StaffInquiryRow,
+  | 'notes'
+  | 'directPurchaseRequestedPrice'
+  | 'directPurchaseApproverNotes'
+  | 'directPurchaseRejectReason'
+> & {
   updatedAt: Date;
   itemSnapshot: {
     clientItemId: string;
@@ -326,6 +341,8 @@ export class InquiriesService {
     private readonly scheduleRepo: Repository<ConsignmentSchedule>,
     @InjectRepository(Setting)
     private readonly settingsRepo: Repository<Setting>,
+    @InjectRepository(Employee)
+    private readonly employeesRepo: Repository<Employee>,
     private readonly media: MediaService,
     private readonly inquiryAudit: InquiryAuditService,
     @Inject(forwardRef(() => InventoryService))
@@ -333,6 +350,7 @@ export class InquiriesService {
     private readonly notifications: NotificationsService,
     private readonly mail: MailService,
     private readonly config: ConfigService,
+    private readonly directPurchasePaymentsService: DirectPurchasePaymentsService,
   ) {}
 
   private async inquiryMediaAudit(
@@ -395,6 +413,110 @@ export class InquiriesService {
       .catch((err: unknown) => {
         this.logger.error('Failed to send consignor offer email', err);
       });
+  }
+
+  private notifyConsignorDirectPurchaseOfferEmail(
+    inquiryId: string,
+    consignor: Client | null | undefined,
+  ): void {
+    if (!consignor?.email?.trim()) {
+      return;
+    }
+    if (!this.mail.isConfigured()) {
+      this.logger.debug(
+        'MAIL_* not configured; skipping consignor direct purchase offer email',
+      );
+      return;
+    }
+    const firstName = consignor.firstName?.trim() || 'there';
+    const viewOfferUrl = this.consignorInquiryUrl(inquiryId);
+    void this.mail
+      .sendConsignorDirectPurchaseOfferAvailable({
+        to: consignor.email.trim(),
+        firstName,
+        viewOfferUrl,
+      })
+      .catch((err: unknown) => {
+        this.logger.error(
+          'Failed to send consignor direct purchase offer email',
+          err,
+        );
+      });
+  }
+
+  private notifyConsignorDirectPurchaseRejectedEmail(
+    consignor: Client | null | undefined,
+  ): void {
+    if (!consignor?.email?.trim()) {
+      return;
+    }
+    if (!this.mail.isConfigured()) {
+      this.logger.debug(
+        'MAIL_* not configured; skipping consignor direct purchase rejection email',
+      );
+      return;
+    }
+    const firstName = consignor.firstName?.trim() || 'there';
+    void this.mail
+      .sendConsignorDirectPurchaseOfferRejected({
+        to: consignor.email.trim(),
+        firstName,
+      })
+      .catch((err: unknown) => {
+        this.logger.error(
+          'Failed to send consignor direct purchase rejection email',
+          err,
+        );
+      });
+  }
+
+  private notifyCeoDirectPurchaseMessage(
+    inquiry: { id: string; sku: string },
+    message: string,
+  ): void {
+    void this.notifications
+      .notify({
+        message,
+        receiverRole: CEO_POSITION,
+        inquiryId: inquiry.id,
+      })
+      .catch((err: unknown) => {
+        this.logger.error('Failed to notify CEO of direct purchase request', err);
+      });
+  }
+
+  private notifyCoordinatorsDirectPurchaseApproved(inquiry: {
+    id: string;
+    sku: string;
+  }): void {
+    void this.notifications
+      .notify({
+        message: `The CEO approved the direct purchase offer for inquiry ${inquiry.sku}.`,
+        receiverRole: CONSIGNMENT_COORDINATOR_POSITION,
+        inquiryId: inquiry.id,
+      })
+      .catch((err: unknown) => {
+        this.logger.error(
+          'Failed to notify coordinators of direct purchase approval',
+          err,
+        );
+      });
+  }
+
+  private async assertActorIsCeo(user: JwtUser): Promise<void> {
+    const emp = await this.employeesRepo.findOne({
+      where: { userId: user.userId },
+    });
+    if (!emp || !isCeoPosition(emp.position)) {
+      throw new ForbiddenException(
+        'Only the CEO can approve or reject a direct purchase request',
+      );
+    }
+  }
+
+  private trimToNull(value: string | null | undefined): string | null {
+    const t = (value ?? '').trim();
+    return t === '' ? null : t;
   }
 
   private notifyCoordinatorsConsignorConfirmedOffer(inquiry: {
@@ -1052,6 +1174,21 @@ export class InquiriesService {
         r.offerPrice != null && r.offerPrice !== ''
           ? String(r.offerPrice)
           : null,
+      directPurchaseRequestedPrice:
+        r.directPurchaseRequestedPrice != null &&
+        r.directPurchaseRequestedPrice !== ''
+          ? String(r.directPurchaseRequestedPrice)
+          : null,
+      directPurchaseApproverNotes: (() => {
+        if (r.directPurchaseApproverNotes == null) return null;
+        const t = String(r.directPurchaseApproverNotes).trim();
+        return t === '' ? null : t;
+      })(),
+      directPurchaseRejectReason: (() => {
+        if (r.directPurchaseRejectReason == null) return null;
+        const t = String(r.directPurchaseRejectReason).trim();
+        return t === '' ? null : t;
+      })(),
       originalOfferPrice:
         r.originalOfferPrice != null && r.originalOfferPrice !== ''
           ? String(r.originalOfferPrice)
@@ -1282,7 +1419,13 @@ export class InquiriesService {
       throw new NotFoundException('Inquiry not found');
     }
     const base = await this.mapInquiryToStaffRowAsync(r);
-    const { notes: _notes, ...rest } = base;
+    const {
+      notes: _notes,
+      directPurchaseRequestedPrice: _dpPrice,
+      directPurchaseApproverNotes: _dpNotes,
+      directPurchaseRejectReason: _dpReject,
+      ...rest
+    } = base;
     const itemPhotos = await this.media.findByOwner(
       MediaOwnerType.INQUIRY,
       r.id,
@@ -2312,6 +2455,19 @@ export class InquiriesService {
     if (InquiriesService.terminalInquiryStatuses.has(r.status)) {
       throw new BadRequestException('This inquiry cannot be declined');
     }
+    if (r.status === InquiryStatus.FOR_DIRECT_PURCHASE_APPROVAL) {
+      throw new BadRequestException(
+        'Withdraw the direct purchase request before declining this inquiry',
+      );
+    }
+    if (
+      r.status === InquiryStatus.FOR_OFFER_CONFIRMATION &&
+      r.offerTransactionType === 'direct_purchase'
+    ) {
+      throw new BadRequestException(
+        'A CEO-approved direct purchase offer cannot be declined by staff',
+      );
+    }
     const before = cloneInquiryForAudit(r);
     r.status = InquiryStatus.DECLINED;
     await this.inquiriesRepo.save(r);
@@ -2358,21 +2514,33 @@ export class InquiriesService {
         'Cannot submit an offer for an inquiry that is pending payment for 3rd party authentication',
       );
     }
-
-    const form = (r.itemSnapshot?.form ?? {}) as Record<string, unknown>;
-    const consentDirectPurchase = Boolean(form.consentDirectPurchase);
-    if (!consentDirectPurchase && dto.transactionType === 'direct_purchase') {
+    if (r.status === InquiryStatus.FOR_DIRECT_PURCHASE_APPROVAL) {
       throw new BadRequestException(
-        'Direct purchase is not available for this inquiry',
+        'Withdraw or wait for the direct purchase approval before creating a consignment offer',
+      );
+    }
+    if (
+      r.status === InquiryStatus.FOR_OFFER_CONFIRMATION &&
+      r.offerTransactionType === 'direct_purchase'
+    ) {
+      throw new BadRequestException(
+        'A CEO-approved direct purchase offer cannot be updated',
       );
     }
 
     const before = cloneInquiryForAudit(r);
     const beforeMedia = await this.inquiryMediaAudit(id);
-    r.offerTransactionType = dto.transactionType;
     r.offerPrice = dto.offerPrice.toFixed(2);
     /** Stay in post–auth renegotiation lane when the coordinator revises the offer. */
-    if (r.status !== InquiryStatus.AUTHENTICATED_NEW_OFFER) {
+    if (r.status === InquiryStatus.AUTHENTICATED_NEW_OFFER) {
+      // Price-only; keep the transaction type set before authentication return.
+    } else {
+      if (dto.transactionType === 'direct_purchase') {
+        throw new BadRequestException(
+          'Direct purchase requires CEO approval. Use Request Direct Purchase Approval.',
+        );
+      }
+      r.offerTransactionType = 'consignment';
       r.status = InquiryStatus.FOR_OFFER_CONFIRMATION;
     }
     await this.media.deleteByOwner(
@@ -2396,6 +2564,200 @@ export class InquiriesService {
       afterMedia,
     );
     this.notifyConsignorOfferEmail(id, r.consignor);
+    return this.findOneForStaff(id);
+  }
+
+  async requestDirectPurchaseApproval(
+    id: string,
+    dto: RequestDirectPurchaseApprovalDto,
+    user: JwtUser,
+  ): Promise<StaffInquiryDetail> {
+    const r = await this.inquiriesRepo.findOne({
+      where: { id },
+      relations: { consignor: true },
+    });
+    if (!r) {
+      throw new NotFoundException('Inquiry not found');
+    }
+    if (r.status !== InquiryStatus.PENDING) {
+      throw new BadRequestException(
+        'Direct purchase approval can only be requested while the inquiry is pending',
+      );
+    }
+    const form = (r.itemSnapshot?.form ?? {}) as Record<string, unknown>;
+    if (!Boolean(form.consentDirectPurchase)) {
+      throw new BadRequestException(
+        'Direct purchase is not available for this inquiry',
+      );
+    }
+
+    const before = cloneInquiryForAudit(r);
+    r.directPurchaseRequestedPrice = dto.offerPrice.toFixed(2);
+    r.directPurchaseApproverNotes = this.trimToNull(dto.notes);
+    r.directPurchaseRejectReason = null;
+    r.status = InquiryStatus.FOR_DIRECT_PURCHASE_APPROVAL;
+    await this.inquiriesRepo.save(r);
+    const label = await this.inquiryAudit.staffActorLabel(user.userId);
+    await this.inquiryAudit.recordDiff(id, before, r, {
+      userId: user.userId,
+      label,
+    });
+    this.notifyCeoDirectPurchaseMessage(
+      r,
+      `Direct purchase approval is needed for inquiry ${r.sku}.`,
+    );
+    return this.findOneForStaff(id);
+  }
+
+  async updateDirectPurchaseApprovalRequest(
+    id: string,
+    dto: RequestDirectPurchaseApprovalDto,
+    user: JwtUser,
+  ): Promise<StaffInquiryDetail> {
+    const r = await this.inquiriesRepo.findOne({
+      where: { id },
+      relations: { consignor: true },
+    });
+    if (!r) {
+      throw new NotFoundException('Inquiry not found');
+    }
+    if (r.status !== InquiryStatus.FOR_DIRECT_PURCHASE_APPROVAL) {
+      throw new BadRequestException(
+        'The direct purchase request can only be edited while awaiting CEO approval',
+      );
+    }
+
+    const before = cloneInquiryForAudit(r);
+    r.directPurchaseRequestedPrice = dto.offerPrice.toFixed(2);
+    r.directPurchaseApproverNotes = this.trimToNull(dto.notes);
+    await this.inquiriesRepo.save(r);
+    const label = await this.inquiryAudit.staffActorLabel(user.userId);
+    await this.inquiryAudit.recordDiff(id, before, r, {
+      userId: user.userId,
+      label,
+    });
+    this.notifyCeoDirectPurchaseMessage(
+      r,
+      `Direct purchase approval request was updated for inquiry ${r.sku}.`,
+    );
+    return this.findOneForStaff(id);
+  }
+
+  async withdrawDirectPurchaseApprovalRequest(
+    id: string,
+    user: JwtUser,
+  ): Promise<StaffInquiryDetail> {
+    const r = await this.inquiriesRepo.findOne({
+      where: { id },
+      relations: { consignor: true },
+    });
+    if (!r) {
+      throw new NotFoundException('Inquiry not found');
+    }
+    if (r.status !== InquiryStatus.FOR_DIRECT_PURCHASE_APPROVAL) {
+      throw new BadRequestException(
+        'The direct purchase request can only be withdrawn while awaiting CEO approval',
+      );
+    }
+
+    const before = cloneInquiryForAudit(r);
+    r.status = InquiryStatus.PENDING;
+    await this.inquiriesRepo.save(r);
+    const label = await this.inquiryAudit.staffActorLabel(user.userId);
+    await this.inquiryAudit.recordDiff(id, before, r, {
+      userId: user.userId,
+      label,
+    });
+    this.notifyCeoDirectPurchaseMessage(
+      r,
+      `Direct purchase approval request was withdrawn for inquiry ${r.sku}.`,
+    );
+    return this.findOneForStaff(id);
+  }
+
+  async approveDirectPurchaseApproval(
+    id: string,
+    user: JwtUser,
+  ): Promise<StaffInquiryDetail> {
+    await this.assertActorIsCeo(user);
+    const r = await this.inquiriesRepo.findOne({
+      where: { id },
+      relations: { consignor: true },
+    });
+    if (!r) {
+      throw new NotFoundException('Inquiry not found');
+    }
+    if (r.status !== InquiryStatus.FOR_DIRECT_PURCHASE_APPROVAL) {
+      throw new BadRequestException(
+        'This inquiry is not awaiting direct purchase approval',
+      );
+    }
+    const requested = r.directPurchaseRequestedPrice;
+    if (requested == null || String(requested).trim() === '') {
+      throw new BadRequestException(
+        'A direct purchase offer price is required before approval',
+      );
+    }
+
+    const before = cloneInquiryForAudit(r);
+    const beforeMedia = await this.inquiryMediaAudit(id);
+    r.offerTransactionType = 'direct_purchase';
+    r.offerPrice = String(requested);
+    r.status = InquiryStatus.FOR_OFFER_CONFIRMATION;
+    await this.media.deleteByOwner(
+      MediaOwnerType.INQUIRY,
+      id,
+      MediaPurpose.SIGNATURE,
+    );
+    await this.inquiriesRepo.save(r);
+    const label = await this.inquiryAudit.staffActorLabel(user.userId);
+    const afterMedia = await this.inquiryMediaAudit(id);
+    await this.inquiryAudit.recordDiff(
+      id,
+      before,
+      r,
+      {
+        userId: user.userId,
+        label,
+      },
+      undefined,
+      beforeMedia,
+      afterMedia,
+    );
+    this.notifyCoordinatorsDirectPurchaseApproved(r);
+    this.notifyConsignorDirectPurchaseOfferEmail(id, r.consignor);
+    return this.findOneForStaff(id);
+  }
+
+  async rejectDirectPurchaseApproval(
+    id: string,
+    dto: RejectDirectPurchaseApprovalDto,
+    user: JwtUser,
+  ): Promise<StaffInquiryDetail> {
+    await this.assertActorIsCeo(user);
+    const r = await this.inquiriesRepo.findOne({
+      where: { id },
+      relations: { consignor: true },
+    });
+    if (!r) {
+      throw new NotFoundException('Inquiry not found');
+    }
+    if (r.status !== InquiryStatus.FOR_DIRECT_PURCHASE_APPROVAL) {
+      throw new BadRequestException(
+        'This inquiry is not awaiting direct purchase approval',
+      );
+    }
+
+    const before = cloneInquiryForAudit(r);
+    r.status = InquiryStatus.PENDING;
+    r.directPurchaseRejectReason = dto.reason.trim();
+    await this.inquiriesRepo.save(r);
+    const label = await this.inquiryAudit.staffActorLabel(user.userId);
+    await this.inquiryAudit.recordDiff(id, before, r, {
+      userId: user.userId,
+      label,
+    });
+    this.notifyConsignorDirectPurchaseRejectedEmail(r.consignor);
     return this.findOneForStaff(id);
   }
 
@@ -2737,7 +3099,22 @@ export class InquiriesService {
 
     inquiry.contractStartDate = start;
     inquiry.contractExpirationDate = expiration;
-    return this.inquiriesRepo.save(inquiry);
+    const saved = await this.inquiriesRepo.save(inquiry);
+
+    if (
+      saved.offerTransactionType === 'direct_purchase' &&
+      saved.consignorId
+    ) {
+      await this.directPurchasePaymentsService.recordItemForContractStart(
+        this.inquiriesRepo.manager,
+        {
+          inquiryId: saved.id,
+          consignorClientId: saved.consignorId,
+        },
+      );
+    }
+
+    return saved;
   }
 
   /**
