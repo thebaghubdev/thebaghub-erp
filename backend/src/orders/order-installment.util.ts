@@ -3,6 +3,8 @@ import { Order } from './entities/order.entity';
 import {
   INSTALLMENT_PENALTY_RATE,
   INSTALLMENT_PENALTY_WEEK_DAYS,
+  PENALTY_WAIVE_STATUS_APPROVED,
+  PENALTY_WAIVE_STATUS_PENDING,
 } from './installment-penalty.constants';
 import {
   ORDER_STATUS_FOR_PAYMENT,
@@ -25,6 +27,7 @@ export type OrderInstallmentView = {
   amountPaid: string | null;
   penalty: string | null;
   penaltyOverridden: boolean;
+  penaltyWaiveStatus: string | null;
   status: string;
   proofUrl: string | null;
   dueDate: string | null;
@@ -74,6 +77,24 @@ export function todayDateString(): string {
 
 export function isInstallmentPaidStatus(status: string | null | undefined): boolean {
   return status?.trim().toLowerCase() === ORDER_INSTALLMENT_STATUS_PAID.toLowerCase();
+}
+
+export function isPenaltyWaivePending(
+  status: string | null | undefined,
+): boolean {
+  return status?.trim().toLowerCase() === PENALTY_WAIVE_STATUS_PENDING;
+}
+
+export function isPenaltyWaived(status: string | null | undefined): boolean {
+  return status?.trim().toLowerCase() === PENALTY_WAIVE_STATUS_APPROVED;
+}
+
+export function isPenaltyAmountFrozen(
+  row: Pick<OrderInstallment, 'penaltyOverridden' | 'penaltyWaiveStatus'>,
+): boolean {
+  return (
+    Boolean(row.penaltyOverridden) || isPenaltyWaivePending(row.penaltyWaiveStatus)
+  );
 }
 
 function utcDateFromYmd(ymd: string): Date {
@@ -155,6 +176,7 @@ export function resolveInstallmentPenalty(
     | 'installmentNumber'
     | 'penalty'
     | 'penaltyOverridden'
+    | 'penaltyWaiveStatus'
     | 'paymentDate'
     | 'status'
   >,
@@ -168,7 +190,7 @@ export function resolveInstallmentPenalty(
       : null;
   }
 
-  if (row.penaltyOverridden) {
+  if (isPenaltyAmountFrozen(row)) {
     return row.penalty != null && String(row.penalty).trim() !== ''
       ? formatMoney(parseMoney(row.penalty))
       : null;
@@ -333,6 +355,7 @@ export function computeInstallmentViews(
       amountPaid: row.amountPaid,
       penalty,
       penaltyOverridden: row.penaltyOverridden ?? false,
+      penaltyWaiveStatus: row.penaltyWaiveStatus ?? null,
       status: row.status?.trim() || ORDER_INSTALLMENT_STATUS_UNPAID,
       proofUrl: getProofUrl(row),
       dueDate,

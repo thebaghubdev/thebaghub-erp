@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { HorizontalScrollMirror } from "./HorizontalScrollMirror";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { DatePickerField } from "./DatePickerField";
 import { MarkInstallmentPaidDialog } from "./MarkInstallmentPaidDialog";
-import { PhpPriceInput } from "./PhpPriceInput";
 import { UseVoucherDialog } from "./UseVoucherDialog";
 import { apiFetch } from "../lib/api";
-import { formatPhpDisplay, formatPhpAmount } from "../lib/format-php";
+import { formatPhpAmount, formatPhpDisplay, parsePhpStringToNumber } from "../lib/format-php";
 import {
   computeRemainingBalance,
   computeTotalAmountDue,
@@ -13,6 +13,8 @@ import {
   formatDueDate,
   installmentStatusBadgeClass,
   isInstallmentUnpaid,
+  isPenaltyWaivePending,
+  isPenaltyWaived,
   readApiErrorMessage,
   type OrderInstallmentRow,
 } from "../lib/order-installments";
@@ -35,6 +37,8 @@ type OrderInstallmentScheduleProps = {
   customerId?: string | null;
   onVoucherApplied?: (orderDetail?: unknown) => void | Promise<void>;
   onUpdated: (update: OrderInstallmentScheduleUpdate) => void;
+  canRequestPenaltyWaive?: boolean;
+  canDecidePenaltyWaive?: boolean;
 };
 
 const useVoucherBtnClass =
@@ -80,6 +84,8 @@ export function OrderInstallmentSchedule({
   customerId = null,
   onVoucherApplied,
   onUpdated,
+  canRequestPenaltyWaive = false,
+  canDecidePenaltyWaive = false,
 }: OrderInstallmentScheduleProps) {
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [useVoucherOpen, setUseVoucherOpen] = useState(false);
@@ -87,33 +93,20 @@ export function OrderInstallmentSchedule({
     number | null
   >(null);
   const [markPaidError, setMarkPaidError] = useState<string | null>(null);
-  const [penaltyEditingNumber, setPenaltyEditingNumber] = useState<
-    number | null
-  >(null);
   const [dueDateEditingNumber, setDueDateEditingNumber] = useState<
     number | null
   >(null);
   const [error, setError] = useState<string | null>(null);
-  const [penaltyDrafts, setPenaltyDrafts] = useState<Record<number, string>>(
-    () =>
-      Object.fromEntries(
-        installments.map((row) => [
-          row.installmentNumber,
-          row.penalty ?? "",
-        ]),
-      ),
+  const [waiveConfirmNumber, setWaiveConfirmNumber] = useState<number | null>(
+    null,
   );
-
-  useEffect(() => {
-    setPenaltyDrafts(
-      Object.fromEntries(
-        installments.map((row) => [
-          row.installmentNumber,
-          row.penalty ?? "",
-        ]),
-      ),
-    );
-  }, [installments]);
+  const [approveConfirmNumber, setApproveConfirmNumber] = useState<
+    number | null
+  >(null);
+  const [rejectConfirmNumber, setRejectConfirmNumber] = useState<number | null>(
+    null,
+  );
+  const [waiveActionError, setWaiveActionError] = useState<string | null>(null);
 
   const apiBase =
     mode === "staff" ? `/api/orders/${orderId}` : `/api/client/orders/${orderId}`;
@@ -153,52 +146,37 @@ export function OrderInstallmentSchedule({
     [apiBase, mode, onUpdated, token],
   );
 
-  const savePenalty = useCallback(
-    async (installmentNumber: number) => {
+  const postPenaltyWaiveAction = useCallback(
+    async (
+      installmentNumber: number,
+      action: "waive-request" | "waive-approve" | "waive-reject",
+    ) => {
       if (mode !== "staff" || !token) return;
       const key = `penalty-${installmentNumber}`;
       setBusyKey(key);
-      setError(null);
+      setWaiveActionError(null);
       try {
-        const raw = penaltyDrafts[installmentNumber]?.trim() ?? "";
         const res = await apiFetch(
-          `${apiBase}/installments/${installmentNumber}/penalty`,
-          {
-            method: "PATCH",
-            body: JSON.stringify({ penalty: raw }),
-          },
+          `${apiBase}/installments/${installmentNumber}/penalty/${action}`,
+          { method: "POST" },
           token,
         );
         if (!res.ok) throw new Error(await readApiErrorMessage(res));
         const data = (await res.json()) as OrderInstallmentScheduleUpdate;
         onUpdated(data);
-        setPenaltyDrafts(
-          Object.fromEntries(
-            data.installments.map((row) => [
-              row.installmentNumber,
-              row.penalty ?? "",
-            ]),
-          ),
-        );
-        setPenaltyEditingNumber(null);
+        setWaiveConfirmNumber(null);
+        setApproveConfirmNumber(null);
+        setRejectConfirmNumber(null);
       } catch (e) {
-        setError(
-          e instanceof Error ? e.message : "Could not save penalty",
-        );
+        const message =
+          e instanceof Error ? e.message : "Could not update penalty waive";
+        setWaiveActionError(message);
       } finally {
         setBusyKey(null);
       }
     },
-    [apiBase, mode, onUpdated, penaltyDrafts, token],
+    [apiBase, mode, onUpdated, token],
   );
-
-  const startPenaltyEdit = useCallback((row: OrderInstallmentRow) => {
-    setPenaltyDrafts((prev) => ({
-      ...prev,
-      [row.installmentNumber]: row.penalty ?? "",
-    }));
-    setPenaltyEditingNumber(row.installmentNumber);
-  }, []);
 
   const uploadProof = useCallback(
     async (installmentNumber: number, file: File) => {
@@ -235,6 +213,22 @@ export function OrderInstallmentSchedule({
           (row) => row.installmentNumber === markPaidInstallmentNumber,
         ) ?? null
       : null;
+  const waiveConfirmRow =
+    waiveConfirmNumber != null
+      ? installments.find((row) => row.installmentNumber === waiveConfirmNumber) ??
+        null
+      : null;
+  const approveConfirmRow =
+    approveConfirmNumber != null
+      ? installments.find((row) => row.installmentNumber === approveConfirmNumber) ??
+        null
+      : null;
+  const rejectConfirmRow =
+    rejectConfirmNumber != null
+      ? installments.find((row) => row.installmentNumber === rejectConfirmNumber) ??
+        null
+      : null;
+  const penaltyActionBusy = busyKey?.startsWith("penalty-") ?? false;
 
   if (installments.length === 0) {
     return null;
@@ -286,26 +280,34 @@ export function OrderInstallmentSchedule({
                 const penaltyBusy = busyKey === `penalty-${row.installmentNumber}`;
                 const proofBusy = busyKey === `proof-${row.installmentNumber}`;
                 const isPaid = !isInstallmentUnpaid(row.status);
+                const waivePending = isPenaltyWaivePending(row.penaltyWaiveStatus);
+                const waived = isPenaltyWaived(row.penaltyWaiveStatus);
+                const penaltyAmount = parsePhpStringToNumber(row.penalty ?? "") ?? 0;
                 const showMarkInstallmentPaid =
-                  mode === "staff" && !readOnly && !isPaid;
+                  mode === "staff" && !readOnly && !isPaid && !waivePending;
                 const canEditDueDate =
                   mode === "staff" && !readOnly && !isPaid;
                 const isDueDateEditing =
                   canEditDueDate &&
                   dueDateEditingNumber === row.installmentNumber;
-                const canEditPenalty =
-                  mode === "staff" && !readOnly && !isPaid;
-                const isPenaltyEditing =
-                  canEditPenalty &&
-                  penaltyEditingNumber === row.installmentNumber;
+                const showWaiveButton =
+                  mode === "staff" &&
+                  canRequestPenaltyWaive &&
+                  !readOnly &&
+                  !isPaid &&
+                  !waivePending &&
+                  !waived &&
+                  penaltyAmount > 0;
+                const showDecideButtons =
+                  mode === "staff" &&
+                  canDecidePenaltyWaive &&
+                  !isPaid &&
+                  waivePending;
                 const showProofUpload =
                   mode === "client" && !readOnly && !isPaid;
-                const penaltyForTotal = isPenaltyEditing
-                  ? penaltyDrafts[row.installmentNumber] ?? row.penalty
-                  : row.penalty;
                 const totalAmountDue = computeTotalAmountDue(
                   row.scheduledAmount,
-                  penaltyForTotal,
+                  row.penalty,
                 );
                 return (
                   <tr key={row.installmentNumber}>
@@ -361,61 +363,68 @@ export function OrderInstallmentSchedule({
                       {formatPhpDisplay(row.scheduledAmount)}
                     </td>
                     <td className="px-3 py-3">
-                      {canEditPenalty ? (
-                        isPenaltyEditing ? (
-                          <div className="flex items-center gap-1.5">
-                            <PhpPriceInput
-                              id={`installment-penalty-${row.installmentNumber}`}
-                              className="w-[5.5rem] rounded-lg border border-slate-200 bg-white py-1 pl-6 pr-1.5 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
-                              value={penaltyDrafts[row.installmentNumber] ?? ""}
-                              onChange={(v) =>
-                                setPenaltyDrafts((prev) => ({
-                                  ...prev,
-                                  [row.installmentNumber]: v,
-                                }))
-                              }
-                              disabled={penaltyBusy}
-                            />
-                            <button
-                              type="button"
-                              disabled={penaltyBusy}
-                              onClick={() => void savePenalty(row.installmentNumber)}
-                              className="shrink-0 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-800"
-                            >
-                              {penaltyBusy ? "…" : "Save"}
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="flex items-start gap-1.5">
-                            <div className="flex min-w-0 flex-col gap-0.5">
-                              <span className="tabular-nums text-slate-800 dark:text-slate-200">
-                                {formatPhpDisplay(row.penalty)}
-                              </span>
-                              {!row.penaltyOverridden && row.penalty ? (
-                                <span className="text-xs text-slate-500 dark:text-slate-400">
-                                  Auto-calculated
-                                </span>
-                              ) : row.penaltyOverridden ? (
-                                <span className="text-xs text-slate-500 dark:text-slate-400">
-                                  Manual override
-                                </span>
-                              ) : null}
-                            </div>
-                            <button
-                              type="button"
-                              aria-label="Edit penalty"
-                              onClick={() => startPenaltyEdit(row)}
-                              className={iconEditButtonClass}
-                            >
-                              <EditIcon />
-                            </button>
-                          </div>
-                        )
-                      ) : (
+                      <div className="flex min-w-[7.5rem] flex-col gap-1.5">
                         <span className="tabular-nums text-slate-800 dark:text-slate-200">
                           {formatPhpDisplay(row.penalty)}
                         </span>
-                      )}
+                        {waived ? (
+                          <span className="text-xs font-medium text-emerald-700 dark:text-emerald-300">
+                            Waived
+                          </span>
+                        ) : waivePending && mode === "staff" ? (
+                          <span className="text-xs font-medium text-amber-700 dark:text-amber-300">
+                            For approval
+                          </span>
+                        ) : waivePending ? null : !row.penaltyOverridden &&
+                          row.penalty ? (
+                          <span className="text-xs text-slate-500 dark:text-slate-400">
+                            Auto-calculated
+                          </span>
+                        ) : row.penaltyOverridden ? (
+                          <span className="text-xs text-slate-500 dark:text-slate-400">
+                            Manual override
+                          </span>
+                        ) : null}
+                        {showWaiveButton ? (
+                          <button
+                            type="button"
+                            disabled={penaltyBusy}
+                            onClick={() => {
+                              setWaiveActionError(null);
+                              setWaiveConfirmNumber(row.installmentNumber);
+                            }}
+                            className="w-fit rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-800"
+                          >
+                            Waive
+                          </button>
+                        ) : null}
+                        {showDecideButtons ? (
+                          <div className="flex flex-wrap gap-1.5">
+                            <button
+                              type="button"
+                              disabled={penaltyBusy}
+                              onClick={() => {
+                                setWaiveActionError(null);
+                                setApproveConfirmNumber(row.installmentNumber);
+                              }}
+                              className="rounded-lg bg-emerald-600 px-2 py-1 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50 dark:bg-emerald-600 dark:hover:bg-emerald-500"
+                            >
+                              Approve
+                            </button>
+                            <button
+                              type="button"
+                              disabled={penaltyBusy}
+                              onClick={() => {
+                                setWaiveActionError(null);
+                                setRejectConfirmNumber(row.installmentNumber);
+                              }}
+                              className="rounded-lg border border-red-200 bg-white px-2 py-1 text-xs font-medium text-red-800 hover:bg-red-50 disabled:opacity-50 dark:border-red-900 dark:bg-slate-950 dark:text-red-200 dark:hover:bg-red-950/40"
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
                     </td>
                     <td className="px-3 py-3 tabular-nums text-slate-800 dark:text-slate-200">
                       {formatPhpAmount(totalAmountDue)}
@@ -543,6 +552,76 @@ export function OrderInstallmentSchedule({
         onApplied={async (orderDetail) => {
           setUseVoucherOpen(false);
           await onVoucherApplied?.(orderDetail);
+        }}
+      />
+      <ConfirmDialog
+        open={waiveConfirmRow != null}
+        title="Waive penalty?"
+        description={
+          waiveConfirmRow
+            ? `Request to waive the ${formatPhpAmount(parsePhpStringToNumber(waiveConfirmRow.penalty ?? "") ?? 0)} penalty for the ${waiveConfirmRow.installmentLabel} installment? The General Manager will be notified for approval.`
+            : null
+        }
+        confirmLabel="Request waive"
+        busy={penaltyActionBusy}
+        errorMessage={waiveActionError}
+        onCancel={() => {
+          if (!penaltyActionBusy) {
+            setWaiveConfirmNumber(null);
+            setWaiveActionError(null);
+          }
+        }}
+        onConfirm={() => {
+          if (waiveConfirmNumber != null) {
+            void postPenaltyWaiveAction(waiveConfirmNumber, "waive-request");
+          }
+        }}
+      />
+      <ConfirmDialog
+        open={approveConfirmRow != null}
+        title="Approve penalty waive?"
+        description={
+          approveConfirmRow
+            ? `Approve waiving the ${formatPhpAmount(parsePhpStringToNumber(approveConfirmRow.penalty ?? "") ?? 0)} penalty for the ${approveConfirmRow.installmentLabel} installment? The assigned sales associate will be notified.`
+            : null
+        }
+        confirmLabel="Approve"
+        busy={penaltyActionBusy}
+        errorMessage={waiveActionError}
+        onCancel={() => {
+          if (!penaltyActionBusy) {
+            setApproveConfirmNumber(null);
+            setWaiveActionError(null);
+          }
+        }}
+        onConfirm={() => {
+          if (approveConfirmNumber != null) {
+            void postPenaltyWaiveAction(approveConfirmNumber, "waive-approve");
+          }
+        }}
+      />
+      <ConfirmDialog
+        open={rejectConfirmRow != null}
+        title="Reject penalty waive?"
+        description={
+          rejectConfirmRow
+            ? `The ${formatPhpAmount(parsePhpStringToNumber(rejectConfirmRow.penalty ?? "") ?? 0)} penalty for the ${rejectConfirmRow.installmentLabel} installment will not be waived. The assigned sales associate will be notified.`
+            : null
+        }
+        confirmLabel="Reject"
+        danger
+        busy={penaltyActionBusy}
+        errorMessage={waiveActionError}
+        onCancel={() => {
+          if (!penaltyActionBusy) {
+            setRejectConfirmNumber(null);
+            setWaiveActionError(null);
+          }
+        }}
+        onConfirm={() => {
+          if (rejectConfirmNumber != null) {
+            void postPenaltyWaiveAction(rejectConfirmNumber, "waive-reject");
+          }
         }}
       />
     </div>

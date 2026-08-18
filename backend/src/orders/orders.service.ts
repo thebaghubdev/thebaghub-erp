@@ -14,7 +14,11 @@ import { DataSource, EntityManager, Repository } from 'typeorm';
 import { JwtUser } from '../auth/jwt-user';
 import { Client } from '../clients/entities/client.entity';
 import { Employee } from '../employees/entities/employee.entity';
-import { canAssignWorkToOthers } from '../employees/employee-position.util';
+import {
+  canAssignWorkToOthers,
+  GENERAL_MANAGER_POSITION,
+  isGeneralManagerPosition,
+} from '../employees/employee-position.util';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
 import { effectiveInventoryUnitPrice } from '../inventory/inventory-effective-price.util';
 import { computeCreditCardPriceFromTbh } from '../inventory/credit-card-price.util';
@@ -43,7 +47,6 @@ import { MarkOrderPaymentPaidDto } from './dto/mark-order-payment-paid.dto';
 import { UpdateInstallmentAmountPaidDto } from './dto/update-installment-amount-paid.dto';
 import { UpdateInstallmentDueDateDto } from './dto/update-installment-due-date.dto';
 import { UpdateInstallmentPaymentDateDto } from './dto/update-installment-payment-date.dto';
-import { UpdateInstallmentPenaltyDto } from './dto/update-installment-penalty.dto';
 import { UpdateLayawayTermsDto } from './dto/update-layaway-terms.dto';
 import { UpdateOrderPaymentAmountPaidDto } from './dto/update-order-payment-amount-paid.dto';
 import { UpdateOrderPaymentDateDto } from './dto/update-order-payment-date.dto';
@@ -58,6 +61,10 @@ import {
 } from './layaway-eligibility.util';
 import { calculateLayawayPricing } from './layaway-pricing.util';
 import {
+  PENALTY_WAIVE_STATUS_APPROVED,
+  PENALTY_WAIVE_STATUS_PENDING,
+} from './installment-penalty.constants';
+import {
   buildScheduledAmounts,
   computeAmountDueForInstallment,
   computeAutoPenalty,
@@ -68,7 +75,11 @@ import {
   effectiveDueDateForInstallment,
   formatMoney,
   isInstallmentPaidStatus,
+  isPenaltyAmountFrozen,
+  isPenaltyWaivePending,
+  isPenaltyWaived,
   parseMoney,
+  resolveInstallmentPenalty,
   shouldIncludeInstallmentSchedule,
   type OrderInstallmentView,
 } from './order-installment.util';
@@ -478,6 +489,51 @@ export class OrdersService {
         'Only the assigned sales associate can perform this action.',
       );
     }
+  }
+
+  private async requireGeneralManager(user: JwtUser): Promise<Employee> {
+    const employee = await this.employeeForUser(user.userId);
+    if (!employee || !isGeneralManagerPosition(employee.position)) {
+      throw new ForbiddenException(
+        'Only the General Manager can perform this action.',
+      );
+    }
+    return employee;
+  }
+
+  private async findGeneralManager(): Promise<Employee | null> {
+    return this.employeesRepo
+      .createQueryBuilder('e')
+      .where('LOWER(TRIM(e.position)) = :pos', {
+        pos: GENERAL_MANAGER_POSITION.toLowerCase(),
+      })
+      .getOne();
+  }
+
+  private assertInstallmentNotPendingPenaltyWaive(
+    row: Pick<OrderInstallment, 'penaltyWaiveStatus' | 'installmentNumber'>,
+  ): void {
+    if (isPenaltyWaivePending(row.penaltyWaiveStatus)) {
+      throw new BadRequestException(
+        `Installment ${row.installmentNumber} has a penalty waive pending approval. Wait for the General Manager to approve or reject it before recording payment.`,
+      );
+    }
+  }
+
+  private async notifyAssignedSalesAssociate(
+    order: Pick<Order, 'assignedToId'>,
+    message: string,
+    orderId: string,
+  ): Promise<void> {
+    const assigneeId = order.assignedToId?.trim();
+    if (!assigneeId) {
+      return;
+    }
+    await this.notifications.notify({
+      message,
+      receiverId: assigneeId,
+      orderId,
+    });
   }
 
   private async enforceOrderMutationAccess(
@@ -2177,11 +2233,10 @@ export class OrdersService {
     return this.findOneForStaff(orderId);
   }
 
-  async setInstallmentPenaltyForStaff(
+  async requestInstallmentPenaltyWaiveForStaff(
     user: JwtUser,
     orderId: string,
     installmentNumber: number,
-    dto: UpdateInstallmentPenaltyDto,
   ): Promise<StaffOrderDetail> {
     const order = await this.ordersRepo.findOne({ where: { id: orderId } });
     if (!order) {
@@ -2196,30 +2251,129 @@ export class OrdersService {
       order: { installmentNumber: 'ASC' },
     });
     const row = await this.findInstallmentForOrder(orderId, installmentNumber);
+    if (isInstallmentPaidStatus(row.status)) {
+      throw new BadRequestException('Paid installments cannot have a penalty waive');
+    }
+    if (isPenaltyWaivePending(row.penaltyWaiveStatus)) {
+      throw new BadRequestException('A penalty waive is already pending approval');
+    }
+    if (isPenaltyWaived(row.penaltyWaiveStatus)) {
+      throw new BadRequestException('This penalty has already been waived');
+    }
+
+    const amountDue = computeAmountDueForInstallment(rows, installmentNumber);
+    const paymentStartDate = formatOrderDate(order.layawayPaymentStartDate);
+    const currentPenalty = resolveInstallmentPenalty(
+      row,
+      amountDue,
+      paymentStartDate,
+      todayDateString(),
+    );
+    const amount = parseMoney(currentPenalty);
+    if (amount <= 0) {
+      throw new BadRequestException('There is no penalty to waive');
+    }
+
+    const gm = await this.findGeneralManager();
+    if (!gm) {
+      throw new BadRequestException(
+        'No General Manager is registered to approve this request.',
+      );
+    }
+
+    row.penalty = formatMoney(amount);
+    row.penaltyWaiveStatus = PENALTY_WAIVE_STATUS_PENDING;
+    row.updatedById = user.userId;
+    await this.installmentsRepo.save(row);
+
+    await this.notifications.notify({
+      message: `Penalty waive requested for order #${order.orderNumber}, installment ${installmentNumber}. Please review.`,
+      receiverId: gm.id,
+      orderId: order.id,
+    });
+
+    return this.findOneForStaff(orderId);
+  }
+
+  async approveInstallmentPenaltyWaiveForStaff(
+    user: JwtUser,
+    orderId: string,
+    installmentNumber: number,
+  ): Promise<StaffOrderDetail> {
+    await this.requireGeneralManager(user);
+    const order = await this.ordersRepo.findOne({ where: { id: orderId } });
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+    this.assertInstallmentScheduleAccessible(order);
+    await this.ensureInstallments(order, user.userId);
+
+    const row = await this.findInstallmentForOrder(orderId, installmentNumber);
+    if (isInstallmentPaidStatus(row.status)) {
+      throw new BadRequestException('Paid installments cannot have a penalty waive');
+    }
+    if (!isPenaltyWaivePending(row.penaltyWaiveStatus)) {
+      throw new BadRequestException('There is no pending penalty waive to approve');
+    }
+
+    row.penalty = formatMoney(0);
+    row.penaltyOverridden = true;
+    row.penaltyWaiveStatus = PENALTY_WAIVE_STATUS_APPROVED;
+    row.updatedById = user.userId;
+    await this.installmentsRepo.save(row);
+
+    await this.notifyAssignedSalesAssociate(
+      order,
+      `Penalty waive for order #${order.orderNumber}, installment ${installmentNumber} was approved.`,
+      order.id,
+    );
+
+    return this.findOneForStaff(orderId);
+  }
+
+  async rejectInstallmentPenaltyWaiveForStaff(
+    user: JwtUser,
+    orderId: string,
+    installmentNumber: number,
+  ): Promise<StaffOrderDetail> {
+    await this.requireGeneralManager(user);
+    const order = await this.ordersRepo.findOne({ where: { id: orderId } });
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+    this.assertInstallmentScheduleAccessible(order);
+    await this.ensureInstallments(order, user.userId);
+
+    const rows = await this.installmentsRepo.find({
+      where: { orderId },
+      order: { installmentNumber: 'ASC' },
+    });
+    const row = await this.findInstallmentForOrder(orderId, installmentNumber);
+    if (!isPenaltyWaivePending(row.penaltyWaiveStatus)) {
+      throw new BadRequestException('There is no pending penalty waive to reject');
+    }
+
     const amountDue = computeAmountDueForInstallment(rows, installmentNumber);
     const paymentStartDate = formatOrderDate(order.layawayPaymentStartDate);
     const dueDate = effectiveDueDateForInstallment(row, paymentStartDate);
+    const autoPenalty = computeAutoPenalty(
+      amountDue,
+      row.amountPaid,
+      dueDate,
+      todayDateString(),
+    );
 
-    const raw = dto.penalty?.trim() ?? '';
-    if (raw === '') {
-      row.penaltyOverridden = false;
-      const autoPenalty = computeAutoPenalty(
-        amountDue,
-        row.amountPaid,
-        dueDate,
-        todayDateString(),
-      );
-      row.penalty = autoPenalty > 0 ? formatMoney(autoPenalty) : null;
-    } else {
-      const amount = parseMoney(raw);
-      if (amount < 0) {
-        throw new BadRequestException('Penalty cannot be negative');
-      }
-      row.penaltyOverridden = true;
-      row.penalty = formatMoney(amount);
-    }
+    row.penaltyOverridden = false;
+    row.penaltyWaiveStatus = null;
+    row.penalty = autoPenalty > 0 ? formatMoney(autoPenalty) : null;
     row.updatedById = user.userId;
     await this.installmentsRepo.save(row);
+
+    await this.notifyAssignedSalesAssociate(
+      order,
+      `Penalty waive for order #${order.orderNumber}, installment ${installmentNumber} was rejected.`,
+      order.id,
+    );
 
     return this.findOneForStaff(orderId);
   }
@@ -2313,11 +2467,13 @@ export class OrdersService {
         throw new BadRequestException('Installment is already marked as paid');
       }
 
+      this.assertInstallmentNotPendingPenaltyWaive(row);
+
       const amountDue = computeAmountDueForInstallment(rows, installmentNumber);
       const paymentStartDate = formatOrderDate(order.layawayPaymentStartDate);
       const dueDate = effectiveDueDateForInstallment(row, paymentStartDate);
 
-      if (!row.penaltyOverridden) {
+      if (!isPenaltyAmountFrozen(row)) {
         const autoPenalty = computeAutoPenalty(
           amountDue,
           row.amountPaid,
@@ -3435,7 +3591,7 @@ export class OrdersService {
       const toSave: OrderInstallment[] = [];
 
       for (const row of rows) {
-        if (isInstallmentPaidStatus(row.status) || row.penaltyOverridden) {
+        if (isInstallmentPaidStatus(row.status) || isPenaltyAmountFrozen(row)) {
           continue;
         }
 
@@ -3749,12 +3905,14 @@ export class OrdersService {
       throw new BadRequestException('No unpaid installments remain');
     }
 
+    this.assertInstallmentNotPendingPenaltyWaive(row);
+
     const installmentNumber = row.installmentNumber;
     const amountDue = computeAmountDueForInstallment(rows, installmentNumber);
     const paymentStartDate = formatOrderDate(order.layawayPaymentStartDate);
     const dueDate = effectiveDueDateForInstallment(row, paymentStartDate);
 
-    if (!row.penaltyOverridden) {
+    if (!isPenaltyAmountFrozen(row)) {
       const autoPenalty = computeAutoPenalty(
         amountDue,
         row.amountPaid,

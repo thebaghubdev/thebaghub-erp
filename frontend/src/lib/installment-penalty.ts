@@ -56,8 +56,10 @@ function resolvePenaltyAmount(
   asOfDate: string,
   storedPenalty: string | null,
   penaltyOverridden: boolean,
+  penaltyWaiveStatus?: string | null,
 ): number {
-  if (penaltyOverridden) {
+  const waiveStatus = (penaltyWaiveStatus ?? "").trim().toLowerCase();
+  if (penaltyOverridden || waiveStatus === "pending" || waiveStatus === "approved") {
     return parsePhpStringToNumber(storedPenalty ?? "") ?? 0;
   }
   return computeAutoPenalty(amountDue, amountPaid, dueDate, asOfDate);

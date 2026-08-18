@@ -45,6 +45,15 @@ export class OrderInstallment extends AuditedEntity {
   @Column({ name: 'penalty_overridden', type: 'boolean', default: false })
   penaltyOverridden: boolean;
 
+  /** `pending` | `approved` | null. Rejected requests clear this so waive can be requested again. */
+  @Column({
+    name: 'penalty_waive_status',
+    type: 'varchar',
+    length: 32,
+    nullable: true,
+  })
+  penaltyWaiveStatus: string | null;
+
   @Column({
     name: 'amount_paid',
     type: 'numeric',

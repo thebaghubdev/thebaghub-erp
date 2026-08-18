@@ -8,6 +8,7 @@ import { formatPhpAmount, formatPhpDisplay, parsePhpStringToNumber } from "../li
 import { resolvePenaltyAmount } from "../lib/installment-penalty";
 import {
   dueDateInputValue,
+  isPenaltyWaived,
   readApiErrorMessage,
   type OrderInstallmentRow,
 } from "../lib/order-installments";
@@ -128,6 +129,7 @@ export function MarkInstallmentPaidDialog({
       paymentDateValue,
       installment.penalty,
       installment.penaltyOverridden,
+      installment.penaltyWaiveStatus,
     );
     setAmountPaid((amountDue + penalty).toFixed(2));
   }, [installment, open, paymentDate]);
@@ -175,6 +177,7 @@ export function MarkInstallmentPaidDialog({
     paymentDate.trim() || todayYmd(),
     installment.penalty,
     installment.penaltyOverridden,
+    installment.penaltyWaiveStatus,
   );
   const totalDue = installmentAmountDue + penaltyAmount;
   const canSubmit =
@@ -252,7 +255,9 @@ export function MarkInstallmentPaidDialog({
             <div className="mt-1 flex justify-between gap-3 text-slate-700 dark:text-slate-300">
               <span>
                 Penalty
-                {!installment.penaltyOverridden ? (
+                {isPenaltyWaived(installment.penaltyWaiveStatus) ? (
+                  <span className="ml-1 text-xs text-slate-500">(waived)</span>
+                ) : !installment.penaltyOverridden ? (
                   <span className="ml-1 text-xs text-slate-500">(auto)</span>
                 ) : null}
               </span>

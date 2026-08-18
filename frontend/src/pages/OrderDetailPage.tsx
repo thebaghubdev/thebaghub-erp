@@ -15,7 +15,7 @@ import { OrderStatusBadge } from "../components/OrderStatusBadge";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
-import { canBypassOrderAssignment } from "../lib/employee-position";
+import { canBypassOrderAssignment, isGeneralManagerPosition } from "../lib/employee-position";
 import { formatPhpDisplay, parsePhpStringToNumber } from "../lib/format-php";
 import { useFeatureAccess } from "../lib/use-feature-access";
 import {
@@ -391,6 +391,7 @@ export function OrderDetailPage() {
   }, [detail, user]);
 
   const canEditOrder = roleCanEditOrder && feature.canEdit;
+  const isGeneralManager = isGeneralManagerPosition(user?.employee?.position);
 
   const confirmApproveLayaway = useCallback(async () => {
     if (!id || !token || !detail) return;
@@ -1240,6 +1241,8 @@ export function OrderDetailPage() {
                 : prev,
             )
           }
+          canRequestPenaltyWaive={canEditOrder}
+          canDecidePenaltyWaive={isGeneralManager}
         />
       ) : null}
 

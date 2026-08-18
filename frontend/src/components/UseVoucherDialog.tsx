@@ -5,6 +5,7 @@ import { apiFetch } from "../lib/api";
 import { formatPhpDisplay, parsePhpStringToNumber } from "../lib/format-php";
 import {
   computeTotalAmountDue,
+  isPenaltyWaivePending,
   readApiErrorMessage,
   type OrderInstallmentRow,
 } from "../lib/order-installments";
@@ -53,6 +54,7 @@ export function computeInstallmentVoucherAmountDue(
     (row) => row.status.trim().toLowerCase() === "unpaid",
   );
   if (!next) return 0;
+  if (isPenaltyWaivePending(next.penaltyWaiveStatus)) return 0;
   return computeTotalAmountDue(next.amountDue, next.penalty);
 }
 

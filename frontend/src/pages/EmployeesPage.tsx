@@ -5,7 +5,7 @@ import { HorizontalScrollMirror } from "../components/HorizontalScrollMirror";
 import { TablePaginationBar } from "../components/TablePaginationBar";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
-import { isCeoPosition } from "../lib/employee-position";
+import { isCeoPosition, isGeneralManagerPosition } from "../lib/employee-position";
 import { useFeatureAccess } from "../lib/use-feature-access";
 import { useClientPagination } from "../hooks/useClientPagination";
 
@@ -74,6 +74,12 @@ export function EmployeesPage() {
   const ceoTakenByOther = Boolean(
     editRow &&
     employees.some((e) => e.id !== editRow.id && isCeoPosition(e.position)),
+  );
+  const gmTakenByOther = Boolean(
+    editRow &&
+    employees.some(
+      (e) => e.id !== editRow.id && isGeneralManagerPosition(e.position),
+    ),
   );
 
   const positionOptions = useMemo(() => {
@@ -160,6 +166,12 @@ export function EmployeesPage() {
     if (ceoTakenByOther && isCeoPosition(efPosition)) {
       setEditError(
         "A CEO is already registered. Only one employee can have the CEO position.",
+      );
+      return;
+    }
+    if (gmTakenByOther && isGeneralManagerPosition(efPosition)) {
+      setEditError(
+        "A General Manager is already registered. Only one employee can have the General Manager position.",
       );
       return;
     }
@@ -467,12 +479,17 @@ export function EmployeesPage() {
                       <option
                         key={title}
                         value={title}
-                        disabled={ceoTakenByOther && isCeoPosition(title)}
+                        disabled={
+                          (ceoTakenByOther && isCeoPosition(title)) ||
+                          (gmTakenByOther && isGeneralManagerPosition(title))
+                        }
                       >
                         {title}
                         {ceoTakenByOther && isCeoPosition(title)
                           ? " (already assigned)"
-                          : ""}
+                          : gmTakenByOther && isGeneralManagerPosition(title)
+                            ? " (already assigned)"
+                            : ""}
                       </option>
                     ))}
                   </select>

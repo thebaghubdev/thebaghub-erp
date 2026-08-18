@@ -8,6 +8,7 @@ export type OrderInstallmentRow = {
   amountPaid: string | null;
   penalty: string | null;
   penaltyOverridden: boolean;
+  penaltyWaiveStatus?: string | null;
   status: string;
   proofUrl: string | null;
   dueDate: string | null;
@@ -28,6 +29,14 @@ function installmentStatusBadgeClass(status: string): string {
 
 function isInstallmentUnpaid(status: string): boolean {
   return status.trim().toLowerCase() === "unpaid";
+}
+
+function isPenaltyWaivePending(status: string | null | undefined): boolean {
+  return (status ?? "").trim().toLowerCase() === "pending";
+}
+
+function isPenaltyWaived(status: string | null | undefined): boolean {
+  return (status ?? "").trim().toLowerCase() === "approved";
 }
 
 /** Remaining balance: layaway price minus paid plus unpaid penalties. */
@@ -96,5 +105,7 @@ export {
   formatDueDate,
   installmentStatusBadgeClass,
   isInstallmentUnpaid,
+  isPenaltyWaivePending,
+  isPenaltyWaived,
   readApiErrorMessage,
 };

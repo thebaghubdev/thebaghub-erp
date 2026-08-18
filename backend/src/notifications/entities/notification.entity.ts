@@ -32,4 +32,8 @@ export class Notification extends AuditedEntity {
   /** Optional link for UI (e.g. open inquiry detail). */
   @Column({ name: 'inquiry_id', type: 'uuid', nullable: true })
   inquiryId: string | null;
+
+  /** Optional link for UI (e.g. open order detail). */
+  @Column({ name: 'order_id', type: 'uuid', nullable: true })
+  orderId: string | null;
 }

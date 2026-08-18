@@ -48,6 +48,7 @@ export class SeedService implements OnModuleInit {
   async onModuleInit() {
     await this.ensureInquiryDirectPurchaseSchema();
     await this.ensureDirectPurchasePaymentsSchema();
+    await this.ensurePenaltyWaiveSchema();
     await this.ensureClientVipStatusBackfill();
     await this.ensureAdministrator();
     await this.ensureConsignmentFormSettings();
@@ -115,6 +116,25 @@ export class SeedService implements OnModuleInit {
     } catch (err) {
       this.logger.warn(
         `Could not ensure inquiry direct-purchase schema: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+
+  private async ensurePenaltyWaiveSchema() {
+    try {
+      await this.employeesRepo.query(`
+        ALTER TABLE order_installments
+          ADD COLUMN IF NOT EXISTS penalty_waive_status varchar(32)
+      `);
+      await this.employeesRepo.query(`
+        ALTER TABLE notifications
+          ADD COLUMN IF NOT EXISTS order_id uuid
+      `);
+    } catch (err) {
+      this.logger.warn(
+        `Could not ensure penalty waive schema: ${
           err instanceof Error ? err.message : String(err)
         }`,
       );

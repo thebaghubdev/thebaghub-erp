@@ -14,8 +14,11 @@ import type { ClientVipStatus } from '../clients/client-vip-status.util';
 import { Employee } from '../employees/entities/employee.entity';
 import {
   CEO_POSITION_TAKEN_MESSAGE,
+  GENERAL_MANAGER_POSITION_TAKEN_MESSAGE,
   countCeoEmployees,
+  countGeneralManagerEmployees,
   isCeoPosition,
+  isGeneralManagerPosition,
 } from '../employees/employee-position.util';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
 
@@ -241,6 +244,13 @@ export class AccountsService {
       (await countCeoEmployees(this.employeesRepo, employee.id)) > 0
     ) {
       throw new ConflictException(CEO_POSITION_TAKEN_MESSAGE);
+    }
+    if (
+      isGeneralManagerPosition(nextPosition) &&
+      !isGeneralManagerPosition(employee.position) &&
+      (await countGeneralManagerEmployees(this.employeesRepo, employee.id)) > 0
+    ) {
+      throw new ConflictException(GENERAL_MANAGER_POSITION_TAKEN_MESSAGE);
     }
     employee.position = nextPosition;
     employee.updatedById = actorUserId;

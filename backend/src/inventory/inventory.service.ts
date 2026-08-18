@@ -2125,10 +2125,16 @@ export class InventoryService {
   }
 
   async listItemPostingsForStaff(): Promise<ItemPostingCalendarRow[]> {
-    const rows = await this.itemPostingRepo.find({
-      relations: { inventoryItem: { consignor: true } },
-      order: { postingDate: 'ASC', id: 'ASC' },
-    });
+    const rows = await this.itemPostingRepo
+      .createQueryBuilder('p')
+      .innerJoinAndSelect('p.inventoryItem', 'inv')
+      .leftJoinAndSelect('inv.consignor', 'consignor')
+      .where('inv.status = :forPosting', {
+        forPosting: FOR_POSTING_INVENTORY_STATUS,
+      })
+      .orderBy('p.postingDate', 'ASC')
+      .addOrderBy('p.id', 'ASC')
+      .getMany();
     return rows.map((p) => {
       const inv = p.inventoryItem;
       const consignorName = consignorDisplayName({

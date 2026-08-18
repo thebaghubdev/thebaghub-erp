@@ -31,7 +31,6 @@ import { MarkOrderPaymentPaidDto } from './dto/mark-order-payment-paid.dto';
 import { UpdateInstallmentAmountPaidDto } from './dto/update-installment-amount-paid.dto';
 import { UpdateInstallmentDueDateDto } from './dto/update-installment-due-date.dto';
 import { UpdateInstallmentPaymentDateDto } from './dto/update-installment-payment-date.dto';
-import { UpdateInstallmentPenaltyDto } from './dto/update-installment-penalty.dto';
 import { UpdateLayawayTermsDto } from './dto/update-layaway-terms.dto';
 import { UpdateOrderPaymentAmountPaidDto } from './dto/update-order-payment-amount-paid.dto';
 import { UpdateOrderPaymentDateDto } from './dto/update-order-payment-date.dto';
@@ -251,19 +250,48 @@ export class OrdersController {
     );
   }
 
-  @Patch(':id/installments/:installmentNumber/penalty')
+  @Post(':id/installments/:installmentNumber/penalty/waive-request')
   @RequireFeature('orders', 'edit')
-  setInstallmentPenalty(
+  @HttpCode(HttpStatus.OK)
+  requestInstallmentPenaltyWaive(
     @Req() req: { user: JwtUser },
     @Param('id', ParseUUIDPipe) id: string,
     @Param('installmentNumber', ParseIntPipe) installmentNumber: number,
-    @Body() dto: UpdateInstallmentPenaltyDto,
   ) {
-    return this.ordersService.setInstallmentPenaltyForStaff(
+    return this.ordersService.requestInstallmentPenaltyWaiveForStaff(
       req.user,
       id,
       installmentNumber,
-      dto,
+    );
+  }
+
+  @Post(':id/installments/:installmentNumber/penalty/waive-approve')
+  @RequireFeature('orders', 'view')
+  @HttpCode(HttpStatus.OK)
+  approveInstallmentPenaltyWaive(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('installmentNumber', ParseIntPipe) installmentNumber: number,
+  ) {
+    return this.ordersService.approveInstallmentPenaltyWaiveForStaff(
+      req.user,
+      id,
+      installmentNumber,
+    );
+  }
+
+  @Post(':id/installments/:installmentNumber/penalty/waive-reject')
+  @RequireFeature('orders', 'view')
+  @HttpCode(HttpStatus.OK)
+  rejectInstallmentPenaltyWaive(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('installmentNumber', ParseIntPipe) installmentNumber: number,
+  ) {
+    return this.ordersService.rejectInstallmentPenaltyWaiveForStaff(
+      req.user,
+      id,
+      installmentNumber,
     );
   }
 

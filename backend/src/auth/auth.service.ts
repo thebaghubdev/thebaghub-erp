@@ -29,8 +29,11 @@ import { JwtUser } from './jwt-user';
 import { TurnstileService } from './turnstile.service';
 import {
   CEO_POSITION_TAKEN_MESSAGE,
+  GENERAL_MANAGER_POSITION_TAKEN_MESSAGE,
   countCeoEmployees,
+  countGeneralManagerEmployees,
   isCeoPosition,
+  isGeneralManagerPosition,
 } from '../employees/employee-position.util';
 
 const CLIENT_VERIFICATION_HOURS = 48;
@@ -268,6 +271,12 @@ export class AuthService {
     }
     if (isCeoPosition(dto.position) && (await countCeoEmployees(this.employeesRepo)) > 0) {
       throw new ConflictException(CEO_POSITION_TAKEN_MESSAGE);
+    }
+    if (
+      isGeneralManagerPosition(dto.position) &&
+      (await countGeneralManagerEmployees(this.employeesRepo)) > 0
+    ) {
+      throw new ConflictException(GENERAL_MANAGER_POSITION_TAKEN_MESSAGE);
     }
     const passwordHash = await bcrypt.hash(dto.password, 10);
     const hireDate = new Date(dto.hireDate);

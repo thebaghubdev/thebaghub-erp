@@ -14,6 +14,7 @@ export type NotificationRow = {
   receiverId: string
   receiverRole: string | null
   inquiryId: string | null
+  orderId?: string | null
   createdAt: string
 }
 
@@ -157,6 +158,9 @@ export function NotificationBell() {
     if (n.inquiryId) {
       setOpen(false)
       navigate(`/portal/inquiries/${n.inquiryId}`)
+    } else if (n.orderId) {
+      setOpen(false)
+      navigate(`/portal/orders/${n.orderId}`)
     }
   }
 
@@ -308,6 +312,11 @@ export function NotificationBell() {
                         {n.inquiryId && (
                           <p className="mt-0.5 text-xs text-violet-600 dark:text-violet-400">
                             {n.isRead ? "View inquiry" : "Open inquiry (marks read)"}
+                          </p>
+                        )}
+                        {!n.inquiryId && n.orderId && (
+                          <p className="mt-0.5 text-xs text-violet-600 dark:text-violet-400">
+                            {n.isRead ? "View order" : "Open order (marks read)"}
                           </p>
                         )}
                       </button>

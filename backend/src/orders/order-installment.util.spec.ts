@@ -115,6 +115,7 @@ describe('installment penalty', () => {
         dueDate: '2026-01-01',
         penalty: null,
         penaltyOverridden: false,
+        penaltyWaiveStatus: null,
         status: 'Unpaid',
       },
     ] as OrderInstallment[];
@@ -126,6 +127,50 @@ describe('installment penalty', () => {
     );
     expect(views[0].penalty).toBe('1000.00');
     expect(views[0].penaltyOverridden).toBe(false);
+    expect(views[0].penaltyWaiveStatus).toBeNull();
+  });
+
+  it('freezes stored penalty while a waive is pending', () => {
+    const rows = [
+      {
+        ...installmentRow(1, '10000.00'),
+        dueDate: '2026-01-01',
+        penalty: '500.00',
+        penaltyOverridden: false,
+        penaltyWaiveStatus: 'pending',
+        status: 'Unpaid',
+      },
+    ] as OrderInstallment[];
+    const views = computeInstallmentViews(
+      rows,
+      '2026-01-01',
+      () => null,
+      '2026-01-15',
+    );
+    expect(views[0].penalty).toBe('500.00');
+    expect(views[0].penaltyWaiveStatus).toBe('pending');
+  });
+
+  it('keeps waived penalty at zero even when more weeks pass', () => {
+    const rows = [
+      {
+        ...installmentRow(1, '10000.00'),
+        dueDate: '2026-01-01',
+        penalty: '0.00',
+        penaltyOverridden: true,
+        penaltyWaiveStatus: 'approved',
+        status: 'Unpaid',
+      },
+    ] as OrderInstallment[];
+    const views = computeInstallmentViews(
+      rows,
+      '2026-01-01',
+      () => null,
+      '2026-02-01',
+    );
+    expect(views[0].penalty).toBe('0.00');
+    expect(views[0].penaltyOverridden).toBe(true);
+    expect(views[0].penaltyWaiveStatus).toBe('approved');
   });
 });
 

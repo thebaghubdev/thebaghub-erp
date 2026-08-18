@@ -3,7 +3,7 @@ import { HireDatePicker } from "../components/HireDatePicker";
 import { PasswordField } from "../components/PasswordField";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
-import { isCeoPosition } from "../lib/employee-position";
+import { isCeoPosition, isGeneralManagerPosition } from "../lib/employee-position";
 import { useFeatureAccess } from "../lib/use-feature-access";
 
 /** Matches backend `POSITIONS_KEY` / seeded setting `positions`. */
@@ -43,6 +43,7 @@ export function RegisterPage() {
   const [positionsLoading, setPositionsLoading] = useState(true);
   const [positionsError, setPositionsError] = useState<string | null>(null);
   const [ceoTaken, setCeoTaken] = useState(false);
+  const [gmTaken, setGmTaken] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -69,6 +70,7 @@ export function RegisterPage() {
             position: string;
           }>;
           setCeoTaken(employees.some((e) => isCeoPosition(e.position)));
+          setGmTaken(employees.some((e) => isGeneralManagerPosition(e.position)));
         }
       } catch (e) {
         if (!cancelled) {
@@ -98,6 +100,12 @@ export function RegisterPage() {
     if (ceoTaken && isCeoPosition(position)) {
       setError(
         "A CEO is already registered. Only one employee can have the CEO position.",
+      );
+      return;
+    }
+    if (gmTaken && isGeneralManagerPosition(position)) {
+      setError(
+        "A General Manager is already registered. Only one employee can have the General Manager position.",
       );
       return;
     }
@@ -298,12 +306,17 @@ export function RegisterPage() {
                   <option
                     key={pos}
                     value={pos}
-                    disabled={ceoTaken && isCeoPosition(pos)}
+                    disabled={
+                      (ceoTaken && isCeoPosition(pos)) ||
+                      (gmTaken && isGeneralManagerPosition(pos))
+                    }
                   >
                     {pos}
                     {ceoTaken && isCeoPosition(pos)
                       ? " (already assigned)"
-                      : ""}
+                      : gmTaken && isGeneralManagerPosition(pos)
+                        ? " (already assigned)"
+                        : ""}
                   </option>
                 ))}
               </select>

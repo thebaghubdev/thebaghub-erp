@@ -17,6 +17,7 @@ export type NotificationApiRow = {
   receiverId: string;
   receiverRole: string | null;
   inquiryId: string | null;
+  orderId: string | null;
   createdAt: string;
 };
 
@@ -27,6 +28,7 @@ export type NotifyParams = {
   /** When set, one row per employee with this `employees.position`. */
   receiverRole?: string;
   inquiryId?: string | null;
+  orderId?: string | null;
 };
 
 @Injectable()
@@ -60,6 +62,7 @@ export class NotificationsService {
     }
 
     const inquiryId = params.inquiryId ?? null;
+    const orderId = params.orderId ?? null;
 
     if (rid) {
       const emp = await this.employeesRepo.findOne({ where: { id: rid } });
@@ -71,6 +74,7 @@ export class NotificationsService {
         receiverId: emp.id,
         receiverRole: null,
         inquiryId,
+        orderId,
       });
       return [row];
     }
@@ -90,6 +94,7 @@ export class NotificationsService {
           receiverId: emp.id,
           receiverRole: roleValue,
           inquiryId,
+          orderId,
         }),
       );
     }
@@ -101,6 +106,7 @@ export class NotificationsService {
     receiverId: string;
     receiverRole: string | null;
     inquiryId: string | null;
+    orderId: string | null;
   }): Promise<Notification> {
     const row = this.notificationsRepo.create({
       message: data.message,
@@ -108,6 +114,7 @@ export class NotificationsService {
       receiverId: data.receiverId,
       receiverRole: data.receiverRole,
       inquiryId: data.inquiryId,
+      orderId: data.orderId,
       createdById: null,
       updatedById: null,
     });
@@ -128,6 +135,7 @@ export class NotificationsService {
       receiverId: n.receiverId,
       receiverRole: n.receiverRole,
       inquiryId: n.inquiryId,
+      orderId: n.orderId ?? null,
       createdAt: n.createdAt.toISOString(),
     };
   }
