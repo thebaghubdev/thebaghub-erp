@@ -24,6 +24,8 @@
     "react-router-dom": "^7.14.0",
     "recharts": "^3.10.1",
     "socket.io-client": "^4.8.3",
+    "stream-chat": "^9.51.0",
+    "stream-chat-react": "^14.11.1",
     "tailwindcss": "^4.2.2"
   },
   "devDependencies": {

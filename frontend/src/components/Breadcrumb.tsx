@@ -23,6 +23,7 @@ const pathLabels: Record<string, string> = {
   "/portal/employees": "Employees",
   "/portal/employees/register": "Register",
   "/portal/clients": "Clients",
+  "/portal/messaging": "Messaging",
 };
 
 type Crumb = { label: string; to: string; current: boolean };

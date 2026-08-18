@@ -1,6 +1,7 @@
-import { Outlet } from "react-router-dom";
+import { Outlet, useLocation } from "react-router-dom";
 import { usePortalAuth } from "../context/portal-auth";
 import { Breadcrumb } from "./Breadcrumb";
+import { MessagingButton } from "./MessagingButton";
 import { NotificationBell } from "./NotificationBell";
 import { Sidenav } from "./Sidenav";
 
@@ -29,6 +30,9 @@ function HeaderUser() {
 }
 
 export function Layout() {
+  const { pathname } = useLocation();
+  const isMessaging = pathname === "/portal/messaging";
+
   return (
     <div className="flex h-svh min-h-0 overflow-hidden bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
       <Sidenav />
@@ -37,10 +41,17 @@ export function Layout() {
           <Breadcrumb />
           <div className="flex min-w-0 shrink items-center gap-3">
             <HeaderUser />
+            <MessagingButton />
             <NotificationBell />
           </div>
         </header>
-        <main className="app-themed-scrollbar min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-4">
+        <main
+          className={
+            isMessaging
+              ? "min-h-0 min-w-0 flex-1 overflow-hidden"
+              : "app-themed-scrollbar min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-4"
+          }
+        >
           <Outlet />
         </main>
       </div>

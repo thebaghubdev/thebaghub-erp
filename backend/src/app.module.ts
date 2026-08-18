@@ -74,6 +74,7 @@ import { AccessControlModule } from './access-control/access-control.module';
 import { FeatureAccess } from './access-control/entities/feature-access.entity';
 import { TasksModule } from './tasks/tasks.module';
 import { Task } from './tasks/entities/task.entity';
+import { MessagingModule } from './messaging/messaging.module';
 
 @Module({
   imports: [
@@ -153,6 +154,7 @@ import { Task } from './tasks/entities/task.entity';
     VouchersModule,
     WalkInAuthenticationModule,
     TasksModule,
+    MessagingModule,
   ],
   controllers: [AppController],
   providers: [

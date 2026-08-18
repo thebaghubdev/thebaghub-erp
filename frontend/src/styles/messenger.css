@@ -1,0 +1,110 @@
+.tbh-messenger-chat {
+  --str-chat__blue-500: #0084ff;
+  --str-chat__brand-500: #0084ff;
+  --str-chat__chat-bg-outgoing: #0084ff;
+  --str-chat__chat-bg-incoming: #e4e6eb;
+  --str-chat__channel-list-width: 100%;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  width: 100%;
+}
+
+html.dark .tbh-messenger-chat {
+  --str-chat__chat-bg-outgoing: #0084ff;
+  --str-chat__chat-bg-incoming: #3a3b3c;
+}
+
+.tbh-messenger-layout {
+  display: flex;
+  flex: 1 1 auto;
+  height: 100%;
+  min-height: 0;
+  width: 100%;
+  background: #ffffff;
+}
+
+html.dark .tbh-messenger-layout {
+  background: #020617;
+}
+
+.tbh-messenger-sidebar {
+  display: flex;
+  flex-direction: column;
+  width: 22rem;
+  min-width: 18rem;
+  max-width: 24rem;
+  flex-shrink: 0;
+  min-height: 0;
+  height: 100%;
+  border-right: 1px solid #e2e8f0;
+  background: #ffffff;
+}
+
+html.dark .tbh-messenger-sidebar {
+  border-right-color: #1e293b;
+  background: #020617;
+}
+
+.tbh-messenger-sidebar-header {
+  flex-shrink: 0;
+  padding: 0.85rem 0.9rem 0.65rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+html.dark .tbh-messenger-sidebar-header {
+  border-bottom-color: #1e293b;
+}
+
+.tbh-messenger-sidebar .tbh-messenger-channel-list,
+.tbh-messenger-sidebar .str-chat__channel-list {
+  position: relative !important;
+  inset: auto !important;
+  z-index: 0;
+  visibility: visible !important;
+  pointer-events: auto !important;
+  transform: none !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  flex: 1 1 auto !important;
+  flex-basis: auto !important;
+  height: auto !important;
+  min-height: 0;
+  overflow: hidden;
+  box-shadow: none;
+  border-inline-end: none;
+}
+
+.tbh-messenger-sidebar .str-chat__channel-list-item {
+  margin: 0 0.4rem 0.15rem;
+  border-radius: 0.65rem;
+}
+
+.tbh-messenger-sidebar .str-chat__channel-list-item__action-buttons {
+  display: none !important;
+}
+
+.tbh-messenger-channel {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.tbh-messenger-chat .str-chat__main-panel {
+  min-width: 0;
+  flex: 1;
+  height: 100%;
+}
+
+.tbh-messenger-chat .str-chat__message.str-chat__message--me .str-chat__message-text,
+.tbh-messenger-chat .str-chat__message.str-chat__message--me .str-chat__message-text p {
+  color: #ffffff;
+}
+
+.tbh-messenger-chat .str-chat__channel-list-empty-state {
+  padding: 1.5rem 1rem;
+}

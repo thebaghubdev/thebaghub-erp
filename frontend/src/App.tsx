@@ -62,6 +62,7 @@ import { DashboardsPage } from './pages/DashboardsPage'
 import { TaskboardPage } from './pages/TaskboardPage'
 import { UnauthorizedPage } from './pages/UnauthorizedPage'
 import { AccessManagementPage } from './pages/AccessManagementPage'
+import { MessagingPage } from './pages/MessagingPage'
 import type { FeatureKey } from './lib/feature-access'
 import type { ReactNode } from 'react'
 
@@ -362,6 +363,7 @@ const router = createBrowserRouter([
               </FeatureRoute>
             ),
           },
+          { path: 'messaging', element: <MessagingPage /> },
           { path: '*', element: <Navigate to="/portal/taskboard" replace /> },
         ],
       },
