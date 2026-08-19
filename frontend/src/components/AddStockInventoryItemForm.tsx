@@ -56,10 +56,7 @@ type Props = {
   onCreated: (result: { id: string; sku: string }) => void;
 };
 
-export function AddStockInventoryItemForm({
-  portalToken,
-  onCreated,
-}: Props) {
+export function AddStockInventoryItemForm({ portalToken, onCreated }: Props) {
   const [value, setValue] = useState<StockInventoryItemFormData>(() =>
     emptyStockInventoryItemForm(),
   );
@@ -167,10 +164,6 @@ export function AddStockInventoryItemForm({
         <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">
           Add stock item
         </h2>
-        <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-          Create a company-owned inventory item without an inquiry or
-          consignor. It will start in For Authentication.
-        </p>
       </div>
 
       {optionsError ? (
@@ -352,8 +345,7 @@ export function AddStockInventoryItemForm({
           placeholder="e.g. Japan Trip"
         />
         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-          Shown as consignor: Stock -{" "}
-          {value.sourceOfPurchase.trim() || "…"}
+          Shown as consignor: Stock - {value.sourceOfPurchase.trim() || "…"}
         </p>
       </div>
 

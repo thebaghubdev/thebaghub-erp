@@ -1,4 +1,5 @@
 import { NavLink } from "react-router-dom";
+import { useMessagingClient } from "../context/messaging-client";
 import { usePortalAuth } from "../context/portal-auth";
 
 function ChatIcon({ className }: { className?: string }) {
@@ -23,13 +24,19 @@ function ChatIcon({ className }: { className?: string }) {
 
 export function MessagingButton() {
   const { user, loading, token } = usePortalAuth();
+  const { unreadCount } = useMessagingClient();
   if (loading || !token || !user?.employee) return null;
+
+  const unreadLabel =
+    unreadCount > 0
+      ? `Messages, ${unreadCount > 99 ? "more than 99" : unreadCount} unread`
+      : "Messages";
 
   return (
     <NavLink
       to="/portal/messaging"
-      title="Messages"
-      aria-label="Messages"
+      title={unreadLabel}
+      aria-label={unreadLabel}
       className={({ isActive }) =>
         [
           "relative inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border shadow-sm transition-colors",
@@ -40,6 +47,11 @@ export function MessagingButton() {
       }
     >
       <ChatIcon className="h-5 w-5" />
+      {unreadCount > 0 && (
+        <span className="absolute -right-0.5 -top-0.5 flex h-[1.1rem] min-w-[1.1rem] items-center justify-center rounded-full bg-rose-600 px-1 text-[0.6rem] font-bold leading-none text-white dark:bg-rose-500">
+          {unreadCount > 99 ? "99+" : unreadCount}
+        </span>
+      )}
     </NavLink>
   );
 }

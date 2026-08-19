@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { Channel } from "stream-chat";
 import {
   Channel as StreamChannel,
@@ -10,27 +10,73 @@ import {
   MessageComposer,
   MessageList,
   Window,
+  useChannelStateContext,
   useChatContext,
-  useCreateChatClient,
   WithComponents,
 } from "stream-chat-react";
 import "stream-chat-react/dist/css/index.css";
 import "../styles/messenger.css";
 import {
+  ConversationMediaPanel,
+  SharedMediaIcon,
+} from "../components/ConversationMediaPanel";
+import {
   CreateConversationModal,
   readApiMessage,
   type CreatedChannelRef,
 } from "../components/CreateConversationModal";
+import { useMessagingClient } from "../context/messaging-client";
 import { usePortalAuth } from "../context/portal-auth";
 import { useApp } from "../context/useApp";
 import { apiFetch } from "../lib/api";
 
-type TokenResponse = {
-  apiKey: string;
-  token: string;
-  userId: string;
-  name: string;
-};
+export function MessagingPage() {
+  const { token, user } = usePortalAuth();
+  const { theme } = useApp();
+  const { client, session, loading, error } = useMessagingClient();
+
+  if (!user?.employee) {
+    return (
+      <div className="flex h-full items-center justify-center p-6 text-sm text-slate-500">
+        An employee profile is required to use messaging.
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex h-full items-center justify-center p-6 text-sm text-red-600 dark:text-red-400">
+        {error}
+      </div>
+    );
+  }
+
+  if (loading || !client || !session) {
+    return (
+      <div className="flex h-full items-center justify-center p-6 text-sm text-slate-500">
+        Connecting to messages…
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-full min-h-0">
+      <Chat
+        client={client}
+        theme={
+          theme === "dark" ? "str-chat__theme-dark" : "str-chat__theme-light"
+        }
+        customClasses={{
+          chat: "str-chat tbh-messenger-chat",
+          channelList: "str-chat__channel-list tbh-messenger-channel-list",
+          channel: "str-chat__channel tbh-messenger-channel",
+        }}
+      >
+        <MessagingShell userId={session.userId} accessToken={token ?? ""} />
+      </Chat>
+    </div>
+  );
+}
 
 const HIDDEN_MESSAGE_ACTIONS = new Set([
   "reply",
@@ -74,112 +120,36 @@ function EmptyChannelPlaceholder() {
   );
 }
 
-export function MessagingPage() {
-  const { token, user } = usePortalAuth();
-  const [session, setSession] = useState<TokenResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    if (!token) return;
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    void (async () => {
-      try {
-        const res = await apiFetch("/api/messaging/token", {}, token);
-        const body = await res.json().catch(() => null);
-        if (!res.ok) {
-          if (!cancelled) {
-            setError(readApiMessage(body, "Could not connect to messaging"));
-          }
-          return;
-        }
-        if (!cancelled) setSession(body as TokenResponse);
-      } catch {
-        if (!cancelled) setError("Could not connect to messaging");
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [token]);
-
-  if (!user?.employee) {
-    return (
-      <div className="flex h-full items-center justify-center p-6 text-sm text-slate-500">
-        An employee profile is required to use messaging.
-      </div>
-    );
-  }
-
-  if (loading) {
-    return (
-      <div className="flex h-full items-center justify-center p-6 text-sm text-slate-500">
-        Connecting to messages…
-      </div>
-    );
-  }
-
-  if (error || !session) {
-    return (
-      <div className="flex h-full items-center justify-center p-6 text-sm text-red-600 dark:text-red-400">
-        {error ?? "Could not connect to messaging"}
-      </div>
-    );
-  }
+function ConversationWorkspace() {
+  const { channel } = useChannelStateContext();
+  const [mediaOpen, setMediaOpen] = useState(false);
 
   return (
-    <div className="h-full min-h-0">
-      <MessagingSession
-        apiKey={session.apiKey}
-        token={session.token}
-        userId={session.userId}
-        name={session.name}
-        accessToken={token ?? ""}
-      />
-    </div>
-  );
-}
-
-function MessagingSession({
-  apiKey,
-  token,
-  userId,
-  name,
-  accessToken,
-}: TokenResponse & { accessToken: string }) {
-  const { theme } = useApp();
-  const client = useCreateChatClient({
-    apiKey,
-    tokenOrProvider: token,
-    userData: { id: userId, name },
-  });
-
-  if (!client) {
-    return (
-      <div className="flex h-full items-center justify-center p-6 text-sm text-slate-500">
-        Connecting to messages…
-      </div>
-    );
-  }
-
-  return (
-    <Chat
-      client={client}
-      theme={
-        theme === "dark" ? "str-chat__theme-dark" : "str-chat__theme-light"
-      }
-      customClasses={{
-        chat: "str-chat tbh-messenger-chat",
-        channelList: "str-chat__channel-list tbh-messenger-channel-list",
-        channel: "str-chat__channel tbh-messenger-channel",
-      }}
-    >
-      <MessagingShell userId={userId} accessToken={accessToken} />
-    </Chat>
+    <>
+      <Window>
+        <div className="tbh-messenger-chat-header">
+          <ChannelHeader />
+          <button
+            type="button"
+            className="tbh-messenger-media-toggle"
+            aria-pressed={mediaOpen}
+            aria-label={mediaOpen ? "Hide shared media" : "Show shared media"}
+            title={mediaOpen ? "Hide shared media" : "Show shared media"}
+            onClick={() => setMediaOpen((open) => !open)}
+          >
+            <SharedMediaIcon className="h-5 w-5" />
+          </button>
+        </div>
+        <MessageList />
+        <MessageComposer />
+      </Window>
+      {mediaOpen ? (
+        <ConversationMediaPanel
+          channel={channel}
+          onClose={() => setMediaOpen(false)}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -320,11 +290,7 @@ function MessagingShell({
           />
         </aside>
         <StreamChannel EmptyPlaceholder={<EmptyChannelPlaceholder />}>
-          <Window>
-            <ChannelHeader />
-            <MessageList />
-            <MessageComposer />
-          </Window>
+          <ConversationWorkspace />
         </StreamChannel>
       </WithComponents>
       <CreateConversationModal

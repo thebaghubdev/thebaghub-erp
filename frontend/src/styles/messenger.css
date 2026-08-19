@@ -92,12 +92,218 @@ html.dark .tbh-messenger-sidebar-header {
   min-width: 0;
   min-height: 0;
   height: 100%;
+  overflow: hidden;
 }
 
 .tbh-messenger-chat .str-chat__main-panel {
   min-width: 0;
   flex: 1;
   height: 100%;
+}
+
+.tbh-messenger-chat-header {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.tbh-messenger-chat-header .str-chat__channel-header {
+  padding-inline-end: 3.25rem;
+}
+
+.tbh-messenger-media-toggle {
+  position: absolute;
+  right: 0.75rem;
+  top: 50%;
+  z-index: 2;
+  display: inline-flex;
+  height: 2.25rem;
+  width: 2.25rem;
+  transform: translateY(-50%);
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: #475569;
+  cursor: pointer;
+}
+
+.tbh-messenger-media-toggle:hover,
+.tbh-messenger-media-toggle[aria-pressed="true"] {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+html.dark .tbh-messenger-media-toggle {
+  color: #cbd5e1;
+}
+
+html.dark .tbh-messenger-media-toggle:hover,
+html.dark .tbh-messenger-media-toggle[aria-pressed="true"] {
+  background: #1e293b;
+  color: #f8fafc;
+}
+
+.tbh-messenger-media {
+  display: flex;
+  flex-direction: column;
+  width: 20rem;
+  min-width: 18rem;
+  max-width: 22rem;
+  flex-shrink: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  border-left: 1px solid #e2e8f0;
+  background: #ffffff;
+}
+
+html.dark .tbh-messenger-media {
+  border-left-color: #1e293b;
+  background: #020617;
+}
+
+.tbh-messenger-media-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-shrink: 0;
+  min-height: 4.5rem;
+  padding: 0.85rem 0.9rem 0.65rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+html.dark .tbh-messenger-media-header {
+  border-bottom-color: #1e293b;
+}
+
+.tbh-messenger-media-title {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  color: #0f172a;
+}
+
+html.dark .tbh-messenger-media-title {
+  color: #f1f5f9;
+}
+
+.tbh-messenger-media-close {
+  display: inline-flex;
+  height: 2rem;
+  width: 2rem;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+}
+
+.tbh-messenger-media-close:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+html.dark .tbh-messenger-media-close {
+  color: #94a3b8;
+}
+
+html.dark .tbh-messenger-media-close:hover {
+  background: #1e293b;
+  color: #f8fafc;
+}
+
+.tbh-messenger-media-tabs {
+  display: flex;
+  flex-shrink: 0;
+  gap: 0.25rem;
+  padding: 0.5rem 0.75rem 0;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+html.dark .tbh-messenger-media-tabs {
+  border-bottom-color: #1e293b;
+}
+
+.tbh-messenger-media-tab {
+  flex: 1 1 auto;
+  margin-bottom: -1px;
+  padding: 0.55rem 0.4rem;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.tbh-messenger-media-tab:hover {
+  color: #0f172a;
+}
+
+.tbh-messenger-media-tab--active {
+  border-bottom-color: #0084ff;
+  color: #0f172a;
+}
+
+html.dark .tbh-messenger-media-tab {
+  color: #94a3b8;
+}
+
+html.dark .tbh-messenger-media-tab:hover,
+html.dark .tbh-messenger-media-tab--active {
+  color: #f8fafc;
+}
+
+.tbh-messenger-media-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.tbh-messenger-media .tbh-messenger-channel-detail,
+.tbh-messenger-media .str-chat__channel-detail {
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.tbh-messenger-media .str-chat__prompt__header {
+  display: none;
+}
+
+.tbh-messenger-media .str-chat__channel-detail__media-view,
+.tbh-messenger-media .str-chat__channel-detail__files-view {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+}
+
+.tbh-messenger-media .str-chat__channel-detail__media-view__grid .str-chat__channel-detail__media-view__grid__content {
+  padding-inline: 0.75rem;
+}
+
+.tbh-messenger-media .str-chat__channel-detail__media-view__grid__items {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.tbh-messenger-media .str-chat__channel-detail__media-view__pagination {
+  padding-block: 0.75rem;
+  gap: 0.5rem;
+}
+
+.tbh-messenger-media .str-chat__channel-detail__media-view__pagination__button {
+  font-size: 0.75rem;
 }
 
 .tbh-messenger-chat .str-chat__message.str-chat__message--me .str-chat__message-text,
