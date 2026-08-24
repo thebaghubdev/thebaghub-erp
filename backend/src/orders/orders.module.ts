@@ -10,6 +10,7 @@ import { InquiriesModule } from '../inquiries/inquiries.module';
 import { MailModule } from '../mail/mail.module';
 import { MediaModule } from '../media/media.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { TasksModule } from '../tasks/tasks.module';
 import { ClientOrdersController } from './client-orders.controller';
 import { OrdersController } from './orders.controller';
 import { OrderInstallment } from './entities/order-installment.entity';
@@ -29,6 +30,7 @@ import { OrdersService } from './orders.service';
     MailModule,
     MediaModule,
     NotificationsModule,
+    TasksModule,
     TypeOrmModule.forFeature([
       Order,
       OrderInstallment,

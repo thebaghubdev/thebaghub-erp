@@ -11,6 +11,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomUUID } from 'node:crypto';
 import { Between, EntityManager, In, Repository } from 'typeorm';
+import { ConfigService } from '@nestjs/config';
 import {
   Inquiry,
   type InquiryItemSnapshot,
@@ -21,6 +22,7 @@ import {
   utcInventoryDayLockKey,
 } from './inventory-sku.util';
 import { JwtUser } from '../auth/jwt-user';
+import { portalPageUrl } from '../common/frontend-url.util';
 import { Employee } from '../employees/entities/employee.entity';
 import { canAssignWorkToOthers } from '../employees/employee-position.util';
 import { InventoryItem } from './entities/inventory-item.entity';
@@ -56,6 +58,7 @@ import { InquiryStatus } from '../enums/inquiry-status.enum';
 import { InquiriesService } from '../inquiries/inquiries.service';
 import { CONSIGNMENT_COORDINATOR_POSITION } from '../notifications/notification.constants';
 import { NotificationsService } from '../notifications/notifications.service';
+import { TasksService } from '../tasks/tasks.service';
 import { Client } from '../clients/entities/client.entity';
 import { Waitlist } from '../orders/entities/waitlist.entity';
 import { Order } from '../orders/entities/order.entity';
@@ -764,6 +767,8 @@ export class InventoryService {
     private readonly notifications: NotificationsService,
     private readonly shopifyAdmin: ShopifyAdminService,
     private readonly media: MediaService,
+    private readonly config: ConfigService,
+    private readonly tasks: TasksService,
   ) {}
 
   private async loadPostingPhotosSnapshot(
@@ -1605,6 +1610,16 @@ export class InventoryService {
       );
     }
     const uniqueIds = [...new Set(dto.inventoryItemIds)];
+    const assignedItems: {
+      itemId: string;
+      sku: string;
+      createTask: boolean;
+    }[] = [];
+    const supervisorAssignment = canAssignWorkToOthers(
+      actor.isAdmin,
+      actorEmployee?.position,
+    );
+
     await this.itemAuthRepo.manager.transaction(async (em) => {
       for (const inventoryItemId of uniqueIds) {
         const item = await em.findOne(InventoryItem, {
@@ -1623,6 +1638,7 @@ export class InventoryService {
         let auth = await em.findOne(ItemAuthentication, {
           where: { inventoryItemId },
         });
+        const alreadyAssigned = auth?.assignedToId === dto.employeeId;
         if (!auth) {
           auth = em.create(ItemAuthentication, {
             inventoryItemId,
@@ -1636,8 +1652,36 @@ export class InventoryService {
           auth.updatedById = actor.userId;
         }
         await em.save(auth);
+        assignedItems.push({
+          itemId: item.id,
+          sku: item.sku,
+          createTask: supervisorAssignment && !alreadyAssigned,
+        });
       }
     });
+
+    for (const { itemId, sku, createTask } of assignedItems) {
+      if (!createTask) continue;
+      void this.tasks
+        .createAssigned({
+          createdByUserId: actor.userId,
+          assigneeId: dto.employeeId,
+          title: `Item ${sku} is assigned to you for authentication`,
+          description: portalPageUrl(
+            this.config,
+            `/portal/authentication/${itemId}`,
+          ),
+          severity: 'moderate',
+          dueDate: null,
+        })
+        .catch((err: unknown) => {
+          this.logger.error(
+            'Failed to create task for authenticator assignment',
+            err,
+          );
+        });
+    }
+
     return { updated: uniqueIds.length };
   }
 

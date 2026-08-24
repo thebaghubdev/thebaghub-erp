@@ -9,6 +9,7 @@ import { MediaModule } from '../media/media.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { Waitlist } from '../orders/entities/waitlist.entity';
 import { ShopifyModule } from '../shopify/shopify.module';
+import { TasksModule } from '../tasks/tasks.module';
 import { InventoryItem } from './entities/inventory-item.entity';
 import { ItemAuthentication } from './entities/item-authentication.entity';
 import { ItemAuthenticationMetric } from './entities/item-authentication-metric.entity';
@@ -25,6 +26,7 @@ import { SoldWarrantyFinalizeCron } from './sold-warranty-finalize.cron';
     MediaModule,
     NotificationsModule,
     ShopifyModule,
+    TasksModule,
     TypeOrmModule.forFeature([
       Client,
       InventoryItem,

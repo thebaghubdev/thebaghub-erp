@@ -13,4 +13,5 @@ export enum MediaOwnerType {
   DIRECT_PURCHASE_PAYMENT = 'direct_purchase_payment',
   WALK_IN_AUTHENTICATION = 'walk_in_authentication',
   WALK_IN_AUTHENTICATION_METRIC = 'walk_in_authentication_metric',
+  TASK = 'task',
 }

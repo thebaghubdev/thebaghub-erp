@@ -7,6 +7,7 @@ import {
 } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { CopyPageUrlButton } from "../components/CopyPageUrlButton";
 import { InventoryStatusBadge } from "../components/InventoryStatusBadge";
 import { OrderInstallmentSchedule } from "../components/OrderInstallmentSchedule";
 import { OrderPaymentsSection } from "../components/OrderPaymentsSection";
@@ -1004,9 +1005,15 @@ export function OrderDetailPage() {
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
             Order
           </p>
-          <h1 className="mt-1 text-xl font-semibold tabular-nums text-slate-900 dark:text-slate-100">
-            #{detail.orderNumber}
-          </h1>
+          <div className="mt-1 flex min-w-0 items-center gap-1">
+            <h1 className="text-xl font-semibold tabular-nums text-slate-900 dark:text-slate-100">
+              #{detail.orderNumber}
+            </h1>
+            <CopyPageUrlButton
+              path={`/portal/orders/${detail.id}`}
+              label="Copy order URL"
+            />
+          </div>
           <p className="mt-2 break-words text-base text-slate-700 dark:text-slate-300">
             {detail.inventoryItem.itemLabel}
           </p>
@@ -1509,8 +1516,14 @@ export function OrderDetailPage() {
         </h2>
         <dl className="mt-4 grid grid-cols-1 gap-x-8 gap-y-4 text-sm sm:grid-cols-2">
           <DetailField label="SKU">
-            <span className="break-all font-mono text-sm">
-              {detail.inventoryItem.sku}
+            <span className="inline-flex min-w-0 items-center gap-1">
+              <span className="break-all font-mono text-sm">
+                {detail.inventoryItem.sku}
+              </span>
+              <CopyPageUrlButton
+                path={`/portal/inventory/${detail.inventoryItem.id}`}
+                label="Copy item URL"
+              />
             </span>
           </DetailField>
           <DetailField label="Item">

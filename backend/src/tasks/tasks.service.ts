@@ -10,12 +10,30 @@ import { In, Repository } from 'typeorm';
 import { FeatureAccessService } from '../access-control/feature-access.service';
 import { JwtUser } from '../auth/jwt-user';
 import { Employee } from '../employees/entities/employee.entity';
+import { MediaOwnerType } from '../enums/media-owner-type.enum';
+import { MediaPurpose } from '../enums/media-purpose.enum';
+import type { MulterFile } from '../inquiries/multer-file.type';
+import { MediaService } from '../media/media.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { ReorderTasksDto } from './dto/reorder-tasks.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
 import { Task } from './entities/task.entity';
+import {
+  TASK_ATTACHMENT_MAX_COUNT,
+  assertTaskAttachmentFiles,
+  parseRetainedAttachmentKeys,
+  taskAttachmentStorageKey,
+  toTaskAttachmentUpload,
+} from './task-attachment.util';
 import { TASK_SEVERITY_LABELS } from './task.constants';
+
+export type TaskAttachment = {
+  key: string;
+  url: string;
+  contentType: string;
+  filename: string | null;
+};
 
 export type TaskApiRow = {
   id: string;
@@ -30,6 +48,7 @@ export type TaskApiRow = {
   createdById: string | null;
   createdByName: string | null;
   canDelete: boolean;
+  attachments: TaskAttachment[];
 };
 
 export type TaskAssigneeRow = {
@@ -50,6 +69,7 @@ export class TasksService {
     private readonly employeesRepo: Repository<Employee>,
     private readonly featureAccess: FeatureAccessService,
     private readonly notifications: NotificationsService,
+    private readonly media: MediaService,
   ) {}
 
   async listForAssignee(
@@ -95,26 +115,14 @@ export class TasksService {
     if (!title) {
       throw new BadRequestException('Title is required');
     }
-    const maxOrder = await this.tasksRepo
-      .createQueryBuilder('t')
-      .select('MAX(t.sort_order)', 'max')
-      .where('t.assignee_id = :assigneeId', { assigneeId })
-      .andWhere('t.progress = :progress', { progress: 'pending' })
-      .getRawOne<{ max: string | null }>();
-    const sortOrder = (maxOrder?.max != null ? Number(maxOrder.max) : -1) + 1;
-
-    const task = this.tasksRepo.create({
+    const saved = await this.insertPendingTask({
       assigneeId,
       title,
       description: dto.description?.trim() || null,
       dueDate: dto.dueDate ?? null,
       severity: dto.severity,
-      progress: 'pending',
-      sortOrder,
-      createdById: user.userId,
-      updatedById: user.userId,
+      createdByUserId: user.userId,
     });
-    const saved = await this.tasksRepo.save(task);
 
     if (assigneeId !== actor.id) {
       const severityLabel = TASK_SEVERITY_LABELS[saved.severity];
@@ -131,6 +139,29 @@ export class TasksService {
 
     const [row] = await this.toApiRows([saved], user.userId);
     return row;
+  }
+
+  /** Create a task without board-access checks or a second assignee notification. */
+  async createAssigned(input: {
+    createdByUserId: string;
+    assigneeId: string;
+    title: string;
+    description?: string | null;
+    severity: Task['severity'];
+    dueDate?: string | null;
+  }): Promise<void> {
+    const title = input.title.trim();
+    if (!title) {
+      throw new BadRequestException('Title is required');
+    }
+    await this.insertPendingTask({
+      assigneeId: input.assigneeId,
+      title,
+      description: input.description?.trim() || null,
+      dueDate: input.dueDate ?? null,
+      severity: input.severity,
+      createdByUserId: input.createdByUserId,
+    });
   }
 
   async update(
@@ -212,7 +243,94 @@ export class TasksService {
     if (task.createdById !== user.userId) {
       throw new ForbiddenException('Only the creator can delete this task');
     }
+    await this.media.deleteByOwner(
+      MediaOwnerType.TASK,
+      task.id,
+      MediaPurpose.TASK_ATTACHMENT,
+    );
     await this.tasksRepo.remove(task);
+  }
+
+  async replaceAttachments(
+    user: JwtUser,
+    id: string,
+    retainedKeysRaw: string | undefined,
+    files: MulterFile[],
+  ): Promise<TaskApiRow> {
+    const actor = await this.requireEmployee(user.userId);
+    const task = await this.tasksRepo.findOne({ where: { id } });
+    if (!task) {
+      throw new NotFoundException('Task not found');
+    }
+    await this.assertCanAccessBoard(user, actor, task.assigneeId);
+
+    const uploadFiles = (files ?? []).map(toTaskAttachmentUpload);
+    try {
+      assertTaskAttachmentFiles(uploadFiles);
+    } catch (err) {
+      throw new BadRequestException(
+        err instanceof Error ? err.message : 'Unsupported attachment',
+      );
+    }
+    const retainedKeys = parseRetainedAttachmentKeys(retainedKeysRaw);
+    if (retainedKeys.length + uploadFiles.length > TASK_ATTACHMENT_MAX_COUNT) {
+      throw new BadRequestException(
+        `At most ${TASK_ATTACHMENT_MAX_COUNT} attachments are allowed`,
+      );
+    }
+
+    try {
+      await this.media.replaceGallery(
+        MediaOwnerType.TASK,
+        task.id,
+        MediaPurpose.TASK_ATTACHMENT,
+        retainedKeys,
+        uploadFiles,
+        (_index, file) => taskAttachmentStorageKey(task.id, file),
+        { uploadedByUserId: user.userId, createdById: user.userId },
+      );
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'Could not save attachments';
+      if (message.startsWith('Unknown image key:')) {
+        throw new BadRequestException(message);
+      }
+      throw err;
+    }
+
+    task.updatedById = user.userId;
+    const saved = await this.tasksRepo.save(task);
+    const [row] = await this.toApiRows([saved], user.userId);
+    return row;
+  }
+
+  private async insertPendingTask(input: {
+    assigneeId: string;
+    title: string;
+    description: string | null;
+    dueDate: string | null;
+    severity: Task['severity'];
+    createdByUserId: string;
+  }): Promise<Task> {
+    const maxOrder = await this.tasksRepo
+      .createQueryBuilder('t')
+      .select('MAX(t.sort_order)', 'max')
+      .where('t.assignee_id = :assigneeId', { assigneeId: input.assigneeId })
+      .andWhere('t.progress = :progress', { progress: 'pending' })
+      .getRawOne<{ max: string | null }>();
+    const sortOrder = (maxOrder?.max != null ? Number(maxOrder.max) : -1) + 1;
+    const task = this.tasksRepo.create({
+      assigneeId: input.assigneeId,
+      title: input.title.slice(0, 200),
+      description: input.description,
+      dueDate: input.dueDate,
+      severity: input.severity,
+      progress: 'pending',
+      sortOrder,
+      createdById: input.createdByUserId,
+      updatedById: input.createdByUserId,
+    });
+    return this.tasksRepo.save(task);
   }
 
   private async requireEmployee(userId: string): Promise<Employee> {
@@ -260,6 +378,23 @@ export class TasksService {
       creators.map((e) => [e.userId, `${e.firstName} ${e.lastName}`.trim()]),
     );
 
+    const mediaRows = await this.media.findByOwners(
+      MediaOwnerType.TASK,
+      tasks.map((t) => t.id),
+      { purpose: MediaPurpose.TASK_ATTACHMENT, orderBySort: true },
+    );
+    const attachmentsByTaskId = new Map<string, TaskAttachment[]>();
+    for (const row of mediaRows) {
+      const list = attachmentsByTaskId.get(row.ownerId) ?? [];
+      list.push({
+        key: row.storageKey,
+        url: this.media.resolveUrl(row),
+        contentType: row.contentType,
+        filename: row.originalFilename,
+      });
+      attachmentsByTaskId.set(row.ownerId, list);
+    }
+
     return tasks.map((t) => ({
       id: t.id,
       assigneeId: t.assigneeId,
@@ -275,6 +410,7 @@ export class TasksService {
         ? (nameByUserId.get(t.createdById) ?? null)
         : null,
       canDelete: t.createdById === actorUserId,
+      attachments: attachmentsByTaskId.get(t.id) ?? [],
     }));
   }
 

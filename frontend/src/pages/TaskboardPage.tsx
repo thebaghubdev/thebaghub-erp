@@ -23,6 +23,7 @@ import { ConfirmDialog } from '../components/ConfirmDialog'
 import { usePortalAuth } from '../context/portal-auth'
 import { apiFetch } from '../lib/api'
 import { canEditFeature } from '../lib/feature-access'
+import { randomId } from '../lib/random-id'
 import {
   TASK_PROGRESS_COLUMNS,
   TASK_SEVERITIES,
@@ -33,6 +34,7 @@ import {
   tasksToBoard,
   todayManila,
   type TaskAssignee,
+  type TaskAttachment,
   type TaskBoard,
   type TaskProgress,
   type TaskRow,
@@ -66,6 +68,91 @@ const SEVERITY_BUTTON: Record<TaskSeverity, string> = {
 
 const FIELD_CLASS =
   'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100'
+
+const ATTACHMENT_ACCEPT =
+  'image/*,.pdf,.txt,.csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,application/pdf'
+
+const ATTACHMENT_MAX_COUNT = 20
+
+const dropzoneClass =
+  'flex min-h-[6.5rem] cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-slate-300 bg-slate-50/80 px-3 py-4 text-center transition-colors hover:border-violet-400 hover:bg-violet-50/50 focus-within:outline focus-within:ring-2 focus-within:ring-violet-500 dark:border-slate-600 dark:bg-slate-900/60 dark:hover:border-violet-500 dark:hover:bg-violet-950/40 dark:focus-within:ring-violet-400'
+
+type AttachmentPreview = {
+  id: string
+  file?: File
+  previewUrl: string
+  storageKey?: string
+  filename: string
+  isImage: boolean
+}
+
+function isImageFile(file: File): boolean {
+  if (file.type.startsWith('image/')) return true
+  if (file.type !== '') return false
+  return /\.(jpe?g|png|gif|webp|heic|heif|bmp|avif)$/i.test(file.name.trim())
+}
+
+function isAcceptedAttachment(file: File): boolean {
+  if (isImageFile(file)) return true
+  if (file.type === 'application/pdf' || file.type.startsWith('text/')) return true
+  return /\.(pdf|txt|csv|docx?|xlsx?|pptx?|zip)$/i.test(file.name.trim())
+}
+
+function isImageAttachment(contentType: string, filename: string | null): boolean {
+  if (contentType.startsWith('image/')) return true
+  return /\.(jpe?g|png|gif|webp|heic|heif|bmp|avif)$/i.test(filename ?? '')
+}
+
+function previewsFromSaved(attachments: TaskAttachment[]): AttachmentPreview[] {
+  return attachments.map((a) => ({
+    id: randomId(),
+    previewUrl: a.url,
+    storageKey: a.key,
+    filename: a.filename?.trim() || a.key.split('/').pop() || 'Attachment',
+    isImage: isImageAttachment(a.contentType, a.filename),
+  }))
+}
+
+function revokeAttachmentPreviews(previews: AttachmentPreview[]): void {
+  for (const preview of previews) {
+    if (preview.file) URL.revokeObjectURL(preview.previewUrl)
+  }
+}
+
+function attachmentsChanged(
+  original: TaskAttachment[],
+  previews: AttachmentPreview[],
+): boolean {
+  if (previews.some((p) => p.file)) return true
+  const retained = previews
+    .map((p) => p.storageKey)
+    .filter((key): key is string => typeof key === 'string' && key !== '')
+  if (retained.length !== original.length) return true
+  return retained.some((key, i) => key !== original[i]?.key)
+}
+
+function isHttpUrl(value: string): boolean {
+  return /^https?:\/\//i.test(value.trim())
+}
+
+function PaperclipIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      aria-hidden
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M21.44 11.05l-8.49 8.49a5.25 5.25 0 01-7.42-7.42l8.48-8.49a3.5 3.5 0 014.95 4.95l-8.48 8.49a1.75 1.75 0 01-2.48-2.47l7.78-7.78"
+      />
+    </svg>
+  )
+}
 
 function isColumnId(id: string): id is TaskProgress {
   return TASK_PROGRESS_COLUMNS.some((c) => c.id === id)
@@ -366,6 +453,7 @@ export function TaskboardPage() {
           setFormOpen(false)
           setEditing(null)
         }}
+        onAttachmentWarning={(message) => setError(message)}
       />
     </div>
   )
@@ -477,7 +565,7 @@ function TaskCard({
             {TASK_SEVERITY_LABELS[task.severity]}
           </span>
         </div>
-        {task.description ? (
+        {task.description && !isHttpUrl(task.description) ? (
           <p className="mt-1 line-clamp-2 text-xs text-slate-600 dark:text-slate-400">
             {task.description}
           </p>
@@ -498,7 +586,36 @@ function TaskCard({
             From {task.createdByName}
           </p>
         ) : null}
+        {(task.attachments ?? []).length > 0 ? (
+          <div className="mt-2 flex items-center gap-1.5">
+            {(task.attachments ?? [])
+              .filter((a) => isImageAttachment(a.contentType, a.filename))
+              .slice(0, 3)
+              .map((a) => (
+                <img
+                  key={a.key}
+                  src={a.url}
+                  alt=""
+                  className="h-8 w-8 rounded object-cover ring-1 ring-slate-200 dark:ring-slate-700"
+                />
+              ))}
+            <span className="inline-flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400">
+              <PaperclipIcon className="h-3 w-3" />
+              {(task.attachments ?? []).length}
+            </span>
+          </div>
+        ) : null}
       </button>
+      {task.description && isHttpUrl(task.description) ? (
+        <a
+          href={task.description.trim()}
+          className="mt-1 block truncate text-xs font-medium text-violet-700 hover:underline dark:text-violet-300"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {task.description.trim()}
+        </a>
+      ) : null}
     </article>
   )
 }
@@ -511,6 +628,7 @@ function TaskFormDialog({
   onClose,
   onSaved,
   onDeleted,
+  onAttachmentWarning,
 }: {
   open: boolean
   task: TaskRow | null
@@ -519,17 +637,23 @@ function TaskFormDialog({
   onClose: () => void
   onSaved: (task: TaskRow) => void
   onDeleted: (id: string) => void
+  onAttachmentWarning: (message: string) => void
 }) {
   const titleId = useId()
+  const fileInputId = useId()
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [dueDate, setDueDate] = useState('')
   const [severity, setSeverity] = useState<TaskSeverity>('moderate')
+  const [attachments, setAttachments] = useState<AttachmentPreview[]>([])
+  const [dropActive, setDropActive] = useState(false)
   const [busy, setBusy] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  const attachmentsRef = useRef<AttachmentPreview[]>([])
+  attachmentsRef.current = attachments
 
   useEffect(() => {
     if (!open) return
@@ -537,11 +661,16 @@ function TaskFormDialog({
     setDescription(task?.description ?? '')
     setDueDate(task?.dueDate ?? '')
     setSeverity(task?.severity ?? 'moderate')
+    setAttachments(previewsFromSaved(task?.attachments ?? []))
+    setDropActive(false)
     setFormError(null)
     setBusy(false)
     setConfirmDelete(false)
     setDeleteBusy(false)
     setDeleteError(null)
+    return () => {
+      revokeAttachmentPreviews(attachmentsRef.current)
+    }
   }, [open, task])
 
   useEffect(() => {
@@ -554,6 +683,53 @@ function TaskFormDialog({
   }, [open, busy, deleteBusy, confirmDelete, onClose])
 
   if (!open || typeof document === 'undefined') return null
+
+  const addAttachmentFiles = (fileList: FileList | File[]) => {
+    const list = Array.from(fileList).filter(isAcceptedAttachment)
+    if (list.length === 0) return
+    setAttachments((prev) => {
+      const remaining = ATTACHMENT_MAX_COUNT - prev.length
+      if (remaining <= 0) return prev
+      return [
+        ...prev,
+        ...list.slice(0, remaining).map((file) => ({
+          id: randomId(),
+          file,
+          previewUrl: URL.createObjectURL(file),
+          filename: file.name,
+          isImage: isImageFile(file),
+        })),
+      ]
+    })
+  }
+
+  const removeAttachmentAt = (attachmentId: string) => {
+    setAttachments((prev) => {
+      const item = prev.find((p) => p.id === attachmentId)
+      if (item?.file) URL.revokeObjectURL(item.previewUrl)
+      return prev.filter((p) => p.id !== attachmentId)
+    })
+  }
+
+  const uploadAttachments = async (taskId: string): Promise<TaskRow> => {
+    const retainedKeys = attachments
+      .map((p) => p.storageKey)
+      .filter((key): key is string => typeof key === 'string' && key !== '')
+    const fd = new FormData()
+    fd.append('retainedKeys', JSON.stringify(retainedKeys))
+    for (const item of attachments) {
+      if (item.file) fd.append('files', item.file)
+    }
+    const res = await apiFetch(
+      `/api/tasks/${taskId}/attachments`,
+      { method: 'POST', body: fd },
+      token,
+    )
+    if (!res.ok) {
+      throw new Error(await readApiError(res, 'Could not upload attachments'))
+    }
+    return (await res.json()) as TaskRow
+  }
 
   const submit = async () => {
     if (!token) return
@@ -596,7 +772,22 @@ function TaskFormDialog({
           await readApiError(res, task ? 'Could not save task' : 'Could not create task'),
         )
       }
-      onSaved((await res.json()) as TaskRow)
+      let saved = (await res.json()) as TaskRow
+      const original = task?.attachments ?? []
+      if (attachmentsChanged(original, attachments)) {
+        try {
+          saved = await uploadAttachments(saved.id)
+        } catch (e) {
+          onSaved({ ...saved, attachments: saved.attachments ?? [] })
+          onAttachmentWarning(
+            e instanceof Error
+              ? `Task saved, but attachments could not be uploaded: ${e.message}`
+              : 'Task saved, but attachments could not be uploaded. Open the task to add them again.',
+          )
+          return
+        }
+      }
+      onSaved({ ...saved, attachments: saved.attachments ?? [] })
     } catch (e) {
       setFormError(e instanceof Error ? e.message : 'Save failed')
     } finally {
@@ -639,7 +830,7 @@ function TaskFormDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="relative z-10 w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-700 dark:bg-slate-900"
+        className="relative z-10 max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-700 dark:bg-slate-900"
       >
         <h2
           id={titleId}
@@ -671,6 +862,14 @@ function TaskFormDialog({
               maxLength={4000}
               className={FIELD_CLASS}
             />
+            {isHttpUrl(description) ? (
+              <a
+                href={description.trim()}
+                className="mt-1 inline-block text-xs font-medium text-violet-700 hover:underline dark:text-violet-300"
+              >
+                Open link
+              </a>
+            ) : null}
           </label>
           <label className="block text-sm">
             <span className="mb-1 block font-medium text-slate-700 dark:text-slate-300">
@@ -704,6 +903,111 @@ function TaskFormDialog({
               ))}
             </div>
           </fieldset>
+          <div>
+            <span className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
+              Files & photos
+            </span>
+            <input
+              id={fileInputId}
+              type="file"
+              accept={ATTACHMENT_ACCEPT}
+              multiple
+              className="sr-only"
+              disabled={busy || deleteBusy}
+              onChange={(e) => {
+                if (e.target.files?.length) addAttachmentFiles(e.target.files)
+                e.target.value = ''
+              }}
+            />
+            <label
+              htmlFor={fileInputId}
+              className={`${dropzoneClass} ${
+                dropActive
+                  ? 'border-violet-500 bg-violet-50 dark:border-violet-400 dark:bg-violet-950/50'
+                  : ''
+              }`}
+              onDragEnter={(e) => {
+                e.preventDefault()
+                setDropActive(true)
+              }}
+              onDragLeave={(e) => {
+                e.preventDefault()
+                if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                  setDropActive(false)
+                }
+              }}
+              onDragOver={(e) => {
+                e.preventDefault()
+                e.dataTransfer.dropEffect = 'copy'
+              }}
+              onDrop={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                setDropActive(false)
+                if (e.dataTransfer.files?.length) {
+                  addAttachmentFiles(e.dataTransfer.files)
+                }
+              }}
+            >
+              <PaperclipIcon className="h-5 w-5 text-slate-400" />
+              <span className="text-sm font-medium text-slate-800 dark:text-slate-100">
+                Drop files or photos here
+              </span>
+              <span className="text-xs text-slate-500 dark:text-slate-400">
+                Images, PDF, or office files — up to {ATTACHMENT_MAX_COUNT}.
+              </span>
+            </label>
+            {attachments.length > 0 ? (
+              <ul className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {attachments.map((item) => (
+                  <li
+                    key={item.id}
+                    className="overflow-hidden rounded-lg border border-slate-200 bg-slate-50 dark:border-slate-600 dark:bg-slate-800"
+                  >
+                    {item.isImage ? (
+                      <a
+                        href={item.previewUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="relative block aspect-square"
+                      >
+                        <img
+                          src={item.previewUrl}
+                          alt={item.filename}
+                          className="h-full w-full object-cover"
+                        />
+                      </a>
+                    ) : (
+                      <a
+                        href={item.previewUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex aspect-square flex-col items-center justify-center gap-1 px-2 text-center"
+                      >
+                        <PaperclipIcon className="h-6 w-6 text-slate-400" />
+                        <span className="line-clamp-2 w-full break-all text-[11px] text-slate-600 dark:text-slate-300">
+                          {item.filename}
+                        </span>
+                      </a>
+                    )}
+                    <div className="flex items-center justify-between gap-1 border-t border-slate-200 px-2 py-1 dark:border-slate-600">
+                      <span className="truncate text-[11px] text-slate-500 dark:text-slate-400">
+                        {item.filename}
+                      </span>
+                      <button
+                        type="button"
+                        disabled={busy || deleteBusy}
+                        onClick={() => removeAttachmentAt(item.id)}
+                        className="shrink-0 text-[11px] font-medium text-red-600 hover:text-red-700 disabled:opacity-50 dark:text-red-400"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
         </div>
         {formError ? (
           <p

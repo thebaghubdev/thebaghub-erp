@@ -14,4 +14,5 @@ export enum MediaPurpose {
   CHECK_PHOTO = 'check_photo',
   DEPOSIT_SLIP_PHOTO = 'deposit_slip_photo',
   UNABLE_TO_SEND_PHOTO = 'unable_to_send_photo',
+  TASK_ATTACHMENT = 'task_attachment',
 }

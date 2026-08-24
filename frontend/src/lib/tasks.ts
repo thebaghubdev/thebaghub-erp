@@ -29,6 +29,13 @@ export const TASK_PROGRESS_COLUMNS: {
   { id: 'completed', label: 'Completed' },
 ]
 
+export type TaskAttachment = {
+  key: string
+  url: string
+  contentType: string
+  filename: string | null
+}
+
 export type TaskRow = {
   id: string
   assigneeId: string
@@ -42,6 +49,7 @@ export type TaskRow = {
   createdById: string | null
   createdByName: string | null
   canDelete: boolean
+  attachments: TaskAttachment[]
 }
 
 export type TaskAssignee = {
@@ -60,7 +68,10 @@ export function emptyBoard(): TaskBoard {
 export function tasksToBoard(tasks: TaskRow[]): TaskBoard {
   const board = emptyBoard()
   for (const task of tasks) {
-    board[task.progress].push(task)
+    board[task.progress].push({
+      ...task,
+      attachments: task.attachments ?? [],
+    })
   }
   for (const col of TASK_PROGRESS_COLUMNS) {
     board[col.id].sort((a, b) => a.sortOrder - b.sortOrder)

@@ -135,6 +135,29 @@ export class MediaService {
     });
   }
 
+  async findByOwners(
+    ownerType: MediaOwnerType,
+    ownerIds: string[],
+    options: FindMediaOptions = {},
+  ): Promise<Media[]> {
+    if (ownerIds.length === 0) return [];
+    const purposeFilter = options.purpose
+      ? Array.isArray(options.purpose)
+        ? In(options.purpose)
+        : options.purpose
+      : undefined;
+    return this.mediaRepo.find({
+      where: {
+        ownerType,
+        ownerId: In(ownerIds),
+        ...(purposeFilter !== undefined ? { purpose: purposeFilter } : {}),
+      },
+      order: options.orderBySort
+        ? { sortOrder: 'ASC', createdAt: 'ASC' }
+        : { createdAt: 'ASC' },
+    });
+  }
+
   async findByOwner(
     ownerType: MediaOwnerType,
     ownerId: string,

@@ -33,6 +33,8 @@ import { MailService } from '../mail/mail.service';
 import { computeConsignorPaymentAuditDate } from '../consignor-payments/consignor-payment-audit-date.util';
 import { ConsignorPaymentsService } from '../consignor-payments/consignor-payments.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { portalPageUrl } from '../common/frontend-url.util';
+import { TasksService } from '../tasks/tasks.service';
 import { ApplyVoucherDto } from './dto/apply-voucher.dto';
 import { ApproveLayawayOrderDto } from './dto/approve-layaway-order.dto';
 import { BatchAssignSalesAssociateDto } from './dto/batch-assign-sales-associate.dto';
@@ -456,6 +458,7 @@ export class OrdersService {
     private readonly config: ConfigService,
     private readonly consignorPaymentsService: ConsignorPaymentsService,
     private readonly notifications: NotificationsService,
+    private readonly tasks: TasksService,
   ) {}
 
   private async employeeForUser(userId: string): Promise<Employee | null> {
@@ -607,7 +610,15 @@ export class OrdersService {
     }
 
     const uniqueIds = [...new Set(dto.orderIds)];
-    const assignedOrders: { orderNumber: number }[] = [];
+    const assignedOrders: {
+      orderId: string;
+      orderNumber: number;
+      createTask: boolean;
+    }[] = [];
+    const supervisorAssignment = canAssignWorkToOthers(
+      actor.isAdmin,
+      actorEmployee?.position,
+    );
 
     await this.ordersRepo.manager.transaction(async (em) => {
       for (const orderId of uniqueIds) {
@@ -620,14 +631,19 @@ export class OrdersService {
             `Order #${order.orderNumber} is closed and cannot be assigned.`,
           );
         }
+        const alreadyAssigned = order.assignedToId === dto.employeeId;
         order.assignedToId = dto.employeeId;
         order.updatedById = actor.userId;
         await em.save(order);
-        assignedOrders.push({ orderNumber: order.orderNumber });
+        assignedOrders.push({
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          createTask: supervisorAssignment && !alreadyAssigned,
+        });
       }
     });
 
-    for (const { orderNumber } of assignedOrders) {
+    for (const { orderId, orderNumber, createTask } of assignedOrders) {
       void this.notifications
         .notify({
           message: `Order #${orderNumber} has been assigned to you.`,
@@ -636,6 +652,22 @@ export class OrdersService {
         .catch((err: unknown) => {
           this.logger.error(
             'Failed to notify sales associate for order assignment',
+            err,
+          );
+        });
+      if (!createTask) continue;
+      void this.tasks
+        .createAssigned({
+          createdByUserId: actor.userId,
+          assigneeId: dto.employeeId,
+          title: `Order #${orderNumber} is assigned to you`,
+          description: portalPageUrl(this.config, `/portal/orders/${orderId}`),
+          severity: 'moderate',
+          dueDate: null,
+        })
+        .catch((err: unknown) => {
+          this.logger.error(
+            'Failed to create task for sales associate order assignment',
             err,
           );
         });

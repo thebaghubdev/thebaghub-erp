@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { CopyPageUrlButton } from "../components/CopyPageUrlButton";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { InventoryStatusBadge } from "../components/InventoryStatusBadge";
 import { usePortalAuth } from "../context/portal-auth";
@@ -411,9 +412,15 @@ export function InventoryItemDetailPage() {
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
             Inventory item
           </p>
-          <h1 className="mt-1 break-all font-mono text-xl font-semibold text-slate-900 dark:text-slate-100">
-            {detail.sku}
-          </h1>
+          <div className="mt-1 flex min-w-0 items-center gap-1">
+            <h1 className="min-w-0 break-all font-mono text-xl font-semibold text-slate-900 dark:text-slate-100">
+              {detail.sku}
+            </h1>
+            <CopyPageUrlButton
+              path={`/portal/inventory/${detail.id}`}
+              label="Copy item URL"
+            />
+          </div>
           <p className="mt-2 break-words text-base text-slate-700 dark:text-slate-300">
             {brandModelSubtitle}
           </p>

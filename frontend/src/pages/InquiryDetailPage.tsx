@@ -9,6 +9,7 @@ import {
 import { createPortal } from "react-dom";
 import { Link, useParams } from "react-router-dom";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { CopyPageUrlButton } from "../components/CopyPageUrlButton";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { HorizontalScrollMirror } from "../components/HorizontalScrollMirror";
 import { TablePaginationBar } from "../components/TablePaginationBar";
@@ -1348,10 +1349,16 @@ export function InquiryDetailPage() {
       {!loading && detail && (
         <>
           <div className={cardClass}>
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-100">
-                {detail.sku}
-              </h1>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-1">
+                <h1 className="min-w-0 break-all text-xl font-semibold text-slate-900 dark:text-slate-100">
+                  {detail.sku}
+                </h1>
+                <CopyPageUrlButton
+                  path={`/portal/inquiries/${detail.id}`}
+                  label="Copy inquiry URL"
+                />
+              </div>
               <InquiryStatusBadge status={detail.status} />
             </div>
             {detail.itemLabel && detail.itemLabel !== "Item" ? (
