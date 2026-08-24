@@ -21,6 +21,7 @@ import { formatPhpDisplay } from "../lib/format-php";
 import { useFeatureAccess } from "../lib/use-feature-access";
 import {
   formatVoucherDate,
+  formatVoucherNumberDisplay,
   voucherStatusBadgeClass,
   voucherStatusLabel,
 } from "../lib/vouchers-display";
@@ -54,6 +55,7 @@ type ClientAccountDetail = {
 
 type ClientVoucherRow = {
   id: string;
+  voucherNumber: number | null;
   amount: string;
   expirationDate: string;
   status: string;
@@ -66,6 +68,14 @@ type ClientVoucherRow = {
 const voucherColumnHelper = createColumnHelper<ClientVoucherRow>();
 
 const clientVoucherColumns = [
+  voucherColumnHelper.accessor("voucherNumber", {
+    header: "Voucher #",
+    cell: ({ getValue }) => (
+      <span className="font-medium tabular-nums text-slate-900 dark:text-slate-100">
+        {formatVoucherNumberDisplay(getValue())}
+      </span>
+    ),
+  }),
   voucherColumnHelper.accessor("amount", {
     header: "Amount",
     cell: ({ getValue }) => formatPhpDisplay(getValue()),

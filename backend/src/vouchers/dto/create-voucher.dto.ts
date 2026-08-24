@@ -1,4 +1,11 @@
-import { IsDateString, IsNotEmpty, IsString, IsUUID } from 'class-validator';
+import {
+  IsDateString,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MaxLength,
+} from 'class-validator';
 
 export class CreateVoucherDto {
   @IsUUID()
@@ -10,4 +17,9 @@ export class CreateVoucherDto {
 
   @IsDateString()
   expirationDate: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(10_000)
+  notes?: string;
 }

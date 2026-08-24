@@ -14,12 +14,14 @@ import {
 import { formatPhpDisplay } from "../lib/format-php";
 import {
   formatVoucherDate,
+  formatVoucherNumberDisplay,
   voucherStatusBadgeClass,
   voucherStatusLabel,
 } from "../lib/vouchers-display";
 
 type ClientVoucherRow = {
   id: string;
+  voucherNumber: number | null;
   amount: string;
   expirationDate: string;
   status: string;
@@ -402,6 +404,7 @@ export function ClientMyAccountPage() {
             <table className="min-w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-slate-200 text-xs font-medium uppercase tracking-wide text-slate-500">
+                  <th className="px-2 py-2 pr-4">Voucher #</th>
                   <th className="px-2 py-2 pr-4">Amount</th>
                   <th className="px-2 py-2 pr-4">Expiration</th>
                   <th className="px-2 py-2 pr-4">Status</th>
@@ -414,6 +417,9 @@ export function ClientMyAccountPage() {
                     key={voucher.id}
                     className="border-b border-slate-100 last:border-0"
                   >
+                    <td className="px-2 py-3 pr-4 font-medium tabular-nums text-slate-900">
+                      {formatVoucherNumberDisplay(voucher.voucherNumber)}
+                    </td>
                     <td className="px-2 py-3 pr-4 font-medium text-slate-900">
                       {formatPhpDisplay(voucher.amount)}
                     </td>

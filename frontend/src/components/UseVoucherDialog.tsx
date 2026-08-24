@@ -18,6 +18,7 @@ import {
 
 type VoucherPickerRow = {
   id: string;
+  voucherNumber: number | null;
   amount: string;
   expirationDate: string;
   status: string;
@@ -218,9 +219,16 @@ export function UseVoucherDialog({
                       }}
                     >
                       <div>
-                        <p className="font-medium text-slate-900 dark:text-slate-100">
-                          {formatPhpDisplay(row.amount)}
+                        <p className="font-medium tabular-nums text-slate-900 dark:text-slate-100">
+                          {row.voucherNumber != null
+                            ? `#${row.voucherNumber}`
+                            : formatPhpDisplay(row.amount)}
                         </p>
+                        {row.voucherNumber != null ? (
+                          <p className="mt-0.5 text-sm text-slate-900 dark:text-slate-100">
+                            {formatPhpDisplay(row.amount)}
+                          </p>
+                        ) : null}
                         <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
                           Expires {formatVoucherDate(row.expirationDate)}
                         </p>
@@ -258,7 +266,9 @@ export function UseVoucherDialog({
         description={
           selected && confirmAmounts ? (
             <span>
-              This voucher is {formatPhpDisplay(selected.amount)}.{" "}
+              {selected.voucherNumber != null
+                ? `Voucher #${selected.voucherNumber} is ${formatPhpDisplay(selected.amount)}. `
+                : `This voucher is ${formatPhpDisplay(selected.amount)}. `}
               {formatPhpDisplay(confirmAmounts.appliedAmount)} will be applied to
               this order.
               {confirmAmounts.forfeitedAmount > 0 ? (

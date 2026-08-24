@@ -29,3 +29,10 @@ export function formatVoucherDate(ymd: string): string {
     day: "numeric",
   });
 }
+
+export function formatVoucherNumberDisplay(
+  value: number | null | undefined,
+): string {
+  if (value == null || !Number.isFinite(Number(value))) return "—";
+  return String(value);
+}

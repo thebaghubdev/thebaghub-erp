@@ -10,6 +10,7 @@ import { formatPhpDisplay } from "../lib/format-php";
 import { useFeatureAccess } from "../lib/use-feature-access";
 import {
   formatVoucherDate,
+  formatVoucherNumberDisplay,
   voucherStatusBadgeClass,
   voucherStatusLabel,
 } from "../lib/vouchers-display";
@@ -18,11 +19,13 @@ type VouchersTab = "all" | "create";
 
 type VoucherListRow = {
   id: string;
+  voucherNumber: number | null;
   clientId: string;
   clientName: string;
   amount: string;
   expirationDate: string;
   status: string;
+  notes: string | null;
   createdAt: string;
   updatedAt: string;
   createdByName: string;
@@ -85,6 +88,7 @@ export function VouchersPage() {
   const [selectedClientId, setSelectedClientId] = useState("");
   const [amount, setAmount] = useState("");
   const [expirationDate, setExpirationDate] = useState("");
+  const [notes, setNotes] = useState("");
   const [saveBusy, setSaveBusy] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -134,6 +138,7 @@ export function VouchersPage() {
     setSelectedClientId("");
     setAmount("");
     setExpirationDate("");
+    setNotes("");
     setSaveError(null);
   }, []);
 
@@ -201,6 +206,7 @@ export function VouchersPage() {
             clientId: selectedClientId,
             amount: amount.trim(),
             expirationDate,
+            notes: notes.trim() || undefined,
           }),
         },
         token,
@@ -230,6 +236,7 @@ export function VouchersPage() {
     selectedClientId,
     amount,
     expirationDate,
+    notes,
     token,
     resetCreateForm,
     loadVouchers,
@@ -239,6 +246,14 @@ export function VouchersPage() {
 
   const listColumns = useMemo(
     () => [
+      listColumnHelper.accessor("voucherNumber", {
+        header: "Voucher #",
+        cell: ({ getValue }) => (
+          <span className="font-medium tabular-nums text-slate-900 dark:text-slate-100">
+            {formatVoucherNumberDisplay(getValue())}
+          </span>
+        ),
+      }),
       listColumnHelper.accessor("clientName", {
         header: "Client",
         cell: ({ getValue }) => (
@@ -264,6 +279,18 @@ export function VouchersPage() {
               className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${voucherStatusBadgeClass(status)}`}
             >
               {voucherStatusLabel(status)}
+            </span>
+          );
+        },
+      }),
+      listColumnHelper.accessor("notes", {
+        header: "Notes",
+        cell: ({ getValue }) => {
+          const value = getValue()?.trim();
+          if (!value) return "—";
+          return (
+            <span className="max-w-[14rem] min-w-[7rem] whitespace-pre-wrap break-words text-slate-700 dark:text-slate-300">
+              {value}
             </span>
           );
         },
@@ -446,6 +473,16 @@ export function VouchersPage() {
             />
           </div>
 
+          <label className="block text-sm font-medium text-slate-800 dark:text-slate-200">
+            Notes
+            <textarea
+              className={`${fieldClass} min-h-[6rem] resize-y`}
+              rows={3}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+            />
+          </label>
+
           {saveError ? (
             <p
               role="alert"
@@ -473,7 +510,9 @@ export function VouchersPage() {
         title="Forfeit voucher?"
         description={
           forfeitTarget
-            ? `Forfeit the ${formatPhpDisplay(forfeitTarget.amount)} voucher for ${forfeitTarget.clientName}? This cannot be undone.`
+            ? forfeitTarget.voucherNumber != null
+              ? `Forfeit voucher #${forfeitTarget.voucherNumber} (${formatPhpDisplay(forfeitTarget.amount)}) for ${forfeitTarget.clientName}? This cannot be undone.`
+              : `Forfeit the ${formatPhpDisplay(forfeitTarget.amount)} voucher for ${forfeitTarget.clientName}? This cannot be undone.`
             : ""
         }
         confirmLabel="Forfeit"

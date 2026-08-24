@@ -13,6 +13,9 @@ export class Voucher extends AuditedEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
+  @Column({ name: 'voucher_number', type: 'int', unique: true, nullable: true })
+  voucherNumber: number | null;
+
   @Column({ name: 'client_id', type: 'uuid' })
   clientId: string;
 
@@ -28,4 +31,7 @@ export class Voucher extends AuditedEntity {
 
   @Column({ type: 'varchar', length: 32 })
   status: string;
+
+  @Column({ type: 'text', nullable: true })
+  notes: string | null;
 }
