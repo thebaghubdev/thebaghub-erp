@@ -5,9 +5,11 @@ import { canViewFeature, type FeatureKey } from '../lib/feature-access'
 
 export function RequireFeatureAccess({
   feature,
+  orFeatures = [],
   children,
 }: {
   feature: FeatureKey
+  orFeatures?: FeatureKey[]
   children: ReactNode
 }) {
   const { user, featureAccess, featureAccessLoading } = usePortalAuth()
@@ -21,7 +23,11 @@ export function RequireFeatureAccess({
     )
   }
 
-  if (!canViewFeature(user?.isAdmin, featureAccess, feature)) {
+  const allowed =
+    canViewFeature(user?.isAdmin, featureAccess, feature) ||
+    orFeatures.some((key) => canViewFeature(user?.isAdmin, featureAccess, key))
+
+  if (!allowed) {
     return (
       <Navigate
         to="/portal/unauthorized"

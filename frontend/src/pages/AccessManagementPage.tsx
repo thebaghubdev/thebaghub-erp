@@ -1,67 +1,70 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { EmployeeMultiSelect } from '../components/EmployeeMultiSelect'
-import { usePortalAuth } from '../context/portal-auth'
-import { apiFetch } from '../lib/api'
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { EmployeeMultiSelect } from "../components/EmployeeMultiSelect";
+import { usePortalAuth } from "../context/portal-auth";
+import { apiFetch } from "../lib/api";
 import {
   MANAGED_FEATURE_KEYS,
   MANAGED_FEATURE_LABELS,
+  SINGLE_GRANT_FEATURE_LABELS,
   isSingleGrantFeature,
   type ManagedFeatureKey,
-} from '../lib/feature-access'
-import { useFeatureAccess } from '../lib/use-feature-access'
+} from "../lib/feature-access";
+import { useFeatureAccess } from "../lib/use-feature-access";
 
 type EmployeeRow = {
-  id: string
-  isAdmin: boolean
-  firstName: string
-  lastName: string
-  position: string
-}
+  id: string;
+  isAdmin: boolean;
+  firstName: string;
+  lastName: string;
+  position: string;
+};
 
 type MatrixRow = {
-  featureKey: ManagedFeatureKey
-  label: string
-  viewEmployeeIds: string[]
-  editEmployeeIds: string[]
-}
+  featureKey: ManagedFeatureKey;
+  label: string;
+  viewEmployeeIds: string[];
+  editEmployeeIds: string[];
+};
 
 type DraftRow = {
-  featureKey: ManagedFeatureKey
-  viewEmployeeIds: string[]
-  editEmployeeIds: string[]
-}
+  featureKey: ManagedFeatureKey;
+  viewEmployeeIds: string[];
+  editEmployeeIds: string[];
+};
 
 function emptyDraft(): DraftRow[] {
   return MANAGED_FEATURE_KEYS.map((featureKey) => ({
     featureKey,
     viewEmployeeIds: [],
     editEmployeeIds: [],
-  }))
+  }));
 }
 
 function matrixToDraft(rows: MatrixRow[]): DraftRow[] {
-  const byKey = new Map(rows.map((r) => [r.featureKey, r]))
+  const byKey = new Map(rows.map((r) => [r.featureKey, r]));
   return MANAGED_FEATURE_KEYS.map((featureKey) => {
-    const row = byKey.get(featureKey)
+    const row = byKey.get(featureKey);
     return {
       featureKey,
       viewEmployeeIds: [...(row?.viewEmployeeIds ?? [])],
       editEmployeeIds: [...(row?.editEmployeeIds ?? [])],
-    }
-  })
+    };
+  });
 }
 
 export function AccessManagementPage() {
-  const { token, refreshFeatureAccess } = usePortalAuth()
-  const { canEdit, readOnly } = useFeatureAccess('access-management')
+  const { token, refreshFeatureAccess } = usePortalAuth();
+  const { canEdit, readOnly } = useFeatureAccess("access-management");
 
-  const [employees, setEmployees] = useState<EmployeeRow[]>([])
-  const [draft, setDraft] = useState<DraftRow[]>(() => emptyDraft())
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [rowErrors, setRowErrors] = useState<Partial<Record<ManagedFeatureKey, string>>>({})
-  const [saveMessage, setSaveMessage] = useState<string | null>(null)
+  const [employees, setEmployees] = useState<EmployeeRow[]>([]);
+  const [draft, setDraft] = useState<DraftRow[]>(() => emptyDraft());
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [rowErrors, setRowErrors] = useState<
+    Partial<Record<ManagedFeatureKey, string>>
+  >({});
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
   const employeeOptions = useMemo(
     () =>
@@ -73,64 +76,64 @@ export function AccessManagementPage() {
         }))
         .sort((a, b) => a.label.localeCompare(b.label)),
     [employees],
-  )
+  );
 
   const load = useCallback(async () => {
-    if (!token) return
-    setLoading(true)
-    setError(null)
+    if (!token) return;
+    setLoading(true);
+    setError(null);
     try {
       const [matrixRes, empRes] = await Promise.all([
-        apiFetch('/api/access-control/matrix', {}, token),
-        apiFetch('/api/accounts/employees', {}, token),
-      ])
+        apiFetch("/api/access-control/matrix", {}, token),
+        apiFetch("/api/accounts/employees", {}, token),
+      ]);
       if (!matrixRes.ok) {
         throw new Error(
           matrixRes.status === 403
-            ? 'You do not have access to view Access Management.'
+            ? "You do not have access to view Access Management."
             : `Could not load access matrix (${matrixRes.status})`,
-        )
+        );
       }
       if (!empRes.ok) {
-        throw new Error(`Could not load employees (${empRes.status})`)
+        throw new Error(`Could not load employees (${empRes.status})`);
       }
-      const matrix = (await matrixRes.json()) as MatrixRow[]
-      const empRows = (await empRes.json()) as EmployeeRow[]
-      setEmployees(empRows)
-      setDraft(matrixToDraft(matrix))
+      const matrix = (await matrixRes.json()) as MatrixRow[];
+      const empRows = (await empRes.json()) as EmployeeRow[];
+      setEmployees(empRows);
+      setDraft(matrixToDraft(matrix));
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load')
+      setError(e instanceof Error ? e.message : "Failed to load");
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [token])
+  }, [token]);
 
   useEffect(() => {
-    void load()
-  }, [load])
+    void load();
+  }, [load]);
 
   const updateRow = (
     featureKey: ManagedFeatureKey,
-    patch: Partial<Pick<DraftRow, 'viewEmployeeIds' | 'editEmployeeIds'>>,
+    patch: Partial<Pick<DraftRow, "viewEmployeeIds" | "editEmployeeIds">>,
   ) => {
     setDraft((prev) =>
       prev.map((row) =>
         row.featureKey === featureKey ? { ...row, ...patch } : row,
       ),
-    )
-  }
+    );
+  };
 
   const handleSave = async () => {
-    if (!token || !canEdit) return
-    setSaving(true)
-    setSaveMessage(null)
-    setError(null)
+    if (!token || !canEdit) return;
+    setSaving(true);
+    setSaveMessage(null);
+    setError(null);
     try {
       const res = await apiFetch(
-        '/api/access-control/matrix',
+        "/api/access-control/matrix",
         {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             features: draft.map((row) => ({
               featureKey: row.featureKey,
@@ -142,28 +145,28 @@ export function AccessManagementPage() {
           }),
         },
         token,
-      )
+      );
       if (!res.ok) {
-        const body = await res.json().catch(() => null)
+        const body = await res.json().catch(() => null);
         const msg =
-          typeof body?.message === 'string'
+          typeof body?.message === "string"
             ? body.message
             : Array.isArray(body?.message)
-              ? body.message.join(', ')
-              : `Save failed (${res.status})`
-        throw new Error(msg)
+              ? body.message.join(", ")
+              : `Save failed (${res.status})`;
+        throw new Error(msg);
       }
-      const matrix = (await res.json()) as MatrixRow[]
-      setDraft(matrixToDraft(matrix))
-      setRowErrors({})
-      setSaveMessage('Access settings saved.')
-      await refreshFeatureAccess()
+      const matrix = (await res.json()) as MatrixRow[];
+      setDraft(matrixToDraft(matrix));
+      setRowErrors({});
+      setSaveMessage("Access settings saved.");
+      await refreshFeatureAccess();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Save failed')
+      setError(e instanceof Error ? e.message : "Save failed");
     } finally {
-      setSaving(false)
+      setSaving(false);
     }
-  }
+  };
 
   return (
     <div className="mx-auto max-w-5xl space-y-4">
@@ -173,8 +176,7 @@ export function AccessManagementPage() {
             Access Management
           </h1>
           <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-            Assign view-only or edit access per feature. Administrators always
-            have full access and are not listed.
+            Assign view-only or edit access per feature.
           </p>
         </div>
         {canEdit ? (
@@ -184,7 +186,7 @@ export function AccessManagementPage() {
             onClick={() => void handleSave()}
             className="rounded-lg bg-violet-700 px-4 py-2 text-sm font-medium text-white hover:bg-violet-800 disabled:opacity-60 dark:bg-violet-600 dark:hover:bg-violet-500"
           >
-            {saving ? 'Saving…' : 'Save'}
+            {saving ? "Saving…" : "Save"}
           </button>
         ) : null}
       </div>
@@ -211,8 +213,8 @@ export function AccessManagementPage() {
       ) : (
         <div className="space-y-4">
           {draft.map((row) => {
-            const label = MANAGED_FEATURE_LABELS[row.featureKey]
-            const rowError = rowErrors[row.featureKey]
+            const label = MANAGED_FEATURE_LABELS[row.featureKey];
+            const rowError = rowErrors[row.featureKey];
             return (
               <section
                 key={row.featureKey}
@@ -223,80 +225,87 @@ export function AccessManagementPage() {
                 </h2>
                 {isSingleGrantFeature(row.featureKey) ? (
                   <EmployeeMultiSelect
-                    label="Staff who can view others' boards and create tasks for them"
+                    label={
+                      SINGLE_GRANT_FEATURE_LABELS[
+                        row.featureKey as keyof typeof SINGLE_GRANT_FEATURE_LABELS
+                      ] ?? "Staff with access"
+                    }
                     options={employeeOptions}
                     selectedIds={row.editEmployeeIds}
                     disabled={readOnly}
                     onChange={(nextIds) => {
                       setRowErrors((prev) => {
-                        const copy = { ...prev }
-                        delete copy[row.featureKey]
-                        return copy
-                      })
+                        const copy = { ...prev };
+                        delete copy[row.featureKey];
+                        return copy;
+                      });
                       updateRow(row.featureKey, {
                         editEmployeeIds: nextIds,
                         viewEmployeeIds: [],
-                      })
+                      });
                     }}
                   />
                 ) : (
                   <div className="grid gap-4 md:grid-cols-2">
-                  <EmployeeMultiSelect
-                    label="Edit access"
-                    options={employeeOptions}
-                    selectedIds={row.editEmployeeIds}
-                    blockedIds={row.viewEmployeeIds}
-                    disabled={readOnly}
-                    onBlocked={() =>
-                      setRowErrors((prev) => ({
-                        ...prev,
-                        [row.featureKey]:
-                          'Remove the user from View only first before adding Edit access.',
-                      }))
-                    }
-                    onChange={(nextIds) => {
-                      setRowErrors((prev) => {
-                        const copy = { ...prev }
-                        delete copy[row.featureKey]
-                        return copy
-                      })
-                      updateRow(row.featureKey, { editEmployeeIds: nextIds })
-                    }}
-                  />
-                  <EmployeeMultiSelect
-                    label="View only access"
-                    options={employeeOptions}
-                    selectedIds={row.viewEmployeeIds}
-                    blockedIds={row.editEmployeeIds}
-                    disabled={readOnly}
-                    onBlocked={() =>
-                      setRowErrors((prev) => ({
-                        ...prev,
-                        [row.featureKey]:
-                          'Remove the user from Edit first before adding View only access.',
-                      }))
-                    }
-                    onChange={(nextIds) => {
-                      setRowErrors((prev) => {
-                        const copy = { ...prev }
-                        delete copy[row.featureKey]
-                        return copy
-                      })
-                      updateRow(row.featureKey, { viewEmployeeIds: nextIds })
-                    }}
-                  />
-                </div>
+                    <EmployeeMultiSelect
+                      label="Edit access"
+                      options={employeeOptions}
+                      selectedIds={row.editEmployeeIds}
+                      blockedIds={row.viewEmployeeIds}
+                      disabled={readOnly}
+                      onBlocked={() =>
+                        setRowErrors((prev) => ({
+                          ...prev,
+                          [row.featureKey]:
+                            "Remove the user from View only first before adding Edit access.",
+                        }))
+                      }
+                      onChange={(nextIds) => {
+                        setRowErrors((prev) => {
+                          const copy = { ...prev };
+                          delete copy[row.featureKey];
+                          return copy;
+                        });
+                        updateRow(row.featureKey, { editEmployeeIds: nextIds });
+                      }}
+                    />
+                    <EmployeeMultiSelect
+                      label="View only access"
+                      options={employeeOptions}
+                      selectedIds={row.viewEmployeeIds}
+                      blockedIds={row.editEmployeeIds}
+                      disabled={readOnly}
+                      onBlocked={() =>
+                        setRowErrors((prev) => ({
+                          ...prev,
+                          [row.featureKey]:
+                            "Remove the user from Edit first before adding View only access.",
+                        }))
+                      }
+                      onChange={(nextIds) => {
+                        setRowErrors((prev) => {
+                          const copy = { ...prev };
+                          delete copy[row.featureKey];
+                          return copy;
+                        });
+                        updateRow(row.featureKey, { viewEmployeeIds: nextIds });
+                      }}
+                    />
+                  </div>
                 )}
                 {rowError ? (
-                  <p className="mt-2 text-sm text-red-600 dark:text-red-400" role="alert">
+                  <p
+                    className="mt-2 text-sm text-red-600 dark:text-red-400"
+                    role="alert"
+                  >
                     {rowError}
                   </p>
                 ) : null}
               </section>
-            )
+            );
           })}
         </div>
       )}
     </div>
-  )
+  );
 }

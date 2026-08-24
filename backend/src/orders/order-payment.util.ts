@@ -2,6 +2,8 @@ import { OrderPayment } from './entities/order-payment.entity';
 import { Order } from './entities/order.entity';
 import {
   ORDER_PAYMENT_STATUS_CONFIRMED,
+  ORDER_PAYMENT_STATUS_FOR_VERIFICATION,
+  ORDER_PAYMENT_STATUS_PENDING_LEGACY,
   ORDER_STATUS_RESERVATION,
   PAYMENT_TYPE_FULL,
   PAYMENT_TYPE_LAYAWAY,
@@ -78,6 +80,14 @@ export const ALLOWED_ORDER_PAYMENT_MODE_VALUES = [
 
 export function isOrderPaymentConfirmed(status: string): boolean {
   return status.trim() === ORDER_PAYMENT_STATUS_CONFIRMED;
+}
+
+export function isOrderPaymentPending(status: string): boolean {
+  const normalized = status.trim().toLowerCase();
+  return (
+    normalized === ORDER_PAYMENT_STATUS_FOR_VERIFICATION.toLowerCase() ||
+    normalized === ORDER_PAYMENT_STATUS_PENDING_LEGACY.toLowerCase()
+  );
 }
 
 export function shouldIncludeOrderPayments(

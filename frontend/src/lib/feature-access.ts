@@ -11,6 +11,7 @@ export const MANAGED_FEATURE_KEYS = [
   'editing',
   'posting',
   'orders',
+  'payment-verification',
   'consignor-payments',
   'direct-purchase-payments',
   'walk-in-authentication',
@@ -47,6 +48,7 @@ export const MANAGED_FEATURE_LABELS: Record<ManagedFeatureKey, string> = {
   editing: 'Editing',
   posting: 'Posting',
   orders: 'Orders',
+  'payment-verification': 'Payment Verification',
   'consignor-payments': 'Consignor Payments',
   'direct-purchase-payments': 'Direct Purchase Payments',
   'walk-in-authentication': 'Walk-in Authentication',
@@ -61,7 +63,19 @@ export const MANAGED_FEATURE_LABELS: Record<ManagedFeatureKey, string> = {
 }
 
 /** Managed features with a single grant (no view-only). Stored as edit access. */
-export const SINGLE_GRANT_FEATURE_KEYS = ['task-management'] as const
+export const SINGLE_GRANT_FEATURE_KEYS = [
+  'task-management',
+  'payment-verification',
+] as const
+
+export const SINGLE_GRANT_FEATURE_LABELS: Record<
+  (typeof SINGLE_GRANT_FEATURE_KEYS)[number],
+  string
+> = {
+  'task-management':
+    "Staff who can view others' boards and create tasks for them",
+  'payment-verification': 'Staff who can confirm proofs of payment',
+}
 
 export function isSingleGrantFeature(key: ManagedFeatureKey): boolean {
   return (SINGLE_GRANT_FEATURE_KEYS as readonly string[]).includes(key)

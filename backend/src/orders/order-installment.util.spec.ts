@@ -3,12 +3,17 @@ import {
   computeAmountDueForInstallment,
   computeAutoPenalty,
   computeInstallmentViews,
+  computeRemainingBalance,
   computeRemainingUnpaidForInstallment,
   completeWeeksLate,
   daysBetweenYmd,
 } from './order-installment.util';
 import { OrderInstallment } from './entities/order-installment.entity';
-import { ORDER_INSTALLMENT_STATUS_PAID, ORDER_INSTALLMENT_STATUS_UNPAID } from './order-status.constants';
+import {
+  ORDER_INSTALLMENT_STATUS_FOR_PAYMENT_VERIFICATION,
+  ORDER_INSTALLMENT_STATUS_PAID,
+  ORDER_INSTALLMENT_STATUS_UNPAID,
+} from './order-status.constants';
 
 function installmentRow(
   installmentNumber: number,
@@ -211,5 +216,23 @@ describe('applyPaymentCreditToInstallments', () => {
     expect(rows[1].status).toBe(ORDER_INSTALLMENT_STATUS_UNPAID);
     expect(rows[1].amountPaid).toBe('5000.00');
     expect(rows[2].amountPaid).toBeNull();
+  });
+});
+
+describe('computeRemainingBalance', () => {
+  it('does not credit amounts awaiting payment verification', () => {
+    const rows = [
+      {
+        amountPaid: '10000.00',
+        penalty: null,
+        status: ORDER_INSTALLMENT_STATUS_PAID,
+      },
+      {
+        amountPaid: '8000.00',
+        penalty: '0.00',
+        status: ORDER_INSTALLMENT_STATUS_FOR_PAYMENT_VERIFICATION,
+      },
+    ];
+    expect(computeRemainingBalance('25000.00', rows)).toBe(15000);
   });
 });

@@ -11,6 +11,7 @@ import { plainToInstance } from 'class-transformer';
 import { validateOrReject } from 'class-validator';
 import { ConfigService } from '@nestjs/config';
 import { DataSource, EntityManager, Repository } from 'typeorm';
+import { FeatureAccessService } from '../access-control/feature-access.service';
 import { JwtUser } from '../auth/jwt-user';
 import { Client } from '../clients/entities/client.entity';
 import { Employee } from '../employees/entities/employee.entity';
@@ -77,6 +78,7 @@ import {
   effectiveDueDateForInstallment,
   formatMoney,
   isInstallmentPaidStatus,
+  isInstallmentAwaitingVerification,
   isPenaltyAmountFrozen,
   isPenaltyWaivePending,
   isPenaltyWaived,
@@ -145,10 +147,11 @@ import {
   ORDER_STATUS_ITEM_RECEIVED_UNPAID,
   ORDER_STATUS_PAID,
   ORDER_STATUS_RESERVATION,
+  ORDER_INSTALLMENT_STATUS_FOR_PAYMENT_VERIFICATION,
   ORDER_INSTALLMENT_STATUS_PAID,
   ORDER_INSTALLMENT_STATUS_UNPAID,
   ORDER_PAYMENT_STATUS_CONFIRMED,
-  ORDER_PAYMENT_STATUS_PENDING,
+  ORDER_PAYMENT_STATUS_FOR_VERIFICATION,
   ORDER_NUMBER_OFFSET,
   PAYMENT_TYPE_CREDIT_LINE,
   PAYMENT_TYPE_FULL,
@@ -459,6 +462,7 @@ export class OrdersService {
     private readonly consignorPaymentsService: ConsignorPaymentsService,
     private readonly notifications: NotificationsService,
     private readonly tasks: TasksService,
+    private readonly featureAccess: FeatureAccessService,
   ) {}
 
   private async employeeForUser(userId: string): Promise<Employee | null> {
@@ -537,6 +541,57 @@ export class OrdersService {
       receiverId: assigneeId,
       orderId,
     });
+  }
+
+  private async notifyPaymentVerificationNeeded(input: {
+    createdByUserId: string;
+    order: Pick<Order, 'id' | 'orderNumber'>;
+  }): Promise<void> {
+    const verifierIds = await this.featureAccess.findEmployeeIdsWithEditAccess(
+      'payment-verification',
+    );
+    if (verifierIds.length === 0) {
+      return;
+    }
+
+    const orderId = input.order.id;
+    const orderNumber = input.order.orderNumber;
+    const message = `A proof of payment for Order #${orderNumber} is awaiting verification.`;
+    const title = `Verify payment for Order #${orderNumber}`;
+    const description = portalPageUrl(
+      this.config,
+      `/portal/orders/${orderId}`,
+    );
+
+    for (const assigneeId of verifierIds) {
+      void this.notifications
+        .notify({
+          message,
+          receiverId: assigneeId,
+          orderId,
+        })
+        .catch((err: unknown) =>
+          this.logger.error(
+            'Failed to notify payment verifier',
+            err instanceof Error ? err.stack : err,
+          ),
+        );
+      void this.tasks
+        .createAssigned({
+          createdByUserId: input.createdByUserId,
+          assigneeId,
+          title,
+          description,
+          severity: 'moderate',
+          dueDate: null,
+        })
+        .catch((err: unknown) =>
+          this.logger.error(
+            'Failed to create payment verification task',
+            err instanceof Error ? err.stack : err,
+          ),
+        );
+    }
   }
 
   private async enforceOrderMutationAccess(
@@ -777,6 +832,18 @@ export class OrdersService {
       return itemPrice == null ? null : formatMoney(itemPrice);
     }
     return order.fullPaymentPrice;
+  }
+
+  /** Cash/item price before layaway interest. Falls back to live inventory price. */
+  private originalItemPriceValue(order: Order): string | null {
+    if (
+      order.fullPaymentPrice != null &&
+      String(order.fullPaymentPrice).trim() !== ''
+    ) {
+      return order.fullPaymentPrice;
+    }
+    const itemPrice = liveInventoryUnitPrice(order.inventoryItem);
+    return itemPrice == null ? null : formatMoney(itemPrice);
   }
 
   private remainingBalanceForOrder(
@@ -1391,7 +1458,9 @@ export class OrdersService {
       layawayMonths: order.layawayMonths,
       layawayPrice: order.layawayPrice,
       layawayMonthlyPayment: order.layawayMonthlyPayment,
-      fullPaymentPrice: order.fullPaymentPrice,
+      fullPaymentPrice: isInstallmentPaymentType(order.paymentType)
+        ? this.originalItemPriceValue(order)
+        : order.fullPaymentPrice,
       fullPaymentTotalPrice: this.fullPaymentTotalPrice(order),
       creditCardPrice: this.orderCreditCardPrice(order),
       remainingBalancePrice: this.remainingBalancePrice(order, paymentRows),
@@ -1524,7 +1593,9 @@ export class OrdersService {
       layawayMonths: order.layawayMonths,
       layawayPrice: order.layawayPrice,
       layawayMonthlyPayment: order.layawayMonthlyPayment,
-      fullPaymentPrice: order.fullPaymentPrice,
+      fullPaymentPrice: isInstallmentPaymentType(order.paymentType)
+        ? this.originalItemPriceValue(order)
+        : order.fullPaymentPrice,
       fullPaymentTotalPrice: this.fullPaymentTotalPrice(order),
       creditCardPrice: this.orderCreditCardPrice(order),
       remainingBalancePrice: this.remainingBalancePrice(order, paymentRows),
@@ -1915,7 +1986,12 @@ export class OrdersService {
     if (!order) {
       throw new NotFoundException('Order not found');
     }
-    await this.enforceOrderMutationAccessOnOrder(user, order);
+    await this.featureAccess.assertAccess(
+      user.userId,
+      user.isAdmin,
+      'payment-verification',
+      'edit',
+    );
     if (order.paymentType === PAYMENT_TYPE_LAYAWAY) {
       throw new BadRequestException(
         'Layaway orders are marked as paid automatically when the last installment is marked as paid',
@@ -2472,7 +2548,12 @@ export class OrdersService {
       throw new BadRequestException('Payment date is required');
     }
 
-    await this.enforceOrderMutationAccess(user, orderId);
+    await this.featureAccess.assertAccess(
+      user.userId,
+      user.isAdmin,
+      'payment-verification',
+      'edit',
+    );
 
     await this.dataSource.transaction(async (em) => {
       const order = await em.findOne(Order, {
@@ -2702,10 +2783,19 @@ export class OrdersService {
     orderId: string,
     installmentNumber: number,
     proofFile: MulterFile | undefined,
+    amountPaidRaw: string | undefined,
+    paymentDateRaw: string | undefined,
+    modeOfPaymentRaw: string | undefined,
   ): Promise<StaffOrderDetail> {
     if (!proofFile?.buffer?.length) {
       throw new BadRequestException('Proof file is required');
     }
+
+    const detailsDto = await this.parseMarkInstallmentPaidDto({
+      amountPaid: amountPaidRaw ?? '',
+      paymentDate: paymentDateRaw ?? '',
+      modeOfPayment: modeOfPaymentRaw ?? '',
+    });
 
     const order = await this.ordersRepo.findOne({ where: { id: orderId } });
     if (!order) {
@@ -2723,6 +2813,11 @@ export class OrdersService {
     }
 
     const installment = await this.findInstallmentForOrder(orderId, installmentNumber);
+    const previousStatus =
+      installment.status?.trim() || ORDER_INSTALLMENT_STATUS_UNPAID;
+    if (previousStatus === ORDER_INSTALLMENT_STATUS_PAID) {
+      throw new BadRequestException('Installment is already marked as paid');
+    }
 
     const ext = extFromProofMime(mime);
     const storageKey = `orders/${orderId}/installments/${installmentNumber}/proof-${randomUUID()}.${ext}`;
@@ -2738,14 +2833,27 @@ export class OrdersService {
       },
     );
 
+    const amount = parseMoney(detailsDto.amountPaid);
+    const paymentDate = formatOrderDate(detailsDto.paymentDate);
     await this.installmentsRepo.update(
       { orderId, installmentNumber },
       {
+        status: ORDER_INSTALLMENT_STATUS_FOR_PAYMENT_VERIFICATION,
+        amountPaid: amount != null ? formatMoney(amount) : null,
+        paymentDate,
+        modeOfPayment: detailsDto.modeOfPayment,
         proofUploadedAt: new Date(),
         proofUploadedByUserId: user.userId,
         updatedById: user.userId,
       },
     );
+
+    if (!isInstallmentAwaitingVerification(previousStatus)) {
+      await this.notifyPaymentVerificationNeeded({
+        createdByUserId: user.userId,
+        order,
+      });
+    }
 
     return this.findOneForStaff(orderId);
   }
@@ -2784,6 +2892,11 @@ export class OrdersService {
     }
 
     const installment = await this.findInstallmentForOrder(orderId, installmentNumber);
+    const previousStatus =
+      installment.status?.trim() || ORDER_INSTALLMENT_STATUS_UNPAID;
+    if (previousStatus === ORDER_INSTALLMENT_STATUS_PAID) {
+      throw new BadRequestException('Installment is already marked as paid');
+    }
 
     const ext = extFromProofMime(mime);
     const storageKey = `orders/${orderId}/installments/${installmentNumber}/proof-${randomUUID()}.${ext}`;
@@ -2802,11 +2915,19 @@ export class OrdersService {
     await this.installmentsRepo.update(
       { orderId, installmentNumber },
       {
+        status: ORDER_INSTALLMENT_STATUS_FOR_PAYMENT_VERIFICATION,
         proofUploadedAt: new Date(),
         proofUploadedByUserId: user.userId,
         updatedById: user.userId,
       },
     );
+
+    if (!isInstallmentAwaitingVerification(previousStatus)) {
+      await this.notifyPaymentVerificationNeeded({
+        createdByUserId: user.userId,
+        order,
+      });
+    }
 
     return this.findOneForClient(user, orderId);
   }
@@ -2828,13 +2949,17 @@ export class OrdersService {
     }
     await this.enforceOrderMutationAccessOnOrder(user, order);
 
-    const confirmDto = await this.parseMarkOrderPaymentPaidDto({
+    const detailsDto = await this.parseMarkOrderPaymentPaidDto({
       amountPaid: amountPaidRaw ?? '',
       paymentDate: paymentDateRaw ?? '',
       modeOfPayment: modeOfPaymentRaw ?? '',
     });
 
-    await this.createOrderPaymentWithProof(order, user, proofFile, confirmDto);
+    await this.createOrderPaymentWithProof(order, user, proofFile, detailsDto);
+    await this.notifyPaymentVerificationNeeded({
+      createdByUserId: user.userId,
+      order,
+    });
     return this.findOneForStaff(orderId);
   }
 
@@ -2859,6 +2984,10 @@ export class OrdersService {
     }
 
     await this.createOrderPaymentWithProof(order, user, proofFile);
+    await this.notifyPaymentVerificationNeeded({
+      createdByUserId: user.userId,
+      order,
+    });
     return this.findOneForClient(user, orderId);
   }
 
@@ -2872,7 +3001,12 @@ export class OrdersService {
     const amount = parseMoney(confirmDto.amountPaid)!;
     const paymentDate = formatOrderDate(confirmDto.paymentDate)!;
 
-    await this.enforceOrderMutationAccess(user, orderId);
+    await this.featureAccess.assertAccess(
+      user.userId,
+      user.isAdmin,
+      'payment-verification',
+      'edit',
+    );
 
     await this.dataSource.transaction(async (em) => {
       const order = await em.findOne(Order, {
@@ -3054,11 +3188,31 @@ export class OrdersService {
     return dto;
   }
 
+  private async parseMarkInstallmentPaidDto(
+    raw: MarkInstallmentPaidDto,
+  ): Promise<MarkInstallmentPaidDto> {
+    const dto = plainToInstance(MarkInstallmentPaidDto, raw);
+    try {
+      await validateOrReject(dto);
+    } catch {
+      throw new BadRequestException('Invalid payment details');
+    }
+    const amount = parseMoney(dto.amountPaid);
+    if (amount == null || amount < 0) {
+      throw new BadRequestException('Amount paid cannot be negative');
+    }
+    const paymentDate = formatOrderDate(dto.paymentDate);
+    if (!paymentDate) {
+      throw new BadRequestException('Payment date is required');
+    }
+    return dto;
+  }
+
   private async createOrderPaymentWithProof(
     order: Order,
     user: JwtUser,
     proofFile: MulterFile | undefined,
-    confirmDto?: MarkOrderPaymentPaidDto,
+    detailsDto?: MarkOrderPaymentPaidDto,
   ): Promise<void> {
     if (!proofFile?.buffer?.length) {
       throw new BadRequestException('Proof file is required');
@@ -3078,26 +3232,22 @@ export class OrdersService {
     const storageKey = `orders/${order.id}/payments/${paymentId}/proof-${randomUUID()}.${ext}`;
 
     const uploadedAt = new Date();
-    const confirmedAmount =
-      confirmDto != null ? parseMoney(confirmDto.amountPaid) : null;
-    const confirmedPaymentDate =
-      confirmDto != null ? formatOrderDate(confirmDto.paymentDate) : null;
+    const amount =
+      detailsDto != null ? parseMoney(detailsDto.amountPaid) : null;
+    const paymentDate =
+      detailsDto != null ? formatOrderDate(detailsDto.paymentDate) : null;
 
     const payment = this.orderPaymentsRepo.create({
       id: paymentId,
       orderId: order.id,
-      status:
-        confirmDto != null
-          ? ORDER_PAYMENT_STATUS_CONFIRMED
-          : ORDER_PAYMENT_STATUS_PENDING,
-      amountPaid:
-        confirmedAmount != null ? formatMoney(confirmedAmount) : null,
-      paymentDate: confirmedPaymentDate,
-      modeOfPayment: confirmDto?.modeOfPayment ?? null,
+      status: ORDER_PAYMENT_STATUS_FOR_VERIFICATION,
+      amountPaid: amount != null ? formatMoney(amount) : null,
+      paymentDate,
+      modeOfPayment: detailsDto?.modeOfPayment ?? null,
       proofUploadedAt: uploadedAt,
       proofUploadedByUserId: user.userId,
-      markedPaidAt: confirmDto != null ? uploadedAt : null,
-      markedPaidByUserId: confirmDto != null ? user.userId : null,
+      markedPaidAt: null,
+      markedPaidByUserId: null,
       createdById: user.userId,
       updatedById: user.userId,
     });
@@ -3114,13 +3264,6 @@ export class OrdersService {
         createdById: user.userId,
       },
     );
-
-    if (confirmDto != null) {
-      await this.ordersRepo.update(order.id, {
-        holdingPeriod: null,
-        updatedById: user.userId,
-      });
-    }
   }
 
   async createOrderForClient(
@@ -3225,6 +3368,7 @@ export class OrdersService {
       layawayMonths = dto.layawayMonths!;
       layawayPrice = formatDecimal(pricing.layawayPrice);
       layawayMonthlyPayment = formatDecimal(pricing.monthlyPayment);
+      fullPaymentPrice = formatDecimal(itemPrice);
       status = installmentApprovalStatusForPaymentType(dto.paymentType);
       holdingHours = LAYAWAY_HOLDING_HOURS;
     } else {
@@ -3397,6 +3541,7 @@ export class OrdersService {
       layawayMonths = dto.layawayMonths!;
       layawayPrice = formatDecimal(pricing.layawayPrice);
       layawayMonthlyPayment = formatDecimal(pricing.monthlyPayment);
+      fullPaymentPrice = formatDecimal(itemPrice);
       status = installmentApprovalStatusForPaymentType(dto.paymentType);
       holdingHours = LAYAWAY_HOLDING_HOURS;
     } else {

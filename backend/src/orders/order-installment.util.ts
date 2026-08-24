@@ -13,6 +13,7 @@ import {
   ORDER_STATUS_ITEM_RECEIVED_PAID,
   ORDER_STATUS_ITEM_RECEIVED_UNPAID,
   ORDER_STATUS_PAID,
+  ORDER_INSTALLMENT_STATUS_FOR_PAYMENT_VERIFICATION,
   ORDER_INSTALLMENT_STATUS_PAID,
   ORDER_INSTALLMENT_STATUS_UNPAID,
   PAYMENT_TYPE_LAYAWAY,
@@ -77,6 +78,23 @@ export function todayDateString(): string {
 
 export function isInstallmentPaidStatus(status: string | null | undefined): boolean {
   return status?.trim().toLowerCase() === ORDER_INSTALLMENT_STATUS_PAID.toLowerCase();
+}
+
+export function isInstallmentAwaitingVerification(
+  status: string | null | undefined,
+): boolean {
+  return (
+    status?.trim().toLowerCase() ===
+    ORDER_INSTALLMENT_STATUS_FOR_PAYMENT_VERIFICATION.toLowerCase()
+  );
+}
+
+function creditedInstallmentPaidAmount(
+  row: Pick<OrderInstallment, 'amountPaid'> &
+    Partial<Pick<OrderInstallment, 'status'>>,
+): number {
+  if (isInstallmentAwaitingVerification(row.status)) return 0;
+  return row.amountPaid != null ? parseMoney(row.amountPaid) : 0;
 }
 
 export function isPenaltyWaivePending(
@@ -284,7 +302,7 @@ export function computeAmountDueForInstallment(
     const scheduled = parseMoney(row.scheduledAmount);
     const amountDue = Math.max(0, scheduled - credit);
     credit = Math.max(0, credit - scheduled);
-    const paid = row.amountPaid != null ? parseMoney(row.amountPaid) : 0;
+    const paid = creditedInstallmentPaidAmount(row);
     credit += paid - amountDue;
 
     if (row.installmentNumber === targetInstallmentNumber) {
@@ -301,7 +319,7 @@ export function computeRemainingBalance(
 ): number {
   const price = parseMoney(layawayPrice ?? '');
   const paid = rows.reduce(
-    (sum, row) => sum + parseMoney(row.amountPaid),
+    (sum, row) => sum + creditedInstallmentPaidAmount(row),
     0,
   );
   const unpaidPenalties = rows.reduce((sum, row) => {
@@ -331,7 +349,7 @@ export function computeInstallmentViews(
     const scheduled = parseMoney(row.scheduledAmount);
     const amountDue = Math.max(0, scheduled - credit);
     credit = Math.max(0, credit - scheduled);
-    const paid = row.amountPaid != null ? parseMoney(row.amountPaid) : 0;
+    const paid = creditedInstallmentPaidAmount(row);
     credit += paid - amountDue;
 
     const dueDate = effectiveDueDateForInstallment(row, paymentStartDate);

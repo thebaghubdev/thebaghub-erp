@@ -18,7 +18,10 @@ export type OrderInstallmentRow = {
 
 function installmentStatusBadgeClass(status: string): string {
   const normalized = status.trim().toLowerCase();
-  if (normalized === "unpaid") {
+  if (
+    normalized === "unpaid" ||
+    normalized === "for payment verification"
+  ) {
     return "inline-flex w-fit rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900 dark:bg-amber-950/60 dark:text-amber-200";
   }
   if (normalized === "paid") {
@@ -29,6 +32,14 @@ function installmentStatusBadgeClass(status: string): string {
 
 function isInstallmentUnpaid(status: string): boolean {
   return status.trim().toLowerCase() === "unpaid";
+}
+
+function isInstallmentPaid(status: string): boolean {
+  return status.trim().toLowerCase() === "paid";
+}
+
+function isInstallmentAwaitingVerification(status: string): boolean {
+  return status.trim().toLowerCase() === "for payment verification";
 }
 
 function isPenaltyWaivePending(status: string | null | undefined): boolean {
@@ -45,12 +56,12 @@ function computeRemainingBalance(
   layawayPrice: string | null,
 ): number {
   const price = parsePhpStringToNumber(layawayPrice ?? "") ?? 0;
-  const paid = installments.reduce(
-    (sum, row) => sum + (parsePhpStringToNumber(row.amountPaid ?? "") ?? 0),
-    0,
-  );
+  const paid = installments.reduce((sum, row) => {
+    if (isInstallmentAwaitingVerification(row.status)) return sum;
+    return sum + (parsePhpStringToNumber(row.amountPaid ?? "") ?? 0);
+  }, 0);
   const unpaidPenalties = installments.reduce((sum, row) => {
-    if (!isInstallmentUnpaid(row.status)) return sum;
+    if (isInstallmentPaid(row.status)) return sum;
     return sum + (parsePhpStringToNumber(row.penalty ?? "") ?? 0);
   }, 0);
   return Math.max(
@@ -104,6 +115,7 @@ export {
   dueDateInputValue,
   formatDueDate,
   installmentStatusBadgeClass,
+  isInstallmentPaid,
   isInstallmentUnpaid,
   isPenaltyWaivePending,
   isPenaltyWaived,

@@ -41,9 +41,16 @@ export const PAYMENT_TYPE_LAYAWAY = 'layaway';
 export const PAYMENT_TYPE_CREDIT_LINE = 'credit_line';
 
 export const ORDER_INSTALLMENT_STATUS_UNPAID = 'Unpaid';
+export const ORDER_INSTALLMENT_STATUS_FOR_PAYMENT_VERIFICATION =
+  'For payment verification';
 export const ORDER_INSTALLMENT_STATUS_PAID = 'Paid';
 
-export const ORDER_PAYMENT_STATUS_PENDING = 'Pending';
+export const ORDER_PAYMENT_STATUS_FOR_VERIFICATION =
+  'For payment verification';
+/** Legacy stored value; treat as awaiting verification. */
+export const ORDER_PAYMENT_STATUS_PENDING_LEGACY = 'Pending';
+export const ORDER_PAYMENT_STATUS_PENDING =
+  ORDER_PAYMENT_STATUS_FOR_VERIFICATION;
 export const ORDER_PAYMENT_STATUS_CONFIRMED = 'Confirmed';
 
 /** Hours after order creation before the hold expires. */

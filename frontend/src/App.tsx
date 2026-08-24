@@ -68,13 +68,17 @@ import type { ReactNode } from 'react'
 
 function FeatureRoute({
   feature,
+  orFeatures,
   children,
 }: {
   feature: FeatureKey
+  orFeatures?: FeatureKey[]
   children: ReactNode
 }) {
   return (
-    <RequireFeatureAccess feature={feature}>{children}</RequireFeatureAccess>
+    <RequireFeatureAccess feature={feature} orFeatures={orFeatures}>
+      {children}
+    </RequireFeatureAccess>
   )
 }
 
@@ -254,7 +258,10 @@ const router = createBrowserRouter([
           {
             path: 'orders/:id',
             element: (
-              <FeatureRoute feature="orders">
+              <FeatureRoute
+                feature="orders"
+                orFeatures={['payment-verification']}
+              >
                 <OrderDetailPage />
               </FeatureRoute>
             ),

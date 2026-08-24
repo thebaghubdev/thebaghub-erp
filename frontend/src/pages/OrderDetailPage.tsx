@@ -282,6 +282,7 @@ export function OrderDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { token, user } = usePortalAuth();
   const feature = useFeatureAccess("orders");
+  const paymentVerification = useFeatureAccess("payment-verification");
   const [detail, setDetail] = useState<OrderDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -393,6 +394,11 @@ export function OrderDetailPage() {
   }, [detail, user]);
 
   const canEditOrder = roleCanEditOrder && feature.canEdit;
+  const canVerifyPayments = paymentVerification.canEdit;
+  const isAssignedToOrder =
+    detail != null &&
+    detail.assignedToEmployeeId != null &&
+    user?.employee?.id === detail.assignedToEmployeeId;
   const isGeneralManager = isGeneralManagerPosition(user?.employee?.position);
 
   const confirmApproveLayaway = useCallback(async () => {
@@ -1065,7 +1071,7 @@ export function OrderDetailPage() {
         </p>
       ) : null}
 
-      {isAwaitingInstallmentApproval(detail.status) ? (
+      {isAwaitingInstallmentApproval(detail.status) && canEditOrder ? (
         <div className={cardClass}>
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
             {isCreditLineOrder ? "Credit line approval" : "Layaway approval"}
@@ -1234,6 +1240,8 @@ export function OrderDetailPage() {
           }
           mode="staff"
           readOnly={installmentScheduleReadOnly}
+          canVerifyPayments={canVerifyPayments}
+          isAssignedToOrder={isAssignedToOrder}
           canUseVoucher={canUseInstallmentVoucher}
           voucherAmountDue={installmentVoucherDue}
           customerId={detail.customer.id}
@@ -1367,6 +1375,11 @@ export function OrderDetailPage() {
             </>
           ) : isInstallmentPaymentType(detail.paymentType) ? (
             <>
+              {detail.paymentType === "layaway" ? (
+                <DetailField label="Original price">
+                  {formatPhpDisplay(detail.fullPaymentPrice)}
+                </DetailField>
+              ) : null}
               <DetailField label="Layaway months">
                 {detail.layawayMonths ?? "—"}
               </DetailField>
@@ -1441,7 +1454,8 @@ export function OrderDetailPage() {
             orderTotalPrice={detail.orderTotalPrice}
             mode="staff"
             readOnly={orderPaymentsReadOnly}
-            allowMarkOrderPaid={!isPostPaymentOrder && canEditOrder}
+            allowMarkOrderPaid={!isPostPaymentOrder && canVerifyPayments}
+            canVerifyPayments={canVerifyPayments}
             canUseVoucher={canUseFullPaymentVoucher}
             voucherAmountDue={fullPaymentVoucherDue}
             customerId={detail.customer.id}

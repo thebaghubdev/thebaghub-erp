@@ -11,6 +11,7 @@ import {
   ORDER_PAYMENT_MODE_OPTIONS,
   composeOrderPaymentMode,
   isBankTransferPaymentMode,
+  paymentDateInputValue,
   readApiErrorMessage,
   splitOrderPaymentMode,
   type OrderPaymentRow,
@@ -70,8 +71,8 @@ export function MarkOrderPaymentDialog({
     }
     if (!payment) return;
     const split = splitOrderPaymentMode(payment.modeOfPayment);
-    setPaymentDate(todayYmd());
-    setAmountPaid("");
+    setPaymentDate(paymentDateInputValue(payment.paymentDate) || todayYmd());
+    setAmountPaid(payment.amountPaid ?? "");
     setModeOfPayment(split.modeOfPayment);
     setBankTransferAccount(split.bankTransferAccount);
     setPhase("form");

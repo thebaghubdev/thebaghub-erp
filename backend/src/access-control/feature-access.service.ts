@@ -15,6 +15,7 @@ import {
   ManagedFeatureKey,
   accessLevelSatisfies,
   isManagedFeatureKey,
+  isSingleGrantFeature,
   type AccessLevel as AccessLevelAlias,
 } from './feature-keys';
 
@@ -41,6 +42,15 @@ export class FeatureAccessService {
       where: { userId },
       relations: ['user'],
     });
+  }
+
+  async findEmployeeIdsWithEditAccess(
+    featureKey: ManagedFeatureKey,
+  ): Promise<string[]> {
+    const rows = await this.accessRepo.find({
+      where: { featureKey, accessLevel: AccessLevel.EDIT },
+    });
+    return rows.map((row) => row.employeeId);
   }
 
   async hasAccess(
@@ -163,6 +173,12 @@ export class FeatureAccessService {
         );
       }
       seen.add(row.featureKey);
+
+      if (isSingleGrantFeature(row.featureKey) && row.viewEmployeeIds.length > 0) {
+        throw new BadRequestException(
+          `${row.featureKey} does not support view-only access`,
+        );
+      }
 
       const overlap = row.viewEmployeeIds.filter((id) =>
         row.editEmployeeIds.includes(id),

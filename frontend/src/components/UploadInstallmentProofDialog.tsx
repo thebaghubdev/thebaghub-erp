@@ -6,25 +6,34 @@ import { DatePickerField } from "./DatePickerField";
 import { PhpPriceInput } from "./PhpPriceInput";
 import { apiFetch } from "../lib/api";
 import { formatPhpDisplay, parsePhpStringToNumber } from "../lib/format-php";
+import { resolvePenaltyAmount } from "../lib/installment-penalty";
+import {
+  dueDateInputValue,
+  readApiErrorMessage,
+  type OrderInstallmentRow,
+} from "../lib/order-installments";
 import {
   BANK_TRANSFER_ACCOUNT_OPTIONS,
   ORDER_PAYMENT_MODE_OPTIONS,
   composeOrderPaymentMode,
   isBankTransferPaymentMode,
-  readApiErrorMessage,
-  type OrderPaymentRow,
-  type OrderPaymentsUpdate,
+  splitOrderPaymentMode,
 } from "../lib/order-payments";
 
-type UploadOrderPaymentDialogProps = {
+type OrderInstallmentScheduleUpdate = {
+  installments: OrderInstallmentRow[];
+  status?: string;
+};
+
+type UploadInstallmentProofDialogProps = {
   open: boolean;
   orderId: string;
   token: string | null;
-  remainingBalancePrice: string | null;
+  installment: OrderInstallmentRow | null;
   busy: boolean;
   errorMessage: string | null;
   onCancel: () => void;
-  onUpdated: (update: OrderPaymentsUpdate) => void;
+  onUpdated: (update: OrderInstallmentScheduleUpdate) => void;
   onBusyChange: (busy: boolean) => void;
   onErrorChange: (message: string | null) => void;
 };
@@ -79,17 +88,18 @@ function proofPreviewFromFile(file: File): ProofPreview {
   };
 }
 
-export function UploadOrderPaymentDialog({
+export function UploadInstallmentProofDialog({
   open,
   orderId,
   token,
+  installment,
   busy,
   errorMessage,
   onCancel,
   onUpdated,
   onBusyChange,
   onErrorChange,
-}: UploadOrderPaymentDialogProps) {
+}: UploadInstallmentProofDialogProps) {
   const titleId = useId();
   const descId = useId();
   const proofInputId = useId();
@@ -117,14 +127,37 @@ export function UploadOrderPaymentDialog({
       setDropActive(false);
       return;
     }
-    setPaymentDate(todayYmd());
-    setAmountPaid("");
-    setModeOfPayment(ORDER_PAYMENT_MODE_OPTIONS[0]);
-    setBankTransferAccount("");
+    if (!installment) return;
+    const split = splitOrderPaymentMode(installment.modeOfPayment);
+    setPaymentDate(dueDateInputValue(installment.paymentDate) || todayYmd());
+    setModeOfPayment(split.modeOfPayment);
+    setBankTransferAccount(split.bankTransferAccount);
     clearProofPreview();
     setPhase("form");
+    setDropActive(false);
     onErrorChange(null);
-  }, [clearProofPreview, onErrorChange, open]);
+  }, [clearProofPreview, installment, onErrorChange, open]);
+
+  useEffect(() => {
+    if (!open || !installment) return;
+    const paymentDateValue =
+      paymentDate.trim() ||
+      dueDateInputValue(installment.paymentDate) ||
+      todayYmd();
+    const amountDue = parsePhpStringToNumber(installment.amountDue) ?? 0;
+    const awaitingVerification =
+      installment.status.trim().toLowerCase() === "for payment verification";
+    const penalty = resolvePenaltyAmount(
+      amountDue,
+      awaitingVerification ? null : installment.amountPaid,
+      installment.dueDate,
+      paymentDateValue,
+      installment.penalty,
+      installment.penaltyOverridden,
+      installment.penaltyWaiveStatus,
+    );
+    setAmountPaid((amountDue + penalty).toFixed(2));
+  }, [installment, open, paymentDate]);
 
   useEffect(() => {
     if (!open) return;
@@ -161,7 +194,7 @@ export function UploadOrderPaymentDialog({
   );
 
   const submitConfirm = useCallback(async () => {
-    if (!token || busy || !proofPreview) return;
+    if (!token || busy || !proofPreview || !installment) return;
     onBusyChange(true);
     onErrorChange(null);
     try {
@@ -171,21 +204,13 @@ export function UploadOrderPaymentDialog({
       fd.append("paymentDate", paymentDate.trim());
       fd.append("modeOfPayment", persistedModeOfPayment);
       const res = await apiFetch(
-        `/api/orders/${orderId}/payments`,
+        `/api/orders/${orderId}/installments/${installment.installmentNumber}/proof`,
         { method: "POST", body: fd },
         token,
       );
       if (!res.ok) throw new Error(await readApiErrorMessage(res));
-      const data = (await res.json()) as OrderPaymentsUpdate & {
-        payments: OrderPaymentRow[];
-        remainingBalancePrice: string | null;
-        holdingPeriod: string | null;
-      };
-      onUpdated({
-        payments: data.payments,
-        remainingBalancePrice: data.remainingBalancePrice,
-        holdingPeriod: data.holdingPeriod,
-      });
+      const data = (await res.json()) as OrderInstallmentScheduleUpdate;
+      onUpdated(data);
       onCancel();
     } catch (e) {
       onErrorChange(
@@ -197,18 +222,19 @@ export function UploadOrderPaymentDialog({
   }, [
     amountPaid,
     busy,
-    persistedModeOfPayment,
+    installment,
     onBusyChange,
     onCancel,
     onErrorChange,
     onUpdated,
     orderId,
     paymentDate,
+    persistedModeOfPayment,
     proofPreview,
     token,
   ]);
 
-  if (!open || typeof document === "undefined") return null;
+  if (!open || !installment || typeof document === "undefined") return null;
 
   const canSaveForm =
     proofPreview != null &&
@@ -230,8 +256,8 @@ export function UploadOrderPaymentDialog({
             <span className="font-semibold text-slate-900 dark:text-slate-100">
               {formatPhpDisplay(amountPaid)}
             </span>{" "}
-            via {persistedModeOfPayment} on {paymentDate} for payment
-            verification?
+            via {persistedModeOfPayment} on {paymentDate} for{" "}
+            {installment.installmentLabel.toLowerCase()} payment verification?
           </>
         }
         confirmLabel="Submit for verification"
@@ -271,8 +297,9 @@ export function UploadOrderPaymentDialog({
           id={descId}
           className="mt-2 text-sm text-slate-600 dark:text-slate-400"
         >
-          Add the proof and payment details. The payment will be sent for
-          verification and will not be marked as paid yet.
+          Add the proof and payment details for {installment.installmentLabel}.
+          The payment will be sent for verification and will not be marked as
+          paid yet.
         </p>
 
         <div className="mt-4 space-y-4">
@@ -369,13 +396,13 @@ export function UploadOrderPaymentDialog({
 
           <div>
             <label
-              htmlFor="upload-order-payment-amount"
+              htmlFor="upload-installment-payment-amount"
               className="block text-xs font-medium text-slate-600 dark:text-slate-400"
             >
               Paid amount
             </label>
             <PhpPriceInput
-              id="upload-order-payment-amount"
+              id="upload-installment-payment-amount"
               className={formPriceInputClass}
               value={amountPaid}
               disabled={busy}
@@ -384,13 +411,13 @@ export function UploadOrderPaymentDialog({
           </div>
           <div>
             <label
-              htmlFor="upload-order-payment-date"
+              htmlFor="upload-installment-payment-date"
               className="block text-xs font-medium text-slate-600 dark:text-slate-400"
             >
               Payment date
             </label>
             <DatePickerField
-              id="upload-order-payment-date"
+              id="upload-installment-payment-date"
               value={paymentDate}
               disabled={busy}
               onChange={setPaymentDate}
@@ -401,13 +428,13 @@ export function UploadOrderPaymentDialog({
           </div>
           <div>
             <label
-              htmlFor="upload-order-payment-mode"
+              htmlFor="upload-installment-payment-mode"
               className="block text-xs font-medium text-slate-600 dark:text-slate-400"
             >
               Mode of payment
             </label>
             <select
-              id="upload-order-payment-mode"
+              id="upload-installment-payment-mode"
               className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-500/30 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
               value={modeOfPayment}
               disabled={busy}
@@ -428,13 +455,13 @@ export function UploadOrderPaymentDialog({
             {isBankTransferPaymentMode(modeOfPayment) ? (
               <div className="mt-3">
                 <label
-                  htmlFor="upload-order-payment-bank"
+                  htmlFor="upload-installment-payment-bank"
                   className="block text-xs font-medium text-slate-600 dark:text-slate-400"
                 >
                   Bank account
                 </label>
                 <select
-                  id="upload-order-payment-bank"
+                  id="upload-installment-payment-bank"
                   className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-500/30 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
                   value={bankTransferAccount}
                   disabled={busy}

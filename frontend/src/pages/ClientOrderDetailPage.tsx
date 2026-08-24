@@ -446,6 +446,11 @@ export function ClientOrderDetailPage() {
             </>
           ) : isInstallmentPaymentType(detail.paymentType) ? (
             <>
+              {detail.paymentType === "layaway" ? (
+                <DetailField label="Original price">
+                  {formatPhpDisplay(detail.fullPaymentPrice)}
+                </DetailField>
+              ) : null}
               <DetailField label="Layaway months">
                 {detail.layawayMonths ?? "—"}
               </DetailField>

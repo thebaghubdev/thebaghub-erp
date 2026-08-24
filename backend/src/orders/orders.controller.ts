@@ -96,7 +96,9 @@ export class OrdersController {
   }
 
   @Get(':id')
-  @RequireFeature('orders', 'view')
+  @RequireFeature('orders', 'view', {
+    orFeatureKeys: ['payment-verification'],
+  })
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.ordersService.findOneForStaff(id);
   }
@@ -152,7 +154,7 @@ export class OrdersController {
   }
 
   @Post(':id/mark-paid')
-  @RequireFeature('orders', 'edit')
+  @RequireFeature('payment-verification', 'edit')
   markPaid(
     @Req() req: { user: JwtUser },
     @Param('id', ParseUUIDPipe) id: string,
@@ -328,7 +330,7 @@ export class OrdersController {
   }
 
   @Post(':id/installments/:installmentNumber/mark-paid')
-  @RequireFeature('orders', 'edit')
+  @RequireFeature('payment-verification', 'edit')
   @UseInterceptors(
     FileInterceptor('proof', {
       limits: { fileSize: 10 * 1024 * 1024 },
@@ -361,6 +363,9 @@ export class OrdersController {
     @Req() req: { user: JwtUser },
     @Param('id', ParseUUIDPipe) id: string,
     @Param('installmentNumber', ParseIntPipe) installmentNumber: number,
+    @Body('amountPaid') amountPaid: string | undefined,
+    @Body('paymentDate') paymentDate: string | undefined,
+    @Body('modeOfPayment') modeOfPayment: string | undefined,
     @UploadedFile() proof: MulterFile | undefined,
   ) {
     return this.ordersService.uploadInstallmentProofForStaff(
@@ -368,6 +373,9 @@ export class OrdersController {
       id,
       installmentNumber,
       proof,
+      amountPaid,
+      paymentDate,
+      modeOfPayment,
     );
   }
 
@@ -407,7 +415,7 @@ export class OrdersController {
   }
 
   @Post(':id/payments/:paymentId/mark-paid')
-  @RequireFeature('orders', 'edit')
+  @RequireFeature('payment-verification', 'edit')
   markOrderPaymentPaid(
     @Req() req: { user: JwtUser },
     @Param('id', ParseUUIDPipe) id: string,

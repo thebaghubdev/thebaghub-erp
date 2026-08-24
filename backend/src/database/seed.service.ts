@@ -49,6 +49,7 @@ export class SeedService implements OnModuleInit {
     await this.ensureInquiryDirectPurchaseSchema();
     await this.ensureDirectPurchasePaymentsSchema();
     await this.ensurePenaltyWaiveSchema();
+    await this.ensurePaymentVerificationStatuses();
     await this.ensureClientVipStatusBackfill();
     await this.ensureAdministrator();
     await this.ensureConsignmentFormSettings();
@@ -135,6 +136,28 @@ export class SeedService implements OnModuleInit {
     } catch (err) {
       this.logger.warn(
         `Could not ensure penalty waive schema: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+
+  private async ensurePaymentVerificationStatuses() {
+    try {
+      await this.employeesRepo.query(`
+        UPDATE order_payments
+        SET status = 'For payment verification'
+        WHERE status = 'Pending'
+      `);
+      await this.employeesRepo.query(`
+        UPDATE order_installments
+        SET status = 'For payment verification'
+        WHERE status = 'Unpaid'
+          AND proof_uploaded_at IS NOT NULL
+      `);
+    } catch (err) {
+      this.logger.warn(
+        `Could not backfill payment verification statuses: ${
           err instanceof Error ? err.message : String(err)
         }`,
       );

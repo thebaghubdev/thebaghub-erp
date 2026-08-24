@@ -29,6 +29,7 @@ type OrderPaymentsSectionProps = {
   mode: "staff" | "client";
   readOnly?: boolean;
   allowMarkOrderPaid?: boolean;
+  canVerifyPayments?: boolean;
   canUseVoucher?: boolean;
   voucherAmountDue?: number;
   customerId?: string | null;
@@ -105,6 +106,7 @@ export function OrderPaymentsSection({
   mode,
   readOnly = false,
   allowMarkOrderPaid = false,
+  canVerifyPayments = false,
   canUseVoucher = false,
   voucherAmountDue = 0,
   customerId = null,
@@ -478,7 +480,8 @@ export function OrderPaymentsSection({
       {mode === "client" ? (
         <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm leading-relaxed text-slate-700 dark:border-slate-700 dark:bg-slate-950/40 dark:text-slate-300">
           After you upload proof of payment, our staff will review and validate
-          it first. Your payment will show as Pending until it is confirmed.
+          it first. Your payment will show as For payment verification until it
+          is confirmed.
         </p>
       ) : null}
 
@@ -524,7 +527,10 @@ export function OrderPaymentsSection({
                   const isPaymentDateEditing =
                     paymentDateEditingId === row.id;
                   const showMarkPaymentPaid =
-                    canEditPayments && isPending;
+                    mode === "staff" &&
+                    canVerifyPayments &&
+                    token != null &&
+                    isPending;
                   const showClientProofUpload =
                     mode === "client" &&
                     !readOnly &&
