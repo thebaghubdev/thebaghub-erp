@@ -7,7 +7,10 @@ import { PhpPriceInput } from "./PhpPriceInput";
 import { apiFetch } from "../lib/api";
 import { formatPhpDisplay, parsePhpStringToNumber } from "../lib/format-php";
 import {
+  BANK_TRANSFER_ACCOUNT_OPTIONS,
   ORDER_PAYMENT_MODE_OPTIONS,
+  composeOrderPaymentMode,
+  isBankTransferPaymentMode,
   readApiErrorMessage,
   type OrderPaymentRow,
   type OrderPaymentsUpdate,
@@ -80,7 +83,6 @@ export function UploadOrderPaymentDialog({
   open,
   orderId,
   token,
-  remainingBalancePrice,
   busy,
   errorMessage,
   onCancel,
@@ -97,6 +99,7 @@ export function UploadOrderPaymentDialog({
   const [modeOfPayment, setModeOfPayment] = useState<string>(
     ORDER_PAYMENT_MODE_OPTIONS[0],
   );
+  const [bankTransferAccount, setBankTransferAccount] = useState("");
   const [proofPreview, setProofPreview] = useState<ProofPreview | null>(null);
   const [dropActive, setDropActive] = useState(false);
 
@@ -117,6 +120,7 @@ export function UploadOrderPaymentDialog({
     setPaymentDate(todayYmd());
     setAmountPaid("");
     setModeOfPayment(ORDER_PAYMENT_MODE_OPTIONS[0]);
+    setBankTransferAccount("");
     clearProofPreview();
     setPhase("form");
     onErrorChange(null);
@@ -151,6 +155,11 @@ export function UploadOrderPaymentDialog({
     [setProofFile],
   );
 
+  const persistedModeOfPayment = composeOrderPaymentMode(
+    modeOfPayment,
+    bankTransferAccount,
+  );
+
   const submitConfirm = useCallback(async () => {
     if (!token || busy || !proofPreview) return;
     onBusyChange(true);
@@ -160,7 +169,7 @@ export function UploadOrderPaymentDialog({
       fd.append("proof", proofPreview.file);
       fd.append("amountPaid", amountPaid.trim());
       fd.append("paymentDate", paymentDate.trim());
-      fd.append("modeOfPayment", modeOfPayment);
+      fd.append("modeOfPayment", persistedModeOfPayment);
       const res = await apiFetch(
         `/api/orders/${orderId}/payments`,
         { method: "POST", body: fd },
@@ -188,7 +197,7 @@ export function UploadOrderPaymentDialog({
   }, [
     amountPaid,
     busy,
-    modeOfPayment,
+    persistedModeOfPayment,
     onBusyChange,
     onCancel,
     onErrorChange,
@@ -206,6 +215,8 @@ export function UploadOrderPaymentDialog({
     amountPaid.trim() !== "" &&
     paymentDate.trim() !== "" &&
     modeOfPayment.trim() !== "" &&
+    (!isBankTransferPaymentMode(modeOfPayment) ||
+      bankTransferAccount.trim() !== "") &&
     parsePhpStringToNumber(amountPaid) != null;
 
   if (phase === "confirm") {
@@ -219,7 +230,7 @@ export function UploadOrderPaymentDialog({
             <span className="font-semibold text-slate-900 dark:text-slate-100">
               {formatPhpDisplay(amountPaid)}
             </span>{" "}
-            via {modeOfPayment} on {paymentDate}?
+            via {persistedModeOfPayment} on {paymentDate}?
           </>
         }
         confirmLabel="Confirm payment"
@@ -399,7 +410,13 @@ export function UploadOrderPaymentDialog({
               className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-500/30 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
               value={modeOfPayment}
               disabled={busy}
-              onChange={(e) => setModeOfPayment(e.target.value)}
+              onChange={(e) => {
+                const next = e.target.value;
+                setModeOfPayment(next);
+                if (!isBankTransferPaymentMode(next)) {
+                  setBankTransferAccount("");
+                }
+              }}
             >
               {ORDER_PAYMENT_MODE_OPTIONS.map((option) => (
                 <option key={option} value={option}>
@@ -407,6 +424,30 @@ export function UploadOrderPaymentDialog({
                 </option>
               ))}
             </select>
+            {isBankTransferPaymentMode(modeOfPayment) ? (
+              <div className="mt-3">
+                <label
+                  htmlFor="upload-order-payment-bank"
+                  className="block text-xs font-medium text-slate-600 dark:text-slate-400"
+                >
+                  Bank account
+                </label>
+                <select
+                  id="upload-order-payment-bank"
+                  className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-500/30 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
+                  value={bankTransferAccount}
+                  disabled={busy}
+                  onChange={(e) => setBankTransferAccount(e.target.value)}
+                >
+                  <option value="">Select bank account</option>
+                  {BANK_TRANSFER_ACCOUNT_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
           </div>
         </div>
 

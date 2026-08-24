@@ -197,6 +197,7 @@ function toLayawayAgreementDetail(detail: OrderDetail): LayawayAgreementDetail {
     detail.customer.email;
   return {
     orderNumber: detail.orderNumber,
+    createdAt: detail.createdAt,
     customer: {
       name: customerName,
       email: detail.customer.email,

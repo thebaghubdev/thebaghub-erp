@@ -2536,6 +2536,7 @@ export class OrdersService {
 
       row.amountPaid = formatMoney(amount);
       row.paymentDate = paymentDate;
+      row.modeOfPayment = dto.modeOfPayment;
       row.updatedById = user.userId;
 
       if (proofFile?.buffer?.length) {

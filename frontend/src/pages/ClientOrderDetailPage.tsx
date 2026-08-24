@@ -114,6 +114,7 @@ function toClientLayawayAgreementDetail(
     "—";
   return {
     orderNumber: detail.orderNumber,
+    createdAt: detail.createdAt,
     customer: {
       name: customerName,
       email: client?.email ?? "—",

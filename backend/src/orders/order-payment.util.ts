@@ -32,6 +32,50 @@ export const ORDER_PAYMENT_MODE_OPTIONS = [
 
 export type OrderPaymentMode = (typeof ORDER_PAYMENT_MODE_OPTIONS)[number];
 
+export const BANK_TRANSFER_ACCOUNT_OPTIONS = [
+  'BDO OPC',
+  'BPI OPC',
+  'BPI Personal',
+  'BDO Personal',
+] as const;
+
+export type BankTransferAccount =
+  (typeof BANK_TRANSFER_ACCOUNT_OPTIONS)[number];
+
+const BANK_TRANSFER_MODE_PREFIX = 'Bank transfer — ';
+
+export function isBankTransferPaymentMode(mode: string): boolean {
+  const trimmed = mode.trim();
+  return (
+    trimmed === 'Bank transfer' ||
+    trimmed.startsWith(BANK_TRANSFER_MODE_PREFIX)
+  );
+}
+
+export function bankTransferAccountFromMode(mode: string): string {
+  const trimmed = mode.trim();
+  if (!trimmed.startsWith(BANK_TRANSFER_MODE_PREFIX)) return '';
+  return trimmed.slice(BANK_TRANSFER_MODE_PREFIX.length);
+}
+
+export function composeOrderPaymentMode(
+  mode: string,
+  bankAccount?: string,
+): string {
+  if (mode.trim() !== 'Bank transfer') return mode.trim();
+  const account = bankAccount?.trim() ?? '';
+  return account ? `${BANK_TRANSFER_MODE_PREFIX}${account}` : 'Bank transfer';
+}
+
+export const ALLOWED_ORDER_PAYMENT_MODE_VALUES = [
+  'Cash',
+  'Credit card',
+  'Other',
+  ...BANK_TRANSFER_ACCOUNT_OPTIONS.map((account) =>
+    composeOrderPaymentMode('Bank transfer', account),
+  ),
+] as const;
+
 export function isOrderPaymentConfirmed(status: string): boolean {
   return status.trim() === ORDER_PAYMENT_STATUS_CONFIRMED;
 }

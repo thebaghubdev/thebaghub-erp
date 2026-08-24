@@ -1,5 +1,5 @@
 import { IsDateString, IsIn, IsNumberString, Matches } from 'class-validator';
-import { ORDER_PAYMENT_MODE_OPTIONS } from '../order-payment.util';
+import { ALLOWED_ORDER_PAYMENT_MODE_VALUES } from '../order-payment.util';
 
 export class MarkOrderPaymentPaidDto {
   @IsNumberString()
@@ -11,6 +11,6 @@ export class MarkOrderPaymentPaidDto {
   @IsDateString()
   paymentDate: string;
 
-  @IsIn([...ORDER_PAYMENT_MODE_OPTIONS])
+  @IsIn([...ALLOWED_ORDER_PAYMENT_MODE_VALUES])
   modeOfPayment: string;
 }

@@ -7,8 +7,12 @@ import { PhpPriceInput } from "./PhpPriceInput";
 import { apiFetch } from "../lib/api";
 import { formatPhpDisplay, parsePhpStringToNumber } from "../lib/format-php";
 import {
+  BANK_TRANSFER_ACCOUNT_OPTIONS,
   ORDER_PAYMENT_MODE_OPTIONS,
+  composeOrderPaymentMode,
+  isBankTransferPaymentMode,
   readApiErrorMessage,
+  splitOrderPaymentMode,
   type OrderPaymentRow,
   type OrderPaymentsUpdate,
 } from "../lib/order-payments";
@@ -42,7 +46,6 @@ export function MarkOrderPaymentDialog({
   orderId,
   token,
   payment,
-  remainingBalancePrice,
   busy,
   errorMessage,
   onCancel,
@@ -58,6 +61,7 @@ export function MarkOrderPaymentDialog({
   const [modeOfPayment, setModeOfPayment] = useState<string>(
     ORDER_PAYMENT_MODE_OPTIONS[0],
   );
+  const [bankTransferAccount, setBankTransferAccount] = useState("");
 
   useEffect(() => {
     if (!open) {
@@ -65,9 +69,11 @@ export function MarkOrderPaymentDialog({
       return;
     }
     if (!payment) return;
+    const split = splitOrderPaymentMode(payment.modeOfPayment);
     setPaymentDate(todayYmd());
     setAmountPaid("");
-    setModeOfPayment(ORDER_PAYMENT_MODE_OPTIONS[0]);
+    setModeOfPayment(split.modeOfPayment);
+    setBankTransferAccount(split.bankTransferAccount);
     setPhase("form");
     onErrorChange(null);
   }, [onErrorChange, open, payment]);
@@ -80,6 +86,11 @@ export function MarkOrderPaymentDialog({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [busy, onCancel, open]);
+
+  const persistedModeOfPayment = composeOrderPaymentMode(
+    modeOfPayment,
+    bankTransferAccount,
+  );
 
   const submitConfirm = useCallback(async () => {
     if (!token || busy || !payment) return;
@@ -94,7 +105,7 @@ export function MarkOrderPaymentDialog({
           body: JSON.stringify({
             amountPaid: amountPaid.trim(),
             paymentDate: paymentDate.trim(),
-            modeOfPayment,
+            modeOfPayment: persistedModeOfPayment,
           }),
         },
         token,
@@ -121,7 +132,7 @@ export function MarkOrderPaymentDialog({
   }, [
     amountPaid,
     busy,
-    modeOfPayment,
+    persistedModeOfPayment,
     onBusyChange,
     onCancel,
     onErrorChange,
@@ -138,6 +149,8 @@ export function MarkOrderPaymentDialog({
     amountPaid.trim() !== "" &&
     paymentDate.trim() !== "" &&
     modeOfPayment.trim() !== "" &&
+    (!isBankTransferPaymentMode(modeOfPayment) ||
+      bankTransferAccount.trim() !== "") &&
     parsePhpStringToNumber(amountPaid) != null;
 
   if (phase === "confirm") {
@@ -151,7 +164,7 @@ export function MarkOrderPaymentDialog({
             <span className="font-semibold text-slate-900 dark:text-slate-100">
               {formatPhpDisplay(amountPaid)}
             </span>{" "}
-            via {modeOfPayment} on {paymentDate}?
+            via {persistedModeOfPayment} on {paymentDate}?
           </>
         }
         confirmLabel="Confirm payment"
@@ -239,7 +252,13 @@ export function MarkOrderPaymentDialog({
               className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-500/30 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
               value={modeOfPayment}
               disabled={busy}
-              onChange={(e) => setModeOfPayment(e.target.value)}
+              onChange={(e) => {
+                const next = e.target.value;
+                setModeOfPayment(next);
+                if (!isBankTransferPaymentMode(next)) {
+                  setBankTransferAccount("");
+                }
+              }}
             >
               {ORDER_PAYMENT_MODE_OPTIONS.map((option) => (
                 <option key={option} value={option}>
@@ -247,6 +266,30 @@ export function MarkOrderPaymentDialog({
                 </option>
               ))}
             </select>
+            {isBankTransferPaymentMode(modeOfPayment) ? (
+              <div className="mt-3">
+                <label
+                  htmlFor="mark-order-payment-bank"
+                  className="block text-xs font-medium text-slate-600 dark:text-slate-400"
+                >
+                  Bank account
+                </label>
+                <select
+                  id="mark-order-payment-bank"
+                  className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-500/30 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
+                  value={bankTransferAccount}
+                  disabled={busy}
+                  onChange={(e) => setBankTransferAccount(e.target.value)}
+                >
+                  <option value="">Select bank account</option>
+                  {BANK_TRANSFER_ACCOUNT_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
           </div>
         </div>
 

@@ -12,6 +12,13 @@ import {
   readApiErrorMessage,
   type OrderInstallmentRow,
 } from "../lib/order-installments";
+import {
+  BANK_TRANSFER_ACCOUNT_OPTIONS,
+  ORDER_PAYMENT_MODE_OPTIONS,
+  composeOrderPaymentMode,
+  isBankTransferPaymentMode,
+  splitOrderPaymentMode,
+} from "../lib/order-payments";
 
 type OrderInstallmentScheduleUpdate = {
   installments: OrderInstallmentRow[];
@@ -94,6 +101,10 @@ export function MarkInstallmentPaidDialog({
   const proofInputId = useId();
   const [amountPaid, setAmountPaid] = useState("");
   const [paymentDate, setPaymentDate] = useState("");
+  const [modeOfPayment, setModeOfPayment] = useState<string>(
+    ORDER_PAYMENT_MODE_OPTIONS[0],
+  );
+  const [bankTransferAccount, setBankTransferAccount] = useState("");
   const [proofPreview, setProofPreview] = useState<ProofPreview | null>(null);
   const [dropActive, setDropActive] = useState(false);
 
@@ -111,7 +122,10 @@ export function MarkInstallmentPaidDialog({
       return;
     }
     if (!installment) return;
+    const split = splitOrderPaymentMode(installment.modeOfPayment);
     setPaymentDate(dueDateInputValue(installment.paymentDate) || todayYmd());
+    setModeOfPayment(split.modeOfPayment);
+    setBankTransferAccount(split.bankTransferAccount);
     clearProofPreview();
     setDropActive(false);
     onErrorChange(null);
@@ -180,9 +194,16 @@ export function MarkInstallmentPaidDialog({
     installment.penaltyWaiveStatus,
   );
   const totalDue = installmentAmountDue + penaltyAmount;
+  const persistedModeOfPayment = composeOrderPaymentMode(
+    modeOfPayment,
+    bankTransferAccount,
+  );
   const canSubmit =
     amountPaid.trim() !== "" &&
     paymentDate.trim() !== "" &&
+    modeOfPayment.trim() !== "" &&
+    (!isBankTransferPaymentMode(modeOfPayment) ||
+      bankTransferAccount.trim() !== "") &&
     (proofPreview != null || hasExistingProof);
 
   const submit = async () => {
@@ -193,6 +214,7 @@ export function MarkInstallmentPaidDialog({
       const fd = new FormData();
       fd.append("amountPaid", amountPaid.trim());
       fd.append("paymentDate", paymentDate.trim());
+      fd.append("modeOfPayment", persistedModeOfPayment);
       if (proofPreview) {
         fd.append("proof", proofPreview.file);
       }
@@ -301,6 +323,58 @@ export function MarkInstallmentPaidDialog({
               dialogAriaLabel="Choose payment date"
               triggerClassName="mt-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
             />
+          </div>
+
+          <div>
+            <label
+              htmlFor="mark-paid-mode"
+              className="block text-sm font-medium text-slate-700 dark:text-slate-300"
+            >
+              Mode of payment
+            </label>
+            <select
+              id="mark-paid-mode"
+              className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-500/30 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
+              value={modeOfPayment}
+              disabled={busy}
+              onChange={(e) => {
+                const next = e.target.value;
+                setModeOfPayment(next);
+                if (!isBankTransferPaymentMode(next)) {
+                  setBankTransferAccount("");
+                }
+              }}
+            >
+              {ORDER_PAYMENT_MODE_OPTIONS.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+            {isBankTransferPaymentMode(modeOfPayment) ? (
+              <div className="mt-3">
+                <label
+                  htmlFor="mark-paid-bank"
+                  className="block text-sm font-medium text-slate-700 dark:text-slate-300"
+                >
+                  Bank account
+                </label>
+                <select
+                  id="mark-paid-bank"
+                  className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-500/30 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
+                  value={bankTransferAccount}
+                  disabled={busy}
+                  onChange={(e) => setBankTransferAccount(e.target.value)}
+                >
+                  <option value="">Select bank account</option>
+                  {BANK_TRANSFER_ACCOUNT_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
           </div>
 
           <div>
