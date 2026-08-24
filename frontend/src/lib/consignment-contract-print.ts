@@ -29,6 +29,9 @@ export type ConsignmentContractDetail = {
   inclusions: string;
   consignmentSellingPrice: string;
   offerPrice: string | null;
+  contractStartDate?: string | null;
+  contractExpirationDate?: string | null;
+  createdAt?: string | null;
   clientOfferConfirmation?: ConsignmentContractClientOfferConfirmation | null;
   itemSnapshot: {
     form: Record<string, unknown>;
@@ -53,6 +56,36 @@ function contractDisplay(raw: unknown): string {
   const s = str(raw);
   if (!s || s === "—") return "—";
   return escapeHtml(s);
+}
+
+function displayValue(raw: unknown): string {
+  const s = str(raw);
+  if (!s || s === "—") return "";
+  return escapeHtml(s);
+}
+
+function formatContractDate(raw: string | null | undefined): string {
+  if (raw == null || raw.trim() === "") return "";
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw);
+  if (m) {
+    const y = Number(m[1]);
+    const mo = Number(m[2]);
+    const d = Number(m[3]);
+    return escapeHtml(
+      new Date(y, mo - 1, d).toLocaleDateString(undefined, {
+        dateStyle: "medium",
+      }),
+    );
+  }
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return escapeHtml(
+    parsed.toLocaleDateString(undefined, { dateStyle: "medium" }),
+  );
+}
+
+function metaRow(label: string, value: string): string {
+  return `<div class="meta-row"><span class="meta-label">${escapeHtml(label)}</span><span class="meta-value">${value || "&nbsp;"}</span></div>`;
 }
 
 export function buildConsignmentContractHtml(
@@ -100,13 +133,15 @@ export function buildConsignmentContractHtml(
   const field = (label: string, value: string) =>
     `<div class="field"><span class="k">${label}</span><span class="v">${value}</span></div>`;
 
-  const consignorFields = [
+  const consignorIdentityFields = [
     field("Name", contractDisplay(detail.consignorName)),
     field("Contact", contractDisplay(detail.consignorPhone)),
     field("Email", contractDisplay(detail.consignorEmail)),
     field("Address", contractDisplay(detail.consignorAddress)),
-    ...paymentFields.map(([label, value]) => field(label, value)),
   ].join("");
+  const consignorPaymentFields = paymentFields
+    .map(([label, value]) => field(label, value))
+    .join("");
 
   const itemFields = [
     field("Brand", contractDisplay(str(form.brand) || detail.brand)),
@@ -138,6 +173,10 @@ export function buildConsignmentContractHtml(
   const termsBlock = termsHtml.trim()
     ? termsHtml
     : `<p class="muted">Terms could not be loaded.</p>`;
+  const consignmentDate =
+    formatContractDate(detail.contractStartDate) ||
+    formatContractDate(detail.createdAt);
+  const expirationDate = formatContractDate(detail.contractExpirationDate);
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -190,27 +229,51 @@ export function buildConsignmentContractHtml(
       color: #111827;
       box-shadow: 0 1px 2px rgba(0,0,0,0.06), 0 12px 28px rgba(15,23,42,0.18);
     }
-    header {
+    .letterhead {
       display: flex;
-      align-items: baseline;
       justify-content: space-between;
-      gap: 0.75rem;
-      border-bottom: 1px solid #9ca3af;
-      padding-bottom: 6px;
+      align-items: flex-start;
+      gap: 1rem;
       margin-bottom: 12px;
+      font-family: "Times New Roman", Times, serif;
     }
-    h1 {
-      margin: 0;
-      font-size: 18px;
+    .brand-name {
+      font-size: 28px;
       font-weight: 700;
-      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      letter-spacing: 0.02em;
+      line-height: 1;
     }
-    .sku {
-      margin: 0;
-      color: #4b5563;
-      font-size: 12px;
+    .brand-address {
+      margin-top: 6px;
+      font-size: 11px;
+      line-height: 1.35;
+    }
+    .doc-title {
+      margin: 0 0 8px;
+      font-size: 22px;
+      font-weight: 700;
+      text-align: right;
+      line-height: 1;
+      letter-spacing: 0.02em;
+    }
+    .meta-block {
+      min-width: 11rem;
+    }
+    .meta-row {
+      display: flex;
+      justify-content: flex-end;
+      gap: 6px;
+      margin-top: 2px;
+      font-size: 11px;
+    }
+    .meta-label {
       white-space: nowrap;
-      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      font-weight: 700;
+    }
+    .meta-value {
+      min-width: 7rem;
+      text-align: left;
+      padding: 0 2px 1px;
     }
     section {
       margin: 0;
@@ -266,8 +329,8 @@ export function buildConsignmentContractHtml(
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
     .price { font-weight: 700; font-variant-numeric: tabular-nums; }
     .terms {
-      font-size: 9.5px;
-      line-height: 1.35;
+      font-size: 8px;
+      line-height: 1.25;
       color: #1f2937;
     }
     .terms ul, .terms ol { margin: 0; padding-left: 1rem; }
@@ -303,14 +366,27 @@ export function buildConsignmentContractHtml(
   </div>
   <div class="page">
     <main class="sheet">
-      <header>
-        <h1>The Bag Hub — Consignment Contract</h1>
-        <p class="sku">SKU: ${escapeHtml(detail.sku)}</p>
-      </header>
+      <div class="letterhead">
+        <div>
+          <div class="brand-name">THE BAG HUB</div>
+          <div class="brand-address">
+            The Grove Retail Row<br />
+            201 2nd Floor<br />
+            E. Rodriguez Jr., Ave. Pasig City
+          </div>
+        </div>
+        <div class="meta-block">
+          <h1 class="doc-title">CONSIGNMENT CONTRACT</h1>
+          ${metaRow("SKU", displayValue(detail.sku))}
+          ${metaRow("Consignment date", consignmentDate)}
+          ${metaRow("Expiration date", expirationDate)}
+        </div>
+      </div>
 
       <section>
         <h2>Consignor details</h2>
-        <div class="row">${consignorFields}</div>
+        <div class="row">${consignorIdentityFields}</div>
+        <div class="row">${consignorPaymentFields}</div>
       </section>
 
       <section>
