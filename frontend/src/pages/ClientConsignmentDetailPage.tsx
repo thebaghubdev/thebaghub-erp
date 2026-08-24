@@ -70,6 +70,8 @@ type ClientInquiryDetail = {
   offerPrice: string | null;
   contractRenewalRequestedPrice: string | null;
   clientOfferConfirmation?: ClientOfferConfirmation | null;
+  contractStartDate: string | null;
+  contractExpirationDate: string | null;
   /** Set when delivery has been scheduled. */
   deliverySchedule?: {
     deliveryDate: string;
@@ -532,24 +534,27 @@ export function ClientConsignmentDetailPage() {
               <div className="mt-4 flex flex-wrap gap-2">
                 {isForProcessingStatus(detail.status) ? (
                   <>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActionError(null);
-                        void openConsignmentContractPrintTab(detail).catch(
-                          (err) => {
-                            setActionError(
-                              err instanceof Error
-                                ? err.message
-                                : "Could not open print contract",
-                            );
-                          },
-                        );
-                      }}
-                      className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50"
-                    >
-                      Print contract
-                    </button>
+                    {detail.contractStartDate != null &&
+                    detail.contractStartDate.trim() !== "" ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActionError(null);
+                          void openConsignmentContractPrintTab(detail).catch(
+                            (err) => {
+                              setActionError(
+                                err instanceof Error
+                                  ? err.message
+                                  : "Could not open print contract",
+                              );
+                            },
+                          );
+                        }}
+                        className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50"
+                      >
+                        Print contract
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       disabled={pulloutBusy}

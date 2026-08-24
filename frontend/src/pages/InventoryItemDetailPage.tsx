@@ -52,6 +52,11 @@ type InventoryDetailForStaff = {
     shopifyProductId: string | null;
     shopifyPostedAt: string | null;
   } | null;
+  itemPhotoshoot: {
+    id: string;
+    photoshootDate: string;
+    photos: Array<{ key: string; url: string }>;
+  } | null;
 };
 
 type InventoryItemWaitlistClientRow = {
@@ -62,13 +67,6 @@ type InventoryItemWaitlistClientRow = {
   email: string;
   contactNumber: string;
   createdAt: string;
-};
-
-type ItemPhotoshootForInventory = {
-  id: string;
-  inventoryItemId: string;
-  photoshootDate: string;
-  photos: Array<{ key: string; url: string }>;
 };
 
 type ClientAccountRow = {
@@ -162,8 +160,6 @@ export function InventoryItemDetailPage() {
   const addClientModalTitleId = useId();
   const { token } = usePortalAuth();
   const [detail, setDetail] = useState<InventoryDetailForStaff | null>(null);
-  const [photoshootRow, setPhotoshootRow] =
-    useState<ItemPhotoshootForInventory | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [waitlistModalOpen, setWaitlistModalOpen] = useState(false);
@@ -191,10 +187,7 @@ export function InventoryItemDetailPage() {
     setError(null);
     setLoading(true);
     try {
-      const [detailRes, photoshootRes] = await Promise.all([
-        apiFetch(`/api/inventory/${id}`, {}, token),
-        apiFetch(`/api/inventory/${id}/item-photoshoot`, {}, token),
-      ]);
+      const detailRes = await apiFetch(`/api/inventory/${id}`, {}, token);
       if (!detailRes.ok) {
         const msg =
           detailRes.status === 404
@@ -204,24 +197,9 @@ export function InventoryItemDetailPage() {
       }
       const data = (await detailRes.json()) as InventoryDetailForStaff;
       setDetail(data);
-
-      if (photoshootRes.ok) {
-        const raw = (await photoshootRes.text()).trim();
-        const photoshootData = raw
-          ? (JSON.parse(raw) as ItemPhotoshootForInventory | null)
-          : null;
-        setPhotoshootRow(
-          photoshootData != null && photoshootData.photos.length > 0
-            ? photoshootData
-            : null,
-        );
-      } else {
-        setPhotoshootRow(null);
-      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load item");
       setDetail(null);
-      setPhotoshootRow(null);
     } finally {
       setLoading(false);
     }
@@ -414,6 +392,7 @@ export function InventoryItemDetailPage() {
   const itemModel = str(form.itemModel);
   const brandModelSubtitle =
     brand && itemModel ? `${brand} — ${itemModel}` : brand || itemModel || "—";
+  const photoshootPhoto = detail.itemPhotoshoot?.photos[0] ?? null;
   const showPricing = isPriceViewableStatus(detail.status);
   const waitlistedClientIds = new Set(waitlistRows.map((row) => row.clientId));
   const selectableClients = clients
@@ -626,6 +605,41 @@ export function InventoryItemDetailPage() {
         </div>
       ) : null}
 
+      <div
+        className={
+          photoshootPhoto
+            ? "grid gap-6 lg:grid-cols-[minmax(14rem,18rem)_minmax(0,1fr)] lg:items-start"
+            : undefined
+        }
+      >
+        {photoshootPhoto ? (
+          <div className={cardClass}>
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
+              Photoshoot photo
+            </h2>
+            <div className="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-950">
+              <a
+                href={photoshootPhoto.url}
+                target="_blank"
+                rel="noreferrer"
+                className="block focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500"
+              >
+                <img
+                  src={photoshootPhoto.url}
+                  alt="Photoshoot photo"
+                  className="aspect-square w-full object-cover"
+                  loading="lazy"
+                />
+              </a>
+            </div>
+            {detail.itemPhotoshoot?.photoshootDate ? (
+              <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">
+                Scheduled:{" "}
+                {formatPhotoshootDate(detail.itemPhotoshoot.photoshootDate)}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
       <div className={cardClass}>
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
           Item details
@@ -776,42 +790,7 @@ export function InventoryItemDetailPage() {
           </div>
         </dl>
       </div>
-
-      {photoshootRow ? (
-        <div className={cardClass}>
-          <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
-              Photoshoot photos
-            </h2>
-            {photoshootRow.photoshootDate ? (
-              <p className="text-sm text-slate-500 dark:text-slate-400">
-                Scheduled: {formatPhotoshootDate(photoshootRow.photoshootDate)}
-              </p>
-            ) : null}
-          </div>
-          <ul className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {photoshootRow.photos.map((photo) => (
-              <li
-                key={photo.key}
-                className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-950"
-              >
-                <a
-                  href={photo.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="block"
-                >
-                  <img
-                    src={photo.url}
-                    alt=""
-                    className="aspect-square w-full object-cover"
-                  />
-                </a>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
+      </div>
 
       {waitlistModalOpen ? (
         <div

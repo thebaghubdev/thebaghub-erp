@@ -235,6 +235,12 @@ export type InventoryDetailForStaff = {
     form: Record<string, unknown>;
   };
   itemPosting: ItemPostingForStaff | null;
+  /** Saved photoshoot gallery when a photoshoot row exists for this item. */
+  itemPhotoshoot: {
+    id: string;
+    photoshootDate: string;
+    photos: Array<{ key: string; url: string }>;
+  } | null;
 };
 
 export type InventoryItemWaitlistClientRow = {
@@ -1913,13 +1919,27 @@ export class InventoryService {
       consignor: c,
       itemSnapshot: r.itemSnapshot,
     });
-    const auth = await this.itemAuthRepo.findOne({
-      where: { inventoryItemId: id },
-      relations: { assignedTo: true },
-    });
-    const posting = await this.itemPostingRepo.findOne({
-      where: { inventoryItemId: id },
-    });
+    const [auth, posting, photoshoot] = await Promise.all([
+      this.itemAuthRepo.findOne({
+        where: { inventoryItemId: id },
+        relations: { assignedTo: true },
+      }),
+      this.itemPostingRepo.findOne({
+        where: { inventoryItemId: id },
+      }),
+      this.itemPhotoshootRepo.findOne({
+        where: { inventoryItem: { id } },
+      }),
+    ]);
+    const photoshootPhotos = photoshoot
+      ? this.media.toKeyUrlList(
+          await this.media.findByOwner(
+            MediaOwnerType.ITEM_PHOTOSHOOT,
+            photoshoot.id,
+            { purpose: MediaPurpose.PHOTOSHOOT, orderBySort: true },
+          ),
+        )
+      : [];
     return {
       id: r.id,
       sku: r.sku,
@@ -1976,6 +1996,13 @@ export class InventoryService {
         form: (r.itemSnapshot.form ?? {}) as Record<string, unknown>,
       },
       itemPosting: posting ? await this.mapItemPostingForStaff(posting) : null,
+      itemPhotoshoot: photoshoot
+        ? {
+            id: photoshoot.id,
+            photoshootDate: photoshootDayKey(photoshoot.photoshootDate),
+            photos: photoshootPhotos,
+          }
+        : null,
     };
   }
 

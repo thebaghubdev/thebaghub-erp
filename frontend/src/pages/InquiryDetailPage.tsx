@@ -1287,7 +1287,10 @@ export function InquiryDetailPage() {
   const showPulloutAction =
     detail != null && canStaffPulloutInquiry(detail.status);
   const showPrintContractAction =
-    detail != null && isForProcessingStatus(detail.status);
+    detail != null &&
+    isForProcessingStatus(detail.status) &&
+    detail.contractStartDate != null &&
+    detail.contractStartDate.trim() !== "";
   const showMoreActions =
     (canEditFeature &&
       (showThirdPartyActions ||
