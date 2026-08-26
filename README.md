@@ -14,8 +14,9 @@ Staging on Heroku:
 Do **not** set `DATABASE_URL`, `VITE_API_URL`, or `VITE_SOCKET_URL` in local `.env` files. Those are Heroku-only.
 
 1. Copy `backend/.env.example` to `backend/.env` and fill local values (`DB_*` points at your machine Postgres).
-2. Terminal 1: `cd backend && npm install && npm run start:dev` (port 3000).
-3. Terminal 2: `cd frontend && npm install && npm run dev` (port 5173). Vite proxies `/api` and `/socket.io` to the backend.
+2. `cd backend && npm install && npm run build && npm run migration:run` (creates tables on a new local DB; no-op if the baseline is already recorded).
+3. Terminal 1: `cd backend && npm run start:dev` (port 3000).
+4. Terminal 2: `cd frontend && npm install && npm run dev` (port 5173). Vite proxies `/api` and `/socket.io` to the backend.
 
 ## After you change code
 
@@ -76,12 +77,38 @@ git commit --allow-empty -m "Rebuild frontend to pick up VITE_* config"
 git push heroku-fe main
 ```
 
-Backend vars (`FRONTEND_ORIGIN`, `JWT_SECRET`, `TYPEORM_SYNCHRONIZE`, mail, AWS, Shopify, Stream) take effect on the next dyno restart. `heroku config:set` already restarts the backend.
+Backend vars (`FRONTEND_ORIGIN`, `JWT_SECRET`, mail, AWS, Shopify, Stream) take effect on the next dyno restart. `heroku config:set` already restarts the backend.
 
-Do **not** set `DB_HOST` / `DB_PASSWORD` on Heroku. The Postgres addon provides `DATABASE_URL`.
+Do **not** set `DB_HOST` / `DB_PASSWORD` on Heroku. The Postgres addon provides `DATABASE_URL`. Do **not** set `TYPEORM_SYNCHRONIZE`.
 
 ## Database
 
 Staging Postgres is attached to **tbh-erp-stg-be** only (`heroku-postgresql:essential-0`). The frontend never connects to the database.
 
-`TYPEORM_SYNCHRONIZE=true` is set on staging so schema updates apply on boot. That is for this staging app only — do not copy it to production without real migrations.
+Schema changes go through TypeORM migrations. `synchronize` is off in every environment.
+
+### After you change entities
+
+From `backend/`:
+
+```powershell
+npm run migration:generate -- src/database/migrations/DescriptiveName
+```
+
+Review the generated SQL, then commit and `git push heroku-be main`. The Heroku **release** phase runs `npm run migration:run` before the web dyno starts.
+
+After pulling migration files locally (existing DB that already has tables only needs this once for the baseline; new empty DBs run them for real):
+
+```powershell
+cd backend
+npm run build
+npm run migration:run
+```
+
+See pending vs applied:
+
+```powershell
+cd backend
+npm run build
+npm run migration:show
+```

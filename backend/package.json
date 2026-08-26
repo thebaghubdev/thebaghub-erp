@@ -20,7 +20,12 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:e2e": "jest --config ./test/jest-e2e.json"
+    "test:e2e": "jest --config ./test/jest-e2e.json",
+    "typeorm:ts": "ts-node --project tsconfig.typeorm.json ./node_modules/typeorm/cli.js -d src/database/data-source.ts",
+    "migration:generate": "npm run typeorm:ts -- migration:generate",
+    "migration:run": "typeorm -d dist/database/data-source.js migration:run",
+    "migration:revert": "typeorm -d dist/database/data-source.js migration:revert",
+    "migration:show": "typeorm -d dist/database/data-source.js migration:show"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1029.0",
