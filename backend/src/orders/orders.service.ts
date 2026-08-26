@@ -44,6 +44,12 @@ import { ConsignorPaymentsService } from '../consignor-payments/consignor-paymen
 import { NotificationsService } from '../notifications/notifications.service';
 import { portalPageUrl } from '../common/frontend-url.util';
 import { TasksService } from '../tasks/tasks.service';
+import { PaymentVerificationNotifyService } from '../payment-verification/payment-verification-notify.service';
+import {
+  isPaymentAwaitingVerification,
+  PAYMENT_STATUS_CONFIRMED,
+  PAYMENT_STATUS_FOR_VERIFICATION,
+} from '../payment-verification/payment-status.util';
 import {
   cloneInstallmentForAudit,
   cloneOrderForAudit,
@@ -300,6 +306,7 @@ export type ClientOrderDetail = {
   creditCardPrice: string | null;
   remainingBalancePrice: string | null;
   reservationPaymentProofUrl: string | null;
+  reservationPaymentStatus: string | null;
   fullPaymentProofUrl: string | null;
   holdingPeriod: string | null;
   layawayPaymentStartDate: string | null;
@@ -359,6 +366,7 @@ export type StaffOrderDetail = {
   creditCardPrice: string | null;
   remainingBalancePrice: string | null;
   reservationPaymentProofUrl: string | null;
+  reservationPaymentStatus: string | null;
   fullPaymentProofUrl: string | null;
   shippingFeeCareOf: string | null;
   shippingFeeProofUrl: string | null;
@@ -487,6 +495,7 @@ export class OrdersService {
     private readonly vipPricing: VipPricingService,
     private readonly notifications: NotificationsService,
     private readonly tasks: TasksService,
+    private readonly paymentVerification: PaymentVerificationNotifyService,
     private readonly featureAccess: FeatureAccessService,
     private readonly orderAudit: OrderAuditService,
     private readonly inventoryAudit: InventoryAuditService,
@@ -627,51 +636,21 @@ export class OrdersService {
 
   private async notifyPaymentVerificationNeeded(input: {
     order: Pick<Order, 'id' | 'orderNumber'>;
+    kind?: 'payment' | 'reservation';
   }): Promise<void> {
-    const verifierIds = await this.featureAccess.findEmployeeIdsWithEditAccess(
-      'payment-verification',
-    );
-    if (verifierIds.length === 0) {
-      return;
-    }
-
     const orderId = input.order.id;
     const orderNumber = input.order.orderNumber;
-    const message = `A proof of payment for Order #${orderNumber} is awaiting verification.`;
-    const title = `Verify payment for Order #${orderNumber}`;
-    const description = portalPageUrl(
-      this.config,
-      `/portal/orders/${orderId}`,
-    );
-
-    for (const assigneeId of verifierIds) {
-      void this.notifications
-        .notify({
-          message,
-          receiverId: assigneeId,
-          orderId,
-        })
-        .catch((err: unknown) =>
-          this.logger.error(
-            'Failed to notify payment verifier',
-            err instanceof Error ? err.stack : err,
-          ),
-        );
-      void this.tasks
-        .createAssigned({
-          assigneeId,
-          title,
-          description,
-          severity: 'moderate',
-          dueDate: null,
-        })
-        .catch((err: unknown) =>
-          this.logger.error(
-            'Failed to create payment verification task',
-            err instanceof Error ? err.stack : err,
-          ),
-        );
-    }
+    const isReservation = input.kind === 'reservation';
+    await this.paymentVerification.notifyVerifiers({
+      title: isReservation
+        ? `Verify reservation payment for Order #${orderNumber}`
+        : `Verify payment for Order #${orderNumber}`,
+      message: isReservation
+        ? `A reservation fee proof for Order #${orderNumber} is awaiting verification.`
+        : `A proof of payment for Order #${orderNumber} is awaiting verification.`,
+      portalPath: `/portal/orders/${orderId}`,
+      orderId,
+    });
   }
 
   private async enforceOrderMutationAccess(
@@ -1396,19 +1375,28 @@ export class OrdersService {
 
     const before = cloneOrderForAudit(order);
     const uploadedAt = new Date();
+    const previousStatus = order.reservationPaymentStatus;
     await this.ordersRepo.update(order.id, {
       reservationPaymentProofUploadedAt: uploadedAt,
       reservationPaymentProofUploadedByUserId: user.userId,
+      reservationPaymentStatus: PAYMENT_STATUS_FOR_VERIFICATION,
       updatedById: user.userId,
     });
     order.reservationPaymentProofUploadedAt = uploadedAt;
     order.reservationPaymentProofUploadedByUserId = user.userId;
+    order.reservationPaymentStatus = PAYMENT_STATUS_FOR_VERIFICATION;
     await this.orderAudit.recordDiff(
       order.id,
       before,
       order,
       await this.auditActor(user),
     );
+    if (!isPaymentAwaitingVerification(previousStatus)) {
+      await this.notifyPaymentVerificationNeeded({
+        order,
+        kind: 'reservation',
+      });
+    }
   }
 
   private async reservationPaymentProofUrl(order: Order): Promise<string | null> {
@@ -1601,6 +1589,7 @@ export class OrdersService {
       vipPrice: vip.vipPrice,
       vipTier: vip.vipTier,
       reservationPaymentProofUrl: await this.reservationPaymentProofUrl(order),
+      reservationPaymentStatus: order.reservationPaymentStatus ?? null,
       fullPaymentProofUrl: await this.fullPaymentProofUrl(order),
       holdingPeriod: order.holdingPeriod?.toISOString() ?? null,
       layawayPaymentStartDate: formatOrderDate(order.layawayPaymentStartDate),
@@ -1742,6 +1731,7 @@ export class OrdersService {
       vipPrice: vip.vipPrice,
       vipTier: vip.vipTier,
       reservationPaymentProofUrl: await this.reservationPaymentProofUrl(order),
+      reservationPaymentStatus: order.reservationPaymentStatus ?? null,
       fullPaymentProofUrl: await this.fullPaymentProofUrl(order),
       shippingFeeCareOf: order.shippingFeeCareOf,
       shippingFeeProofUrl: await this.shippingFeeProofUrl(order),
@@ -4145,6 +4135,7 @@ export class OrdersService {
         fullPaymentPrice: formatDecimal(RESERVATION_FEE),
         reservationPaymentProofUploadedAt: createdAt,
         reservationPaymentProofUploadedByUserId: user.userId,
+        reservationPaymentStatus: PAYMENT_STATUS_FOR_VERIFICATION,
         pickupOption: pickupFields.pickupOption,
         pickupBranch: pickupFields.pickupBranch,
         courierService: pickupFields.courierService,
@@ -4174,7 +4165,57 @@ export class OrdersService {
       return order;
     });
 
+    await this.notifyPaymentVerificationNeeded({
+      order: saved,
+      kind: 'reservation',
+    });
+
     return this.toClientSummary(saved);
+  }
+
+  async confirmReservationPaymentForStaff(
+    user: JwtUser,
+    orderId: string,
+  ): Promise<StaffOrderDetail> {
+    await this.featureAccess.assertAccess(
+      user.userId,
+      user.isAdmin,
+      'payment-verification',
+      'edit',
+    );
+
+    const order = await this.ordersRepo.findOne({ where: { id: orderId } });
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+    if (order.status !== ORDER_STATUS_RESERVATION) {
+      throw new BadRequestException(
+        'Reservation payment can only be verified while the order is reserved',
+      );
+    }
+    if (!isPaymentAwaitingVerification(order.reservationPaymentStatus)) {
+      throw new BadRequestException(
+        'This reservation fee is not awaiting payment verification',
+      );
+    }
+    if (order.reservationPaymentProofUploadedAt == null) {
+      throw new BadRequestException(
+        'Upload reservation payment proof before verifying',
+      );
+    }
+
+    const before = cloneOrderForAudit(order);
+    order.reservationPaymentStatus = PAYMENT_STATUS_CONFIRMED;
+    order.updatedById = user.userId;
+    await this.ordersRepo.save(order);
+    await this.orderAudit.recordDiff(
+      order.id,
+      before,
+      order,
+      await this.auditActor(user),
+    );
+
+    return this.findOneForStaff(orderId);
   }
 
   async recalculateInstallmentPenalties(): Promise<number> {

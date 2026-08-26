@@ -118,7 +118,10 @@ export function shouldLoadOrderPaymentViews(
 }
 
 export function computeFullPaymentCredit(
-  order: Pick<Order, 'status' | 'reservationPaymentProofUploadedAt'>,
+  order: Pick<
+    Order,
+    'status' | 'reservationPaymentProofUploadedAt' | 'reservationPaymentStatus'
+  >,
   payments: Pick<OrderPayment, 'amountPaid' | 'status'>[],
 ): number {
   return reservationFeeCredit(order) + sumConfirmedOrderPayments(payments);
@@ -147,10 +150,17 @@ export function orderPaymentTotalPrice(
 }
 
 export function reservationFeeCredit(
-  order: Pick<Order, 'status' | 'reservationPaymentProofUploadedAt'>,
+  order: Pick<
+    Order,
+    'status' | 'reservationPaymentProofUploadedAt' | 'reservationPaymentStatus'
+  >,
 ): number {
   if (order.status !== ORDER_STATUS_RESERVATION) return 0;
-  if (order.reservationPaymentProofUploadedAt != null) {
+  const status = order.reservationPaymentStatus?.trim();
+  if (status === ORDER_PAYMENT_STATUS_CONFIRMED) {
+    return RESERVATION_FEE;
+  }
+  if (!status && order.reservationPaymentProofUploadedAt != null) {
     return RESERVATION_FEE;
   }
   return 0;

@@ -35,6 +35,7 @@ type OrderAuditState = {
   fullPaymentPrice: string;
   orderTotalPrice: string;
   reservationProof: string;
+  reservationPaymentStatus: string;
   fullPaymentProof: string;
   holdingPeriod: string;
   layawayPaymentStartDate: string;
@@ -150,6 +151,7 @@ export function cloneOrderForAudit(r: Order): Order {
       fullPaymentPrice: r.fullPaymentPrice,
       orderTotalPrice: r.orderTotalPrice,
       reservationPaymentProofUploadedAt: r.reservationPaymentProofUploadedAt,
+      reservationPaymentStatus: r.reservationPaymentStatus,
       fullPaymentProofUploadedAt: r.fullPaymentProofUploadedAt,
       holdingPeriod: r.holdingPeriod,
       layawayPaymentStartDate: r.layawayPaymentStartDate,
@@ -211,6 +213,7 @@ function emptyOrderState(): OrderAuditState {
     fullPaymentPrice: '',
     orderTotalPrice: '',
     reservationProof: '',
+    reservationPaymentStatus: '',
     fullPaymentProof: '',
     holdingPeriod: '',
     layawayPaymentStartDate: '',
@@ -270,6 +273,7 @@ function toOrderState(
     fullPaymentPrice: moneyText(r.fullPaymentPrice),
     orderTotalPrice: moneyText(r.orderTotalPrice),
     reservationProof: uploadedText(r.reservationPaymentProofUploadedAt),
+    reservationPaymentStatus: textOrEmpty(r.reservationPaymentStatus),
     fullPaymentProof: uploadedText(r.fullPaymentProofUploadedAt),
     holdingPeriod: timestampText(r.holdingPeriod),
     layawayPaymentStartDate: dateOnlyText(r.layawayPaymentStartDate),
@@ -348,6 +352,11 @@ function diffOrderStates(
     ['Full payment price', before.fullPaymentPrice, after.fullPaymentPrice],
     ['Order total', before.orderTotalPrice, after.orderTotalPrice],
     ['Reservation payment proof', before.reservationProof, after.reservationProof],
+    [
+      'Reservation payment status',
+      before.reservationPaymentStatus,
+      after.reservationPaymentStatus,
+    ],
     ['Full payment proof', before.fullPaymentProof, after.fullPaymentProof],
     ['Holding period', before.holdingPeriod, after.holdingPeriod],
     [

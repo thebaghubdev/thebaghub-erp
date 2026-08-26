@@ -15,6 +15,13 @@ import { MediaPurpose } from '../enums/media-purpose.enum';
 import { ThirdPartyAuthenticationData } from '../inventory/entities/item-authentication.types';
 import { MulterFile } from '../inquiries/multer-file.type';
 import { MediaService } from '../media/media.service';
+import {
+  isPaymentAwaitingVerification,
+  isPaymentConfirmed,
+  PAYMENT_STATUS_CONFIRMED,
+  PAYMENT_STATUS_FOR_VERIFICATION,
+} from '../payment-verification/payment-status.util';
+import { PaymentVerificationNotifyService } from '../payment-verification/payment-verification-notify.service';
 import { BatchAssignWalkInAuthenticatorDto } from './dto/batch-assign-walk-in-authenticator.dto';
 import { CompleteWalkInAuthenticationDto } from './dto/complete-walk-in-authentication.dto';
 import { CreateWalkInAuthenticationDto } from './dto/create-walk-in-authentication.dto';
@@ -217,6 +224,7 @@ export type WalkInAuthListRow = {
   brand: string;
   category: string;
   paymentAmount: string;
+  paymentStatus: string;
   status: string;
   result: string | null;
   salesAssociateName: string | null;
@@ -235,6 +243,7 @@ export class WalkInAuthenticationService {
     @InjectRepository(Employee)
     private readonly employeesRepo: Repository<Employee>,
     private readonly media: MediaService,
+    private readonly paymentVerification: PaymentVerificationNotifyService,
   ) {}
 
   private async requireActorEmployee(userId: string): Promise<Employee> {
@@ -312,6 +321,7 @@ export class WalkInAuthenticationService {
         material: normalizeOptionalText(dto.material),
         inclusions: normalizeOptionalText(dto.inclusions),
         paymentAmount,
+        paymentStatus: PAYMENT_STATUS_FOR_VERIFICATION,
         salesAssociateId: salesAssociate.id,
         assignedToId: null,
         status: WALK_IN_AUTH_STATUS_PENDING,
@@ -331,6 +341,13 @@ export class WalkInAuthenticationService {
       `walk-in-authentication/${created.id}/payment-proof/${randomUUID()}.${ext}`,
       { uploadedByUserId: user.userId, createdById: user.userId },
     );
+
+    await this.paymentVerification.notifyVerifiers({
+      title: `Verify walk-in authentication payment for ${created.sku}`,
+      message: `A walk-in authentication payment proof for ${created.sku} is awaiting verification.`,
+      portalPath: `/portal/walk-in-authentication/${created.id}`,
+      walkInAuthenticationId: created.id,
+    });
 
     return {
       id: created.id,
@@ -353,6 +370,7 @@ export class WalkInAuthenticationService {
       brand: r.brand,
       category: r.category,
       paymentAmount: r.paymentAmount,
+      paymentStatus: r.paymentStatus,
       status: r.status,
       result: r.result,
       salesAssociateName: formatEmployeeName(r.salesAssociate),
@@ -416,6 +434,11 @@ export class WalkInAuthenticationService {
         if (row.status === WALK_IN_AUTH_STATUS_COMPLETED) {
           throw new BadRequestException(
             `${row.sku} is already completed and cannot be reassigned.`,
+          );
+        }
+        if (!isPaymentConfirmed(row.paymentStatus)) {
+          throw new BadRequestException(
+            `${row.sku} payment must be verified before assigning an authenticator.`,
           );
         }
         row.assignedToId = dto.employeeId;
@@ -489,6 +512,7 @@ export class WalkInAuthenticationService {
       inclusions: row.inclusions,
       paymentAmount: row.paymentAmount,
       paymentProof,
+      paymentStatus: row.paymentStatus,
       status: row.status,
       result: row.result,
       salesAssociateId: row.salesAssociateId,
@@ -517,6 +541,33 @@ export class WalkInAuthenticationService {
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };
+  }
+
+  async confirmPayment(
+    id: string,
+    user: JwtUser,
+  ): Promise<Awaited<ReturnType<WalkInAuthenticationService['findOne']>>> {
+    const row = await this.repo.findOne({ where: { id } });
+    if (!row) throw new NotFoundException('Walk-in authentication not found');
+    if (!isPaymentAwaitingVerification(row.paymentStatus)) {
+      throw new BadRequestException(
+        'This walk-in authentication payment is not awaiting verification',
+      );
+    }
+    const hasProof = await this.media.hasMedia(
+      MediaOwnerType.WALK_IN_AUTHENTICATION,
+      id,
+      MediaPurpose.PAYMENT_PROOF,
+    );
+    if (!hasProof) {
+      throw new BadRequestException(
+        'Upload proof of payment before verifying this walk-in authentication',
+      );
+    }
+    row.paymentStatus = PAYMENT_STATUS_CONFIRMED;
+    row.updatedById = user.userId;
+    await this.repo.save(row);
+    return this.findOne(id);
   }
 
   async save(

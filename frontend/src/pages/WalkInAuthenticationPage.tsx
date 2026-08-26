@@ -10,6 +10,8 @@ import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
 import { canAssignWorkToOthers } from "../lib/employee-position";
 import { formatPhpDisplay, parsePhpStringToNumber } from "../lib/format-php";
+import { orderPaymentStatusBadgeClass } from "../lib/order-payments";
+import { isPaymentConfirmed } from "../lib/payment-status";
 import { useFeatureAccess } from "../lib/use-feature-access";
 import {
   walkInAuthResultBadgeClassName,
@@ -29,6 +31,7 @@ type WalkInAuthRow = {
   brand: string;
   category: string;
   paymentAmount: string;
+  paymentStatus: string;
   status: string;
   result: string | null;
   salesAssociateName: string | null;
@@ -212,7 +215,8 @@ export function WalkInAuthenticationPage() {
       selectedIds,
       onToggleRow: toggleRow,
       onTogglePage: togglePage,
-      isRowSelectable: (r: WalkInAuthRow) => r.status !== COMPLETED,
+      isRowSelectable: (r: WalkInAuthRow) =>
+        r.status !== COMPLETED && isPaymentConfirmed(r.paymentStatus),
     }),
     [selectedIds, toggleRow, togglePage],
   );
@@ -382,7 +386,18 @@ export function WalkInAuthenticationPage() {
       columnHelper.accessor("branch", { header: "Branch" }),
       columnHelper.accessor("paymentAmount", {
         header: "Payment",
-        cell: (info) => formatPhpDisplay(info.getValue()),
+        cell: (info) => (
+          <span className="inline-flex flex-col gap-1">
+            <span>{formatPhpDisplay(info.getValue())}</span>
+            <span
+              className={orderPaymentStatusBadgeClass(
+                info.row.original.paymentStatus,
+              )}
+            >
+              {info.row.original.paymentStatus}
+            </span>
+          </span>
+        ),
       }),
       columnHelper.accessor("salesAssociateName", {
         header: "Sales",

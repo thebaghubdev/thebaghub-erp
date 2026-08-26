@@ -27,6 +27,10 @@ export function isSystemGeneratedTaskTitle(title: string): boolean {
   const t = title.trim();
   return (
     /^Verify payment for Order #\d+$/u.test(t) ||
+    /^Verify reservation payment for Order #\d+$/u.test(t) ||
+    /^Verify pullout fee for Inquiry .+$/u.test(t) ||
+    /^Verify authentication fee for Inquiry .+$/u.test(t) ||
+    /^Verify walk-in authentication payment for .+$/u.test(t) ||
     /^Order #\d+ is assigned to you$/u.test(t) ||
     /^Item .+ is assigned to you for authentication$/u.test(t) ||
     /^Item .+ is ready for editing$/u.test(t)

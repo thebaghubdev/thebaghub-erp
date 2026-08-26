@@ -18,6 +18,7 @@ export type NotificationApiRow = {
   receiverRole: string | null;
   inquiryId: string | null;
   orderId: string | null;
+  walkInAuthenticationId: string | null;
   createdAt: string;
 };
 
@@ -29,6 +30,7 @@ export type NotifyParams = {
   receiverRole?: string;
   inquiryId?: string | null;
   orderId?: string | null;
+  walkInAuthenticationId?: string | null;
 };
 
 @Injectable()
@@ -63,6 +65,7 @@ export class NotificationsService {
 
     const inquiryId = params.inquiryId ?? null;
     const orderId = params.orderId ?? null;
+    const walkInAuthenticationId = params.walkInAuthenticationId ?? null;
 
     if (rid) {
       const emp = await this.employeesRepo.findOne({ where: { id: rid } });
@@ -75,6 +78,7 @@ export class NotificationsService {
         receiverRole: null,
         inquiryId,
         orderId,
+        walkInAuthenticationId,
       });
       return [row];
     }
@@ -95,6 +99,7 @@ export class NotificationsService {
           receiverRole: roleValue,
           inquiryId,
           orderId,
+          walkInAuthenticationId,
         }),
       );
     }
@@ -107,6 +112,7 @@ export class NotificationsService {
     receiverRole: string | null;
     inquiryId: string | null;
     orderId: string | null;
+    walkInAuthenticationId: string | null;
   }): Promise<Notification> {
     const row = this.notificationsRepo.create({
       message: data.message,
@@ -115,6 +121,7 @@ export class NotificationsService {
       receiverRole: data.receiverRole,
       inquiryId: data.inquiryId,
       orderId: data.orderId,
+      walkInAuthenticationId: data.walkInAuthenticationId,
       createdById: null,
       updatedById: null,
     });
@@ -136,6 +143,7 @@ export class NotificationsService {
       receiverRole: n.receiverRole,
       inquiryId: n.inquiryId,
       orderId: n.orderId ?? null,
+      walkInAuthenticationId: n.walkInAuthenticationId ?? null,
       createdAt: n.createdAt.toISOString(),
     };
   }

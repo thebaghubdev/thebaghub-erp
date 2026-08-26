@@ -63,13 +63,17 @@ export class InquiriesController {
   }
 
   @Get(':id/audit')
-  @RequireFeature('inquiries', 'view')
+  @RequireFeature('inquiries', 'view', {
+    orFeatureKeys: ['payment-verification'],
+  })
   getAudit(@Param('id', ParseUUIDPipe) id: string) {
     return this.inquiryAuditService.findForInquiry(id);
   }
 
   @Get(':id')
-  @RequireFeature('inquiries', 'view')
+  @RequireFeature('inquiries', 'view', {
+    orFeatureKeys: ['payment-verification'],
+  })
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.inquiriesService.findOneForStaff(id);
   }
@@ -104,6 +108,15 @@ export class InquiriesController {
       proof,
       req.user,
     );
+  }
+
+  @Post(':id/pullout-payment-verify')
+  @RequireFeature('payment-verification', 'edit')
+  confirmPulloutPayment(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.inquiriesService.confirmPulloutPaymentForStaff(id, req.user);
   }
 
   @Post(':id/offer')
@@ -277,7 +290,7 @@ export class InquiriesController {
   }
 
   @Post(':id/third-party-payment-paid')
-  @RequireFeature('inquiries', 'edit')
+  @RequireFeature('payment-verification', 'edit')
   markThirdPartyPaymentPaid(
     @Req() req: { user: JwtUser },
     @Param('id', ParseUUIDPipe) id: string,

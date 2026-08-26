@@ -20,6 +20,7 @@ import { MediaModule } from '../media/media.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { MailModule } from '../mail/mail.module';
 import { DirectPurchasePaymentsModule } from '../direct-purchase-payments/direct-purchase-payments.module';
+import { PaymentVerificationModule } from '../payment-verification/payment-verification.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { DirectPurchasePaymentsModule } from '../direct-purchase-payments/direct
     NotificationsModule,
     MailModule,
     DirectPurchasePaymentsModule,
+    PaymentVerificationModule,
     TypeOrmModule.forFeature([
       Inquiry,
       InquiryAuditEntry,

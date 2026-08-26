@@ -133,7 +133,10 @@ const router = createBrowserRouter([
           {
             path: 'inquiries/:id',
             element: (
-              <FeatureRoute feature="inquiries">
+              <FeatureRoute
+                feature="inquiries"
+                orFeatures={['payment-verification']}
+              >
                 <InquiryDetailPage />
               </FeatureRoute>
             ),
@@ -179,7 +182,10 @@ const router = createBrowserRouter([
           {
             path: 'walk-in-authentication/:id',
             element: (
-              <FeatureRoute feature="walk-in-authentication">
+              <FeatureRoute
+                feature="walk-in-authentication"
+                orFeatures={['payment-verification']}
+              >
                 <WalkInAuthenticationDetailPage />
               </FeatureRoute>
             ),

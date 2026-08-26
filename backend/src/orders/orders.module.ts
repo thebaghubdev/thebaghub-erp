@@ -13,6 +13,7 @@ import { MailModule } from '../mail/mail.module';
 import { MediaModule } from '../media/media.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { TasksModule } from '../tasks/tasks.module';
+import { PaymentVerificationModule } from '../payment-verification/payment-verification.module';
 import { ClientOrdersController } from './client-orders.controller';
 import { OrdersController } from './orders.controller';
 import { OrderAuditEntry } from './entities/order-audit-entry.entity';
@@ -37,6 +38,7 @@ import { OrdersService } from './orders.service';
     MediaModule,
     NotificationsModule,
     TasksModule,
+    PaymentVerificationModule,
     TypeOrmModule.forFeature([
       Order,
       OrderAuditEntry,

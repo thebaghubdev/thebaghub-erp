@@ -248,6 +248,15 @@ export class OrdersController {
     );
   }
 
+  @Post(':id/reservation-payment-verify')
+  @RequireFeature('payment-verification', 'edit')
+  confirmReservationPayment(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.ordersService.confirmReservationPaymentForStaff(req.user, id);
+  }
+
   @Patch(':id/installments/:installmentNumber/amount-paid')
   @RequireFeature('orders', 'edit')
   setInstallmentAmountPaid(

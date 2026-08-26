@@ -15,6 +15,7 @@ export type NotificationRow = {
   receiverRole: string | null
   inquiryId: string | null
   orderId?: string | null
+  walkInAuthenticationId?: string | null
   createdAt: string
 }
 
@@ -161,6 +162,9 @@ export function NotificationBell() {
     } else if (n.orderId) {
       setOpen(false)
       navigate(`/portal/orders/${n.orderId}`)
+    } else if (n.walkInAuthenticationId) {
+      setOpen(false)
+      navigate(`/portal/walk-in-authentication/${n.walkInAuthenticationId}`)
     }
   }
 
@@ -317,6 +321,13 @@ export function NotificationBell() {
                         {!n.inquiryId && n.orderId && (
                           <p className="mt-0.5 text-xs text-violet-600 dark:text-violet-400">
                             {n.isRead ? "View order" : "Open order (marks read)"}
+                          </p>
+                        )}
+                        {!n.inquiryId && !n.orderId && n.walkInAuthenticationId && (
+                          <p className="mt-0.5 text-xs text-violet-600 dark:text-violet-400">
+                            {n.isRead
+                              ? "View walk-in authentication"
+                              : "Open walk-in authentication (marks read)"}
                           </p>
                         )}
                       </button>

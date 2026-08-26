@@ -90,7 +90,6 @@ export function OrderInstallmentSchedule({
   canRequestPenaltyWaive = false,
   canDecidePenaltyWaive = false,
   canVerifyPayments = false,
-  isAssignedToOrder = false,
 }: OrderInstallmentScheduleProps) {
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [useVoucherOpen, setUseVoucherOpen] = useState(false);
@@ -301,7 +300,6 @@ export function OrderInstallmentSchedule({
                 const penaltyAmount = parsePhpStringToNumber(row.penalty ?? "") ?? 0;
                 const showMarkInstallmentPaid =
                   mode === "staff" &&
-                  isAssignedToOrder &&
                   canVerifyPayments &&
                   !isPaid &&
                   !waivePending;
@@ -582,7 +580,7 @@ export function OrderInstallmentSchedule({
           onErrorChange={setUploadProofError}
         />
       ) : null}
-      {mode === "staff" && isAssignedToOrder && canVerifyPayments ? (
+      {mode === "staff" && canVerifyPayments ? (
         <MarkInstallmentPaidDialog
           open={markPaidInstallmentNumber != null}
           orderId={orderId}

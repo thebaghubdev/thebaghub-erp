@@ -22,7 +22,7 @@ import {
   ConversationMediaPanel,
   SharedMediaIcon,
 } from "../components/ConversationMediaPanel";
-import { AddGroupMembersModal } from "../components/AddGroupMembersModal";
+import { ManageGroupMembersModal } from "../components/ManageGroupMembersModal";
 import {
   CreateConversationModal,
   readApiMessage,
@@ -137,7 +137,7 @@ function EmptyChannelPlaceholder() {
   );
 }
 
-function AddStaffIcon({ className }: { className?: string }) {
+function ManageMembersIcon({ className }: { className?: string }) {
   return (
     <svg
       className={className}
@@ -151,7 +151,7 @@ function AddStaffIcon({ className }: { className?: string }) {
       <path
         strokeLinecap="round"
         strokeLinejoin="round"
-        d="M18 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zM3 19.235v-.11a6.375 6.375 0 0112.75 0v.109A12.318 12.318 0 019.374 21c-2.331 0-4.512-.645-6.374-1.766z"
+        d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z"
       />
     </svg>
   );
@@ -159,52 +159,63 @@ function AddStaffIcon({ className }: { className?: string }) {
 
 function ConversationWorkspace({ accessToken }: { accessToken: string }) {
   const { channel } = useChannelStateContext();
+  const { client } = useChatContext();
   const [mediaOpen, setMediaOpen] = useState(false);
-  const [addOpen, setAddOpen] = useState(false);
-  const [addBusy, setAddBusy] = useState(false);
-  const [addError, setAddError] = useState<string | null>(null);
+  const [manageOpen, setManageOpen] = useState(false);
+  const [manageBusy, setManageBusy] = useState(false);
+  const [manageError, setManageError] = useState<string | null>(null);
 
   const isGroup = channel.data?.kind === "group";
-  const memberUserIds = Object.keys(channel.state.members ?? {});
+  const currentUserId = client.userID ?? "";
+  const currentMembers = useMemo(() => {
+    return Object.values(channel.state.members ?? {})
+      .map((member) => {
+        const userId = member.user_id ?? member.user?.id ?? "";
+        const name = member.user?.name?.trim() || "Staff";
+        return { userId, name };
+      })
+      .filter((member) => member.userId)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [channel.state.members]);
 
   useEffect(() => {
-    setAddOpen(false);
-    setAddError(null);
-    setAddBusy(false);
+    setManageOpen(false);
+    setManageError(null);
+    setManageBusy(false);
   }, [channel.cid]);
 
-  const closeAdd = useCallback(() => {
-    if (addBusy) return;
-    setAddOpen(false);
-    setAddError(null);
-  }, [addBusy]);
+  const closeManage = useCallback(() => {
+    if (manageBusy) return;
+    setManageOpen(false);
+    setManageError(null);
+  }, [manageBusy]);
 
-  const onAddMembers = useCallback(
-    async (memberUserIdsToAdd: string[]) => {
+  const onSaveMembers = useCallback(
+    async (payload: { addUserIds: string[]; removeUserIds: string[] }) => {
       const channelId = channel.id;
       if (!channelId) return;
-      setAddBusy(true);
-      setAddError(null);
+      setManageBusy(true);
+      setManageError(null);
       try {
         const res = await apiFetch(
           `/api/messaging/conversations/${encodeURIComponent(channelId)}/members`,
           {
-            method: "POST",
-            body: JSON.stringify({ memberUserIds: memberUserIdsToAdd }),
+            method: "PATCH",
+            body: JSON.stringify(payload),
           },
           accessToken,
         );
         const body = await res.json().catch(() => null);
         if (!res.ok) {
-          setAddError(readApiMessage(body, "Could not add staff"));
+          setManageError(readApiMessage(body, "Could not update members"));
           return;
         }
         await channel.query({ state: true, watch: true });
-        setAddOpen(false);
+        setManageOpen(false);
       } catch {
-        setAddError("Could not add staff");
+        setManageError("Could not update members");
       } finally {
-        setAddBusy(false);
+        setManageBusy(false);
       }
     },
     [accessToken, channel],
@@ -216,7 +227,7 @@ function ConversationWorkspace({ accessToken }: { accessToken: string }) {
         <div
           className={
             isGroup
-              ? "tbh-messenger-chat-header tbh-messenger-chat-header--with-add"
+              ? "tbh-messenger-chat-header tbh-messenger-chat-header--with-manage"
               : "tbh-messenger-chat-header"
           }
         >
@@ -226,14 +237,14 @@ function ConversationWorkspace({ accessToken }: { accessToken: string }) {
               <button
                 type="button"
                 className="tbh-messenger-header-action"
-                aria-label="Add staff"
-                title="Add staff"
+                aria-label="Manage members"
+                title="Manage members"
                 onClick={() => {
-                  setAddError(null);
-                  setAddOpen(true);
+                  setManageError(null);
+                  setManageOpen(true);
                 }}
               >
-                <AddStaffIcon className="h-5 w-5" />
+                <ManageMembersIcon className="h-5 w-5" />
               </button>
             ) : null}
             <button
@@ -258,14 +269,15 @@ function ConversationWorkspace({ accessToken }: { accessToken: string }) {
         />
       ) : null}
       {isGroup ? (
-        <AddGroupMembersModal
-          open={addOpen}
+        <ManageGroupMembersModal
+          open={manageOpen}
           token={accessToken}
-          excludedUserIds={memberUserIds}
-          busy={addBusy}
-          errorMessage={addError}
-          onCancel={closeAdd}
-          onAdd={onAddMembers}
+          currentUserId={currentUserId}
+          members={currentMembers}
+          busy={manageBusy}
+          errorMessage={manageError}
+          onCancel={closeManage}
+          onSave={onSaveMembers}
         />
       ) : null}
     </>

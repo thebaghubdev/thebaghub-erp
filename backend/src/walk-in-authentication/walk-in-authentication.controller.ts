@@ -65,9 +65,20 @@ export class WalkInAuthenticationController {
   }
 
   @Get(':id')
-  @RequireFeature('walk-in-authentication', 'view')
+  @RequireFeature('walk-in-authentication', 'view', {
+    orFeatureKeys: ['payment-verification'],
+  })
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.service.findOne(id);
+  }
+
+  @Post(':id/payment-verify')
+  @RequireFeature('payment-verification', 'edit')
+  confirmPayment(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.service.confirmPayment(id, req.user);
   }
 
   @Patch(':id')

@@ -179,4 +179,22 @@ export class Inquiry extends AuditedEntity {
   /** Narrative for why the item is being pulled out early. */
   @Column({ name: 'pullout_reason', type: 'text', nullable: true })
   pulloutReason: string | null;
+
+  /** Pullout fee proof: `For payment verification` until staff confirms. */
+  @Column({
+    name: 'pullout_payment_status',
+    type: 'varchar',
+    length: 32,
+    nullable: true,
+  })
+  pulloutPaymentStatus: string | null;
+
+  /** 3rd-party authentication fee proof: `For payment verification` until staff confirms. */
+  @Column({
+    name: 'third_party_payment_status',
+    type: 'varchar',
+    length: 32,
+    nullable: true,
+  })
+  thirdPartyPaymentStatus: string | null;
 }

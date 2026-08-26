@@ -34,6 +34,10 @@ type AuditState = {
   contractRenewalRequestedPrice: string | null;
   offerSignaturePresent: boolean;
   notes: string | null;
+  pulloutFee: string | null;
+  pulloutReason: string | null;
+  pulloutPaymentStatus: string | null;
+  thirdPartyPaymentStatus: string | null;
   itemForm: Record<string, string>;
   imageCount: number;
 };
@@ -63,6 +67,10 @@ export function cloneInquiryForAudit(r: Inquiry): Inquiry {
       contractRenewalRequestedPrice: r.contractRenewalRequestedPrice,
       notes: r.notes,
       itemSnapshot: r.itemSnapshot,
+      pulloutFee: r.pulloutFee,
+      pulloutReason: r.pulloutReason,
+      pulloutPaymentStatus: r.pulloutPaymentStatus,
+      thirdPartyPaymentStatus: r.thirdPartyPaymentStatus,
     }),
   ) as Inquiry;
 }
@@ -114,6 +122,25 @@ function toAuditState(
       const t = String(r.notes).trim();
       return t === '' ? null : truncate(t);
     })(),
+    pulloutFee:
+      r.pulloutFee != null && String(r.pulloutFee).trim() !== ''
+        ? String(r.pulloutFee)
+        : null,
+    pulloutReason: (() => {
+      if (r.pulloutReason == null) return null;
+      const t = String(r.pulloutReason).trim();
+      return t === '' ? null : truncate(t);
+    })(),
+    pulloutPaymentStatus:
+      r.pulloutPaymentStatus != null &&
+      String(r.pulloutPaymentStatus).trim() !== ''
+        ? String(r.pulloutPaymentStatus).trim()
+        : null,
+    thirdPartyPaymentStatus:
+      r.thirdPartyPaymentStatus != null &&
+      String(r.thirdPartyPaymentStatus).trim() !== ''
+        ? String(r.thirdPartyPaymentStatus).trim()
+        : null,
     itemForm,
     imageCount: media?.imageCount ?? 0,
   };
@@ -197,6 +224,18 @@ function diffStates(
   const aSig = after.offerSignaturePresent ? 'Provided' : '';
   push('Offer signature', bSig, aSig);
   push('Staff notes', before.notes, after.notes);
+  push('Pullout fee', before.pulloutFee, after.pulloutFee);
+  push('Pullout reason', before.pulloutReason, after.pulloutReason);
+  push(
+    'Pullout payment status',
+    before.pulloutPaymentStatus,
+    after.pulloutPaymentStatus,
+  );
+  push(
+    '3rd-party payment status',
+    before.thirdPartyPaymentStatus,
+    after.thirdPartyPaymentStatus,
+  );
   push(
     'Photos (count)',
     String(before.imageCount),
@@ -278,6 +317,10 @@ export class InquiryAuditService {
       contractRenewalRequestedPrice: null,
       offerSignaturePresent: false,
       notes: null,
+      pulloutFee: null,
+      pulloutReason: null,
+      pulloutPaymentStatus: null,
+      thirdPartyPaymentStatus: null,
       itemForm: {},
       imageCount: 0,
     };

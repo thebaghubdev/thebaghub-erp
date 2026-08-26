@@ -48,7 +48,13 @@ import {
 } from "../lib/order-pickup-labels";
 import type { OrderInstallmentRow } from "../lib/order-installments";
 import type { OrderPaymentRow } from "../lib/order-payments";
-import { computeConfirmedPaymentsTotal } from "../lib/order-payments";
+import {
+  computeConfirmedPaymentsTotal,
+  orderPaymentStatusBadgeClass,
+} from "../lib/order-payments";
+import {
+  isPaymentAwaitingVerification,
+} from "../lib/payment-status";
 import {
   canPrintLayawayAgreement,
   openLayawayAgreementPrintTab,
@@ -77,6 +83,7 @@ type OrderDetail = {
   vipPrice: string | null;
   vipTier: VipDiscountTier | null;
   reservationPaymentProofUrl: string | null;
+  reservationPaymentStatus: string | null;
   fullPaymentProofUrl: string | null;
   shippingFeeCareOf: string | null;
   shippingFeeProofUrl: string | null;
@@ -319,6 +326,12 @@ export function OrderDetailPage() {
     useState(false);
   const [reservationCancelBusy, setReservationCancelBusy] = useState(false);
   const [reservationCancelError, setReservationCancelError] = useState<
+    string | null
+  >(null);
+  const [reservationVerifyConfirmOpen, setReservationVerifyConfirmOpen] =
+    useState(false);
+  const [reservationVerifyBusy, setReservationVerifyBusy] = useState(false);
+  const [reservationVerifyError, setReservationVerifyError] = useState<
     string | null
   >(null);
   const [termsConfirmOpen, setTermsConfirmOpen] = useState(false);
@@ -588,6 +601,31 @@ export function OrderDetailPage() {
       );
     } finally {
       setReservationCancelBusy(false);
+    }
+  }, [id, token]);
+
+  const confirmVerifyReservation = useCallback(async () => {
+    if (!id || !token) return;
+    setReservationVerifyError(null);
+    setReservationVerifyBusy(true);
+    try {
+      const res = await apiFetch(
+        `/api/orders/${id}/reservation-payment-verify`,
+        { method: "POST" },
+        token,
+      );
+      if (!res.ok) throw new Error(await readApiErrorMessage(res));
+      const data = (await res.json()) as OrderDetail;
+      setDetail(data);
+      setReservationVerifyConfirmOpen(false);
+    } catch (e) {
+      setReservationVerifyError(
+        e instanceof Error
+          ? e.message
+          : "Could not verify reservation payment",
+      );
+    } finally {
+      setReservationVerifyBusy(false);
     }
   }, [id, token]);
 
@@ -997,6 +1035,7 @@ export function OrderDetailPage() {
     convertBusy ||
     cancelBusy ||
     reservationCancelBusy ||
+    reservationVerifyBusy ||
     outForDeliveryBusy ||
     itemReceivedBusy;
   const actionsLocked = anyActionBusy || !canEditOrder;
@@ -1406,6 +1445,35 @@ export function OrderDetailPage() {
                   ) : null}
                 </div>
               </DetailField>
+              {detail.reservationPaymentStatus ? (
+                <DetailField label="Reservation payment">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span
+                      className={orderPaymentStatusBadgeClass(
+                        detail.reservationPaymentStatus,
+                      )}
+                    >
+                      {detail.reservationPaymentStatus}
+                    </span>
+                    {canVerifyPayments &&
+                    isPaymentAwaitingVerification(
+                      detail.reservationPaymentStatus,
+                    ) ? (
+                      <button
+                        type="button"
+                        disabled={reservationVerifyBusy}
+                        onClick={() => {
+                          setReservationVerifyError(null);
+                          setReservationVerifyConfirmOpen(true);
+                        }}
+                        className="inline-flex items-center rounded-md border border-violet-200 bg-violet-50 px-2 py-1 text-xs font-medium text-violet-900 hover:bg-violet-100 disabled:opacity-50 dark:border-violet-800 dark:bg-violet-950/60 dark:text-violet-100 dark:hover:bg-violet-900/80"
+                      >
+                        Verify payment
+                      </button>
+                    ) : null}
+                  </div>
+                </DetailField>
+              ) : null}
               <DetailField label="Best price">
                 {formatPhpDisplay(detail.fullPaymentTotalPrice)}
               </DetailField>
@@ -1893,6 +1961,21 @@ export function OrderDetailPage() {
           setReservationCancelConfirmOpen(false);
         }}
         onConfirm={confirmCancelReservation}
+      />
+      <ConfirmDialog
+        open={reservationVerifyConfirmOpen}
+        title="Verify reservation fee?"
+        description="This confirms the ₱5,000 reservation payment proof. The fee will then count toward the order balance."
+        confirmLabel="Verify payment"
+        cancelLabel="Cancel"
+        busy={reservationVerifyBusy}
+        errorMessage={reservationVerifyError}
+        onCancel={() => {
+          if (reservationVerifyBusy) return;
+          setReservationVerifyError(null);
+          setReservationVerifyConfirmOpen(false);
+        }}
+        onConfirm={confirmVerifyReservation}
       />
       <ConfirmDialog
         open={termsConfirmOpen}

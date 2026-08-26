@@ -74,7 +74,8 @@ export const SINGLE_GRANT_FEATURE_LABELS: Record<
 > = {
   'task-management':
     "Staff who can view others' boards and create tasks for them",
-  'payment-verification': 'Staff who can confirm proofs of payment',
+  'payment-verification':
+    'Staff who confirm proofs of payment (orders, pullout fees, authentication fees, and penalties)',
 }
 
 export function isSingleGrantFeature(key: ManagedFeatureKey): boolean {

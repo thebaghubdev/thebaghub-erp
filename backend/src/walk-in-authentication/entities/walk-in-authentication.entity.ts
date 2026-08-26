@@ -61,6 +61,14 @@ export class WalkInAuthentication extends AuditedEntity {
   })
   paymentAmount: string;
 
+  @Column({
+    name: 'payment_status',
+    type: 'varchar',
+    length: 32,
+    default: 'For payment verification',
+  })
+  paymentStatus: string;
+
   @Column({ name: 'sales_associate_id', type: 'uuid' })
   salesAssociateId: string;
 

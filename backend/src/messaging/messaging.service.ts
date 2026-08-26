@@ -12,7 +12,7 @@ import { StreamChat } from 'stream-chat';
 import type { Channel, ChannelFilters, UserResponse } from 'stream-chat';
 import { In, Not, Repository } from 'typeorm';
 import { Employee } from '../employees/entities/employee.entity';
-import { AddConversationMembersDto } from './dto/add-conversation-members.dto';
+import { UpdateConversationMembersDto } from './dto/update-conversation-members.dto';
 import { CreateConversationDto } from './dto/create-conversation.dto';
 
 export type MessagingEmployeeOption = {
@@ -132,10 +132,10 @@ export class MessagingService {
     return this.createGroupChannel(stream, userId, memberIds, name);
   }
 
-  async addConversationMembers(
+  async updateConversationMembers(
     userId: string,
     channelId: string,
-    dto: AddConversationMembersDto,
+    dto: UpdateConversationMembersDto,
   ): Promise<MessagingChannelRef> {
     const actor = await this.requireEmployee(userId);
     const id = channelId.trim();
@@ -154,7 +154,7 @@ export class MessagingService {
     }
     if (channel.data?.kind !== 'group') {
       throw new BadRequestException(
-        'Staff can only be added to group conversations',
+        'Members can only be managed in group conversations',
       );
     }
     const currentMemberIds = new Set(
@@ -162,52 +162,89 @@ export class MessagingService {
     );
     if (!currentMemberIds.has(userId)) {
       throw new ForbiddenException(
-        'Only members of this conversation can add staff',
+        'Only members of this conversation can manage members',
       );
     }
 
-    const memberIds = [
+    const addUserIds = [
       ...new Set(
-        dto.memberUserIds.filter(
+        (dto.addUserIds ?? []).filter(
           (memberId) =>
             memberId !== userId && !currentMemberIds.has(memberId),
         ),
       ),
     ];
-    if (memberIds.length === 0) {
+    const removeUserIds = [...new Set(dto.removeUserIds ?? [])];
+    if (removeUserIds.includes(userId)) {
       throw new BadRequestException(
-        'Select at least one employee who is not already in this conversation',
+        'You cannot remove yourself from the conversation here.',
+      );
+    }
+    if (removeUserIds.some((memberId) => !currentMemberIds.has(memberId))) {
+      throw new BadRequestException(
+        'One or more people are not in this conversation',
+      );
+    }
+    if (addUserIds.some((memberId) => removeUserIds.includes(memberId))) {
+      throw new BadRequestException(
+        'The same person cannot be added and removed in one update',
+      );
+    }
+    if (addUserIds.length === 0 && removeUserIds.length === 0) {
+      throw new BadRequestException(
+        'Select at least one member to add or remove',
       );
     }
 
-    const members = await this.employeesRepo.find({
-      where: { userId: In(memberIds) },
-      relations: ['user'],
-    });
-    if (members.length !== memberIds.length) {
-      throw new BadRequestException('One or more employees were not found');
-    }
-    if (members.some((e) => e.user?.isAdmin)) {
-      throw new BadRequestException(
-        'Administrator accounts cannot be added to conversations',
-      );
-    }
-
-    try {
-      await stream.upsertUsers(members.map((e) => this.toStreamUser(e)));
-    } catch (err) {
-      this.throwStreamError(err);
-    }
-
-    const addedNames = members.map((e) => this.displayName(e)).join(', ');
-    try {
-      await channel.addMembers(memberIds, {
-        text: `${this.displayName(actor)} added ${addedNames} to the group.`,
-        user_id: userId,
+    if (addUserIds.length > 0) {
+      const members = await this.employeesRepo.find({
+        where: { userId: In(addUserIds) },
+        relations: ['user'],
       });
-    } catch (err) {
-      this.throwStreamError(err);
+      if (members.length !== addUserIds.length) {
+        throw new BadRequestException('One or more employees were not found');
+      }
+      if (members.some((e) => e.user?.isAdmin)) {
+        throw new BadRequestException(
+          'Administrator accounts cannot be added to conversations',
+        );
+      }
+      try {
+        await stream.upsertUsers(members.map((e) => this.toStreamUser(e)));
+      } catch (err) {
+        this.throwStreamError(err);
+      }
+      const addedNames = members.map((e) => this.displayName(e)).join(', ');
+      try {
+        await channel.addMembers(addUserIds, {
+          text: `${this.displayName(actor)} added ${addedNames} to the group.`,
+          user_id: userId,
+        });
+      } catch (err) {
+        this.throwStreamError(err);
+      }
     }
+
+    if (removeUserIds.length > 0) {
+      const removedRows = await this.employeesRepo.find({
+        where: { userId: In(removeUserIds) },
+      });
+      const nameById = new Map(
+        removedRows.map((e) => [e.userId, this.displayName(e)] as const),
+      );
+      const removedNames = removeUserIds
+        .map((memberId) => nameById.get(memberId) ?? 'a member')
+        .join(', ');
+      try {
+        await channel.removeMembers(removeUserIds, {
+          text: `${this.displayName(actor)} removed ${removedNames} from the group.`,
+          user_id: userId,
+        });
+      } catch (err) {
+        this.throwStreamError(err);
+      }
+    }
+
     return this.toChannelRef(channel);
   }
 

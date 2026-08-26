@@ -12,7 +12,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { plainToInstance } from 'class-transformer';
 import { validateOrReject } from 'class-validator';
 import { randomUUID } from 'node:crypto';
-import { Between, In, Repository } from 'typeorm';
+import { Between, EntityManager, In, Repository } from 'typeorm';
 import { Client } from '../clients/entities/client.entity';
 import {
   extractBankDetailsFromClient,
@@ -76,6 +76,13 @@ import {
 import { Employee } from '../employees/entities/employee.entity';
 import { NotificationsService } from '../notifications/notifications.service';
 import { DirectPurchasePaymentsService } from '../direct-purchase-payments/direct-purchase-payments.service';
+import {
+  isPaymentAwaitingVerification,
+  isPaymentConfirmed,
+  PAYMENT_STATUS_CONFIRMED,
+  PAYMENT_STATUS_FOR_VERIFICATION,
+} from '../payment-verification/payment-status.util';
+import { PaymentVerificationNotifyService } from '../payment-verification/payment-verification-notify.service';
 
 const ALLOWED_IMAGE_MIMES = new Set([
   'image/jpeg',
@@ -266,6 +273,7 @@ export type StaffInquiryRow = {
   contractExpirationDate: string | null;
   pulloutFee: string | null;
   pulloutReason: string | null;
+  pulloutPaymentStatus: string | null;
   pulloutPaymentProofUrl: string | null;
 };
 
@@ -304,6 +312,7 @@ export type StaffInquiryDetail = StaffInquiryRow & {
    * When in 3rd party payment flow: why re-authentication was requested (see `authenticated_requested_for_reauthentication` / legacy `authenticated_for_3rd_party`).
    */
   thirdPartyReauthenticationReasons: string | null;
+  thirdPartyPaymentStatus: string | null;
   thirdPartyPaymentProofUrls: string[];
   /** Issue photos from authenticator when 3rd party re-auth was requested. */
   thirdPartyIssuePhotoUrls: string[];
@@ -339,6 +348,7 @@ export type ClientInquiryDetail = Omit<
    * When in 3rd party payment flow: why re-authentication was requested.
    */
   thirdPartyReauthenticationReasons: string | null;
+  thirdPartyPaymentStatus: string | null;
   thirdPartyPaymentProofUrls: string[];
   thirdPartyIssuePhotoUrls: string[];
   thirdPartyReauthenticationNotes: string | null;
@@ -374,6 +384,7 @@ export class InquiriesService {
     private readonly mail: MailService,
     private readonly config: ConfigService,
     private readonly directPurchasePaymentsService: DirectPurchasePaymentsService,
+    private readonly paymentVerification: PaymentVerificationNotifyService,
   ) {}
 
   private async inquiryMediaAudit(
@@ -1261,6 +1272,11 @@ export class InquiriesService {
         r.pulloutReason != null && String(r.pulloutReason).trim() !== ''
           ? String(r.pulloutReason).trim()
           : null,
+      pulloutPaymentStatus:
+        r.pulloutPaymentStatus != null &&
+        String(r.pulloutPaymentStatus).trim() !== ''
+          ? String(r.pulloutPaymentStatus).trim()
+          : null,
       pulloutPaymentProofUrl,
     };
   }
@@ -1369,6 +1385,11 @@ export class InquiriesService {
         images,
       },
       thirdPartyReauthenticationReasons,
+      thirdPartyPaymentStatus:
+        r.thirdPartyPaymentStatus != null &&
+        String(r.thirdPartyPaymentStatus).trim() !== ''
+          ? String(r.thirdPartyPaymentStatus).trim()
+          : null,
       thirdPartyPaymentProofUrls,
       thirdPartyIssuePhotoUrls,
       thirdPartyReauthenticationNotes,
@@ -1540,6 +1561,11 @@ export class InquiriesService {
       },
       deliverySchedule,
       thirdPartyReauthenticationReasons,
+      thirdPartyPaymentStatus:
+        r.thirdPartyPaymentStatus != null &&
+        String(r.thirdPartyPaymentStatus).trim() !== ''
+          ? String(r.thirdPartyPaymentStatus).trim()
+          : null,
       thirdPartyPaymentProofUrls,
       thirdPartyIssuePhotoUrls,
       thirdPartyReauthenticationNotes,
@@ -1592,12 +1618,22 @@ export class InquiriesService {
       { uploadedByUserId: user.userId },
     );
     r.updatedById = user.userId;
+    const wasAwaiting = isPaymentAwaitingVerification(r.thirdPartyPaymentStatus);
+    r.thirdPartyPaymentStatus = PAYMENT_STATUS_FOR_VERIFICATION;
     await this.inquiriesRepo.save(r);
     const label = await this.inquiryAudit.staffActorLabel(user.userId);
     await this.inquiryAudit.recordDiff(inquiryId, before, r, {
       userId: user.userId,
       label,
     });
+    if (!wasAwaiting) {
+      await this.paymentVerification.notifyVerifiers({
+        title: `Verify authentication fee for Inquiry ${r.sku}`,
+        message: `A 3rd-party authentication fee proof for ${r.sku} is awaiting verification.`,
+        portalPath: `/portal/inquiries/${inquiryId}`,
+        inquiryId,
+      });
+    }
     return this.findOneForStaff(inquiryId);
   }
 
@@ -1626,6 +1662,11 @@ export class InquiriesService {
         'Upload proof of payment before marking this inquiry as paid',
       );
     }
+    if (!isPaymentAwaitingVerification(r0.thirdPartyPaymentStatus)) {
+      throw new BadRequestException(
+        'This authentication fee is not awaiting payment verification',
+      );
+    }
     const notifyPayload = await this.inquiriesRepo.manager.transaction(
       async (em) => {
         const r = await em.findOne(Inquiry, { where: { id: inquiryId } });
@@ -1645,6 +1686,7 @@ export class InquiriesService {
         });
         const before = cloneInquiryForAudit(r);
         r.status = InquiryStatus.AUTHENTICATED_FOR_3RD_PARTY;
+        r.thirdPartyPaymentStatus = PAYMENT_STATUS_CONFIRMED;
         r.updatedById = user.userId;
         await em.save(r);
         const beforeInv = cloneInventoryItemForAudit(inv);
@@ -1793,11 +1835,25 @@ export class InquiriesService {
     if (!reason) {
       throw new BadRequestException('Pullout reason is required');
     }
+    const feeRequiresPayment = parsedPulloutFee > 0;
+    if (feeRequiresPayment && !proof?.buffer?.length) {
+      throw new BadRequestException(
+        'Proof of payment is required when a pullout fee is charged.',
+      );
+    }
+    if (proof?.buffer?.length) {
+      const mime = proof.mimetype?.toLowerCase() ?? '';
+      if (!ALLOWED_PULLOUT_PROOF_MIMES.has(mime)) {
+        throw new BadRequestException(
+          `Unsupported file type: ${proof.mimetype || 'unknown'}`,
+        );
+      }
+    }
 
     const label = await this.inquiryAudit.staffActorLabel(user.userId);
     const staffActor = { userId: user.userId, label };
 
-    await this.inquiriesRepo.manager.transaction(async (em) => {
+    const sku = await this.inquiriesRepo.manager.transaction(async (em) => {
       const r = await em.findOne(Inquiry, { where: { id } });
       if (!r) {
         throw new NotFoundException('Inquiry not found');
@@ -1810,6 +1866,14 @@ export class InquiriesService {
           'Pullout is only available while the inquiry is being processed or has a pullout request',
         );
       }
+      if (isPaymentAwaitingVerification(r.pulloutPaymentStatus)) {
+        throw new BadRequestException(
+          'Pullout fee is already awaiting payment verification',
+        );
+      }
+      if (isPaymentConfirmed(r.pulloutPaymentStatus)) {
+        throw new BadRequestException('Pullout fee has already been verified');
+      }
 
       const inv = await em.findOne(InventoryItem, { where: { inquiryId: id } });
       if (!inv) {
@@ -1821,34 +1885,23 @@ export class InquiriesService {
       const before = cloneInquiryForAudit(r);
       r.pulloutFee = parsedPulloutFee.toFixed(2);
       r.pulloutReason = reason;
-      r.status = InquiryStatus.FOR_PULLOUT;
       r.updatedById = user.userId;
-      await em.save(r);
-
-      const beforeInv = cloneInventoryItemForAudit(inv);
-      inv.status = FOR_PULLOUT_INVENTORY_STATUS;
-      inv.updatedById = user.userId;
-      await em.save(inv);
-      await this.inventoryAudit.recordDiff(
-        inv.id,
-        beforeInv,
-        inv,
-        staffActor,
-        em,
-      );
-
-      await this.inquiryAudit.recordDiff(id, before, r, staffActor, em);
+      if (feeRequiresPayment) {
+        r.pulloutPaymentStatus = PAYMENT_STATUS_FOR_VERIFICATION;
+        await em.save(r);
+        await this.inquiryAudit.recordDiff(id, before, r, staffActor, em);
+      } else {
+        r.pulloutPaymentStatus = PAYMENT_STATUS_CONFIRMED;
+        await em.save(r);
+        await this.inquiryAudit.recordDiff(id, before, r, staffActor, em);
+        await this.applyForPulloutTransition(em, id, user, staffActor);
+      }
+      return r.sku;
     });
 
     if (proof?.buffer?.length) {
       const mime = proof.mimetype?.toLowerCase() ?? '';
-      if (!ALLOWED_PULLOUT_PROOF_MIMES.has(mime)) {
-        throw new BadRequestException(
-          `Unsupported file type: ${proof.mimetype || 'unknown'}`,
-        );
-      }
-      const ext =
-        mime === 'application/pdf' ? 'pdf' : extFromMime(mime);
+      const ext = mime === 'application/pdf' ? 'pdf' : extFromMime(mime);
       const key = `inquiries/${id}/pullout-payment-proof/${randomUUID()}.${ext}`;
       await this.media.replaceSingle(
         MediaOwnerType.INQUIRY,
@@ -1860,7 +1913,111 @@ export class InquiriesService {
       );
     }
 
+    if (feeRequiresPayment) {
+      await this.paymentVerification.notifyVerifiers({
+        title: `Verify pullout fee for Inquiry ${sku}`,
+        message: `A pullout fee proof for ${sku} is awaiting verification.`,
+        portalPath: `/portal/inquiries/${id}`,
+        inquiryId: id,
+      });
+    }
+
     return this.findOneForStaff(id);
+  }
+
+  async confirmPulloutPaymentForStaff(
+    id: string,
+    user: JwtUser,
+  ): Promise<StaffInquiryDetail> {
+    const r0 = await this.inquiriesRepo.findOne({ where: { id } });
+    if (!r0) {
+      throw new NotFoundException('Inquiry not found');
+    }
+    if (!isPaymentAwaitingVerification(r0.pulloutPaymentStatus)) {
+      throw new BadRequestException(
+        'This pullout fee is not awaiting payment verification',
+      );
+    }
+    const hasProof = await this.media.hasMedia(
+      MediaOwnerType.INQUIRY,
+      id,
+      MediaPurpose.PULLOUT_PAYMENT_PROOF,
+    );
+    if (!hasProof) {
+      throw new BadRequestException(
+        'Upload proof of payment before verifying this pullout fee',
+      );
+    }
+
+    const label = await this.inquiryAudit.staffActorLabel(user.userId);
+    const staffActor = { userId: user.userId, label };
+
+    await this.inquiriesRepo.manager.transaction(async (em) => {
+      const r = await em.findOne(Inquiry, { where: { id } });
+      if (!r) {
+        throw new NotFoundException('Inquiry not found');
+      }
+      if (!isPaymentAwaitingVerification(r.pulloutPaymentStatus)) {
+        throw new BadRequestException(
+          'This pullout fee is not awaiting payment verification',
+        );
+      }
+      const before = cloneInquiryForAudit(r);
+      r.pulloutPaymentStatus = PAYMENT_STATUS_CONFIRMED;
+      r.updatedById = user.userId;
+      await em.save(r);
+      await this.inquiryAudit.recordDiff(id, before, r, staffActor, em);
+      await this.applyForPulloutTransition(em, id, user, staffActor);
+    });
+
+    return this.findOneForStaff(id);
+  }
+
+  private async applyForPulloutTransition(
+    em: EntityManager,
+    inquiryId: string,
+    user: JwtUser,
+    staffActor: { userId: string; label: string },
+  ): Promise<void> {
+    const r = await em.findOne(Inquiry, { where: { id: inquiryId } });
+    if (!r) {
+      throw new NotFoundException('Inquiry not found');
+    }
+    if (
+      r.status !== InquiryStatus.FOR_PROCESSING &&
+      r.status !== InquiryStatus.PULLOUT_REQUESTED
+    ) {
+      throw new BadRequestException(
+        'Pullout is only available while the inquiry is being processed or has a pullout request',
+      );
+    }
+    const inv = await em.findOne(InventoryItem, {
+      where: { inquiryId },
+    });
+    if (!inv) {
+      throw new BadRequestException(
+        'No linked inventory item was found for this inquiry.',
+      );
+    }
+
+    const before = cloneInquiryForAudit(r);
+    r.status = InquiryStatus.FOR_PULLOUT;
+    r.updatedById = user.userId;
+    await em.save(r);
+
+    const beforeInv = cloneInventoryItemForAudit(inv);
+    inv.status = FOR_PULLOUT_INVENTORY_STATUS;
+    inv.updatedById = user.userId;
+    await em.save(inv);
+    await this.inventoryAudit.recordDiff(
+      inv.id,
+      beforeInv,
+      inv,
+      staffActor,
+      em,
+    );
+
+    await this.inquiryAudit.recordDiff(inquiryId, before, r, staffActor, em);
   }
 
   /** Append images to an existing inquiry (non-terminal statuses only). */

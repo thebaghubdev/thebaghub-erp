@@ -23,6 +23,7 @@ function baseOrder(overrides: Partial<Order> = {}): Order {
     fullPaymentPrice: '10000.00',
     orderTotalPrice: null,
     reservationPaymentProofUploadedAt: null,
+    reservationPaymentStatus: null,
     inventoryItem: { tbhSellingPrice: '50000.00' } as Order['inventoryItem'],
     ...overrides,
   } as Order;
@@ -50,11 +51,12 @@ describe('order-payment.util', () => {
     ).toBe('7000.00');
   });
 
-  it('applies reservation fee credit when reservation proof exists', () => {
+  it('applies reservation fee credit when reservation proof is confirmed', () => {
     const order = baseOrder({
       status: ORDER_STATUS_RESERVATION,
       fullPaymentPrice: '5000.00',
       reservationPaymentProofUploadedAt: new Date('2026-01-01'),
+      reservationPaymentStatus: ORDER_PAYMENT_STATUS_CONFIRMED,
     });
 
     expect(reservationFeeCredit(order)).toBe(5000);
@@ -95,12 +97,34 @@ describe('order-payment.util', () => {
     const order = baseOrder({
       status: ORDER_STATUS_RESERVATION,
       reservationPaymentProofUploadedAt: new Date('2026-01-01'),
+      reservationPaymentStatus: ORDER_PAYMENT_STATUS_CONFIRMED,
     });
     const payments = [
       { amountPaid: '2500.00', status: ORDER_PAYMENT_STATUS_CONFIRMED },
     ] as OrderPayment[];
 
     expect(computeFullPaymentCredit(order, payments)).toBe(7500);
+  });
+
+  it('does not apply reservation fee credit until payment is verified', () => {
+    const order = baseOrder({
+      status: ORDER_STATUS_RESERVATION,
+      reservationPaymentProofUploadedAt: new Date('2026-01-01'),
+      reservationPaymentStatus: ORDER_PAYMENT_STATUS_PENDING,
+    });
+    expect(reservationFeeCredit(order)).toBe(0);
+    expect(computeOrderPaymentRemainingBalance(order, [], 50_000)).toBe(
+      '50000.00',
+    );
+  });
+
+  it('applies reservation fee credit for legacy rows with proof and no status', () => {
+    const order = baseOrder({
+      status: ORDER_STATUS_RESERVATION,
+      reservationPaymentProofUploadedAt: new Date('2026-01-01'),
+      reservationPaymentStatus: null,
+    });
+    expect(reservationFeeCredit(order)).toBe(5000);
   });
 
   it('shows prior full payments only for converted layaway orders', () => {

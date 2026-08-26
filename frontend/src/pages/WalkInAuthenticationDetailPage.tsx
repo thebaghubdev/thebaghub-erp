@@ -5,6 +5,7 @@ import {
   type MetricDraftValue,
   type MetricVerdict,
 } from "../components/MetricAuthCard";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { PhpPriceInput } from "../components/PhpPriceInput";
 import { SearchableSelect } from "../components/SearchableSelect";
 import { usePortalAuth } from "../context/portal-auth";
@@ -16,6 +17,8 @@ import {
   sortMetricsForDisplay,
 } from "../lib/filter-authentication-metrics";
 import { formatPhpDisplay, parsePhpStringToNumber } from "../lib/format-php";
+import { orderPaymentStatusBadgeClass } from "../lib/order-payments";
+import { isPaymentAwaitingVerification } from "../lib/payment-status";
 import { useFeatureAccess } from "../lib/use-feature-access";
 import {
   walkInAuthResultBadgeClassName,
@@ -48,6 +51,7 @@ type DetailPayload = {
   inclusions: string | null;
   paymentAmount: string;
   paymentProof: Array<{ key: string; url: string }>;
+  paymentStatus: string;
   status: string;
   result: string | null;
   salesAssociateName: string | null;
@@ -131,6 +135,7 @@ export function WalkInAuthenticationDetailPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionOk, setActionOk] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [verifyConfirmOpen, setVerifyConfirmOpen] = useState(false);
 
   const [brands, setBrands] = useState<string[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
@@ -168,6 +173,8 @@ export function WalkInAuthenticationDetailPage() {
 
   const myEmployeeId = user?.employee?.id ?? null;
   const feature = useFeatureAccess("walk-in-authentication");
+  const paymentVerification = useFeatureAccess("payment-verification");
+  const canVerifyPayments = paymentVerification.canEdit;
 
   const roleCanEdit = useMemo(() => {
     if (!detail) return false;
@@ -424,6 +431,31 @@ export function WalkInAuthenticationDetailPage() {
     }
   }, [token, id, result, persist, load]);
 
+  const confirmVerifyPayment = useCallback(async () => {
+    if (!token || !id) return;
+    setActionError(null);
+    setActionOk(null);
+    setBusy(true);
+    try {
+      const res = await apiFetch(
+        `/api/walk-in-authentication/${id}/payment-verify`,
+        { method: "POST" },
+        token,
+      );
+      if (!res.ok) throw new Error(await readApiErrorMessage(res));
+      const data = (await res.json()) as DetailPayload;
+      setDetail(data);
+      setVerifyConfirmOpen(false);
+      setActionOk("Payment verified.");
+    } catch (e) {
+      setActionError(
+        e instanceof Error ? e.message : "Could not verify payment",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }, [token, id]);
+
   if (loading) {
     return (
       <div className="p-6 text-sm text-slate-500">Loading walk-in authentication…</div>
@@ -540,6 +572,28 @@ export function WalkInAuthenticationDetailPage() {
         <p className="text-sm text-slate-700 dark:text-slate-300">
           <span className="block text-xs text-slate-500">Payment amount</span>
           {formatPhpDisplay(detail.paymentAmount)}
+        </p>
+        <p className="text-sm text-slate-700 dark:text-slate-300">
+          <span className="block text-xs text-slate-500">Payment status</span>
+          <span className="mt-1 inline-flex items-center gap-2">
+            <span className={orderPaymentStatusBadgeClass(detail.paymentStatus)}>
+              {detail.paymentStatus}
+            </span>
+            {canVerifyPayments &&
+            isPaymentAwaitingVerification(detail.paymentStatus) ? (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  setActionError(null);
+                  setVerifyConfirmOpen(true);
+                }}
+                className="inline-flex items-center rounded-md border border-violet-200 bg-violet-50 px-2 py-1 text-xs font-medium text-violet-900 hover:bg-violet-100 disabled:opacity-50 dark:border-violet-800 dark:bg-violet-950/60 dark:text-violet-100 dark:hover:bg-violet-900/80"
+              >
+                Verify payment
+              </button>
+            ) : null}
+          </span>
         </p>
         <p className="text-sm text-slate-700 dark:text-slate-300">
           <span className="block text-xs text-slate-500">Sales associate</span>
@@ -936,6 +990,21 @@ export function WalkInAuthenticationDetailPage() {
           )}
         </section>
       )}
+
+      <ConfirmDialog
+        open={verifyConfirmOpen}
+        title="Verify walk-in authentication payment?"
+        description="This confirms the proof of payment. The item can then be assigned to an authenticator."
+        confirmLabel="Verify payment"
+        cancelLabel="Cancel"
+        busy={busy}
+        errorMessage={actionError}
+        onCancel={() => {
+          if (busy) return;
+          setVerifyConfirmOpen(false);
+        }}
+        onConfirm={confirmVerifyPayment}
+      />
     </div>
   );
 }

@@ -28,6 +28,11 @@ import { formatOfferTransactionLabel } from "../lib/format-offer-transaction-typ
 import { formatPhpDisplay, parsePhpStringToNumber } from "../lib/format-php";
 import { randomId } from "../lib/random-id";
 import { useFeatureAccess } from "../lib/use-feature-access";
+import {
+  isPaymentAwaitingVerification,
+  isPaymentConfirmed,
+} from "../lib/payment-status";
+import { orderPaymentStatusBadgeClass } from "../lib/order-payments";
 import { isCeoPosition, isConsignmentCoordinatorPosition } from "../lib/employee-position";
 
 type TransactionType = "consignment" | "direct_purchase";
@@ -104,6 +109,7 @@ type InquiryDetail = {
   contractExpirationDate: string | null;
   pulloutFee: string | null;
   pulloutReason: string | null;
+  pulloutPaymentStatus: string | null;
   pulloutPaymentProofUrl: string | null;
   /** Present when an inventory line references this inquiry. */
   linkedInventoryItemId: string | null;
@@ -117,6 +123,7 @@ type InquiryDetail = {
   authenticatedReturnDetail?: AuthenticatedReturnDetail;
   /** When status is 3rd party authentication; from inquiry row. */
   thirdPartyReauthenticationReasons: string | null;
+  thirdPartyPaymentStatus: string | null;
   thirdPartyPaymentProofUrls: string[];
   thirdPartyIssuePhotoUrls: string[];
   /** Visible to consignor; from `item_authentication.reauthentication_notes`. */
@@ -332,6 +339,8 @@ export function InquiryDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { token, user } = usePortalAuth();
   const { canEdit: canEditFeature, readOnly } = useFeatureAccess("inquiries");
+  const paymentVerification = useFeatureAccess("payment-verification");
+  const canVerifyPayments = paymentVerification.canEdit;
   const isCeo = isCeoPosition(user?.employee?.position);
   const isCoordinator = isConsignmentCoordinatorPosition(
     user?.employee?.position,
@@ -366,6 +375,7 @@ export function InquiryDetailPage() {
     | "uploadThirdPartyProof"
     | "markThirdPartyPaid"
     | "pullout"
+    | "verifyPullout"
     | null
   >(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -408,6 +418,8 @@ export function InquiryDetailPage() {
   >([]);
   const [proofDropActive, setProofDropActive] = useState(false);
   const [markPaidConfirmOpen, setMarkPaidConfirmOpen] = useState(false);
+  const [verifyPulloutConfirmOpen, setVerifyPulloutConfirmOpen] =
+    useState(false);
   const [moreActionsOpen, setMoreActionsOpen] = useState(false);
   const moreActionsMenuRef = useRef<HTMLDivElement>(null);
   const repricingModalTitleId = useId();
@@ -1276,6 +1288,31 @@ export function InquiryDetailPage() {
     }
   }, [id, token]);
 
+  const confirmVerifyPullout = useCallback(async () => {
+    if (!id || !token) return;
+    setActionError(null);
+    setActionBusy("verifyPullout");
+    try {
+      const res = await apiFetch(
+        `/api/inquiries/${id}/pullout-payment-verify`,
+        { method: "POST" },
+        token,
+      );
+      if (!res.ok) throw new Error(await readApiErrorMessage(res));
+      const data = (await res.json()) as InquiryDetail;
+      setDetail(data);
+      setVerifyPulloutConfirmOpen(false);
+    } catch (err) {
+      setActionError(
+        err instanceof Error
+          ? err.message
+          : "Could not verify pullout payment",
+      );
+    } finally {
+      setActionBusy(null);
+    }
+  }, [id, token]);
+
   const submitPullout = useCallback(
     async (e: FormEvent) => {
       e.preventDefault();
@@ -1288,6 +1325,10 @@ export function InquiryDetailPage() {
       const reason = pulloutReasonDraft.trim();
       if (!reason) {
         setActionError("Enter a reason for pullout.");
+        return;
+      }
+      if (fee > 0 && !pulloutProof) {
+        setActionError("Upload proof of payment when a pullout fee is charged.");
         return;
       }
       setActionError(null);
@@ -1336,7 +1377,20 @@ export function InquiryDetailPage() {
   const showContractRenewalActions =
     detail != null && isForContractRenewalStatus(detail.status);
   const showPulloutAction =
-    detail != null && canStaffPulloutInquiry(detail.status);
+    detail != null &&
+    canStaffPulloutInquiry(detail.status) &&
+    !isPaymentAwaitingVerification(detail.pulloutPaymentStatus) &&
+    !isPaymentConfirmed(detail.pulloutPaymentStatus);
+  const showPulloutVerify =
+    detail != null &&
+    isPaymentAwaitingVerification(detail.pulloutPaymentStatus);
+  const showThirdPartyVerify =
+    detail != null &&
+    isThirdPartyAuthPaymentFlowStatus(detail.status) &&
+    detail.status.trim().toLowerCase() ===
+      "authenticated_requested_for_reauthentication" &&
+    isPaymentAwaitingVerification(detail.thirdPartyPaymentStatus) &&
+    detail.thirdPartyPaymentProofUrls.length > 0;
   const showPrintContractAction =
     detail != null &&
     isForProcessingStatus(detail.status) &&
@@ -1348,6 +1402,7 @@ export function InquiryDetailPage() {
         showAvailableForPurchaseActions ||
         showContractRenewalActions ||
         showPulloutAction)) ||
+    (canVerifyPayments && (showThirdPartyVerify || showPulloutVerify)) ||
     showPrintContractAction;
 
   return (
@@ -1648,41 +1703,38 @@ export function InquiryDetailPage() {
                       showThirdPartyActions &&
                       detail.status.trim().toLowerCase() ===
                         "authenticated_requested_for_reauthentication" ? (
-                        <>
-                          <li role="none">
-                            <button
-                              type="button"
-                              role="menuitem"
-                              disabled={actionBusy !== null}
-                              onClick={() => {
-                                setActionError(null);
-                                setMoreActionsOpen(false);
-                                setProofPaymentModalOpen(true);
-                              }}
-                              className="flex w-full items-center px-3 py-2 text-left text-sm text-slate-800 hover:bg-slate-50 disabled:opacity-50 dark:text-slate-100 dark:hover:bg-slate-800"
-                            >
-                              Upload proof of payment
-                            </button>
-                          </li>
-                          <li role="none">
-                            <button
-                              type="button"
-                              role="menuitem"
-                              disabled={
-                                actionBusy !== null ||
-                                detail.thirdPartyPaymentProofUrls.length === 0
-                              }
-                              onClick={() => {
-                                setActionError(null);
-                                setMoreActionsOpen(false);
-                                setMarkPaidConfirmOpen(true);
-                              }}
-                              className="flex w-full items-center px-3 py-2 text-left text-sm text-slate-800 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-slate-100 dark:hover:bg-slate-800"
-                            >
-                              Mark authentication fee as paid
-                            </button>
-                          </li>
-                        </>
+                        <li role="none">
+                          <button
+                            type="button"
+                            role="menuitem"
+                            disabled={actionBusy !== null}
+                            onClick={() => {
+                              setActionError(null);
+                              setMoreActionsOpen(false);
+                              setProofPaymentModalOpen(true);
+                            }}
+                            className="flex w-full items-center px-3 py-2 text-left text-sm text-slate-800 hover:bg-slate-50 disabled:opacity-50 dark:text-slate-100 dark:hover:bg-slate-800"
+                          >
+                            Upload proof of payment
+                          </button>
+                        </li>
+                      ) : null}
+                      {canVerifyPayments && showThirdPartyVerify ? (
+                        <li role="none">
+                          <button
+                            type="button"
+                            role="menuitem"
+                            disabled={actionBusy !== null}
+                            onClick={() => {
+                              setActionError(null);
+                              setMoreActionsOpen(false);
+                              setMarkPaidConfirmOpen(true);
+                            }}
+                            className="flex w-full items-center px-3 py-2 text-left text-sm text-slate-800 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-slate-100 dark:hover:bg-slate-800"
+                          >
+                            Verify authentication fee
+                          </button>
+                        </li>
                       ) : null}
                       {canEditFeature && showThirdPartyActions ? (
                         <li role="none">
@@ -1723,6 +1775,23 @@ export function InquiryDetailPage() {
                             className="flex w-full items-center px-3 py-2 text-left text-sm text-slate-800 hover:bg-slate-50 disabled:opacity-50 dark:text-slate-100 dark:hover:bg-slate-800"
                           >
                             Print Contract
+                          </button>
+                        </li>
+                      ) : null}
+                      {canVerifyPayments && showPulloutVerify ? (
+                        <li role="none">
+                          <button
+                            type="button"
+                            role="menuitem"
+                            disabled={actionBusy !== null}
+                            onClick={() => {
+                              setActionError(null);
+                              setMoreActionsOpen(false);
+                              setVerifyPulloutConfirmOpen(true);
+                            }}
+                            className="flex w-full items-center px-3 py-2 text-left text-sm text-slate-800 hover:bg-slate-50 disabled:opacity-50 dark:text-slate-100 dark:hover:bg-slate-800"
+                          >
+                            Verify pullout fee
                           </button>
                         </li>
                       ) : null}
@@ -2053,6 +2122,30 @@ export function InquiryDetailPage() {
                 <p className="mt-4 text-xs font-medium text-slate-600 dark:text-slate-400">
                   Proof of payment
                 </p>
+                {detail.thirdPartyPaymentStatus ? (
+                  <p className="mt-1 flex flex-wrap items-center gap-2">
+                    <span
+                      className={orderPaymentStatusBadgeClass(
+                        detail.thirdPartyPaymentStatus,
+                      )}
+                    >
+                      {detail.thirdPartyPaymentStatus}
+                    </span>
+                    {canVerifyPayments && showThirdPartyVerify ? (
+                      <button
+                        type="button"
+                        disabled={actionBusy !== null}
+                        onClick={() => {
+                          setActionError(null);
+                          setMarkPaidConfirmOpen(true);
+                        }}
+                        className="inline-flex items-center rounded-md border border-violet-200 bg-violet-50 px-2 py-1 text-xs font-medium text-violet-900 hover:bg-violet-100 disabled:opacity-50 dark:border-violet-800 dark:bg-violet-950/60 dark:text-violet-100 dark:hover:bg-violet-900/80"
+                      >
+                        Verify payment
+                      </button>
+                    ) : null}
+                  </p>
+                ) : null}
                 {detail.thirdPartyPaymentProofUrls.length > 0 ? (
                   <ul className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
                     {detail.thirdPartyPaymentProofUrls.map((url, i) => (
@@ -2143,6 +2236,35 @@ export function InquiryDetailPage() {
                       </dt>
                       <dd className="tabular-nums text-slate-900 dark:text-slate-100">
                         {formatPhpDisplay(detail.pulloutFee)}
+                      </dd>
+                    </div>
+                  ) : null}
+                  {detail.pulloutPaymentStatus ? (
+                    <div>
+                      <dt className="text-slate-500 dark:text-slate-400">
+                        Pullout payment
+                      </dt>
+                      <dd>
+                        <span
+                          className={orderPaymentStatusBadgeClass(
+                            detail.pulloutPaymentStatus,
+                          )}
+                        >
+                          {detail.pulloutPaymentStatus}
+                        </span>
+                        {canVerifyPayments && showPulloutVerify ? (
+                          <button
+                            type="button"
+                            disabled={actionBusy !== null}
+                            onClick={() => {
+                              setActionError(null);
+                              setVerifyPulloutConfirmOpen(true);
+                            }}
+                            className="ml-2 inline-flex items-center rounded-md border border-violet-200 bg-violet-50 px-2 py-1 text-xs font-medium text-violet-900 hover:bg-violet-100 disabled:opacity-50 dark:border-violet-800 dark:bg-violet-950/60 dark:text-violet-100 dark:hover:bg-violet-900/80"
+                          >
+                            Verify payment
+                          </button>
+                        ) : null}
                       </dd>
                     </div>
                   ) : null}
@@ -3238,8 +3360,10 @@ export function InquiryDetailPage() {
                       Pullout item
                     </h2>
                     <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-                      Record the early pullout fee and reason. The inquiry and
-                      linked inventory item will move to For Pullout.
+                      Record the early pullout fee and reason. If a fee is
+                      charged, upload proof of payment. Payment verification
+                      staff must confirm it before the item moves to For
+                      Pullout. A ₱0 fee proceeds immediately.
                     </p>
                     <form
                       onSubmit={(e) => void submitPullout(e)}
@@ -3714,9 +3838,9 @@ export function InquiryDetailPage() {
 
       <ConfirmDialog
         open={markPaidConfirmOpen}
-        title="Mark 3rd party authentication fee as paid?"
-        description="This will move the inquiry and inventory item to For 3rd-party Authentication."
-        confirmLabel="Proceed"
+        title="Verify 3rd party authentication fee?"
+        description="This confirms the proof of payment and moves the inquiry and inventory item to For 3rd-party Authentication."
+        confirmLabel="Verify payment"
         cancelLabel="Cancel"
         busy={actionBusy === "markThirdPartyPaid"}
         errorMessage={actionError}
@@ -3726,6 +3850,22 @@ export function InquiryDetailPage() {
           setMarkPaidConfirmOpen(false);
         }}
         onConfirm={confirmMarkThirdPartyPaid}
+      />
+
+      <ConfirmDialog
+        open={verifyPulloutConfirmOpen}
+        title="Verify pullout fee?"
+        description="This confirms the proof of payment and moves the inquiry and inventory item to For Pullout."
+        confirmLabel="Verify payment"
+        cancelLabel="Cancel"
+        busy={actionBusy === "verifyPullout"}
+        errorMessage={actionError}
+        onCancel={() => {
+          if (actionBusy !== null) return;
+          setActionError(null);
+          setVerifyPulloutConfirmOpen(false);
+        }}
+        onConfirm={confirmVerifyPullout}
       />
 
       <ConfirmDialog

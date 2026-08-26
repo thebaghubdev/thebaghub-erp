@@ -98,6 +98,15 @@ export class Order extends AuditedEntity {
   })
   reservationPaymentProofUploadedByUserId: string | null;
 
+  /** Reservation fee proof: `For payment verification` until staff confirms. */
+  @Column({
+    name: 'reservation_payment_status',
+    type: 'varchar',
+    length: 32,
+    nullable: true,
+  })
+  reservationPaymentStatus: string | null;
+
   @Column({
     name: 'full_payment_proof_uploaded_at',
     type: 'timestamptz',
