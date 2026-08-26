@@ -52,6 +52,14 @@ export type TaskRow = {
   attachments: TaskAttachment[]
 }
 
+export const SYSTEM_TASK_CREATOR_NAME = 'System'
+
+export function taskFromLabel(task: TaskRow): string | null {
+  if (task.createdByName?.trim()) return task.createdByName.trim()
+  if (task.createdById == null) return SYSTEM_TASK_CREATOR_NAME
+  return null
+}
+
 export type TaskAssignee = {
   id: string
   firstName: string

@@ -1664,7 +1664,6 @@ export class InventoryService {
       if (!createTask) continue;
       void this.tasks
         .createAssigned({
-          createdByUserId: actor.userId,
           assigneeId: dto.employeeId,
           title: `Item ${sku} is assigned to you for authentication`,
           description: portalPageUrl(

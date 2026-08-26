@@ -26,7 +26,11 @@ import {
   taskAttachmentStorageKey,
   toTaskAttachmentUpload,
 } from './task-attachment.util';
-import { TASK_SEVERITY_LABELS } from './task.constants';
+import {
+  SYSTEM_TASK_CREATOR_NAME,
+  TASK_SEVERITY_LABELS,
+  isSystemCreatedTask,
+} from './task.constants';
 
 export type TaskAttachment = {
   key: string;
@@ -84,7 +88,7 @@ export class TasksService {
       where: { assigneeId: targetId },
       order: { sortOrder: 'ASC', createdAt: 'ASC' },
     });
-    return this.toApiRows(rows, user.userId);
+    return this.toApiRows(rows, actor);
   }
 
   async listAssignees(): Promise<TaskAssigneeRow[]> {
@@ -137,13 +141,12 @@ export class TasksService {
         });
     }
 
-    const [row] = await this.toApiRows([saved], user.userId);
+    const [row] = await this.toApiRows([saved], actor);
     return row;
   }
 
-  /** Create a task without board-access checks or a second assignee notification. */
+  /** Create a system-generated task without board-access checks or a second assignee notification. */
   async createAssigned(input: {
-    createdByUserId: string;
     assigneeId: string;
     title: string;
     description?: string | null;
@@ -160,7 +163,7 @@ export class TasksService {
       description: input.description?.trim() || null,
       dueDate: input.dueDate ?? null,
       severity: input.severity,
-      createdByUserId: input.createdByUserId,
+      createdByUserId: null,
     });
   }
 
@@ -200,7 +203,7 @@ export class TasksService {
     }
     task.updatedById = user.userId;
     const saved = await this.tasksRepo.save(task);
-    const [row] = await this.toApiRows([saved], user.userId);
+    const [row] = await this.toApiRows([saved], actor);
     return row;
   }
 
@@ -231,17 +234,22 @@ export class TasksService {
     await this.tasksRepo.save(tasks);
     return this.toApiRows(
       tasks.sort((a, b) => a.sortOrder - b.sortOrder),
-      user.userId,
+      actor,
     );
   }
 
   async remove(user: JwtUser, id: string): Promise<void> {
+    const actor = await this.requireEmployee(user.userId);
     const task = await this.tasksRepo.findOne({ where: { id } });
     if (!task) {
       throw new NotFoundException('Task not found');
     }
-    if (task.createdById !== user.userId) {
-      throw new ForbiddenException('Only the creator can delete this task');
+    if (!this.canDeleteTask(task, user.userId, actor.id)) {
+      throw new ForbiddenException(
+        isSystemCreatedTask(task)
+          ? 'Only the assigned staff can delete this task'
+          : 'Only the creator can delete this task',
+      );
     }
     await this.media.deleteByOwner(
       MediaOwnerType.TASK,
@@ -300,8 +308,19 @@ export class TasksService {
 
     task.updatedById = user.userId;
     const saved = await this.tasksRepo.save(task);
-    const [row] = await this.toApiRows([saved], user.userId);
+    const [row] = await this.toApiRows([saved], actor);
     return row;
+  }
+
+  private canDeleteTask(
+    task: Task,
+    actorUserId: string,
+    actorEmployeeId: string,
+  ): boolean {
+    if (task.createdById === actorUserId) {
+      return true;
+    }
+    return isSystemCreatedTask(task) && task.assigneeId === actorEmployeeId;
   }
 
   private async insertPendingTask(input: {
@@ -310,7 +329,7 @@ export class TasksService {
     description: string | null;
     dueDate: string | null;
     severity: Task['severity'];
-    createdByUserId: string;
+    createdByUserId: string | null;
   }): Promise<Task> {
     const maxOrder = await this.tasksRepo
       .createQueryBuilder('t')
@@ -359,7 +378,7 @@ export class TasksService {
 
   private async toApiRows(
     tasks: Task[],
-    actorUserId: string,
+    actor: Employee,
   ): Promise<TaskApiRow[]> {
     const creatorUserIds = [
       ...new Set(
@@ -395,23 +414,28 @@ export class TasksService {
       attachmentsByTaskId.set(row.ownerId, list);
     }
 
-    return tasks.map((t) => ({
-      id: t.id,
-      assigneeId: t.assigneeId,
-      title: t.title,
-      description: t.description,
-      dueDate: this.formatDateOnly(t.dueDate),
-      severity: t.severity,
-      progress: t.progress,
-      sortOrder: t.sortOrder,
-      createdAt: t.createdAt.toISOString(),
-      createdById: t.createdById,
-      createdByName: t.createdById
-        ? (nameByUserId.get(t.createdById) ?? null)
-        : null,
-      canDelete: t.createdById === actorUserId,
-      attachments: attachmentsByTaskId.get(t.id) ?? [],
-    }));
+    return tasks.map((t) => {
+      const systemCreated = isSystemCreatedTask(t);
+      return {
+        id: t.id,
+        assigneeId: t.assigneeId,
+        title: t.title,
+        description: t.description,
+        dueDate: this.formatDateOnly(t.dueDate),
+        severity: t.severity,
+        progress: t.progress,
+        sortOrder: t.sortOrder,
+        createdAt: t.createdAt.toISOString(),
+        createdById: systemCreated ? null : t.createdById,
+        createdByName: systemCreated
+          ? SYSTEM_TASK_CREATOR_NAME
+          : t.createdById
+            ? (nameByUserId.get(t.createdById) ?? null)
+            : null,
+        canDelete: this.canDeleteTask(t, actor.userId, actor.id),
+        attachments: attachmentsByTaskId.get(t.id) ?? [],
+      };
+    });
   }
 
   private formatDateOnly(value: string | Date | null): string | null {

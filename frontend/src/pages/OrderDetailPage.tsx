@@ -1039,7 +1039,7 @@ export function OrderDetailPage() {
         </p>
       ) : null}
 
-      {!canEditOrder && !feature.readOnly ? (
+      {!canEditOrder && !feature.readOnly && !canVerifyPayments ? (
         <p
           className="rounded-xl border border-amber-200/80 bg-amber-50/90 px-4 py-3 text-sm leading-relaxed text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/25 dark:text-amber-100"
           role="status"

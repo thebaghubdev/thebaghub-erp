@@ -31,6 +31,7 @@ import {
   boardToReorderItems,
   emptyBoard,
   formatTaskDueDate,
+  taskFromLabel,
   tasksToBoard,
   todayManila,
   type TaskAssignee,
@@ -544,6 +545,7 @@ function TaskCard({
   const overdue = Boolean(
     task.dueDate && task.progress !== 'completed' && task.dueDate < today,
   )
+  const fromLabel = taskFromLabel(task)
   return (
     <article
       className={`rounded-lg border border-slate-200 border-l-4 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900 ${SEVERITY_CARD[task.severity]} ${
@@ -581,9 +583,9 @@ function TaskCard({
             Due {formatTaskDueDate(task.dueDate)}
           </p>
         ) : null}
-        {task.createdByName ? (
+        {fromLabel ? (
           <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
-            From {task.createdByName}
+            From {fromLabel}
           </p>
         ) : null}
         {(task.attachments ?? []).length > 0 ? (
@@ -683,6 +685,8 @@ function TaskFormDialog({
   }, [open, busy, deleteBusy, confirmDelete, onClose])
 
   if (!open || typeof document === 'undefined') return null
+
+  const fromLabel = task ? taskFromLabel(task) : null
 
   const addAttachmentFiles = (fileList: FileList | File[]) => {
     const list = Array.from(fileList).filter(isAcceptedAttachment)
@@ -838,6 +842,11 @@ function TaskFormDialog({
         >
           {task ? 'Edit task' : 'Create task'}
         </h2>
+        {fromLabel ? (
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+            From {fromLabel}
+          </p>
+        ) : null}
         <div className="mt-4 space-y-3">
           <label className="block text-sm">
             <span className="mb-1 block font-medium text-slate-700 dark:text-slate-300">

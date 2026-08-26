@@ -544,7 +544,6 @@ export class OrdersService {
   }
 
   private async notifyPaymentVerificationNeeded(input: {
-    createdByUserId: string;
     order: Pick<Order, 'id' | 'orderNumber'>;
   }): Promise<void> {
     const verifierIds = await this.featureAccess.findEmployeeIdsWithEditAccess(
@@ -578,7 +577,6 @@ export class OrdersService {
         );
       void this.tasks
         .createAssigned({
-          createdByUserId: input.createdByUserId,
           assigneeId,
           title,
           description,
@@ -713,7 +711,6 @@ export class OrdersService {
       if (!createTask) continue;
       void this.tasks
         .createAssigned({
-          createdByUserId: actor.userId,
           assigneeId: dto.employeeId,
           title: `Order #${orderNumber} is assigned to you`,
           description: portalPageUrl(this.config, `/portal/orders/${orderId}`),
@@ -2850,7 +2847,6 @@ export class OrdersService {
 
     if (!isInstallmentAwaitingVerification(previousStatus)) {
       await this.notifyPaymentVerificationNeeded({
-        createdByUserId: user.userId,
         order,
       });
     }
@@ -2924,7 +2920,6 @@ export class OrdersService {
 
     if (!isInstallmentAwaitingVerification(previousStatus)) {
       await this.notifyPaymentVerificationNeeded({
-        createdByUserId: user.userId,
         order,
       });
     }
@@ -2957,7 +2952,6 @@ export class OrdersService {
 
     await this.createOrderPaymentWithProof(order, user, proofFile, detailsDto);
     await this.notifyPaymentVerificationNeeded({
-      createdByUserId: user.userId,
       order,
     });
     return this.findOneForStaff(orderId);
@@ -2985,7 +2979,6 @@ export class OrdersService {
 
     await this.createOrderPaymentWithProof(order, user, proofFile);
     await this.notifyPaymentVerificationNeeded({
-      createdByUserId: user.userId,
       order,
     });
     return this.findOneForClient(user, orderId);

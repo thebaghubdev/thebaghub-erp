@@ -19,3 +19,22 @@ export const TASK_SEVERITY_LABELS: Record<TaskSeverity, string> = {
   moderate: 'Moderate',
   low: 'Low',
 };
+
+export const SYSTEM_TASK_CREATOR_NAME = 'System';
+
+/** Titles used by `TasksService.createAssigned` (assignment + payment verification). */
+export function isSystemGeneratedTaskTitle(title: string): boolean {
+  const t = title.trim();
+  return (
+    /^Verify payment for Order #\d+$/u.test(t) ||
+    /^Order #\d+ is assigned to you$/u.test(t) ||
+    /^Item .+ is assigned to you for authentication$/u.test(t)
+  );
+}
+
+export function isSystemCreatedTask(task: {
+  createdById: string | null;
+  title: string;
+}): boolean {
+  return task.createdById == null || isSystemGeneratedTaskTitle(task.title);
+}
