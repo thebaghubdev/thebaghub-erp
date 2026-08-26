@@ -110,15 +110,25 @@ html.dark .tbh-messenger-sidebar-header {
   padding-inline-end: 3.25rem;
 }
 
-.tbh-messenger-media-toggle {
+.tbh-messenger-chat-header--with-add .str-chat__channel-header {
+  padding-inline-end: 5.75rem;
+}
+
+.tbh-messenger-header-actions {
   position: absolute;
   right: 0.75rem;
   top: 50%;
   z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  transform: translateY(-50%);
+}
+
+.tbh-messenger-header-action {
   display: inline-flex;
   height: 2.25rem;
   width: 2.25rem;
-  transform: translateY(-50%);
   align-items: center;
   justify-content: center;
   border: 0;
@@ -128,18 +138,18 @@ html.dark .tbh-messenger-sidebar-header {
   cursor: pointer;
 }
 
-.tbh-messenger-media-toggle:hover,
-.tbh-messenger-media-toggle[aria-pressed="true"] {
+.tbh-messenger-header-action:hover,
+.tbh-messenger-header-action[aria-pressed="true"] {
   background: #f1f5f9;
   color: #0f172a;
 }
 
-html.dark .tbh-messenger-media-toggle {
+html.dark .tbh-messenger-header-action {
   color: #cbd5e1;
 }
 
-html.dark .tbh-messenger-media-toggle:hover,
-html.dark .tbh-messenger-media-toggle[aria-pressed="true"] {
+html.dark .tbh-messenger-header-action:hover,
+html.dark .tbh-messenger-header-action[aria-pressed="true"] {
   background: #1e293b;
   color: #f8fafc;
 }

@@ -1,6 +1,15 @@
-import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { JwtUser } from '../auth/jwt-user';
 import { StaffOnlyGuard } from '../auth/staff-only.guard';
+import { AddConversationMembersDto } from './dto/add-conversation-members.dto';
 import { CreateConversationDto } from './dto/create-conversation.dto';
 import { MessagingService } from './messaging.service';
 
@@ -25,5 +34,18 @@ export class MessagingController {
     @Body() dto: CreateConversationDto,
   ) {
     return this.messaging.createConversation(req.user.userId, dto);
+  }
+
+  @Post('conversations/:channelId/members')
+  addConversationMembers(
+    @Req() req: { user: JwtUser },
+    @Param('channelId') channelId: string,
+    @Body() dto: AddConversationMembersDto,
+  ) {
+    return this.messaging.addConversationMembers(
+      req.user.userId,
+      channelId,
+      dto,
+    );
   }
 }

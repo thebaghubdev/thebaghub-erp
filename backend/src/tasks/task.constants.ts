@@ -22,13 +22,14 @@ export const TASK_SEVERITY_LABELS: Record<TaskSeverity, string> = {
 
 export const SYSTEM_TASK_CREATOR_NAME = 'System';
 
-/** Titles used by `TasksService.createAssigned` (assignment + payment verification). */
+/** Titles used by `TasksService.createAssigned` (system-generated assignment tasks). */
 export function isSystemGeneratedTaskTitle(title: string): boolean {
   const t = title.trim();
   return (
     /^Verify payment for Order #\d+$/u.test(t) ||
     /^Order #\d+ is assigned to you$/u.test(t) ||
-    /^Item .+ is assigned to you for authentication$/u.test(t)
+    /^Item .+ is assigned to you for authentication$/u.test(t) ||
+    /^Item .+ is ready for editing$/u.test(t)
   );
 }
 

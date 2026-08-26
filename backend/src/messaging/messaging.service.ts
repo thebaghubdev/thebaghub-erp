@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -11,6 +12,7 @@ import { StreamChat } from 'stream-chat';
 import type { Channel, ChannelFilters, UserResponse } from 'stream-chat';
 import { In, Not, Repository } from 'typeorm';
 import { Employee } from '../employees/entities/employee.entity';
+import { AddConversationMembersDto } from './dto/add-conversation-members.dto';
 import { CreateConversationDto } from './dto/create-conversation.dto';
 
 export type MessagingEmployeeOption = {
@@ -128,6 +130,85 @@ export class MessagingService {
       throw new BadRequestException('Group name is required');
     }
     return this.createGroupChannel(stream, userId, memberIds, name);
+  }
+
+  async addConversationMembers(
+    userId: string,
+    channelId: string,
+    dto: AddConversationMembersDto,
+  ): Promise<MessagingChannelRef> {
+    const actor = await this.requireEmployee(userId);
+    const id = channelId.trim();
+    if (!id) {
+      throw new NotFoundException('Conversation not found');
+    }
+
+    const stream = this.getClient();
+    const existing = await this.queryChannelsOrThrow(stream, {
+      type: 'messaging',
+      id,
+    });
+    const channel = existing[0];
+    if (!channel) {
+      throw new NotFoundException('Conversation not found');
+    }
+    if (channel.data?.kind !== 'group') {
+      throw new BadRequestException(
+        'Staff can only be added to group conversations',
+      );
+    }
+    const currentMemberIds = new Set(
+      Object.keys(channel.state.members ?? {}),
+    );
+    if (!currentMemberIds.has(userId)) {
+      throw new ForbiddenException(
+        'Only members of this conversation can add staff',
+      );
+    }
+
+    const memberIds = [
+      ...new Set(
+        dto.memberUserIds.filter(
+          (memberId) =>
+            memberId !== userId && !currentMemberIds.has(memberId),
+        ),
+      ),
+    ];
+    if (memberIds.length === 0) {
+      throw new BadRequestException(
+        'Select at least one employee who is not already in this conversation',
+      );
+    }
+
+    const members = await this.employeesRepo.find({
+      where: { userId: In(memberIds) },
+      relations: ['user'],
+    });
+    if (members.length !== memberIds.length) {
+      throw new BadRequestException('One or more employees were not found');
+    }
+    if (members.some((e) => e.user?.isAdmin)) {
+      throw new BadRequestException(
+        'Administrator accounts cannot be added to conversations',
+      );
+    }
+
+    try {
+      await stream.upsertUsers(members.map((e) => this.toStreamUser(e)));
+    } catch (err) {
+      this.throwStreamError(err);
+    }
+
+    const addedNames = members.map((e) => this.displayName(e)).join(', ');
+    try {
+      await channel.addMembers(memberIds, {
+        text: `${this.displayName(actor)} added ${addedNames} to the group.`,
+        user_id: userId,
+      });
+    } catch (err) {
+      this.throwStreamError(err);
+    }
+    return this.toChannelRef(channel);
   }
 
   private async createDirectChannel(

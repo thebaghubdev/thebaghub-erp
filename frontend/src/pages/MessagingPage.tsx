@@ -1,10 +1,12 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Channel } from "stream-chat";
 import {
+  AttachmentSelector,
   Channel as StreamChannel,
   ChannelHeader,
   ChannelList,
   Chat,
+  defaultAttachmentSelectorActionSet,
   defaultMessageActionSet,
   MessageActions,
   MessageComposer,
@@ -20,6 +22,7 @@ import {
   ConversationMediaPanel,
   SharedMediaIcon,
 } from "../components/ConversationMediaPanel";
+import { AddGroupMembersModal } from "../components/AddGroupMembersModal";
 import {
   CreateConversationModal,
   readApiMessage,
@@ -91,6 +94,11 @@ const messagingMessageActionSet = defaultMessageActionSet.filter((action) => {
   return !HIDDEN_MESSAGE_ACTIONS.has(action.type);
 });
 
+const messagingAttachmentSelectorActionSet =
+  defaultAttachmentSelectorActionSet.filter(
+    (action) => action.type !== "selectCommand",
+  );
+
 function HiddenUi() {
   return null;
 }
@@ -99,11 +107,20 @@ function MessagingMessageActions() {
   return <MessageActions messageActionSet={messagingMessageActionSet} />;
 }
 
+function MessagingAttachmentSelector() {
+  return (
+    <AttachmentSelector
+      attachmentSelectorActionSet={messagingAttachmentSelectorActionSet}
+    />
+  );
+}
+
 const messagingComponentOverrides = {
   ChannelListHeader: HiddenUi,
   ChannelListItemActionButtons: HiddenUi,
   MessageActions: MessagingMessageActions,
   MessageRepliesCountButton: HiddenUi,
+  AttachmentSelector: MessagingAttachmentSelector,
 };
 
 function EmptyChannelPlaceholder() {
@@ -120,25 +137,116 @@ function EmptyChannelPlaceholder() {
   );
 }
 
-function ConversationWorkspace() {
+function AddStaffIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      xmlns="http://www.w3.org/2000/svg"
+      fill="none"
+      viewBox="0 0 24 24"
+      strokeWidth={1.5}
+      stroke="currentColor"
+      aria-hidden
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M18 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zM3 19.235v-.11a6.375 6.375 0 0112.75 0v.109A12.318 12.318 0 019.374 21c-2.331 0-4.512-.645-6.374-1.766z"
+      />
+    </svg>
+  );
+}
+
+function ConversationWorkspace({ accessToken }: { accessToken: string }) {
   const { channel } = useChannelStateContext();
   const [mediaOpen, setMediaOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  const [addBusy, setAddBusy] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+
+  const isGroup = channel.data?.kind === "group";
+  const memberUserIds = Object.keys(channel.state.members ?? {});
+
+  useEffect(() => {
+    setAddOpen(false);
+    setAddError(null);
+    setAddBusy(false);
+  }, [channel.cid]);
+
+  const closeAdd = useCallback(() => {
+    if (addBusy) return;
+    setAddOpen(false);
+    setAddError(null);
+  }, [addBusy]);
+
+  const onAddMembers = useCallback(
+    async (memberUserIdsToAdd: string[]) => {
+      const channelId = channel.id;
+      if (!channelId) return;
+      setAddBusy(true);
+      setAddError(null);
+      try {
+        const res = await apiFetch(
+          `/api/messaging/conversations/${encodeURIComponent(channelId)}/members`,
+          {
+            method: "POST",
+            body: JSON.stringify({ memberUserIds: memberUserIdsToAdd }),
+          },
+          accessToken,
+        );
+        const body = await res.json().catch(() => null);
+        if (!res.ok) {
+          setAddError(readApiMessage(body, "Could not add staff"));
+          return;
+        }
+        await channel.query({ state: true, watch: true });
+        setAddOpen(false);
+      } catch {
+        setAddError("Could not add staff");
+      } finally {
+        setAddBusy(false);
+      }
+    },
+    [accessToken, channel],
+  );
 
   return (
     <>
       <Window>
-        <div className="tbh-messenger-chat-header">
+        <div
+          className={
+            isGroup
+              ? "tbh-messenger-chat-header tbh-messenger-chat-header--with-add"
+              : "tbh-messenger-chat-header"
+          }
+        >
           <ChannelHeader />
-          <button
-            type="button"
-            className="tbh-messenger-media-toggle"
-            aria-pressed={mediaOpen}
-            aria-label={mediaOpen ? "Hide shared media" : "Show shared media"}
-            title={mediaOpen ? "Hide shared media" : "Show shared media"}
-            onClick={() => setMediaOpen((open) => !open)}
-          >
-            <SharedMediaIcon className="h-5 w-5" />
-          </button>
+          <div className="tbh-messenger-header-actions">
+            {isGroup ? (
+              <button
+                type="button"
+                className="tbh-messenger-header-action"
+                aria-label="Add staff"
+                title="Add staff"
+                onClick={() => {
+                  setAddError(null);
+                  setAddOpen(true);
+                }}
+              >
+                <AddStaffIcon className="h-5 w-5" />
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="tbh-messenger-header-action"
+              aria-pressed={mediaOpen}
+              aria-label={mediaOpen ? "Hide shared media" : "Show shared media"}
+              title={mediaOpen ? "Hide shared media" : "Show shared media"}
+              onClick={() => setMediaOpen((open) => !open)}
+            >
+              <SharedMediaIcon className="h-5 w-5" />
+            </button>
+          </div>
         </div>
         <MessageList />
         <MessageComposer />
@@ -147,6 +255,17 @@ function ConversationWorkspace() {
         <ConversationMediaPanel
           channel={channel}
           onClose={() => setMediaOpen(false)}
+        />
+      ) : null}
+      {isGroup ? (
+        <AddGroupMembersModal
+          open={addOpen}
+          token={accessToken}
+          excludedUserIds={memberUserIds}
+          busy={addBusy}
+          errorMessage={addError}
+          onCancel={closeAdd}
+          onAdd={onAddMembers}
         />
       ) : null}
     </>
@@ -290,7 +409,7 @@ function MessagingShell({
           />
         </aside>
         <StreamChannel EmptyPlaceholder={<EmptyChannelPlaceholder />}>
-          <ConversationWorkspace />
+          <ConversationWorkspace accessToken={accessToken} />
         </StreamChannel>
       </WithComponents>
       <CreateConversationModal

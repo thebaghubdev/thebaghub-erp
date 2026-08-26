@@ -64,7 +64,10 @@ import { CreateItemPostingDto } from './dto/create-item-posting.dto';
 import { ScheduleItemPostingsDto } from './dto/schedule-item-postings.dto';
 import { InquiryStatus } from '../enums/inquiry-status.enum';
 import { InquiriesService } from '../inquiries/inquiries.service';
-import { CONSIGNMENT_COORDINATOR_POSITION } from '../notifications/notification.constants';
+import {
+  CONSIGNMENT_COORDINATOR_POSITION,
+  MARKETING_ADMIN_POSITION,
+} from '../notifications/notification.constants';
 import { NotificationsService } from '../notifications/notifications.service';
 import { TasksService } from '../tasks/tasks.service';
 import { Client } from '../clients/entities/client.entity';
@@ -1963,6 +1966,14 @@ export class InventoryService {
       item,
       await this.inventoryAudit.staffActor(actorUserId),
     );
+
+    if (
+      beforeInv.status !== FOR_EDITING_INVENTORY_STATUS &&
+      item.status === FOR_EDITING_INVENTORY_STATUS
+    ) {
+      this.notifyMarketingAdminsItemForEditing(item);
+    }
+
     return {
       id: item.id,
       tbhSellingPrice: nextTbh,
@@ -1970,6 +1981,54 @@ export class InventoryService {
       enableDiscount: item.enableDiscount,
       status: item.status,
     };
+  }
+
+  private notifyMarketingAdminsItemForEditing(item: {
+    id: string;
+    sku: string;
+  }): void {
+    const itemUrl = portalPageUrl(this.config, `/portal/editing/${item.id}`);
+    void this.employeesRepo
+      .createQueryBuilder('e')
+      .where('LOWER(TRIM(e.position)) = :p', {
+        p: MARKETING_ADMIN_POSITION.toLowerCase(),
+      })
+      .getMany()
+      .then((admins) => {
+        for (const admin of admins) {
+          void this.notifications
+            .notify({
+              message: `Inventory item ${item.sku} is ready for editing.`,
+              receiverId: admin.id,
+            })
+            .catch((err: unknown) => {
+              this.logger.error(
+                'Failed to notify marketing admin for editing',
+                err,
+              );
+            });
+          void this.tasks
+            .createAssigned({
+              assigneeId: admin.id,
+              title: `Item ${item.sku} is ready for editing`,
+              description: itemUrl,
+              severity: 'moderate',
+              dueDate: null,
+            })
+            .catch((err: unknown) => {
+              this.logger.error(
+                'Failed to create task for marketing admin editing',
+                err,
+              );
+            });
+        }
+      })
+      .catch((err: unknown) => {
+        this.logger.error(
+          'Failed to load marketing admins for editing notification',
+          err,
+        );
+      });
   }
 
   async createItemPosting(
