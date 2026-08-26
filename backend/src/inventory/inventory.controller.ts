@@ -32,12 +32,16 @@ import { CreateItemPostingDto } from './dto/create-item-posting.dto';
 import { ScheduleItemPostingsDto } from './dto/schedule-item-postings.dto';
 import { LinkShopifyProductDto } from './dto/link-shopify-product.dto';
 import { AddInventoryWaitlistClientDto } from './dto/add-inventory-waitlist-client.dto';
+import { InventoryAuditService } from './inventory-audit.service';
 import { InventoryService } from './inventory.service';
 
 @Controller('inventory')
 @UseGuards(StaffOnlyGuard, FeatureAccessGuard)
 export class InventoryController {
-  constructor(private readonly inventoryService: InventoryService) {}
+  constructor(
+    private readonly inventoryService: InventoryService,
+    private readonly inventoryAudit: InventoryAuditService,
+  ) {}
 
   @Get()
   findAll() {
@@ -294,8 +298,11 @@ export class InventoryController {
   @Post(':id/post-to-shopify')
   @RequireFeature('posting', 'edit')
   @HttpCode(HttpStatus.OK)
-  postItemToShopify(@Param('id', ParseUUIDPipe) id: string) {
-    return this.inventoryService.postItemToShopify(id);
+  postItemToShopify(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() req: { user: JwtUser },
+  ) {
+    return this.inventoryService.postItemToShopify(id, req.user.userId);
   }
 
   @Post(':id/update-shopify')
@@ -311,8 +318,13 @@ export class InventoryController {
   linkShopifyProduct(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: LinkShopifyProductDto,
+    @Req() req: { user: JwtUser },
   ) {
-    return this.inventoryService.linkShopifyProduct(id, dto.shopifyProductId);
+    return this.inventoryService.linkShopifyProduct(
+      id,
+      dto.shopifyProductId,
+      req.user.userId,
+    );
   }
 
   @Post(':id/mark-sold-final')
@@ -325,6 +337,11 @@ export class InventoryController {
       id,
       req.user.userId,
     );
+  }
+
+  @Get(':id/audit')
+  getAudit(@Param('id', ParseUUIDPipe) id: string) {
+    return this.inventoryAudit.findForInventoryItem(id);
   }
 
   @Get(':id')

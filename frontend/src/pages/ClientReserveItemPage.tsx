@@ -14,6 +14,10 @@ import { useClientAuth } from "../context/client-auth";
 import { apiFetch } from "../lib/api";
 import { formatPhpDisplay } from "../lib/format-php";
 import {
+  vipPriceFieldLabel,
+  type VipDiscountTier,
+} from "../lib/vip-pricing";
+import {
   EMPTY_ORDER_PICKUP_FORM,
   isOrderPickupFormValid,
   orderPickupPayloadFields,
@@ -30,6 +34,8 @@ type CatalogItemDetail = {
   status: string;
   photos: Array<{ key: string; url: string; position: number | null }>;
   itemDetails: Record<string, unknown>;
+  vipPrice?: string | null;
+  vipTier?: VipDiscountTier | null;
 };
 
 const ORDER_SALES_CONTRACT_TERMS_URL = "/terms/order-sales-contract.txt";
@@ -215,6 +221,17 @@ export function ClientReserveItemPage() {
           valueColSpan: 3,
         },
       ],
+      ...(item.vipPrice
+        ? [
+            [
+              {
+                label: vipPriceFieldLabel(item.vipTier),
+                value: formatPhpDisplay(item.vipPrice),
+                valueColSpan: 3,
+              },
+            ],
+          ]
+        : []),
       [
         {
           label: "Inclusions",

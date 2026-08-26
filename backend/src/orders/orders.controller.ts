@@ -36,12 +36,16 @@ import { UpdateOrderPaymentAmountPaidDto } from './dto/update-order-payment-amou
 import { UpdateOrderPaymentDateDto } from './dto/update-order-payment-date.dto';
 import { UpdateOrderTotalPriceDto } from './dto/update-order-total-price.dto';
 import { ApplyVoucherDto } from './dto/apply-voucher.dto';
+import { OrderAuditService } from './order-audit.service';
 import { OrdersService } from './orders.service';
 
 @Controller('orders')
 @UseGuards(StaffOnlyGuard, FeatureAccessGuard)
 export class OrdersController {
-  constructor(private readonly ordersService: OrdersService) {}
+  constructor(
+    private readonly ordersService: OrdersService,
+    private readonly orderAuditService: OrderAuditService,
+  ) {}
 
   @Get()
   @RequireFeature('orders', 'view')
@@ -93,6 +97,14 @@ export class OrdersController {
       payload,
       signature,
     );
+  }
+
+  @Get(':id/audit')
+  @RequireFeature('orders', 'view', {
+    orFeatureKeys: ['payment-verification'],
+  })
+  getAudit(@Param('id', ParseUUIDPipe) id: string) {
+    return this.orderAuditService.findForOrder(id);
   }
 
   @Get(':id')

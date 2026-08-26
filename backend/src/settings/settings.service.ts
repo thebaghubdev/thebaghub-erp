@@ -39,6 +39,13 @@ export class SettingsService {
     return row;
   }
 
+  async getNumericValue(key: string, fallback: number): Promise<number> {
+    const row = await this.settingsRepo.findOne({ where: { key } });
+    if (!row) return fallback;
+    const n = Number.parseFloat(row.value);
+    return Number.isFinite(n) ? n : fallback;
+  }
+
   async updateByKey(key: string, dto: UpdateSettingDto): Promise<Setting> {
     const row = await this.findOneByKey(key);
     row.value = dto.value;

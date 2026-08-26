@@ -30,6 +30,10 @@ import {
   parsePhpStringToNumber,
 } from "../lib/format-php";
 import {
+  pickVipPriceForClient,
+  vipPriceFieldLabel,
+} from "../lib/vip-pricing";
+import {
   EMPTY_ORDER_PICKUP_FORM,
   isOrderPickupFormValid,
   orderPickupPayloadFields,
@@ -45,12 +49,14 @@ type ClientAccountRow = {
   lastName: string;
   email: string;
   contactNumber: string;
+  vipStatus?: "Regular" | "Gold" | "Diamond";
   createdAt: string;
 };
 
 type ClientAccountDetail = ClientAccountRow & {
   completeAddress: string | null;
   isCreditLine: boolean;
+  vipStatus: "Regular" | "Gold" | "Diamond";
 };
 
 type InventorySearchRow = {
@@ -73,6 +79,9 @@ type InventoryDetailForStaff = {
   creditCardPrice: string | null;
   onPromo?: boolean;
   promoPrice?: string | null;
+  enableDiscount?: boolean;
+  vipGoldPrice?: string | null;
+  vipDiamondPrice?: string | null;
   consignorId: string | null;
   itemSnapshot: {
     form: Record<string, unknown>;
@@ -459,6 +468,20 @@ export function StaffCreateOrderPanel({
       .filter((photo) => photo.url);
   }, [itemDetail]);
 
+  const vipForClient = useMemo(
+    () =>
+      pickVipPriceForClient(
+        clientDetail?.vipStatus,
+        itemDetail?.vipGoldPrice,
+        itemDetail?.vipDiamondPrice,
+      ),
+    [
+      clientDetail?.vipStatus,
+      itemDetail?.vipGoldPrice,
+      itemDetail?.vipDiamondPrice,
+    ],
+  );
+
   const descriptionRows = useMemo(() => {
     if (!itemDetail) return [];
     const form = itemDetail.itemSnapshot.form;
@@ -488,6 +511,17 @@ export function StaffCreateOrderPanel({
           valueColSpan: 3,
         },
       ],
+      ...(vipForClient.vipPrice
+        ? [
+            [
+              {
+                label: vipPriceFieldLabel(vipForClient.vipTier),
+                value: formatPhpDisplay(vipForClient.vipPrice),
+                valueColSpan: 3,
+              },
+            ],
+          ]
+        : []),
       [
         {
           label: "Credit card price",
@@ -513,7 +547,7 @@ export function StaffCreateOrderPanel({
         },
       ],
     ];
-  }, [itemDetail, itemPhotos.length]);
+  }, [itemDetail, itemPhotos.length, vipForClient]);
 
   const customerDetailsRows = useMemo(() => {
     const client = clientDetail ?? selectedClient;
@@ -549,15 +583,16 @@ export function StaffCreateOrderPanel({
     ];
   }, [clientDetail, selectedClient]);
 
-  const itemPrice = useMemo(
-    () =>
-      itemDetail
-        ? parsePhpStringToNumber(
-            String(effectiveItemListPrice(itemDetail) ?? ""),
-          )
-        : null,
-    [itemDetail],
-  );
+  const itemPrice = useMemo(() => {
+    if (vipForClient.vipPrice) {
+      return parsePhpStringToNumber(String(vipForClient.vipPrice));
+    }
+    return itemDetail
+      ? parsePhpStringToNumber(
+          String(effectiveItemListPrice(itemDetail) ?? ""),
+        )
+      : null;
+  }, [itemDetail, vipForClient.vipPrice]);
 
   const layawayEligibility = useMemo(() => {
     if (!itemDetail) return { allowed: true, reasons: [] as string[] };

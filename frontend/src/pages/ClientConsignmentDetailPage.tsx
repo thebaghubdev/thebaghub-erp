@@ -68,6 +68,7 @@ type ClientInquiryDetail = {
   photoCount: number;
   offerTransactionType: TransactionType | null;
   offerPrice: string | null;
+  consignmentRequestedPrice: string | null;
   contractRenewalRequestedPrice: string | null;
   clientOfferConfirmation?: ClientOfferConfirmation | null;
   contractStartDate: string | null;
@@ -104,6 +105,22 @@ function canClientCancelInquiry(status: string): boolean {
 function isAwaitingOfferConfirmation(status: string): boolean {
   const s = status.trim().toLowerCase();
   return s === "for_offer_confirmation" || s === "authenticated_new_offer";
+}
+
+function hasDualApprovedOffers(detail: {
+  status: string;
+  offerTransactionType: TransactionType | null;
+  offerPrice: string | null;
+  consignmentRequestedPrice: string | null;
+}): boolean {
+  return (
+    detail.status.trim().toLowerCase() === "for_offer_confirmation" &&
+    detail.offerTransactionType === "direct_purchase" &&
+    detail.consignmentRequestedPrice != null &&
+    detail.consignmentRequestedPrice !== "" &&
+    detail.offerPrice != null &&
+    detail.offerPrice !== ""
+  );
 }
 
 function isForDirectPurchaseApproval(status: string): boolean {
@@ -181,6 +198,8 @@ const cardClass = "rounded-xl border border-slate-200 bg-white p-4 shadow-sm";
 
 const CONSIGNMENT_TERMS_URL = "/terms/consignment.txt";
 const DIRECT_PURCHASE_TERMS_URL = "/terms/direct-purchase.txt";
+const OFFER_PRICES_AUTH_NOTE =
+  "These prices may be changed and are subject to authentication.";
 
 function confirmOfferTermsCopy(
   offerTransactionType: TransactionType | null | undefined,
@@ -230,6 +249,8 @@ export function ClientConsignmentDetailPage() {
   const [confirmFormError, setConfirmFormError] = useState<string | null>(null);
   const [consignmentTermsAccepted, setConsignmentTermsAccepted] =
     useState(false);
+  const [selectedConfirmOfferType, setSelectedConfirmOfferType] =
+    useState<TransactionType | null>(null);
   const [termsAgreementModalOpen, setTermsAgreementModalOpen] = useState(false);
   const [offerSignatureFile, setOfferSignatureFile] = useState<File | null>(
     null,
@@ -246,9 +267,20 @@ export function ClientConsignmentDetailPage() {
   const confirmOfferTitleId = useId();
   const renewalModalTitleId = useId();
 
+  const dualApprovedOffers = detail != null && hasDualApprovedOffers(detail);
+
   const confirmOfferTerms = useMemo(
-    () => confirmOfferTermsCopy(detail?.offerTransactionType),
-    [detail?.offerTransactionType],
+    () =>
+      confirmOfferTermsCopy(
+        dualApprovedOffers
+          ? selectedConfirmOfferType
+          : detail?.offerTransactionType,
+      ),
+    [
+      dualApprovedOffers,
+      selectedConfirmOfferType,
+      detail?.offerTransactionType,
+    ],
   );
 
   const load = useCallback(async () => {
@@ -359,6 +391,7 @@ export function ClientConsignmentDetailPage() {
   const openConfirmOfferModal = useCallback(() => {
     setConfirmFormError(null);
     setConsignmentTermsAccepted(false);
+    setSelectedConfirmOfferType(null);
     setOfferSignatureFile(null);
     setSignatureFieldKey((k) => k + 1);
     void refreshUser();
@@ -386,6 +419,12 @@ export function ClientConsignmentDetailPage() {
     async (e: FormEvent) => {
       e.preventDefault();
       if (!id || !token) return;
+      if (dualApprovedOffers && selectedConfirmOfferType == null) {
+        setConfirmFormError(
+          "Select consignment offer or direct purchase offer.",
+        );
+        return;
+      }
       if (!consignmentTermsAccepted) {
         setConfirmFormError(confirmOfferTerms.agreeError);
         return;
@@ -406,7 +445,14 @@ export function ClientConsignmentDetailPage() {
       setConfirmBusy(true);
       try {
         const fd = new FormData();
-        fd.append("payload", JSON.stringify({}));
+        fd.append(
+          "payload",
+          JSON.stringify(
+            dualApprovedOffers && selectedConfirmOfferType
+              ? { transactionType: selectedConfirmOfferType }
+              : {},
+          ),
+        );
         fd.append("signature", offerSignatureFile);
         const res = await apiFetch(
           `/api/client/consignment-inquiry/${id}/confirm-offer`,
@@ -430,6 +476,8 @@ export function ClientConsignmentDetailPage() {
       id,
       token,
       user,
+      dualApprovedOffers,
+      selectedConfirmOfferType,
       consignmentTermsAccepted,
       offerSignatureFile,
       refreshUser,
@@ -780,7 +828,24 @@ export function ClientConsignmentDetailPage() {
                 detail.contractRenewalRequestedPrice !== "")) ? (
               <dl className="mt-4 rounded-lg border border-slate-100 bg-slate-50/80 p-3 text-sm">
                 <div className="flex flex-wrap gap-x-6 gap-y-1">
-                  {detail.offerPrice != null && detail.offerPrice !== "" ? (
+                  {dualApprovedOffers ? (
+                    <>
+                      <div>
+                        <dt className="text-slate-500">
+                          Direct purchase offer
+                        </dt>
+                        <dd className="tabular-nums font-medium text-slate-900">
+                          {formatPhpDisplay(detail.offerPrice)}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-slate-500">Consignment offer</dt>
+                        <dd className="tabular-nums font-medium text-slate-900">
+                          {formatPhpDisplay(detail.consignmentRequestedPrice)}
+                        </dd>
+                      </div>
+                    </>
+                  ) : detail.offerPrice != null && detail.offerPrice !== "" ? (
                     <>
                       <div>
                         <dt className="text-slate-500">Offer type</dt>
@@ -813,6 +878,11 @@ export function ClientConsignmentDetailPage() {
                     </div>
                   ) : null}
                 </div>
+                {dualApprovedOffers ? (
+                  <p className="mt-3 text-xs leading-snug text-slate-500">
+                    {OFFER_PRICES_AUTH_NOTE}
+                  </p>
+                ) : null}
               </dl>
             ) : null}
 
@@ -1093,6 +1163,80 @@ export function ClientConsignmentDetailPage() {
                   onSubmit={(e) => void submitConfirmOffer(e)}
                   className="mt-4 space-y-4"
                 >
+                  {dualApprovedOffers ? (
+                    <fieldset className="space-y-2">
+                      <legend className="text-sm font-medium text-slate-800">
+                        Choose an offer
+                      </legend>
+                      <label
+                        className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 text-sm ${
+                          selectedConfirmOfferType === "direct_purchase"
+                            ? "border-violet-400 bg-violet-50"
+                            : "border-slate-200 bg-white"
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="confirm-offer-type"
+                          className="mt-1 h-4 w-4 border-slate-300 text-violet-600 focus:ring-violet-500"
+                          checked={
+                            selectedConfirmOfferType === "direct_purchase"
+                          }
+                          disabled={confirmBusy}
+                          onChange={() => {
+                            if (
+                              selectedConfirmOfferType !== "direct_purchase"
+                            ) {
+                              setConsignmentTermsAccepted(false);
+                            }
+                            setSelectedConfirmOfferType("direct_purchase");
+                            setConfirmFormError(null);
+                          }}
+                        />
+                        <span>
+                          <span className="block font-medium text-slate-900">
+                            Direct purchase offer
+                          </span>
+                          <span className="tabular-nums text-slate-800">
+                            {formatPhpDisplay(detail.offerPrice)}
+                          </span>
+                        </span>
+                      </label>
+                      <label
+                        className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 text-sm ${
+                          selectedConfirmOfferType === "consignment"
+                            ? "border-violet-400 bg-violet-50"
+                            : "border-slate-200 bg-white"
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="confirm-offer-type"
+                          className="mt-1 h-4 w-4 border-slate-300 text-violet-600 focus:ring-violet-500"
+                          checked={selectedConfirmOfferType === "consignment"}
+                          disabled={confirmBusy}
+                          onChange={() => {
+                            if (selectedConfirmOfferType !== "consignment") {
+                              setConsignmentTermsAccepted(false);
+                            }
+                            setSelectedConfirmOfferType("consignment");
+                            setConfirmFormError(null);
+                          }}
+                        />
+                        <span>
+                          <span className="block font-medium text-slate-900">
+                            Consignment offer
+                          </span>
+                          <span className="tabular-nums text-slate-800">
+                            {formatPhpDisplay(detail.consignmentRequestedPrice)}
+                          </span>
+                        </span>
+                      </label>
+                      <p className="text-xs leading-snug text-slate-500">
+                        {OFFER_PRICES_AUTH_NOTE}
+                      </p>
+                    </fieldset>
+                  ) : null}
                   <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/80 p-3">
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <p className="text-sm text-slate-700">
@@ -1205,11 +1349,23 @@ export function ClientConsignmentDetailPage() {
                       onClick={(e) => {
                         if (!consignmentTermsAccepted) {
                           e.preventDefault();
+                          if (
+                            dualApprovedOffers &&
+                            selectedConfirmOfferType == null
+                          ) {
+                            setConfirmFormError(
+                              "Select consignment offer or direct purchase offer.",
+                            );
+                            return;
+                          }
                           setConfirmFormError(null);
                           setTermsAgreementModalOpen(true);
                         }
                       }}
-                      disabled={confirmBusy}
+                      disabled={
+                        confirmBusy ||
+                        (dualApprovedOffers && selectedConfirmOfferType == null)
+                      }
                       className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 text-violet-600 focus:ring-violet-500 disabled:opacity-50"
                     />
                     <label

@@ -7,6 +7,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { Employee } from '../employees/entities/employee.entity';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
+import {
+  InventoryAuditService,
+  cloneInventoryItemForAudit,
+} from '../inventory/inventory-audit.service';
 import type { InquiryItemSnapshot } from '../inquiries/entities/inquiry.entity';
 import { CreateLogisticsDto } from './dto/create-logistics.dto';
 import { Logistics, LogisticsItem } from './entities/logistics.entities';
@@ -88,6 +92,7 @@ export class LogisticsService {
     private readonly inventoryRepo: Repository<InventoryItem>,
     @InjectRepository(Employee)
     private readonly employeesRepo: Repository<Employee>,
+    private readonly inventoryAudit: InventoryAuditService,
   ) {}
 
   async findInventoryIdsOnOpenTransfers(): Promise<string[]> {
@@ -359,12 +364,21 @@ export class LogisticsService {
       row.updatedById = userId;
       await em.save(row);
 
+      const actor = await this.inventoryAudit.staffActor(userId);
       for (const link of row.items ?? []) {
         const item = link.inventoryItem;
         if (!item) continue;
+        const beforeItem = cloneInventoryItemForAudit(item);
         item.logisticsStatus = INVENTORY_LOGISTICS_STATUS_IN_TRANSIT;
         item.updatedById = userId;
         await em.save(item);
+        await this.inventoryAudit.recordDiff(
+          item.id,
+          beforeItem,
+          item,
+          actor,
+          em,
+        );
       }
 
       const nameByUserId = await this.employeeNamesByUserIds(
@@ -419,12 +433,21 @@ export class LogisticsService {
       row.updatedById = userId;
       await em.save(row);
 
+      const actor = await this.inventoryAudit.staffActor(userId);
       for (const link of row.items ?? []) {
         const item = link.inventoryItem;
         if (!item) continue;
+        const beforeItem = cloneInventoryItemForAudit(item);
         item.logisticsStatus = INVENTORY_LOGISTICS_STATUS_IN_STOCK;
         item.updatedById = userId;
         await em.save(item);
+        await this.inventoryAudit.recordDiff(
+          item.id,
+          beforeItem,
+          item,
+          actor,
+          em,
+        );
       }
 
       const nameByUserId = await this.employeeNamesByUserIds(
@@ -473,13 +496,22 @@ export class LogisticsService {
       await em.save(row);
 
       const receivingBranch = row.receivingBranch;
+      const actor = await this.inventoryAudit.staffActor(userId);
       for (const link of row.items ?? []) {
         const item = link.inventoryItem;
         if (!item) continue;
+        const beforeItem = cloneInventoryItemForAudit(item);
         item.currentBranch = receivingBranch;
         item.logisticsStatus = INVENTORY_LOGISTICS_STATUS_IN_STOCK;
         item.updatedById = userId;
         await em.save(item);
+        await this.inventoryAudit.recordDiff(
+          item.id,
+          beforeItem,
+          item,
+          actor,
+          em,
+        );
       }
 
       const nameByUserId = await this.employeeNamesByUserIds(

@@ -7,6 +7,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { Employee } from '../employees/entities/employee.entity';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
+import {
+  InventoryAuditService,
+  cloneInventoryItemForAudit,
+} from '../inventory/inventory-audit.service';
 import { parseInventoryUnitPrice } from '../inventory/inventory-effective-price.util';
 import { calendarDateStringInTimeZone } from '../inventory/sold-warranty.util';
 import type { InquiryItemSnapshot } from '../inquiries/entities/inquiry.entity';
@@ -110,6 +114,7 @@ export class PromotionsService {
     private readonly inventoryRepo: Repository<InventoryItem>,
     @InjectRepository(Employee)
     private readonly employeesRepo: Repository<Employee>,
+    private readonly inventoryAudit: InventoryAuditService,
   ) {}
 
   async findAllForStaff(): Promise<PromotionListRow[]> {
@@ -409,19 +414,24 @@ export class PromotionsService {
     }
 
     let updatedInventoryCount = 0;
+    const systemActor = this.inventoryAudit.systemActor();
     for (const inventoryId of candidateIds) {
       const promoPrice = activePromoPriceByInventoryId.get(inventoryId);
-      if (promoPrice != null) {
-        await this.inventoryRepo.update(inventoryId, {
-          onPromo: true,
-          promoPrice,
-        });
-      } else {
-        await this.inventoryRepo.update(inventoryId, {
-          onPromo: false,
-          promoPrice: null,
-        });
+      const row = await this.inventoryRepo.findOne({
+        where: { id: inventoryId },
+      });
+      if (!row) continue;
+      const nextOnPromo = promoPrice != null;
+      const nextPromoPrice = promoPrice ?? null;
+      if (row.onPromo === nextOnPromo && String(row.promoPrice ?? '') === String(nextPromoPrice ?? '')) {
+        updatedInventoryCount += 1;
+        continue;
       }
+      const before = cloneInventoryItemForAudit(row);
+      row.onPromo = nextOnPromo;
+      row.promoPrice = nextPromoPrice;
+      await this.inventoryRepo.save(row);
+      await this.inventoryAudit.recordDiff(row.id, before, row, systemActor);
       updatedInventoryCount += 1;
     }
 

@@ -32,6 +32,11 @@ import {
 import { normalizeClientVipStatus } from '../clients/client-vip-status.util';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
 import { ItemAuthentication } from '../inventory/entities/item-authentication.entity';
+import {
+  InventoryAuditService,
+  cloneAuthForAudit,
+  cloneInventoryItemForAudit,
+} from '../inventory/inventory-audit.service';
 import { InventoryService } from '../inventory/inventory.service';
 import { InquiryStatus } from '../enums/inquiry-status.enum';
 import { JwtUser } from '../auth/jwt-user';
@@ -64,7 +69,10 @@ import { MediaPurpose } from '../enums/media-purpose.enum';
 import type { InquiryMediaAuditSnapshot } from '../media/media.types';
 import { MediaService } from '../media/media.service';
 import { CEO_POSITION, CONSIGNMENT_COORDINATOR_POSITION } from '../notifications/notification.constants';
-import { isCeoPosition } from '../employees/employee-position.util';
+import {
+  isCeoPosition,
+  isConsignmentCoordinatorPosition,
+} from '../employees/employee-position.util';
 import { Employee } from '../employees/entities/employee.entity';
 import { NotificationsService } from '../notifications/notifications.service';
 import { DirectPurchasePaymentsService } from '../direct-purchase-payments/direct-purchase-payments.service';
@@ -194,6 +202,19 @@ function snapshotFormString(
   return String(v).trim();
 }
 
+function inquiryHasDualCeoOffers(r: Inquiry): boolean {
+  const consignment = r.consignmentRequestedPrice;
+  const dp = r.directPurchaseRequestedPrice;
+  return (
+    r.status === InquiryStatus.FOR_OFFER_CONFIRMATION &&
+    r.offerTransactionType === 'direct_purchase' &&
+    consignment != null &&
+    String(consignment).trim() !== '' &&
+    dp != null &&
+    String(dp).trim() !== ''
+  );
+}
+
 /** `YYYY-MM-DD` for API JSON, or null when unset. */
 function inquiryDateOnlyToIso(
   d: Date | string | null | undefined,
@@ -231,6 +252,7 @@ export type StaffInquiryRow = {
   offerTransactionType: 'consignment' | 'direct_purchase' | null;
   offerPrice: string | null;
   directPurchaseRequestedPrice: string | null;
+  consignmentRequestedPrice: string | null;
   directPurchaseApproverNotes: string | null;
   directPurchaseRejectReason: string | null;
   originalOfferPrice: string | null;
@@ -347,6 +369,7 @@ export class InquiriesService {
     private readonly inquiryAudit: InquiryAuditService,
     @Inject(forwardRef(() => InventoryService))
     private readonly inventoryService: InventoryService,
+    private readonly inventoryAudit: InventoryAuditService,
     private readonly notifications: NotificationsService,
     private readonly mail: MailService,
     private readonly config: ConfigService,
@@ -491,7 +514,7 @@ export class InquiriesService {
   }): void {
     void this.notifications
       .notify({
-        message: `The CEO approved the direct purchase offer for inquiry ${inquiry.sku}.`,
+        message: `The CEO approved the consignment and direct purchase offers for inquiry ${inquiry.sku}.`,
         receiverRole: CONSIGNMENT_COORDINATOR_POSITION,
         inquiryId: inquiry.id,
       })
@@ -510,6 +533,19 @@ export class InquiriesService {
     if (!emp || !isCeoPosition(emp.position)) {
       throw new ForbiddenException(
         'Only the CEO can approve or reject a direct purchase request',
+      );
+    }
+  }
+
+  private async assertActorIsConsignmentCoordinator(
+    user: JwtUser,
+  ): Promise<void> {
+    const emp = await this.employeesRepo.findOne({
+      where: { userId: user.userId },
+    });
+    if (!emp || !isConsignmentCoordinatorPosition(emp.position)) {
+      throw new ForbiddenException(
+        'Only a Consignment Coordinator can perform this action',
       );
     }
   }
@@ -1179,6 +1215,11 @@ export class InquiriesService {
         r.directPurchaseRequestedPrice !== ''
           ? String(r.directPurchaseRequestedPrice)
           : null,
+      consignmentRequestedPrice:
+        r.consignmentRequestedPrice != null &&
+        r.consignmentRequestedPrice !== ''
+          ? String(r.consignmentRequestedPrice)
+          : null,
       directPurchaseApproverNotes: (() => {
         if (r.directPurchaseApproverNotes == null) return null;
         const t = String(r.directPurchaseApproverNotes).trim();
@@ -1424,6 +1465,7 @@ export class InquiriesService {
       directPurchaseRequestedPrice: _dpPrice,
       directPurchaseApproverNotes: _dpNotes,
       directPurchaseRejectReason: _dpReject,
+      consignmentRequestedPrice: consignmentRequestedPriceStaff,
       ...rest
     } = base;
     const itemPhotos = await this.media.findByOwner(
@@ -1481,8 +1523,15 @@ export class InquiriesService {
       thirdPartyReauthenticationNotes =
         raw != null && String(raw).trim() !== '' ? String(raw).trim() : null;
     }
+    const clientSeesApprovedOffers =
+      r.status !== InquiryStatus.PENDING &&
+      r.status !== InquiryStatus.FOR_DIRECT_PURCHASE_APPROVAL;
+
     return {
       ...rest,
+      consignmentRequestedPrice: clientSeesApprovedOffers
+        ? consignmentRequestedPriceStaff
+        : null,
       updatedAt: r.updatedAt,
       itemSnapshot: {
         clientItemId: r.itemSnapshot.clientItemId,
@@ -1598,13 +1647,29 @@ export class InquiriesService {
         r.status = InquiryStatus.AUTHENTICATED_FOR_3RD_PARTY;
         r.updatedById = user.userId;
         await em.save(r);
+        const beforeInv = cloneInventoryItemForAudit(inv);
         inv.status = 'Authenticated: For 3rd party authentication';
         inv.updatedById = user.userId;
         await em.save(inv);
+        await this.inventoryAudit.recordDiff(
+          inv.id,
+          beforeInv,
+          inv,
+          { userId: user.userId, label: await this.inquiryAudit.staffActorLabel(user.userId) },
+          em,
+        );
         if (auth) {
+          const beforeAuth = cloneAuthForAudit(auth);
           auth.authenticationStatus = 'For 3rd party authentication';
           auth.updatedById = user.userId;
           await em.save(auth);
+          await this.inventoryAudit.recordAuthDiff(
+            inv.id,
+            beforeAuth,
+            auth,
+            { userId: user.userId, label: await this.inquiryAudit.staffActorLabel(user.userId) },
+            em,
+          );
         }
         const label = await this.inquiryAudit.staffActorLabel(user.userId);
         await this.inquiryAudit.recordDiff(inquiryId, before, r, {
@@ -1760,9 +1825,17 @@ export class InquiriesService {
       r.updatedById = user.userId;
       await em.save(r);
 
+      const beforeInv = cloneInventoryItemForAudit(inv);
       inv.status = FOR_PULLOUT_INVENTORY_STATUS;
       inv.updatedById = user.userId;
       await em.save(inv);
+      await this.inventoryAudit.recordDiff(
+        inv.id,
+        beforeInv,
+        inv,
+        staffActor,
+        em,
+      );
 
       await this.inquiryAudit.recordDiff(id, before, r, staffActor, em);
     });
@@ -1901,6 +1974,21 @@ export class InquiriesService {
       throw new BadRequestException('No offer is available to confirm');
     }
 
+    if (inquiryHasDualCeoOffers(r)) {
+      if (dto.transactionType == null) {
+        throw new BadRequestException(
+          'Select consignment offer or direct purchase offer',
+        );
+      }
+    } else if (
+      dto.transactionType != null &&
+      dto.transactionType !== r.offerTransactionType
+    ) {
+      throw new BadRequestException(
+        'This inquiry does not have both offer types available',
+      );
+    }
+
     const beforeMedia = await this.inquiryMediaAudit(inquiryId);
 
     if (!isClientPaymentProfileReadyForOffer(client)) {
@@ -1936,6 +2024,16 @@ export class InquiriesService {
     );
 
     const before = cloneInquiryForAudit(r);
+
+    if (inquiryHasDualCeoOffers(r) && dto.transactionType != null) {
+      if (dto.transactionType === 'consignment') {
+        r.offerTransactionType = 'consignment';
+        r.offerPrice = String(r.consignmentRequestedPrice);
+      } else {
+        r.offerTransactionType = 'direct_purchase';
+        r.offerPrice = String(r.directPurchaseRequestedPrice);
+      }
+    }
 
     const isAuthenticatedNewOfferConfirm =
       r.status === InquiryStatus.AUTHENTICATED_NEW_OFFER;
@@ -2140,9 +2238,17 @@ export class InquiriesService {
       inquiry.updatedById = user.userId;
       await em.save(inquiry);
 
+      const beforeInv = cloneInventoryItemForAudit(inv);
       inv.status = FOR_REPRICING_INVENTORY_STATUS;
       inv.updatedById = user.userId;
       await em.save(inv);
+      await this.inventoryAudit.recordDiff(
+        inv.id,
+        beforeInv,
+        inv,
+        this.inquiryAudit.consignorActor(user.userId),
+        em,
+      );
 
       await this.inquiryAudit.recordDiff(
         inquiry.id,
@@ -2448,6 +2554,7 @@ export class InquiriesService {
   ]);
 
   async declineInquiry(id: string, user: JwtUser): Promise<StaffInquiryDetail> {
+    await this.assertActorIsConsignmentCoordinator(user);
     const r = await this.inquiriesRepo.findOne({ where: { id } });
     if (!r) {
       throw new NotFoundException('Inquiry not found');
@@ -2484,6 +2591,7 @@ export class InquiriesService {
     dto: SubmitOfferDto,
     user: JwtUser,
   ): Promise<StaffInquiryDetail> {
+    await this.assertActorIsConsignmentCoordinator(user);
     const r = await this.inquiriesRepo.findOne({
       where: { id },
       relations: { consignor: true },
@@ -2572,6 +2680,7 @@ export class InquiriesService {
     dto: RequestDirectPurchaseApprovalDto,
     user: JwtUser,
   ): Promise<StaffInquiryDetail> {
+    await this.assertActorIsConsignmentCoordinator(user);
     const r = await this.inquiriesRepo.findOne({
       where: { id },
       relations: { consignor: true },
@@ -2593,6 +2702,7 @@ export class InquiriesService {
 
     const before = cloneInquiryForAudit(r);
     r.directPurchaseRequestedPrice = dto.offerPrice.toFixed(2);
+    r.consignmentRequestedPrice = dto.consignmentOfferPrice.toFixed(2);
     r.directPurchaseApproverNotes = this.trimToNull(dto.notes);
     r.directPurchaseRejectReason = null;
     r.status = InquiryStatus.FOR_DIRECT_PURCHASE_APPROVAL;
@@ -2614,6 +2724,7 @@ export class InquiriesService {
     dto: RequestDirectPurchaseApprovalDto,
     user: JwtUser,
   ): Promise<StaffInquiryDetail> {
+    await this.assertActorIsConsignmentCoordinator(user);
     const r = await this.inquiriesRepo.findOne({
       where: { id },
       relations: { consignor: true },
@@ -2629,6 +2740,7 @@ export class InquiriesService {
 
     const before = cloneInquiryForAudit(r);
     r.directPurchaseRequestedPrice = dto.offerPrice.toFixed(2);
+    r.consignmentRequestedPrice = dto.consignmentOfferPrice.toFixed(2);
     r.directPurchaseApproverNotes = this.trimToNull(dto.notes);
     await this.inquiriesRepo.save(r);
     const label = await this.inquiryAudit.staffActorLabel(user.userId);
@@ -2647,6 +2759,7 @@ export class InquiriesService {
     id: string,
     user: JwtUser,
   ): Promise<StaffInquiryDetail> {
+    await this.assertActorIsConsignmentCoordinator(user);
     const r = await this.inquiriesRepo.findOne({
       where: { id },
       relations: { consignor: true },
@@ -2880,9 +2993,17 @@ export class InquiriesService {
       r.updatedById = user.userId;
       await em.save(r);
 
+      const beforeInv = cloneInventoryItemForAudit(inv);
       inv.status = FOR_REPRICING_INVENTORY_STATUS;
       inv.updatedById = user.userId;
       await em.save(inv);
+      await this.inventoryAudit.recordDiff(
+        inv.id,
+        beforeInv,
+        inv,
+        { userId: user.userId, label },
+        em,
+      );
 
       await this.inquiryAudit.recordDiff(
         id,
@@ -2935,9 +3056,17 @@ export class InquiriesService {
       inquiry.updatedById = user.userId;
       await em.save(inquiry);
 
+      const beforeInv = cloneInventoryItemForAudit(inv);
       inv.status = FOR_CONTRACT_RENEWAL_INVENTORY_STATUS;
       inv.updatedById = user.userId;
       await em.save(inv);
+      await this.inventoryAudit.recordDiff(
+        inv.id,
+        beforeInv,
+        inv,
+        { userId: user.userId, label },
+        em,
+      );
 
       await this.inquiryAudit.recordDiff(
         id,
@@ -2988,9 +3117,17 @@ export class InquiriesService {
       inquiry.updatedById = user.userId;
       await em.save(inquiry);
 
+      const beforeInv = cloneInventoryItemForAudit(inv);
       inv.status = AVAILABLE_FOR_PURCHASE_INVENTORY_STATUS;
       inv.updatedById = user.userId;
       await em.save(inv);
+      await this.inventoryAudit.recordDiff(
+        inv.id,
+        beforeInv,
+        inv,
+        { userId: user.userId, label },
+        em,
+      );
 
       await this.inquiryAudit.recordDiff(
         id,

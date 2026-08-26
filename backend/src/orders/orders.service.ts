@@ -13,7 +13,10 @@ import { ConfigService } from '@nestjs/config';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { FeatureAccessService } from '../access-control/feature-access.service';
 import { JwtUser } from '../auth/jwt-user';
+import { ClientActivityTotalsService } from '../clients/client-activity-totals.service';
 import { Client } from '../clients/entities/client.entity';
+import { VipPricingService } from '../clients/vip-pricing.service';
+import type { VipDiscountTier } from '../clients/vip-discount.util';
 import { Employee } from '../employees/entities/employee.entity';
 import {
   canAssignWorkToOthers,
@@ -21,6 +24,10 @@ import {
   isGeneralManagerPosition,
 } from '../employees/employee-position.util';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
+import {
+  InventoryAuditService,
+  cloneInventoryItemForAudit,
+} from '../inventory/inventory-audit.service';
 import { effectiveInventoryUnitPrice } from '../inventory/inventory-effective-price.util';
 import { computeCreditCardPriceFromTbh } from '../inventory/credit-card-price.util';
 import { calendarDateStringInTimeZone } from '../inventory/sold-warranty.util';
@@ -29,6 +36,7 @@ import { ItemAuthentication } from '../inventory/entities/item-authentication.en
 import type { MulterFile } from '../inquiries/multer-file.type';
 import { MediaOwnerType } from '../enums/media-owner-type.enum';
 import { MediaPurpose } from '../enums/media-purpose.enum';
+import { UserType } from '../enums/user-type.enum';
 import { MediaService } from '../media/media.service';
 import { MailService } from '../mail/mail.service';
 import { computeConsignorPaymentAuditDate } from '../consignor-payments/consignor-payment-audit-date.util';
@@ -36,6 +44,13 @@ import { ConsignorPaymentsService } from '../consignor-payments/consignor-paymen
 import { NotificationsService } from '../notifications/notifications.service';
 import { portalPageUrl } from '../common/frontend-url.util';
 import { TasksService } from '../tasks/tasks.service';
+import {
+  cloneInstallmentForAudit,
+  cloneOrderForAudit,
+  clonePaymentForAudit,
+  OrderAuditService,
+  type OrderAuditActor,
+} from './order-audit.service';
 import { ApplyVoucherDto } from './dto/apply-voucher.dto';
 import { ApproveLayawayOrderDto } from './dto/approve-layaway-order.dto';
 import { BatchAssignSalesAssociateDto } from './dto/batch-assign-sales-associate.dto';
@@ -120,6 +135,10 @@ import {
   isInstallmentApprovalStatus,
   isInstallmentPaymentType,
 } from './order-payment-type.util';
+import {
+  consignorPricePesosFromOffer,
+  purchaseAmountPesosFromOrder,
+} from './order-purchase-amount.util';
 import {
   emptyDailySalesByTierRow,
   isSoldOrderStatus,
@@ -300,6 +319,8 @@ export type ClientOrderDetail = {
   installments: OrderInstallmentView[];
   payments: OrderPaymentView[];
   orderTotalPrice: string | null;
+  vipPrice: string | null;
+  vipTier: VipDiscountTier | null;
 };
 
 export type DailySalesByPriceTierDashboard = {
@@ -371,6 +392,8 @@ export type StaffOrderDetail = {
   installments: OrderInstallmentView[];
   payments: OrderPaymentView[];
   orderTotalPrice: string | null;
+  vipPrice: string | null;
+  vipTier: VipDiscountTier | null;
 };
 
 function snapshotFormString(
@@ -460,13 +483,72 @@ export class OrdersService {
     private readonly mail: MailService,
     private readonly config: ConfigService,
     private readonly consignorPaymentsService: ConsignorPaymentsService,
+    private readonly clientActivityTotals: ClientActivityTotalsService,
+    private readonly vipPricing: VipPricingService,
     private readonly notifications: NotificationsService,
     private readonly tasks: TasksService,
     private readonly featureAccess: FeatureAccessService,
+    private readonly orderAudit: OrderAuditService,
+    private readonly inventoryAudit: InventoryAuditService,
   ) {}
 
   private async employeeForUser(userId: string): Promise<Employee | null> {
     return this.employeesRepo.findOne({ where: { userId } });
+  }
+
+  private async auditActor(user: JwtUser): Promise<OrderAuditActor> {
+    if (user.userType === UserType.CLIENT) {
+      return this.orderAudit.customerActor(user.userId);
+    }
+    return {
+      userId: user.userId,
+      label: await this.orderAudit.staffActorLabel(user.userId),
+    };
+  }
+
+  private async sellingPriceForClient(
+    item: InventoryItem,
+    client: Pick<Client, 'vipStatus'>,
+  ): Promise<number | null> {
+    const base = liveInventoryUnitPrice(item);
+    if (base == null) return null;
+    const settings = await this.vipPricing.loadSettings();
+    return (
+      this.vipPricing.priceForClient(
+        base,
+        Boolean(item.enableDiscount),
+        client.vipStatus,
+        settings,
+      ) ?? base
+    );
+  }
+
+  private async vipFieldsForCustomer(
+    item: InventoryItem,
+    client: Pick<Client, 'vipStatus'>,
+  ): Promise<{ vipPrice: string | null; vipTier: VipDiscountTier | null }> {
+    const settings = await this.vipPricing.loadSettings();
+    const vipPrice = this.vipPricing.priceStringForClient(
+      liveInventoryUnitPrice(item),
+      Boolean(item.enableDiscount),
+      client.vipStatus,
+      settings,
+    );
+    const vipTier = vipPrice
+      ? this.vipPricing.appliedTier(
+          Boolean(item.enableDiscount),
+          client.vipStatus,
+        )
+      : null;
+    return { vipPrice, vipTier };
+  }
+
+  private async auditActorFromUserId(userId: string): Promise<OrderAuditActor> {
+    const emp = await this.employeeForUser(userId);
+    if (emp) {
+      return { userId, label: formatEmployeeName(emp) ?? 'Staff' };
+    }
+    return this.orderAudit.customerActor(userId);
   }
 
   private canBypassOrderAssignment(
@@ -672,6 +754,7 @@ export class OrdersService {
       actor.isAdmin,
       actorEmployee?.position,
     );
+    const auditActor = await this.auditActor(actor);
 
     await this.ordersRepo.manager.transaction(async (em) => {
       for (const orderId of uniqueIds) {
@@ -685,9 +768,17 @@ export class OrdersService {
           );
         }
         const alreadyAssigned = order.assignedToId === dto.employeeId;
+        const before = cloneOrderForAudit(order);
         order.assignedToId = dto.employeeId;
         order.updatedById = actor.userId;
         await em.save(order);
+        await this.orderAudit.recordDiff(
+          order.id,
+          before,
+          order,
+          auditActor,
+          em,
+        );
         assignedOrders.push({
           orderId: order.id,
           orderNumber: order.orderNumber,
@@ -977,6 +1068,7 @@ export class OrdersService {
       order.layawayMonthlyPayment,
       order.layawayMonths,
     );
+    const actor = await this.auditActorFromUserId(userId);
 
     for (let i = 0; i < scheduledAmounts.length; i++) {
       const row = em.create(OrderInstallment, {
@@ -994,6 +1086,7 @@ export class OrdersService {
         updatedById: userId,
       });
       await em.save(row);
+      await this.orderAudit.recordInstallmentDiff(order.id, row, null, actor, em);
     }
   }
 
@@ -1069,6 +1162,9 @@ export class OrdersService {
 
     const paymentDate = this.latestConfirmedPaymentDate(paymentRows);
     const markedPaidAt = new Date();
+    const actor = await this.auditActorFromUserId(userId);
+    const beforeInstallments = installments.map(cloneInstallmentForAudit);
+    const beforeOrder = cloneOrderForAudit(order);
     const { fullyPaidInstallmentNumbers } = applyPaymentCreditToInstallments(
       installments,
       credit,
@@ -1076,9 +1172,17 @@ export class OrdersService {
       markedPaidAt,
     );
 
-    for (const row of installments) {
+    for (let i = 0; i < installments.length; i++) {
+      const row = installments[i];
       row.updatedById = userId;
       await em.save(row);
+      await this.orderAudit.recordInstallmentDiff(
+        order.id,
+        row,
+        beforeInstallments[i],
+        actor,
+        em,
+      );
     }
 
     for (const installmentNumber of fullyPaidInstallmentNumbers) {
@@ -1100,6 +1204,13 @@ export class OrdersService {
         order.status = ORDER_STATUS_PAID;
         order.updatedById = userId;
         await em.save(order);
+        await this.orderAudit.recordDiff(
+          order.id,
+          beforeOrder,
+          order,
+          actor,
+          em,
+        );
       }
     }
   }
@@ -1171,6 +1282,7 @@ export class OrdersService {
 
     const ext = extFromProofMime(mime);
     const storageKey = `orders/${order.id}/full-payment/proof-${randomUUID()}.${ext}`;
+    const before = cloneOrderForAudit(order);
 
     if (
       order.status === ORDER_STATUS_RESERVATION &&
@@ -1213,6 +1325,10 @@ export class OrdersService {
             order.fullPaymentProofUploadedByUserId,
           updatedById: user.userId,
         });
+        order.reservationPaymentProofUploadedAt =
+          order.fullPaymentProofUploadedAt;
+        order.reservationPaymentProofUploadedByUserId =
+          order.fullPaymentProofUploadedByUserId;
       }
     }
 
@@ -1229,11 +1345,20 @@ export class OrdersService {
       },
     );
 
+    const uploadedAt = new Date();
     await this.ordersRepo.update(order.id, {
-      fullPaymentProofUploadedAt: new Date(),
+      fullPaymentProofUploadedAt: uploadedAt,
       fullPaymentProofUploadedByUserId: user.userId,
       updatedById: user.userId,
     });
+    order.fullPaymentProofUploadedAt = uploadedAt;
+    order.fullPaymentProofUploadedByUserId = user.userId;
+    await this.orderAudit.recordDiff(
+      order.id,
+      before,
+      order,
+      await this.auditActor(user),
+    );
   }
 
   private async saveReservationPaymentProof(
@@ -1269,11 +1394,21 @@ export class OrdersService {
       },
     );
 
+    const before = cloneOrderForAudit(order);
+    const uploadedAt = new Date();
     await this.ordersRepo.update(order.id, {
-      reservationPaymentProofUploadedAt: new Date(),
+      reservationPaymentProofUploadedAt: uploadedAt,
       reservationPaymentProofUploadedByUserId: user.userId,
       updatedById: user.userId,
     });
+    order.reservationPaymentProofUploadedAt = uploadedAt;
+    order.reservationPaymentProofUploadedByUserId = user.userId;
+    await this.orderAudit.recordDiff(
+      order.id,
+      before,
+      order,
+      await this.auditActor(user),
+    );
   }
 
   private async reservationPaymentProofUrl(order: Order): Promise<string | null> {
@@ -1446,6 +1581,7 @@ export class OrdersService {
     const installments = await this.getInstallmentViewsForOrder(order);
     const payments = await this.getPaymentViewsForOrder(order);
     const paymentRows = await this.loadOrderPayments(order.id);
+    const vip = await this.vipFieldsForCustomer(order.inventoryItem, client);
 
     return {
       id: order.id,
@@ -1462,6 +1598,8 @@ export class OrdersService {
       creditCardPrice: this.orderCreditCardPrice(order),
       remainingBalancePrice: this.remainingBalancePrice(order, paymentRows),
       orderTotalPrice: this.orderTotalPriceValue(order),
+      vipPrice: vip.vipPrice,
+      vipTier: vip.vipTier,
       reservationPaymentProofUrl: await this.reservationPaymentProofUrl(order),
       fullPaymentProofUrl: await this.fullPaymentProofUrl(order),
       holdingPeriod: order.holdingPeriod?.toISOString() ?? null,
@@ -1581,6 +1719,10 @@ export class OrdersService {
     const installments = await this.getInstallmentViewsForOrder(order);
     const payments = await this.getPaymentViewsForOrder(order);
     const paymentRows = await this.loadOrderPayments(order.id);
+    const vip = await this.vipFieldsForCustomer(
+      order.inventoryItem,
+      order.customer,
+    );
 
     return {
       id: order.id,
@@ -1597,6 +1739,8 @@ export class OrdersService {
       creditCardPrice: this.orderCreditCardPrice(order),
       remainingBalancePrice: this.remainingBalancePrice(order, paymentRows),
       orderTotalPrice: this.orderTotalPriceValue(order),
+      vipPrice: vip.vipPrice,
+      vipTier: vip.vipTier,
       reservationPaymentProofUrl: await this.reservationPaymentProofUrl(order),
       fullPaymentProofUrl: await this.fullPaymentProofUrl(order),
       shippingFeeCareOf: order.shippingFeeCareOf,
@@ -1658,6 +1802,7 @@ export class OrdersService {
         );
       }
 
+      const before = cloneOrderForAudit(order);
       const isCreditLine = isCreditLinePaymentType(order.paymentType);
       if (!isCreditLine) {
         if (dto.consignorPaymentRelease == null) {
@@ -1682,6 +1827,7 @@ export class OrdersService {
         throw new NotFoundException('Inventory item not found');
       }
 
+      const beforeItem = cloneInventoryItemForAudit(item);
       order.layawayPaymentStartDate = todayDateString();
       order.updatedById = user.userId;
       if (isCreditLine) {
@@ -1692,9 +1838,23 @@ export class OrdersService {
         item.status = INVENTORY_STATUS_RESERVED_LAYAWAY;
       }
       await em.save(order);
+      await this.orderAudit.recordDiff(
+        order.id,
+        before,
+        order,
+        await this.auditActor(user),
+        em,
+      );
 
       item.updatedById = user.userId;
       await em.save(item);
+      await this.inventoryAudit.recordDiff(
+        item.id,
+        beforeItem,
+        item,
+        await this.auditActor(user),
+        em,
+      );
 
       await this.createInstallmentsForOrder(order, em, user.userId);
       await this.applyPreConversionPaymentCredit(em, order, user.userId);
@@ -1727,6 +1887,7 @@ export class OrdersService {
           'Only orders awaiting approval can be declined',
         );
       }
+      const before = cloneOrderForAudit(order);
       if (!isInstallmentPaymentType(order.paymentType)) {
         throw new BadRequestException(
           'Order is not a layaway or credit line order',
@@ -1742,9 +1903,17 @@ export class OrdersService {
       }
 
       if (item.status === INVENTORY_STATUS_ON_HOLD) {
+        const beforeItem = cloneInventoryItemForAudit(item);
         item.status = INVENTORY_STATUS_AVAILABLE_FOR_PURCHASE;
         item.updatedById = user.userId;
         await em.save(item);
+        await this.inventoryAudit.recordDiff(
+          item.id,
+          beforeItem,
+          item,
+          await this.auditActor(user),
+          em,
+        );
       }
 
       order.status = ORDER_STATUS_DECLINED;
@@ -1752,6 +1921,13 @@ export class OrdersService {
       order.holdingPeriod = null;
       order.updatedById = user.userId;
       await em.save(order);
+      await this.orderAudit.recordDiff(
+        order.id,
+        before,
+        order,
+        await this.auditActor(user),
+        em,
+      );
     });
 
     return this.findOneForStaff(id);
@@ -1787,6 +1963,7 @@ export class OrdersService {
         );
       }
 
+      const before = cloneOrderForAudit(order);
       const isCreditLine = isCreditLinePaymentType(order.paymentType);
       if (!isCreditLine) {
         if (dto.consignorPaymentRelease == null) {
@@ -1816,6 +1993,13 @@ export class OrdersService {
         order.status = ORDER_STATUS_FOR_PAYMENT;
       }
       await em.save(order);
+      await this.orderAudit.recordDiff(
+        order.id,
+        before,
+        order,
+        await this.auditActor(user),
+        em,
+      );
 
       const item = await em.findOne(InventoryItem, {
         where: { id: order.inventoryItemId },
@@ -1825,11 +2009,19 @@ export class OrdersService {
         throw new NotFoundException('Inventory item not found');
       }
 
+      const beforeItem = cloneInventoryItemForAudit(item);
       item.status = isCreditLine
         ? INVENTORY_STATUS_FOR_PICKUP
         : INVENTORY_STATUS_RESERVED_LAYAWAY;
       item.updatedById = user.userId;
       await em.save(item);
+      await this.inventoryAudit.recordDiff(
+        item.id,
+        beforeItem,
+        item,
+        await this.auditActor(user),
+        em,
+      );
 
       await this.createInstallmentsForOrder(order, em, user.userId);
       await this.applyPreConversionPaymentCredit(em, order, user.userId);
@@ -1909,6 +2101,7 @@ export class OrdersService {
         );
       }
 
+      const before = cloneOrderForAudit(order);
       order.paymentType = PAYMENT_TYPE_LAYAWAY;
       order.layawayMonths = dto.layawayMonths;
       order.layawayPrice = formatMoney(layawayPrice);
@@ -1922,6 +2115,13 @@ export class OrdersService {
       order.holdingPeriod = addHours(new Date(), LAYAWAY_HOLDING_HOURS);
       order.updatedById = user.userId;
       await em.save(order);
+      await this.orderAudit.recordDiff(
+        order.id,
+        before,
+        order,
+        await this.auditActor(user),
+        em,
+      );
     });
 
     return this.findOneForStaff(id);
@@ -1964,15 +2164,31 @@ export class OrdersService {
         throw new NotFoundException('Inventory item not found');
       }
 
+      const beforeItem = cloneInventoryItemForAudit(item);
       item.status = INVENTORY_STATUS_AVAILABLE_FOR_PURCHASE;
       item.updatedById = user.userId;
       await em.save(item);
+      await this.inventoryAudit.recordDiff(
+        item.id,
+        beforeItem,
+        item,
+        await this.auditActor(user),
+        em,
+      );
 
+      const before = cloneOrderForAudit(order);
       order.status = ORDER_STATUS_CANCELLED;
       order.declineReason = reason;
       order.holdingPeriod = null;
       order.updatedById = user.userId;
       await em.save(order);
+      await this.orderAudit.recordDiff(
+        order.id,
+        before,
+        order,
+        await this.auditActor(user),
+        em,
+      );
     });
 
     return this.findOneForStaff(id);
@@ -2019,9 +2235,16 @@ export class OrdersService {
       );
     }
 
+    const before = cloneOrderForAudit(order);
     order.status = ORDER_STATUS_PAID;
     order.updatedById = user.userId;
     await this.ordersRepo.save(order);
+    await this.orderAudit.recordDiff(
+      order.id,
+      before,
+      order,
+      await this.auditActor(user),
+    );
 
     return this.findOneForStaff(id);
   }
@@ -2098,6 +2321,7 @@ export class OrdersService {
         throw new NotFoundException('Inventory item not found');
       }
 
+      const before = cloneOrderForAudit(order);
       if (pickupOption === PICKUP_OPTION_COURIER) {
         if (shippingFeeCareOf === SHIPPING_FEE_CARE_OF_TBH) {
           if (proofFile?.buffer?.length) {
@@ -2140,12 +2364,27 @@ export class OrdersService {
       order.updatedById = user.userId;
 
       if (markingPaidAsForPickup) {
+        const beforeItem = cloneInventoryItemForAudit(item);
         item.status = INVENTORY_STATUS_FOR_PICKUP;
         item.updatedById = user.userId;
         await em.save(item);
+        await this.inventoryAudit.recordDiff(
+          item.id,
+          beforeItem,
+          item,
+          await this.auditActor(user),
+          em,
+        );
 
         order.status = ORDER_STATUS_FOR_PICKUP;
         await em.save(order);
+        await this.orderAudit.recordDiff(
+          order.id,
+          before,
+          order,
+          await this.auditActor(user),
+          em,
+        );
 
         const waitlistRows = await em.find(Waitlist, {
           where: { inventoryItemId: item.id },
@@ -2165,6 +2404,13 @@ export class OrdersService {
         }
       } else {
         await em.save(order);
+        await this.orderAudit.recordDiff(
+          order.id,
+          before,
+          order,
+          await this.auditActor(user),
+          em,
+        );
       }
     });
 
@@ -2244,11 +2490,20 @@ export class OrdersService {
       }
 
       const dateSoldAt = new Date();
+      const beforeItem = cloneInventoryItemForAudit(item);
       item.status = INVENTORY_STATUS_SOLD_UNDER_WARRANTY;
       item.dateSold = dateSoldAt;
       item.updatedById = user.userId;
       await em.save(item);
+      await this.inventoryAudit.recordDiff(
+        item.id,
+        beforeItem,
+        item,
+        await this.auditActor(user),
+        em,
+      );
 
+      const before = cloneOrderForAudit(order);
       if (isCreditLinePaymentType(order.paymentType)) {
         const allPaid = await this.areAllInstallmentsPaid(order.id, em);
         order.status = allPaid
@@ -2259,30 +2514,49 @@ export class OrdersService {
       }
       order.updatedById = user.userId;
       await em.save(order);
+      await this.orderAudit.recordDiff(
+        order.id,
+        before,
+        order,
+        await this.auditActor(user),
+        em,
+      );
+
+      let consignorClientId = item.consignorId;
+      let consignorOfferPrice: string | null = null;
+      if (item.inquiryId) {
+        const inquiry = await em.findOne(Inquiry, {
+          where: { id: item.inquiryId },
+        });
+        if (!consignorClientId) {
+          consignorClientId = inquiry?.consignorId ?? null;
+        }
+        consignorOfferPrice = inquiry?.offerPrice ?? null;
+      }
+
+      await this.clientActivityTotals.applySoldUnderWarrantyTotals(em, {
+        buyerClientId: order.customerId,
+        purchasePesos: purchaseAmountPesosFromOrder(order),
+        consignorClientId,
+        consignmentPesos: consignorPricePesosFromOffer(consignorOfferPrice),
+        actorUserId: user.userId,
+      });
 
       if (
         item.inquiryId &&
         item.transactionType === 'consignment' &&
-        order.paymentType !== PAYMENT_TYPE_LAYAWAY
+        order.paymentType !== PAYMENT_TYPE_LAYAWAY &&
+        consignorClientId
       ) {
-        let consignorClientId = item.consignorId;
-        if (!consignorClientId) {
-          const inquiry = await em.findOne(Inquiry, {
-            where: { id: item.inquiryId },
-          });
-          consignorClientId = inquiry?.consignorId ?? null;
-        }
-        if (consignorClientId) {
-          const auditDate = computeConsignorPaymentAuditDate(dateSoldAt);
-          await this.consignorPaymentsService.recordItemForSoldFinalConsignment(
-            em,
-            {
-              inquiryId: item.inquiryId,
-              consignorClientId,
-              auditDate,
-            },
-          );
-        }
+        const auditDate = computeConsignorPaymentAuditDate(dateSoldAt);
+        await this.consignorPaymentsService.recordItemForSoldFinalConsignment(
+          em,
+          {
+            inquiryId: item.inquiryId,
+            consignorClientId,
+            auditDate,
+          },
+        );
       }
 
     });
@@ -2331,9 +2605,16 @@ export class OrdersService {
     }
 
     const row = await this.findInstallmentForOrder(orderId, installmentNumber);
+    const before = cloneInstallmentForAudit(row);
     row.amountPaid = formatMoney(amount);
     row.updatedById = user.userId;
     await this.installmentsRepo.save(row);
+    await this.orderAudit.recordInstallmentDiff(
+      orderId,
+      row,
+      before,
+      await this.auditActor(user),
+    );
 
     return this.findOneForStaff(orderId);
   }
@@ -2386,10 +2667,17 @@ export class OrdersService {
       );
     }
 
+    const before = cloneInstallmentForAudit(row);
     row.penalty = formatMoney(amount);
     row.penaltyWaiveStatus = PENALTY_WAIVE_STATUS_PENDING;
     row.updatedById = user.userId;
     await this.installmentsRepo.save(row);
+    await this.orderAudit.recordInstallmentDiff(
+      orderId,
+      row,
+      before,
+      await this.auditActor(user),
+    );
 
     await this.notifications.notify({
       message: `Penalty waive requested for order #${order.orderNumber}, installment ${installmentNumber}. Please review.`,
@@ -2421,11 +2709,18 @@ export class OrdersService {
       throw new BadRequestException('There is no pending penalty waive to approve');
     }
 
+    const before = cloneInstallmentForAudit(row);
     row.penalty = formatMoney(0);
     row.penaltyOverridden = true;
     row.penaltyWaiveStatus = PENALTY_WAIVE_STATUS_APPROVED;
     row.updatedById = user.userId;
     await this.installmentsRepo.save(row);
+    await this.orderAudit.recordInstallmentDiff(
+      orderId,
+      row,
+      before,
+      await this.auditActor(user),
+    );
 
     await this.notifyAssignedSalesAssociate(
       order,
@@ -2468,11 +2763,18 @@ export class OrdersService {
       todayDateString(),
     );
 
+    const before = cloneInstallmentForAudit(row);
     row.penaltyOverridden = false;
     row.penaltyWaiveStatus = null;
     row.penalty = autoPenalty > 0 ? formatMoney(autoPenalty) : null;
     row.updatedById = user.userId;
     await this.installmentsRepo.save(row);
+    await this.orderAudit.recordInstallmentDiff(
+      orderId,
+      row,
+      before,
+      await this.auditActor(user),
+    );
 
     await this.notifyAssignedSalesAssociate(
       order,
@@ -2499,9 +2801,16 @@ export class OrdersService {
     await this.backfillInstallmentDueDates(order, user.userId);
 
     const row = await this.findInstallmentForOrder(orderId, installmentNumber);
+    const before = cloneInstallmentForAudit(row);
     row.dueDate = formatOrderDate(dto.dueDate);
     row.updatedById = user.userId;
     await this.installmentsRepo.save(row);
+    await this.orderAudit.recordInstallmentDiff(
+      orderId,
+      row,
+      before,
+      await this.auditActor(user),
+    );
 
     return this.findOneForStaff(orderId);
   }
@@ -2521,9 +2830,16 @@ export class OrdersService {
     await this.ensureInstallments(order, user.userId);
 
     const row = await this.findInstallmentForOrder(orderId, installmentNumber);
+    const before = cloneInstallmentForAudit(row);
     row.paymentDate = formatOrderDate(dto.paymentDate);
     row.updatedById = user.userId;
     await this.installmentsRepo.save(row);
+    await this.orderAudit.recordInstallmentDiff(
+      orderId,
+      row,
+      before,
+      await this.auditActor(user),
+    );
 
     return this.findOneForStaff(orderId);
   }
@@ -2579,6 +2895,8 @@ export class OrdersService {
 
       this.assertInstallmentNotPendingPenaltyWaive(row);
 
+      const beforeInstallment = cloneInstallmentForAudit(row);
+      const beforeOrder = cloneOrderForAudit(order);
       const amountDue = computeAmountDueForInstallment(rows, installmentNumber);
       const paymentStartDate = formatOrderDate(order.layawayPaymentStartDate);
       const dueDate = effectiveDueDateForInstallment(row, paymentStartDate);
@@ -2646,6 +2964,13 @@ export class OrdersService {
       row.status = ORDER_INSTALLMENT_STATUS_PAID;
       row.markedPaidAt = markedPaidAt;
       await em.save(row);
+      await this.orderAudit.recordInstallmentDiff(
+        orderId,
+        row,
+        beforeInstallment,
+        await this.auditActor(user),
+        em,
+      );
 
       if (
         order.consignorPaymentRelease != null &&
@@ -2689,6 +3014,13 @@ export class OrdersService {
         }
         order.updatedById = user.userId;
         await em.save(order);
+        await this.orderAudit.recordDiff(
+          order.id,
+          beforeOrder,
+          order,
+          await this.auditActor(user),
+          em,
+        );
       }
     });
 
@@ -2816,6 +3148,7 @@ export class OrdersService {
       throw new BadRequestException('Installment is already marked as paid');
     }
 
+    const before = cloneInstallmentForAudit(installment);
     const ext = extFromProofMime(mime);
     const storageKey = `orders/${orderId}/installments/${installmentNumber}/proof-${randomUUID()}.${ext}`;
     await this.media.replaceSingle(
@@ -2832,6 +3165,7 @@ export class OrdersService {
 
     const amount = parseMoney(detailsDto.amountPaid);
     const paymentDate = formatOrderDate(detailsDto.paymentDate);
+    const proofUploadedAt = new Date();
     await this.installmentsRepo.update(
       { orderId, installmentNumber },
       {
@@ -2839,10 +3173,21 @@ export class OrdersService {
         amountPaid: amount != null ? formatMoney(amount) : null,
         paymentDate,
         modeOfPayment: detailsDto.modeOfPayment,
-        proofUploadedAt: new Date(),
+        proofUploadedAt,
         proofUploadedByUserId: user.userId,
         updatedById: user.userId,
       },
+    );
+    installment.status = ORDER_INSTALLMENT_STATUS_FOR_PAYMENT_VERIFICATION;
+    installment.amountPaid = amount != null ? formatMoney(amount) : null;
+    installment.paymentDate = paymentDate;
+    installment.modeOfPayment = detailsDto.modeOfPayment;
+    installment.proofUploadedAt = proofUploadedAt;
+    await this.orderAudit.recordInstallmentDiff(
+      orderId,
+      installment,
+      before,
+      await this.auditActor(user),
     );
 
     if (!isInstallmentAwaitingVerification(previousStatus)) {
@@ -2894,6 +3239,7 @@ export class OrdersService {
       throw new BadRequestException('Installment is already marked as paid');
     }
 
+    const before = cloneInstallmentForAudit(installment);
     const ext = extFromProofMime(mime);
     const storageKey = `orders/${orderId}/installments/${installmentNumber}/proof-${randomUUID()}.${ext}`;
     await this.media.replaceSingle(
@@ -2908,14 +3254,23 @@ export class OrdersService {
       },
     );
 
+    const proofUploadedAt = new Date();
     await this.installmentsRepo.update(
       { orderId, installmentNumber },
       {
         status: ORDER_INSTALLMENT_STATUS_FOR_PAYMENT_VERIFICATION,
-        proofUploadedAt: new Date(),
+        proofUploadedAt,
         proofUploadedByUserId: user.userId,
         updatedById: user.userId,
       },
+    );
+    installment.status = ORDER_INSTALLMENT_STATUS_FOR_PAYMENT_VERIFICATION;
+    installment.proofUploadedAt = proofUploadedAt;
+    await this.orderAudit.recordInstallmentDiff(
+      orderId,
+      installment,
+      before,
+      await this.auditActor(user),
     );
 
     if (!isInstallmentAwaitingVerification(previousStatus)) {
@@ -3032,6 +3387,8 @@ export class OrdersService {
       }
 
       const markedPaidAt = new Date();
+      const beforePayment = clonePaymentForAudit(payment);
+      const beforeOrder = cloneOrderForAudit(order);
       payment.amountPaid = formatMoney(amount);
       payment.paymentDate = paymentDate;
       payment.modeOfPayment = confirmDto.modeOfPayment;
@@ -3040,10 +3397,24 @@ export class OrdersService {
       payment.markedPaidByUserId = user.userId;
       payment.updatedById = user.userId;
       await em.save(payment);
+      await this.orderAudit.recordPaymentDiff(
+        orderId,
+        payment,
+        beforePayment,
+        await this.auditActor(user),
+        em,
+      );
 
       order.holdingPeriod = null;
       order.updatedById = user.userId;
       await em.save(order);
+      await this.orderAudit.recordDiff(
+        order.id,
+        beforeOrder,
+        order,
+        await this.auditActor(user),
+        em,
+      );
     });
 
     return this.findOneForStaff(orderId);
@@ -3090,9 +3461,16 @@ export class OrdersService {
       );
     }
 
+    const before = clonePaymentForAudit(row);
     row.amountPaid = formatMoney(amount);
     row.updatedById = user.userId;
     await this.orderPaymentsRepo.save(row);
+    await this.orderAudit.recordPaymentDiff(
+      orderId,
+      row,
+      before,
+      await this.auditActor(user),
+    );
 
     return this.findOneForStaff(orderId);
   }
@@ -3122,9 +3500,16 @@ export class OrdersService {
       );
     }
 
+    const before = clonePaymentForAudit(row);
     row.paymentDate = paymentDate;
     row.updatedById = user.userId;
     await this.orderPaymentsRepo.save(row);
+    await this.orderAudit.recordPaymentDiff(
+      orderId,
+      row,
+      before,
+      await this.auditActor(user),
+    );
 
     return this.findOneForStaff(orderId);
   }
@@ -3154,9 +3539,16 @@ export class OrdersService {
       throw new BadRequestException('Order total price cannot be negative');
     }
 
+    const before = cloneOrderForAudit(order);
     order.orderTotalPrice = formatMoney(amount);
     order.updatedById = user.userId;
     await this.ordersRepo.save(order);
+    await this.orderAudit.recordDiff(
+      order.id,
+      before,
+      order,
+      await this.auditActor(user),
+    );
 
     return this.findOneForStaff(orderId);
   }
@@ -3245,6 +3637,12 @@ export class OrdersService {
       updatedById: user.userId,
     });
     await this.orderPaymentsRepo.save(payment);
+    await this.orderAudit.recordPaymentDiff(
+      order.id,
+      payment,
+      null,
+      await this.auditActor(user),
+    );
 
     await this.media.replaceSingle(
       MediaOwnerType.ORDER_PAYMENT,
@@ -3322,7 +3720,7 @@ export class OrdersService {
       throw new BadRequestException('This is your item and you cannot buy it.');
     }
 
-    const itemPrice = liveInventoryUnitPrice(item);
+    const itemPrice = await this.sellingPriceForClient(item, client);
     if (itemPrice == null) {
       throw new BadRequestException('Item price is not set');
     }
@@ -3416,10 +3814,23 @@ export class OrdersService {
         updatedById: user.userId,
       });
       await em.save(order);
+      await this.orderAudit.recordInitialCreation(
+        order,
+        await this.auditActor(user),
+        em,
+      );
 
+      const beforeItem = cloneInventoryItemForAudit(item);
       item.status = INVENTORY_STATUS_ON_HOLD;
       item.updatedById = user.userId;
       await em.save(item);
+      await this.inventoryAudit.recordDiff(
+        item.id,
+        beforeItem,
+        item,
+        await this.auditActor(user),
+        em,
+      );
 
       return order;
     });
@@ -3495,7 +3906,7 @@ export class OrdersService {
       );
     }
 
-    const itemPrice = liveInventoryUnitPrice(item);
+    const itemPrice = await this.sellingPriceForClient(item, client);
     if (itemPrice == null) {
       throw new BadRequestException('Item price is not set');
     }
@@ -3590,10 +4001,23 @@ export class OrdersService {
         updatedById: user.userId,
       });
       await em.save(order);
+      await this.orderAudit.recordInitialCreation(
+        order,
+        await this.auditActor(user),
+        em,
+      );
 
+      const beforeItem = cloneInventoryItemForAudit(item);
       item.status = INVENTORY_STATUS_ON_HOLD;
       item.updatedById = user.userId;
       await em.save(item);
+      await this.inventoryAudit.recordDiff(
+        item.id,
+        beforeItem,
+        item,
+        await this.auditActor(user),
+        em,
+      );
 
       return order;
     });
@@ -3729,10 +4153,23 @@ export class OrdersService {
         updatedById: user.userId,
       });
       await em.save(order);
+      await this.orderAudit.recordInitialCreation(
+        order,
+        await this.auditActor(user),
+        em,
+      );
 
+      const beforeItem = cloneInventoryItemForAudit(item);
       item.status = INVENTORY_STATUS_ON_HOLD;
       item.updatedById = user.userId;
       await em.save(item);
+      await this.inventoryAudit.recordDiff(
+        item.id,
+        beforeItem,
+        item,
+        await this.auditActor(user),
+        em,
+      );
 
       return order;
     });
@@ -3779,8 +4216,15 @@ export class OrdersService {
         );
         const nextPenalty = autoPenalty > 0 ? formatMoney(autoPenalty) : null;
         if (row.penalty !== nextPenalty) {
+          const before = cloneInstallmentForAudit(row);
           row.penalty = nextPenalty;
           toSave.push(row);
+          await this.orderAudit.recordInstallmentDiff(
+            order.id,
+            row,
+            before,
+            this.orderAudit.systemActor(),
+          );
         }
       }
 
@@ -3836,11 +4280,27 @@ export class OrdersService {
           return false;
         }
 
+        const beforeItem = cloneInventoryItemForAudit(lockedItem);
         lockedItem.status = INVENTORY_STATUS_AVAILABLE_FOR_PURCHASE;
         await em.save(lockedItem);
+        await this.inventoryAudit.recordDiff(
+          lockedItem.id,
+          beforeItem,
+          lockedItem,
+          this.inventoryAudit.systemActor(),
+          em,
+        );
 
+        const before = cloneOrderForAudit(lockedOrder);
         lockedOrder.status = ORDER_STATUS_EXPIRED;
         await em.save(lockedOrder);
+        await this.orderAudit.recordDiff(
+          lockedOrder.id,
+          before,
+          lockedOrder,
+          this.orderAudit.systemActor(),
+          em,
+        );
         return true;
       });
 
@@ -4046,10 +4506,25 @@ export class OrdersService {
       updatedById: userId,
     });
     await em.save(payment);
+    await this.orderAudit.recordPaymentDiff(
+      order.id,
+      payment,
+      null,
+      await this.auditActorFromUserId(userId),
+      em,
+    );
 
+    const beforeOrder = cloneOrderForAudit(order);
     order.holdingPeriod = null;
     order.updatedById = userId;
     await em.save(order);
+    await this.orderAudit.recordDiff(
+      order.id,
+      beforeOrder,
+      order,
+      await this.auditActorFromUserId(userId),
+      em,
+    );
   }
 
   private async applyVoucherToNextInstallment(
@@ -4107,6 +4582,7 @@ export class OrdersService {
       throw new BadRequestException('Nothing remaining to pay on this installment');
     }
 
+    const before = cloneInstallmentForAudit(row);
     row.amountPaid = formatMoney(appliedAmount);
     row.paymentDate = paymentDate;
     row.modeOfPayment = PAYMENT_MODE_CREDIT_VOUCHER;
@@ -4115,6 +4591,13 @@ export class OrdersService {
     row.markedPaidAt = now;
     row.updatedById = userId;
     await em.save(row);
+    await this.orderAudit.recordInstallmentDiff(
+      order.id,
+      row,
+      before,
+      await this.auditActorFromUserId(userId),
+      em,
+    );
 
     await this.runInstallmentPaidSideEffects(
       em,
@@ -4162,6 +4645,7 @@ export class OrdersService {
       order.layawayMonths != null &&
       installmentNumber === order.layawayMonths
     ) {
+      const before = cloneOrderForAudit(order);
       if (isCreditLinePaymentType(order.paymentType)) {
         if (
           order.status === ORDER_STATUS_ITEM_RECEIVED_UNPAID ||
@@ -4174,6 +4658,13 @@ export class OrdersService {
       }
       order.updatedById = userId;
       await em.save(order);
+      await this.orderAudit.recordDiff(
+        order.id,
+        before,
+        order,
+        await this.auditActorFromUserId(userId),
+        em,
+      );
     }
   }
 

@@ -2,9 +2,12 @@ import { useCallback, useEffect, useId, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { CopyPageUrlButton } from "../components/CopyPageUrlButton";
+import { HorizontalScrollMirror } from "../components/HorizontalScrollMirror";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { InventoryStatusBadge } from "../components/InventoryStatusBadge";
+import { TablePaginationBar } from "../components/TablePaginationBar";
 import { usePortalAuth } from "../context/portal-auth";
+import { useClientPagination } from "../hooks/useClientPagination";
 import { apiFetch } from "../lib/api";
 import { branchLabel } from "../lib/consignment-schedule-labels";
 import { formatOfferTransactionLabel } from "../lib/format-offer-transaction-type";
@@ -37,6 +40,11 @@ type InventoryDetailForStaff = {
   inquiryOfferPrice: string | null;
   tbhSellingPrice: string | null;
   creditCardPrice: string | null;
+  onPromo?: boolean;
+  promoPrice?: string | null;
+  enableDiscount?: boolean;
+  vipGoldPrice?: string | null;
+  vipDiamondPrice?: string | null;
   authenticationDetails: {
     dimensions: string | null;
     rating: string | null;
@@ -68,6 +76,15 @@ type InventoryItemWaitlistClientRow = {
   email: string;
   contactNumber: string;
   createdAt: string;
+};
+
+type InventoryAuditRow = {
+  id: string;
+  propertyName: string;
+  fromValue: string | null;
+  toValue: string | null;
+  updatedBy: string;
+  updatedAt: string;
 };
 
 type ClientAccountRow = {
@@ -146,6 +163,17 @@ function clientName(row: InventoryItemWaitlistClientRow): string {
   return `${row.firstName} ${row.lastName}`.trim() || row.email;
 }
 
+async function readApiErrorMessage(res: Response): Promise<string> {
+  try {
+    const j = (await res.json()) as { message?: string | string[] };
+    if (Array.isArray(j.message)) return j.message.join("; ");
+    if (typeof j.message === "string") return j.message;
+  } catch {
+    /* ignore */
+  }
+  return `Request failed (${res.status})`;
+}
+
 const cardClass =
   "rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900";
 
@@ -182,6 +210,11 @@ export function InventoryItemDetailPage() {
   const [markSoldFinalError, setMarkSoldFinalError] = useState<string | null>(
     null,
   );
+  const [auditOpen, setAuditOpen] = useState(false);
+  const [auditRows, setAuditRows] = useState<InventoryAuditRow[] | null>(null);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditError, setAuditError] = useState<string | null>(null);
+  const auditPagination = useClientPagination(auditRows ?? []);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -198,6 +231,7 @@ export function InventoryItemDetailPage() {
       }
       const data = (await detailRes.json()) as InventoryDetailForStaff;
       setDetail(data);
+      setAuditRows(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load item");
       setDetail(null);
@@ -209,6 +243,31 @@ export function InventoryItemDetailPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const loadAudit = useCallback(async () => {
+    if (!id || !token) return;
+    setAuditLoading(true);
+    setAuditError(null);
+    try {
+      const res = await apiFetch(`/api/inventory/${id}/audit`, {}, token);
+      if (!res.ok) throw new Error(await readApiErrorMessage(res));
+      const data = (await res.json()) as InventoryAuditRow[];
+      setAuditRows(Array.isArray(data) ? data : []);
+    } catch (e) {
+      setAuditError(
+        e instanceof Error ? e.message : "Failed to load audit trail",
+      );
+      setAuditRows([]);
+    } finally {
+      setAuditLoading(false);
+    }
+  }, [id, token]);
+
+  useEffect(() => {
+    if (!auditOpen || !id) return;
+    if (auditRows !== null) return;
+    void loadAudit();
+  }, [auditOpen, id, auditRows, loadAudit]);
 
   const loadWaitlists = useCallback(async () => {
     if (!id) return;
@@ -734,6 +793,26 @@ export function InventoryItemDetailPage() {
               </dd>
             </div>
           ) : null}
+          {hasText(detail.vipGoldPrice) ? (
+            <div>
+              <dt className="text-slate-500 dark:text-slate-400">
+                VIP Gold price
+              </dt>
+              <dd className="tabular-nums">
+                {formatPhpDisplay(detail.vipGoldPrice)}
+              </dd>
+            </div>
+          ) : null}
+          {hasText(detail.vipDiamondPrice) ? (
+            <div>
+              <dt className="text-slate-500 dark:text-slate-400">
+                VIP Diamond price
+              </dt>
+              <dd className="tabular-nums">
+                {formatPhpDisplay(detail.vipDiamondPrice)}
+              </dd>
+            </div>
+          ) : null}
           {hasText(detail.authenticationDetails?.rating) ? (
             <div>
               <dt className="text-slate-500 dark:text-slate-400">Rating</dt>
@@ -797,6 +876,109 @@ export function InventoryItemDetailPage() {
           </div>
         </dl>
       </div>
+      </div>
+
+      <div className={cardClass}>
+        <button
+          type="button"
+          onClick={() => setAuditOpen((o) => !o)}
+          className="-m-1 flex w-full items-center justify-between gap-2 rounded-lg p-1 text-left focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500"
+          aria-expanded={auditOpen}
+        >
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
+            Audit trail
+          </h2>
+          <span className="text-slate-400" aria-hidden>
+            {auditOpen ? "▼" : "▶"}
+          </span>
+        </button>
+        {auditOpen ? (
+          <div className="mt-4">
+            {auditLoading ? (
+              <p className="text-sm text-slate-500 dark:text-slate-400">
+                Loading…
+              </p>
+            ) : auditError ? (
+              <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+                {auditError}
+              </p>
+            ) : auditRows && auditRows.length === 0 ? (
+              <p className="text-sm text-slate-500 dark:text-slate-400">
+                No audit entries yet.
+              </p>
+            ) : (
+              <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
+                <div className="border-b border-slate-200 bg-slate-50/80 px-3 py-3 dark:border-slate-800 dark:bg-slate-950/40 sm:px-4">
+                  <TablePaginationBar
+                    totalCount={auditPagination.totalCount}
+                    pageIndex={auditPagination.pageIndex}
+                    pageSize={auditPagination.pageSize}
+                    onPageIndexChange={auditPagination.setPageIndex}
+                    onPageSizeChange={auditPagination.setPageSize}
+                    disabled={auditLoading && (auditRows?.length ?? 0) === 0}
+                    itemLabel="entries"
+                  />
+                </div>
+                <HorizontalScrollMirror>
+                  <table className="w-max min-w-full border-collapse text-left text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-200 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                        <th
+                          scope="col"
+                          className="max-w-[10rem] min-w-0 py-2 pr-3"
+                        >
+                          Property
+                        </th>
+                        <th
+                          scope="col"
+                          className="max-w-[10rem] min-w-0 py-2 pr-3"
+                        >
+                          From
+                        </th>
+                        <th
+                          scope="col"
+                          className="max-w-[10rem] min-w-0 py-2 pr-3"
+                        >
+                          To
+                        </th>
+                        <th
+                          scope="col"
+                          className="max-w-[10rem] min-w-0 py-2 pr-3"
+                        >
+                          Updated by
+                        </th>
+                        <th scope="col" className="max-w-[10rem] min-w-0 py-2">
+                          Date
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+                      {auditPagination.pageItems.map((row) => (
+                        <tr key={row.id}>
+                          <td className="max-w-[10rem] min-w-0 py-2 pr-3 align-top font-medium break-words text-slate-800 dark:text-slate-200">
+                            {row.propertyName}
+                          </td>
+                          <td className="max-w-[10rem] min-w-0 py-2 pr-3 align-top whitespace-pre-wrap break-words text-slate-600 dark:text-slate-400">
+                            {row.fromValue ?? "—"}
+                          </td>
+                          <td className="max-w-[10rem] min-w-0 py-2 pr-3 align-top whitespace-pre-wrap break-words text-slate-600 dark:text-slate-400">
+                            {row.toValue ?? "—"}
+                          </td>
+                          <td className="max-w-[10rem] min-w-0 py-2 pr-3 align-top break-words text-slate-700 dark:text-slate-300">
+                            {row.updatedBy}
+                          </td>
+                          <td className="max-w-[10rem] min-w-0 py-2 align-top text-slate-600 dark:text-slate-400">
+                            <SubmittedAtCell iso={row.updatedAt} />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </HorizontalScrollMirror>
+              </div>
+            )}
+          </div>
+        ) : null}
       </div>
 
       {waitlistModalOpen ? (

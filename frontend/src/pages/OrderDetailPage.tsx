@@ -14,10 +14,17 @@ import { OrderPaymentsSection } from "../components/OrderPaymentsSection";
 import { computeInstallmentVoucherAmountDue } from "../components/UseVoucherDialog";
 import { OrderStatusBadge } from "../components/OrderStatusBadge";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
+import { HorizontalScrollMirror } from "../components/HorizontalScrollMirror";
+import { TablePaginationBar } from "../components/TablePaginationBar";
 import { usePortalAuth } from "../context/portal-auth";
+import { useClientPagination } from "../hooks/useClientPagination";
 import { apiFetch } from "../lib/api";
 import { canBypassOrderAssignment, isGeneralManagerPosition } from "../lib/employee-position";
 import { formatPhpDisplay, parsePhpStringToNumber } from "../lib/format-php";
+import {
+  vipPriceFieldLabel,
+  type VipDiscountTier,
+} from "../lib/vip-pricing";
 import { useFeatureAccess } from "../lib/use-feature-access";
 import {
   calculateLayawayPricing,
@@ -67,6 +74,8 @@ type OrderDetail = {
   creditCardPrice: string | null;
   remainingBalancePrice: string | null;
   orderTotalPrice: string | null;
+  vipPrice: string | null;
+  vipTier: VipDiscountTier | null;
   reservationPaymentProofUrl: string | null;
   fullPaymentProofUrl: string | null;
   shippingFeeCareOf: string | null;
@@ -100,6 +109,15 @@ type OrderDetail = {
   };
   installments: OrderInstallmentRow[];
   payments: OrderPaymentRow[];
+};
+
+type OrderAuditRow = {
+  id: string;
+  propertyName: string;
+  fromValue: string | null;
+  toValue: string | null;
+  updatedBy: string;
+  updatedAt: string;
 };
 
 const RESERVATION_FEE = 5_000;
@@ -340,6 +358,11 @@ export function OrderDetailPage() {
   const [convertPrice, setConvertPrice] = useState("");
   const [convertConsignorPaymentRelease, setConvertConsignorPaymentRelease] =
     useState("");
+  const [auditOpen, setAuditOpen] = useState(false);
+  const [auditRows, setAuditRows] = useState<OrderAuditRow[] | null>(null);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditError, setAuditError] = useState<string | null>(null);
+  const auditPagination = useClientPagination(auditRows ?? []);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -356,6 +379,7 @@ export function OrderDetailPage() {
       }
       const data = (await res.json()) as OrderDetail;
       setDetail(data);
+      setAuditRows(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load order");
       setDetail(null);
@@ -367,6 +391,31 @@ export function OrderDetailPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const loadAudit = useCallback(async () => {
+    if (!id || !token) return;
+    setAuditLoading(true);
+    setAuditError(null);
+    try {
+      const res = await apiFetch(`/api/orders/${id}/audit`, {}, token);
+      if (!res.ok) throw new Error(await readApiErrorMessage(res));
+      const data = (await res.json()) as OrderAuditRow[];
+      setAuditRows(Array.isArray(data) ? data : []);
+    } catch (e) {
+      setAuditError(
+        e instanceof Error ? e.message : "Failed to load audit trail",
+      );
+      setAuditRows([]);
+    } finally {
+      setAuditLoading(false);
+    }
+  }, [id, token]);
+
+  useEffect(() => {
+    if (!auditOpen || !id) return;
+    if (auditRows !== null) return;
+    void loadAudit();
+  }, [auditOpen, id, auditRows, loadAudit]);
 
   const handleVoucherApplied = useCallback(
     async (orderDetail?: unknown) => {
@@ -567,11 +616,12 @@ export function OrderDetailPage() {
     !termsBusy;
 
   const convertItemPrice = useMemo(() => {
-    const raw = detail?.fullPaymentPrice ?? detail?.orderTotalPrice;
+    const raw =
+      detail?.vipPrice ?? detail?.fullPaymentPrice ?? detail?.orderTotalPrice;
     if (raw == null) return null;
     const value = Number.parseFloat(raw);
     return Number.isFinite(value) && value > 0 ? value : null;
-  }, [detail?.fullPaymentPrice, detail?.orderTotalPrice]);
+  }, [detail?.vipPrice, detail?.fullPaymentPrice, detail?.orderTotalPrice]);
 
   const convertMonthsNumber = useMemo(() => {
     if (!/^\d+$/.test(convertMonths.trim())) return null;
@@ -651,7 +701,7 @@ export function OrderDetailPage() {
     const months = DEFAULT_LAYAWAY_MONTHS;
     setConvertMonths(String(months));
     const itemPrice = Number.parseFloat(
-      detail.fullPaymentPrice ?? detail.orderTotalPrice ?? "",
+      detail.vipPrice ?? detail.fullPaymentPrice ?? detail.orderTotalPrice ?? "",
     );
     const pricing =
       Number.isFinite(itemPrice) && itemPrice > 0
@@ -1359,6 +1409,11 @@ export function OrderDetailPage() {
               <DetailField label="Best price">
                 {formatPhpDisplay(detail.fullPaymentTotalPrice)}
               </DetailField>
+              {detail.vipPrice ? (
+                <DetailField label={vipPriceFieldLabel(detail.vipTier)}>
+                  {formatPhpDisplay(detail.vipPrice)}
+                </DetailField>
+              ) : null}
               <DetailField label="Credit card price">
                 {formatPhpDisplay(detail.creditCardPrice)}
               </DetailField>
@@ -1369,6 +1424,11 @@ export function OrderDetailPage() {
               <DetailField label="Best price">
                 {formatPhpDisplay(detail.fullPaymentPrice)}
               </DetailField>
+              {detail.vipPrice ? (
+                <DetailField label={vipPriceFieldLabel(detail.vipTier)}>
+                  {formatPhpDisplay(detail.vipPrice)}
+                </DetailField>
+              ) : null}
               <DetailField label="Credit card price">
                 {formatPhpDisplay(detail.creditCardPrice)}
               </DetailField>
@@ -1378,6 +1438,11 @@ export function OrderDetailPage() {
               {detail.paymentType === "layaway" ? (
                 <DetailField label="Original price">
                   {formatPhpDisplay(detail.fullPaymentPrice)}
+                </DetailField>
+              ) : null}
+              {detail.vipPrice ? (
+                <DetailField label={vipPriceFieldLabel(detail.vipTier)}>
+                  {formatPhpDisplay(detail.vipPrice)}
                 </DetailField>
               ) : null}
               <DetailField label="Layaway months">
@@ -1565,6 +1630,109 @@ export function OrderDetailPage() {
         ) : (
           <p className="mt-4 text-sm text-slate-600 dark:text-slate-400">—</p>
         )}
+      </div>
+
+      <div className={cardClass}>
+        <button
+          type="button"
+          onClick={() => setAuditOpen((o) => !o)}
+          className="-m-1 flex w-full items-center justify-between gap-2 rounded-lg p-1 text-left focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500"
+          aria-expanded={auditOpen}
+        >
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
+            Audit trail
+          </h2>
+          <span className="text-slate-400" aria-hidden>
+            {auditOpen ? "▼" : "▶"}
+          </span>
+        </button>
+        {auditOpen ? (
+          <div className="mt-4">
+            {auditLoading ? (
+              <p className="text-sm text-slate-500 dark:text-slate-400">
+                Loading…
+              </p>
+            ) : auditError ? (
+              <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+                {auditError}
+              </p>
+            ) : auditRows && auditRows.length === 0 ? (
+              <p className="text-sm text-slate-500 dark:text-slate-400">
+                No audit entries yet.
+              </p>
+            ) : (
+              <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
+                <div className="border-b border-slate-200 bg-slate-50/80 px-3 py-3 dark:border-slate-800 dark:bg-slate-950/40 sm:px-4">
+                  <TablePaginationBar
+                    totalCount={auditPagination.totalCount}
+                    pageIndex={auditPagination.pageIndex}
+                    pageSize={auditPagination.pageSize}
+                    onPageIndexChange={auditPagination.setPageIndex}
+                    onPageSizeChange={auditPagination.setPageSize}
+                    disabled={auditLoading && (auditRows?.length ?? 0) === 0}
+                    itemLabel="entries"
+                  />
+                </div>
+                <HorizontalScrollMirror>
+                  <table className="w-max min-w-full border-collapse text-left text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-200 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                        <th
+                          scope="col"
+                          className="max-w-[10rem] min-w-0 py-2 pr-3"
+                        >
+                          Property
+                        </th>
+                        <th
+                          scope="col"
+                          className="max-w-[10rem] min-w-0 py-2 pr-3"
+                        >
+                          From
+                        </th>
+                        <th
+                          scope="col"
+                          className="max-w-[10rem] min-w-0 py-2 pr-3"
+                        >
+                          To
+                        </th>
+                        <th
+                          scope="col"
+                          className="max-w-[10rem] min-w-0 py-2 pr-3"
+                        >
+                          Updated by
+                        </th>
+                        <th scope="col" className="max-w-[10rem] min-w-0 py-2">
+                          Date
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+                      {auditPagination.pageItems.map((row) => (
+                        <tr key={row.id}>
+                          <td className="max-w-[10rem] min-w-0 py-2 pr-3 align-top font-medium break-words text-slate-800 dark:text-slate-200">
+                            {row.propertyName}
+                          </td>
+                          <td className="max-w-[10rem] min-w-0 py-2 pr-3 align-top whitespace-pre-wrap break-words text-slate-600 dark:text-slate-400">
+                            {row.fromValue ?? "—"}
+                          </td>
+                          <td className="max-w-[10rem] min-w-0 py-2 pr-3 align-top whitespace-pre-wrap break-words text-slate-600 dark:text-slate-400">
+                            {row.toValue ?? "—"}
+                          </td>
+                          <td className="max-w-[10rem] min-w-0 py-2 pr-3 align-top break-words text-slate-700 dark:text-slate-300">
+                            {row.updatedBy}
+                          </td>
+                          <td className="max-w-[10rem] min-w-0 py-2 align-top text-slate-600 dark:text-slate-400">
+                            <SubmittedAtCell iso={row.updatedAt} />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </HorizontalScrollMirror>
+              </div>
+            )}
+          </div>
+        ) : null}
       </div>
 
       <ConfirmDialog

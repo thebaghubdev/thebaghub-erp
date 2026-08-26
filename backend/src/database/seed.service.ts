@@ -49,6 +49,8 @@ export class SeedService implements OnModuleInit {
     await this.ensureInquiryDirectPurchaseSchema();
     await this.ensureDirectPurchasePaymentsSchema();
     await this.ensurePenaltyWaiveSchema();
+    await this.ensureOrderAuditSchema();
+    await this.ensureInventoryItemAuditSchema();
     await this.ensurePaymentVerificationStatuses();
     await this.ensureClientVipStatusBackfill();
     await this.ensureAdministrator();
@@ -96,6 +98,7 @@ export class SeedService implements OnModuleInit {
       await this.employeesRepo.query(`
         ALTER TABLE inquiries
           ADD COLUMN IF NOT EXISTS direct_purchase_requested_price numeric(12,2),
+          ADD COLUMN IF NOT EXISTS consignment_requested_price numeric(12,2),
           ADD COLUMN IF NOT EXISTS direct_purchase_approver_notes text,
           ADD COLUMN IF NOT EXISTS direct_purchase_reject_reason text
       `);
@@ -117,6 +120,60 @@ export class SeedService implements OnModuleInit {
     } catch (err) {
       this.logger.warn(
         `Could not ensure inquiry direct-purchase schema: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+
+  private async ensureOrderAuditSchema() {
+    try {
+      await this.employeesRepo.query(`
+        CREATE TABLE IF NOT EXISTS order_audit_entries (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          order_id uuid NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+          property_name varchar(512) NOT NULL,
+          from_value text,
+          to_value text,
+          updated_by_user_id uuid,
+          updated_by_label varchar(255) NOT NULL,
+          created_at timestamptz NOT NULL DEFAULT now()
+        )
+      `);
+      await this.employeesRepo.query(`
+        CREATE INDEX IF NOT EXISTS idx_order_audit_entries_order_created
+          ON order_audit_entries (order_id, created_at DESC)
+      `);
+    } catch (err) {
+      this.logger.warn(
+        `Could not ensure order audit schema: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+
+  private async ensureInventoryItemAuditSchema() {
+    try {
+      await this.employeesRepo.query(`
+        CREATE TABLE IF NOT EXISTS inventory_item_audit_entries (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          inventory_item_id uuid NOT NULL REFERENCES inventory_items(id) ON DELETE CASCADE,
+          property_name varchar(512) NOT NULL,
+          from_value text,
+          to_value text,
+          updated_by_user_id uuid,
+          updated_by_label varchar(255) NOT NULL,
+          created_at timestamptz NOT NULL DEFAULT now()
+        )
+      `);
+      await this.employeesRepo.query(`
+        CREATE INDEX IF NOT EXISTS idx_inventory_item_audit_entries_item_created
+          ON inventory_item_audit_entries (inventory_item_id, created_at DESC)
+      `);
+    } catch (err) {
+      this.logger.warn(
+        `Could not ensure inventory item audit schema: ${
           err instanceof Error ? err.message : String(err)
         }`,
       );

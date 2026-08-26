@@ -114,7 +114,7 @@ If you did not expect this message, you can ignore it or contact support.`;
     this.logger.log(`Sent inquiry offer notification to ${params.to}`);
   }
 
-  /** Consignor: CEO approved a direct purchase offer (no price in the email). */
+  /** Consignor: CEO approved consignment and direct purchase offers (no prices in the email). */
   async sendConsignorDirectPurchaseOfferAvailable(params: {
     to: string;
     firstName: string;
@@ -127,18 +127,18 @@ If you did not expect this message, you can ignore it or contact support.`;
       throw new Error('MAIL_FROM is not set.');
     }
     const from = `${fromName} <${fromAddr}>`;
-    const subject = 'Your direct purchase offer is ready — The Bag Hub';
+    const subject = 'Your consignment offers are ready — The Bag Hub';
     const text = `Hi ${params.firstName},
 
-An offer for direct purchase has been sent for your consignment inquiry.
+Offers for consignment and direct purchase have been sent for your consignment inquiry.
 
-Please sign in to your client account and open this link to review the terms and accept or cancel:
+Please sign in to your client account and open this link to review the terms, choose an offer, and accept or cancel:
 ${params.viewOfferUrl}
 
 If you did not expect this message, you can ignore it or contact support.`;
 
     const html = `<p>Hi ${escapeHtml(params.firstName)},</p>
-<p>An offer for direct purchase has been sent for your consignment inquiry. Please sign in to review the terms and accept or cancel.</p>
+<p>Offers for consignment and direct purchase have been sent for your consignment inquiry. Please sign in to review the terms, choose an offer, and accept or cancel.</p>
 <p><a href="${escapeHtml(params.viewOfferUrl)}">View your inquiry</a></p>
 <p style="color:#64748b;font-size:12px">If you did not expect this message, you can ignore it or contact support.</p>`;
 

@@ -69,6 +69,16 @@ export class Inquiry extends AuditedEntity {
   })
   directPurchaseRequestedPrice: string | null;
 
+  /** Proposed consignment price submitted with a DP approval request. */
+  @Column({
+    name: 'consignment_requested_price',
+    type: 'numeric',
+    precision: 12,
+    scale: 2,
+    nullable: true,
+  })
+  consignmentRequestedPrice: string | null;
+
   /** Coordinator notes for the CEO; staff-only; kept after the decision. */
   @Column({ name: 'direct_purchase_approver_notes', type: 'text', nullable: true })
   directPurchaseApproverNotes: string | null;

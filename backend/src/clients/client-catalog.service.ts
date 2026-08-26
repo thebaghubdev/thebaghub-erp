@@ -9,11 +9,16 @@ import { JwtUser } from '../auth/jwt-user';
 import { MediaOwnerType } from '../enums/media-owner-type.enum';
 import { MediaPurpose } from '../enums/media-purpose.enum';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
-import { effectiveInventoryPriceString } from '../inventory/inventory-effective-price.util';
+import {
+  effectiveInventoryPriceString,
+  effectiveInventoryUnitPrice,
+} from '../inventory/inventory-effective-price.util';
 import { ItemAuthentication } from '../inventory/entities/item-authentication.entity';
 import { Waitlist } from '../orders/entities/waitlist.entity';
 import { MediaService } from '../media/media.service';
 import { Client } from './entities/client.entity';
+import { VipPricingService } from './vip-pricing.service';
+import type { VipDiscountTier } from './vip-discount.util';
 
 const AVAILABLE_FOR_PURCHASE_STATUS = 'Available For Purchase';
 const ON_HOLD_STATUS = 'On Hold';
@@ -58,6 +63,8 @@ export type ClientCatalogItem = {
   imageUrl: string | null;
   status: string;
   isOwnConsignedItem: boolean;
+  vipPrice: string | null;
+  vipTier: VipDiscountTier | null;
 };
 
 export type ClientCatalogItemDetail = ClientCatalogItem & {
@@ -187,6 +194,7 @@ export class ClientCatalogService {
     @InjectRepository(Waitlist)
     private readonly waitlistsRepo: Repository<Waitlist>,
     private readonly media: MediaService,
+    private readonly vipPricing: VipPricingService,
   ) {}
 
   private async loadPostingPhotosSnapshot(
@@ -227,6 +235,8 @@ export class ClientCatalogService {
       }
     }
 
+    const vipSettings = await this.vipPricing.loadSettings();
+
     return Promise.all(
       rows.map(async (item) => {
         const form = item.itemSnapshot?.form as Record<string, unknown> | undefined;
@@ -235,6 +245,11 @@ export class ClientCatalogService {
           ? await this.loadPostingPhotosSnapshot(posting.id)
           : [];
         const priceFields = catalogPriceFields(item);
+        const vip = this.vipFieldsForClient(
+          item,
+          client.vipStatus,
+          vipSettings,
+        );
         return {
           id: item.id,
           sku: item.sku,
@@ -258,6 +273,8 @@ export class ClientCatalogService {
           imageUrl: firstPhotoUrl(photos),
           status: clientVisibleStatus(item.status),
           isOwnConsignedItem: item.consignorId === client.id,
+          vipPrice: vip.vipPrice,
+          vipTier: vip.vipTier,
         };
       }),
     );
@@ -293,6 +310,8 @@ export class ClientCatalogService {
       : [];
     const itemLabel = itemLabelFromSnapshot(item);
     const priceFields = catalogPriceFields(item);
+    const vipSettings = await this.vipPricing.loadSettings();
+    const vip = this.vipFieldsForClient(item, client.vipStatus, vipSettings);
     return {
       id: item.id,
       sku: item.sku,
@@ -324,6 +343,8 @@ export class ClientCatalogService {
       photos: photosFromSnapshot(photos),
       itemDetails: itemDetailsFromSnapshotAndAuth(form, auth),
       isOwnConsignedItem: item.consignorId === client.id,
+      vipPrice: vip.vipPrice,
+      vipTier: vip.vipTier,
     };
   }
 
@@ -377,5 +398,23 @@ export class ClientCatalogService {
       clientId: row.clientId,
       createdAt: row.createdAt.toISOString(),
     };
+  }
+
+  private vipFieldsForClient(
+    item: InventoryItem,
+    vipStatus: string | null | undefined,
+    settings: Parameters<VipPricingService['priceStringForClient']>[3],
+  ): { vipPrice: string | null; vipTier: VipDiscountTier | null } {
+    const selling = effectiveInventoryUnitPrice(item);
+    const vipPrice = this.vipPricing.priceStringForClient(
+      selling,
+      Boolean(item.enableDiscount),
+      vipStatus,
+      settings,
+    );
+    const vipTier = vipPrice
+      ? this.vipPricing.appliedTier(Boolean(item.enableDiscount), vipStatus)
+      : null;
+    return { vipPrice, vipTier };
   }
 }

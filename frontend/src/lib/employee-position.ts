@@ -10,6 +10,12 @@ export function isCeoPosition(position: string | null | undefined): boolean {
   return (position ?? "").trim().toLowerCase() === "ceo";
 }
 
+export function isConsignmentCoordinatorPosition(
+  position: string | null | undefined,
+): boolean {
+  return (position ?? "").trim().toLowerCase() === "consignment coordinator";
+}
+
 export function isGeneralManagerPosition(
   position: string | null | undefined,
 ): boolean {

@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AccessControlModule } from '../access-control/access-control.module';
 import { Employee } from '../employees/entities/employee.entity';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
+import { InventoryModule } from '../inventory/inventory.module';
 import { LogisticsController } from './logistics.controller';
 import { Logistics, LogisticsItem } from './entities/logistics.entities';
 import { LogisticsService } from './logistics.service';
@@ -10,6 +11,7 @@ import { LogisticsService } from './logistics.service';
 @Module({
   imports: [
     AccessControlModule,
+    InventoryModule,
     TypeOrmModule.forFeature([
       Logistics,
       LogisticsItem,

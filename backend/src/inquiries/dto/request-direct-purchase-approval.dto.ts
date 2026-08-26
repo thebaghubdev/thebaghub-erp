@@ -7,6 +7,11 @@ export class RequestDirectPurchaseApprovalDto {
   @Min(0.01)
   offerPrice: number;
 
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0.01)
+  consignmentOfferPrice: number;
+
   @Transform(({ value }) => (value == null ? '' : String(value)))
   @IsOptional()
   @IsString()

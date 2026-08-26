@@ -28,6 +28,7 @@ type AuditState = {
   offerTransactionType: string | null;
   offerPrice: string | null;
   directPurchaseRequestedPrice: string | null;
+  consignmentRequestedPrice: string | null;
   directPurchaseApproverNotes: string | null;
   directPurchaseRejectReason: string | null;
   contractRenewalRequestedPrice: string | null;
@@ -56,6 +57,7 @@ export function cloneInquiryForAudit(r: Inquiry): Inquiry {
       offerTransactionType: r.offerTransactionType,
       offerPrice: r.offerPrice,
       directPurchaseRequestedPrice: r.directPurchaseRequestedPrice,
+      consignmentRequestedPrice: r.consignmentRequestedPrice,
       directPurchaseApproverNotes: r.directPurchaseApproverNotes,
       directPurchaseRejectReason: r.directPurchaseRejectReason,
       contractRenewalRequestedPrice: r.contractRenewalRequestedPrice,
@@ -85,6 +87,11 @@ function toAuditState(
       r.directPurchaseRequestedPrice != null &&
       String(r.directPurchaseRequestedPrice).trim() !== ''
         ? String(r.directPurchaseRequestedPrice)
+        : null,
+    consignmentRequestedPrice:
+      r.consignmentRequestedPrice != null &&
+      String(r.consignmentRequestedPrice).trim() !== ''
+        ? String(r.consignmentRequestedPrice)
         : null,
     directPurchaseApproverNotes: (() => {
       if (r.directPurchaseApproverNotes == null) return null;
@@ -165,6 +172,11 @@ function diffStates(
     'Direct purchase requested price',
     before.directPurchaseRequestedPrice,
     after.directPurchaseRequestedPrice,
+  );
+  push(
+    'Consignment requested price',
+    before.consignmentRequestedPrice,
+    after.consignmentRequestedPrice,
   );
   push(
     'Notes for approver',
@@ -260,6 +272,7 @@ export class InquiryAuditService {
       offerTransactionType: null,
       offerPrice: null,
       directPurchaseRequestedPrice: null,
+      consignmentRequestedPrice: null,
       directPurchaseApproverNotes: null,
       directPurchaseRejectReason: null,
       contractRenewalRequestedPrice: null,

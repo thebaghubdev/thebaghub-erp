@@ -28,7 +28,7 @@ import { formatOfferTransactionLabel } from "../lib/format-offer-transaction-typ
 import { formatPhpDisplay, parsePhpStringToNumber } from "../lib/format-php";
 import { randomId } from "../lib/random-id";
 import { useFeatureAccess } from "../lib/use-feature-access";
-import { isCeoPosition } from "../lib/employee-position";
+import { isCeoPosition, isConsignmentCoordinatorPosition } from "../lib/employee-position";
 
 type TransactionType = "consignment" | "direct_purchase";
 
@@ -89,6 +89,7 @@ type InquiryDetail = {
   offerTransactionType: TransactionType | null;
   offerPrice: string | null;
   directPurchaseRequestedPrice: string | null;
+  consignmentRequestedPrice: string | null;
   directPurchaseApproverNotes: string | null;
   directPurchaseRejectReason: string | null;
   originalOfferPrice: string | null;
@@ -140,6 +141,22 @@ function isPending(status: string): boolean {
 
 function isForDirectPurchaseApproval(status: string): boolean {
   return status.trim().toLowerCase() === "for_direct_purchase_approval";
+}
+
+function hasDualApprovedOffers(detail: {
+  status: string;
+  offerTransactionType: TransactionType | null;
+  offerPrice: string | null;
+  consignmentRequestedPrice: string | null;
+}): boolean {
+  return (
+    detail.status.trim().toLowerCase() === "for_offer_confirmation" &&
+    detail.offerTransactionType === "direct_purchase" &&
+    detail.consignmentRequestedPrice != null &&
+    detail.consignmentRequestedPrice !== "" &&
+    detail.offerPrice != null &&
+    detail.offerPrice !== ""
+  );
 }
 
 function isThirdPartyAuthPaymentFlowStatus(status: string): boolean {
@@ -316,6 +333,9 @@ export function InquiryDetailPage() {
   const { token, user } = usePortalAuth();
   const { canEdit: canEditFeature, readOnly } = useFeatureAccess("inquiries");
   const isCeo = isCeoPosition(user?.employee?.position);
+  const isCoordinator = isConsignmentCoordinatorPosition(
+    user?.employee?.position,
+  );
   const [detail, setDetail] = useState<InquiryDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -324,6 +344,7 @@ export function InquiryDetailPage() {
   const [dpRequestModalOpen, setDpRequestModalOpen] = useState(false);
   const [dpRequestIsEdit, setDpRequestIsEdit] = useState(false);
   const [dpPriceInput, setDpPriceInput] = useState("");
+  const [dpConsignmentPriceInput, setDpConsignmentPriceInput] = useState("");
   const [dpNotesInput, setDpNotesInput] = useState("");
   const [dpRejectModalOpen, setDpRejectModalOpen] = useState(false);
   const [dpRejectReason, setDpRejectReason] = useState("");
@@ -687,7 +708,7 @@ export function InquiryDetailPage() {
   }, [detail]);
 
   const confirmDecline = useCallback(async () => {
-    if (!canEditFeature || !id || !token) return;
+    if (!canEditFeature || !isCoordinator || !id || !token) return;
     setActionError(null);
     setActionBusy("decline");
     try {
@@ -708,10 +729,10 @@ export function InquiryDetailPage() {
     } finally {
       setActionBusy(null);
     }
-  }, [canEditFeature, id, token]);
+  }, [canEditFeature, isCoordinator, id, token]);
 
   const openOfferModal = useCallback(() => {
-    if (!canEditFeature || !detail) return;
+    if (!canEditFeature || !isCoordinator || !detail) return;
     setActionError(null);
     setOfferPriceInput(
       detail.offerPrice != null && detail.offerPrice !== ""
@@ -722,12 +743,12 @@ export function InquiryDetailPage() {
         : "",
     );
     setOfferModalOpen(true);
-  }, [canEditFeature, detail]);
+  }, [canEditFeature, isCoordinator, detail]);
 
   const submitOffer = useCallback(
     async (e: FormEvent) => {
       e.preventDefault();
-      if (!canEditFeature || !id || !token || !detail) return;
+      if (!canEditFeature || !isCoordinator || !id || !token || !detail) return;
       const price = parsePhpStringToNumber(offerPriceInput);
       if (price == null || price <= 0) {
         setActionError("Enter a valid offer price greater than zero.");
@@ -760,7 +781,7 @@ export function InquiryDetailPage() {
         setActionBusy(null);
       }
     },
-    [canEditFeature, id, token, detail, offerPriceInput],
+    [canEditFeature, isCoordinator, id, token, detail, offerPriceInput],
   );
 
   const prefillDirectPurchasePrice = useCallback((row: InquiryDetail) => {
@@ -775,25 +796,51 @@ export function InquiryDetailPage() {
     return ask != null && ask > 0 ? ask.toFixed(2) : "";
   }, []);
 
+  const prefillConsignmentOfferPrice = useCallback((row: InquiryDetail) => {
+    if (
+      row.consignmentRequestedPrice != null &&
+      row.consignmentRequestedPrice !== ""
+    ) {
+      const n = parsePhpStringToNumber(String(row.consignmentRequestedPrice));
+      return n != null ? n.toFixed(2) : String(row.consignmentRequestedPrice);
+    }
+    const ask = parsePhpStringToNumber(row.consignmentSellingPrice);
+    return ask != null && ask > 0 ? ask.toFixed(2) : "";
+  }, []);
+
   const openDpRequestModal = useCallback(
     (asEdit: boolean) => {
-      if (!canEditFeature || !detail) return;
+      if (!canEditFeature || !isCoordinator || !detail) return;
       setActionError(null);
       setDpRequestIsEdit(asEdit);
       setDpPriceInput(prefillDirectPurchasePrice(detail));
+      setDpConsignmentPriceInput(prefillConsignmentOfferPrice(detail));
       setDpNotesInput(detail.directPurchaseApproverNotes ?? "");
       setDpRequestModalOpen(true);
     },
-    [canEditFeature, detail, prefillDirectPurchasePrice],
+    [
+      canEditFeature,
+      isCoordinator,
+      detail,
+      prefillDirectPurchasePrice,
+      prefillConsignmentOfferPrice,
+    ],
   );
 
   const submitDpRequest = useCallback(
     async (e: FormEvent) => {
       e.preventDefault();
-      if (!canEditFeature || !id || !token || !detail) return;
+      if (!canEditFeature || !isCoordinator || !id || !token || !detail) return;
       const price = parsePhpStringToNumber(dpPriceInput);
       if (price == null || price <= 0) {
         setActionError("Enter a valid offer price greater than zero.");
+        return;
+      }
+      const consignmentPrice = parsePhpStringToNumber(dpConsignmentPriceInput);
+      if (consignmentPrice == null || consignmentPrice <= 0) {
+        setActionError(
+          "Enter a valid consignment offer price greater than zero.",
+        );
         return;
       }
       setActionError(null);
@@ -805,6 +852,7 @@ export function InquiryDetailPage() {
             method: dpRequestIsEdit ? "PATCH" : "POST",
             body: JSON.stringify({
               offerPrice: price,
+              consignmentOfferPrice: consignmentPrice,
               notes: dpNotesInput,
             }),
           },
@@ -827,17 +875,19 @@ export function InquiryDetailPage() {
     },
     [
       canEditFeature,
+      isCoordinator,
       id,
       token,
       detail,
       dpPriceInput,
+      dpConsignmentPriceInput,
       dpNotesInput,
       dpRequestIsEdit,
     ],
   );
 
   const confirmWithdrawDpRequest = useCallback(async () => {
-    if (!canEditFeature || !id || !token) return;
+    if (!canEditFeature || !isCoordinator || !id || !token) return;
     setActionError(null);
     setActionBusy("dpWithdraw");
     try {
@@ -860,7 +910,7 @@ export function InquiryDetailPage() {
     } finally {
       setActionBusy(null);
     }
-  }, [canEditFeature, id, token]);
+  }, [canEditFeature, isCoordinator, id, token]);
 
   const confirmApproveDp = useCallback(async () => {
     if (!canEditFeature || !id || !token) return;
@@ -1398,7 +1448,9 @@ export function InquiryDetailPage() {
                   Create New Offer
                 </button>
               ) : null}
-              {canEditFeature && isPending(detail.status) ? (
+              {canEditFeature &&
+              isCoordinator &&
+              isPending(detail.status) ? (
                 <button
                   type="button"
                   disabled={actionBusy !== null}
@@ -1411,7 +1463,9 @@ export function InquiryDetailPage() {
                   {actionBusy === "decline" ? "Declining…" : "Decline"}
                 </button>
               ) : null}
-              {canEditFeature && isPending(detail.status) ? (
+              {canEditFeature &&
+              isCoordinator &&
+              isPending(detail.status) ? (
                 <button
                   type="button"
                   disabled={actionBusy !== null}
@@ -1422,6 +1476,7 @@ export function InquiryDetailPage() {
                 </button>
               ) : null}
               {canEditFeature &&
+              isCoordinator &&
               isPending(detail.status) &&
               detail.consentDirectPurchase ? (
                 <button
@@ -1434,6 +1489,7 @@ export function InquiryDetailPage() {
                 </button>
               ) : null}
               {canEditFeature &&
+              isCoordinator &&
               isForDirectPurchaseApproval(detail.status) &&
               !isCeo ? (
                 <>
@@ -1488,6 +1544,7 @@ export function InquiryDetailPage() {
                 </>
               ) : null}
               {canEditFeature &&
+              isCoordinator &&
               canShowUpdateOfferButton(
                 detail.status,
                 detail.offerTransactionType,
@@ -1710,6 +1767,7 @@ export function InquiryDetailPage() {
             </div>
 
             {detail.directPurchaseRequestedPrice != null ||
+            detail.consignmentRequestedPrice != null ||
             detail.directPurchaseApproverNotes != null ||
             detail.directPurchaseRejectReason != null ? (
               <div className="mt-4 rounded-lg border border-fuchsia-200 bg-fuchsia-50/80 p-3 text-sm dark:border-fuchsia-900/50 dark:bg-fuchsia-950/30">
@@ -1725,6 +1783,17 @@ export function InquiryDetailPage() {
                       </dt>
                       <dd className="tabular-nums font-medium">
                         {formatPhpDisplay(detail.directPurchaseRequestedPrice)}
+                      </dd>
+                    </div>
+                  ) : null}
+                  {detail.consignmentRequestedPrice != null &&
+                  detail.consignmentRequestedPrice !== "" ? (
+                    <div>
+                      <dt className="text-slate-500 dark:text-slate-400">
+                        Consignment offer price
+                      </dt>
+                      <dd className="tabular-nums font-medium">
+                        {formatPhpDisplay(detail.consignmentRequestedPrice)}
                       </dd>
                     </div>
                   ) : null}
@@ -1757,22 +1826,47 @@ export function InquiryDetailPage() {
             {detail.offerPrice != null && detail.offerPrice !== "" ? (
               <dl className="mt-4 rounded-lg border border-slate-100 bg-slate-50/80 p-3 text-sm dark:border-slate-800 dark:bg-slate-950/50">
                 <div className="flex flex-wrap gap-x-6 gap-y-1">
-                  <div>
-                    <dt className="text-slate-500 dark:text-slate-400">
-                      Offer transaction
-                    </dt>
-                    <dd className="font-medium text-slate-900 dark:text-slate-100">
-                      {formatOfferTransactionLabel(detail.offerTransactionType)}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-slate-500 dark:text-slate-400">
-                      Offer price
-                    </dt>
-                    <dd className="tabular-nums font-medium text-slate-900 dark:text-slate-100">
-                      {formatPhpDisplay(detail.offerPrice)}
-                    </dd>
-                  </div>
+                  {hasDualApprovedOffers(detail) ? (
+                    <>
+                      <div>
+                        <dt className="text-slate-500 dark:text-slate-400">
+                          Direct purchase offer
+                        </dt>
+                        <dd className="tabular-nums font-medium text-slate-900 dark:text-slate-100">
+                          {formatPhpDisplay(detail.offerPrice)}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-slate-500 dark:text-slate-400">
+                          Consignment offer
+                        </dt>
+                        <dd className="tabular-nums font-medium text-slate-900 dark:text-slate-100">
+                          {formatPhpDisplay(detail.consignmentRequestedPrice)}
+                        </dd>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div>
+                        <dt className="text-slate-500 dark:text-slate-400">
+                          Offer transaction
+                        </dt>
+                        <dd className="font-medium text-slate-900 dark:text-slate-100">
+                          {formatOfferTransactionLabel(
+                            detail.offerTransactionType,
+                          )}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-slate-500 dark:text-slate-400">
+                          Offer price
+                        </dt>
+                        <dd className="tabular-nums font-medium text-slate-900 dark:text-slate-100">
+                          {formatPhpDisplay(detail.offerPrice)}
+                        </dd>
+                      </div>
+                    </>
+                  )}
                   {detail.originalOfferPrice ? (
                     <div>
                       <dt className="text-slate-500 dark:text-slate-400">
@@ -2608,7 +2702,8 @@ export function InquiryDetailPage() {
                     </h2>
                     <p className="mt-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950 dark:border-sky-900/60 dark:bg-sky-950/40 dark:text-sky-100">
                       This will notify the approver (CEO). The consignor will
-                      receive the offer only after it is approved.
+                      receive both the consignment and direct purchase offers
+                      only after they are approved.
                     </p>
                     <form
                       onSubmit={(e) => void submitDpRequest(e)}
@@ -2631,6 +2726,25 @@ export function InquiryDetailPage() {
                             id="dp-offer-price"
                             value={dpPriceInput}
                             onChange={setDpPriceInput}
+                            disabled={actionBusy !== null}
+                            required
+                            className="w-full rounded-lg border border-slate-300 bg-white py-2 pr-3 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
+                            placeholder="0.00"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label
+                          htmlFor="dp-consignment-offer-price"
+                          className="block text-sm font-medium text-slate-700 dark:text-slate-300"
+                        >
+                          Consignment Offer Price (PHP)
+                        </label>
+                        <div className="mt-1">
+                          <PhpPriceInput
+                            id="dp-consignment-offer-price"
+                            value={dpConsignmentPriceInput}
+                            onChange={setDpConsignmentPriceInput}
                             disabled={actionBusy !== null}
                             required
                             className="w-full rounded-lg border border-slate-300 bg-white py-2 pr-3 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
@@ -3649,20 +3763,28 @@ export function InquiryDetailPage() {
 
       <ConfirmDialog
         open={dpApproveConfirmOpen}
-        title="Approve direct purchase offer?"
+        title="Approve consignment and direct purchase offers?"
         description={
           detail ? (
             <div className="space-y-2">
               <p>
                 Coordinators will be notified and the consignor will be emailed
-                the offer. After approval, only the consignor can accept or
-                cancel.
+                both offers. After approval, the consignor can choose
+                consignment or direct purchase, or cancel.
               </p>
               {detail.directPurchaseRequestedPrice ? (
                 <p>
-                  Offer price:{" "}
+                  Direct purchase offer price:{" "}
                   <span className="font-medium tabular-nums text-slate-800 dark:text-slate-200">
                     {formatPhpDisplay(detail.directPurchaseRequestedPrice)}
+                  </span>
+                </p>
+              ) : null}
+              {detail.consignmentRequestedPrice ? (
+                <p>
+                  Consignment offer price:{" "}
+                  <span className="font-medium tabular-nums text-slate-800 dark:text-slate-200">
+                    {formatPhpDisplay(detail.consignmentRequestedPrice)}
                   </span>
                 </p>
               ) : null}

@@ -37,6 +37,7 @@ import {
 } from './direct-purchase-payments/entities/direct-purchase-payment.entities';
 import { InventoryModule } from './inventory/inventory.module';
 import { InventoryItem } from './inventory/entities/inventory-item.entity';
+import { InventoryItemAuditEntry } from './inventory/entities/inventory-item-audit-entry.entity';
 import { ItemAuthentication } from './inventory/entities/item-authentication.entity';
 import { ItemAuthenticationMetric } from './inventory/entities/item-authentication-metric.entity';
 import { ItemPosting } from './inventory/entities/item-posting.entity';
@@ -49,6 +50,7 @@ import { ShopifyShopSession } from './shopify/entities/shopify-shop-session.enti
 import { TablePreferencesModule } from './table-preferences/table-preferences.module';
 import { TablePreference } from './table-preferences/entities/table-preference.entity';
 import { Order } from './orders/entities/order.entity';
+import { OrderAuditEntry } from './orders/entities/order-audit-entry.entity';
 import { OrderInstallment } from './orders/entities/order-installment.entity';
 import { OrderPayment } from './orders/entities/order-payment.entity';
 import { Waitlist } from './orders/entities/waitlist.entity';
@@ -106,6 +108,7 @@ import { MessagingModule } from './messaging/messaging.module';
           DirectPurchasePayment,
           DirectPurchasePaymentItem,
           InventoryItem,
+          InventoryItemAuditEntry,
           ItemAuthentication,
           ItemAuthenticationMetric,
           ItemPosting,
@@ -114,6 +117,7 @@ import { MessagingModule } from './messaging/messaging.module';
           ShopifyShopSession,
           TablePreference,
           Order,
+          OrderAuditEntry,
           OrderInstallment,
           OrderPayment,
           Waitlist,

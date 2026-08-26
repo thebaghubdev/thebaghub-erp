@@ -11,6 +11,10 @@ import type { ClientProfile } from "../context/auth-user";
 import { apiFetch } from "../lib/api";
 import { formatPhpDisplay, parsePhpStringToNumber } from "../lib/format-php";
 import {
+  vipPriceFieldLabel,
+  type VipDiscountTier,
+} from "../lib/vip-pricing";
+import {
   isFullPaymentLike,
   isInstallmentPaymentType,
   isItemReceivedOrderStatus,
@@ -49,6 +53,8 @@ type ClientOrderDetail = {
   creditCardPrice: string | null;
   remainingBalancePrice: string | null;
   orderTotalPrice: string | null;
+  vipPrice: string | null;
+  vipTier: VipDiscountTier | null;
   reservationPaymentProofUrl: string | null;
   fullPaymentProofUrl: string | null;
   holdingPeriod: string | null;
@@ -440,6 +446,11 @@ export function ClientOrderDetailPage() {
               <DetailField label="Best price">
                 {formatPhpDisplay(detail.fullPaymentTotalPrice)}
               </DetailField>
+              {detail.vipPrice ? (
+                <DetailField label={vipPriceFieldLabel(detail.vipTier)}>
+                  {formatPhpDisplay(detail.vipPrice)}
+                </DetailField>
+              ) : null}
               <DetailField label="Credit card price">
                 {formatPhpDisplay(detail.creditCardPrice)}
               </DetailField>
@@ -449,6 +460,11 @@ export function ClientOrderDetailPage() {
               {detail.paymentType === "layaway" ? (
                 <DetailField label="Original price">
                   {formatPhpDisplay(detail.fullPaymentPrice)}
+                </DetailField>
+              ) : null}
+              {detail.vipPrice ? (
+                <DetailField label={vipPriceFieldLabel(detail.vipTier)}>
+                  {formatPhpDisplay(detail.vipPrice)}
                 </DetailField>
               ) : null}
               <DetailField label="Layaway months">
@@ -466,6 +482,11 @@ export function ClientOrderDetailPage() {
               <DetailField label="Best price">
                 {formatPhpDisplay(detail.fullPaymentPrice)}
               </DetailField>
+              {detail.vipPrice ? (
+                <DetailField label={vipPriceFieldLabel(detail.vipTier)}>
+                  {formatPhpDisplay(detail.vipPrice)}
+                </DetailField>
+              ) : null}
               <DetailField label="Credit card price">
                 {formatPhpDisplay(detail.creditCardPrice)}
               </DetailField>

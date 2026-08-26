@@ -32,6 +32,10 @@ import {
   parsePhpStringToNumber,
 } from "../lib/format-php";
 import {
+  vipPriceFieldLabel,
+  type VipDiscountTier,
+} from "../lib/vip-pricing";
+import {
   EMPTY_ORDER_PICKUP_FORM,
   isOrderPickupFormValid,
   orderPickupPayloadFields,
@@ -58,6 +62,8 @@ type CatalogItemDetail = {
   tags: string[];
   photos: Array<{ key: string; url: string; position: number | null }>;
   itemDetails: Record<string, unknown>;
+  vipPrice: string | null;
+  vipTier: VipDiscountTier | null;
 };
 
 const labelCellClassName =
@@ -280,6 +286,17 @@ export function ClientOrderItemPage() {
           valueColSpan: 3,
         },
       ],
+      ...(item.vipPrice
+        ? [
+            [
+              {
+                label: vipPriceFieldLabel(item.vipTier),
+                value: formatPhpDisplay(item.vipPrice),
+                valueColSpan: 3,
+              },
+            ],
+          ]
+        : []),
       [
         {
           label: "Credit card price",
@@ -339,10 +356,14 @@ export function ClientOrderItemPage() {
     ];
   }, [user]);
 
-  const itemPrice = useMemo(
-    () => (item ? parsePhpStringToNumber(String(item.price ?? "")) : null),
-    [item],
-  );
+  const itemPrice = useMemo(() => {
+    if (!item) return null;
+    const vip = item.vipPrice
+      ? parsePhpStringToNumber(String(item.vipPrice))
+      : null;
+    if (vip != null) return vip;
+    return parsePhpStringToNumber(String(item.price ?? ""));
+  }, [item]);
 
   const layawayEligibility = useMemo(() => {
     if (!item) return { allowed: true, reasons: [] as string[] };

@@ -26,6 +26,11 @@ export class ConfirmOfferBankDetailsDto {
 
 /** Offer confirmation uses payment prefs from the client profile; fields are optional for legacy payloads. */
 export class ConfirmOfferDto {
+  /** Required when CEO approved both a consignment and a direct purchase offer. */
+  @IsOptional()
+  @IsIn(['consignment', 'direct_purchase'])
+  transactionType?: 'consignment' | 'direct_purchase';
+
   @IsOptional()
   @IsIn(['check_pickup', 'cash_pickup', 'direct_deposit'])
   paymentMethod?: 'check_pickup' | 'cash_pickup' | 'direct_deposit';

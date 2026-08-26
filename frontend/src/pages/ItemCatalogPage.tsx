@@ -4,6 +4,7 @@ import { NoticeDialog } from "../components/NoticeDialog";
 import { useClientAuth } from "../context/client-auth";
 import { apiFetch } from "../lib/api";
 import { formatPhpDisplay } from "../lib/format-php";
+import { vipPriceFieldLabel, type VipDiscountTier } from "../lib/vip-pricing";
 
 type CatalogItem = {
   id: string;
@@ -18,6 +19,8 @@ type CatalogItem = {
   imageUrl: string | null;
   status: string;
   isOwnConsignedItem: boolean;
+  vipPrice: string | null;
+  vipTier: VipDiscountTier | null;
 };
 
 const searchInputClassName =
@@ -239,6 +242,10 @@ export function ItemCatalogPage() {
                   <span className="absolute bottom-2 left-2 rounded-full bg-amber-100 px-2 py-0.5 text-[0.65rem] font-medium text-amber-800 shadow-sm">
                     On Hold
                   </span>
+                ) : item.vipPrice ? (
+                  <span className="absolute bottom-2 left-2 rounded-full bg-violet-100 px-2 py-0.5 text-[0.65rem] font-medium text-violet-800 shadow-sm">
+                    {item.vipTier === "Diamond" ? "VIP Diamond" : "VIP Gold"}
+                  </span>
                 ) : null}
               </div>
               <div className="space-y-1.5 p-3">
@@ -249,14 +256,21 @@ export function ItemCatalogPage() {
                   <div className="min-w-0">
                     <p className="truncate text-xs text-slate-500 line-through tabular-nums">
                       {formatPhpDisplay(
-                        item.onPromo
-                          ? item.listPrice
-                          : item.creditCardPrice,
+                        item.vipPrice
+                          ? item.price
+                          : item.onPromo
+                            ? item.listPrice
+                            : item.creditCardPrice,
                       )}
                     </p>
                     <p className="truncate text-sm font-semibold tabular-nums text-violet-700">
-                      {formatPhpDisplay(item.price)}
+                      {formatPhpDisplay(item.vipPrice ?? item.price)}
                     </p>
+                    {item.vipPrice ? (
+                      <p className="truncate text-[0.65rem] font-medium text-amber-800">
+                        {vipPriceFieldLabel(item.vipTier)}
+                      </p>
+                    ) : null}
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
                     {isOnHold(item.status) ? (

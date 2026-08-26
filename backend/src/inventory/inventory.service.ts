@@ -29,7 +29,14 @@ import { InventoryItem } from './entities/inventory-item.entity';
 import { ItemAuthentication } from './entities/item-authentication.entity';
 import { ItemPhotoshoot } from './entities/item-photoshoot.entity';
 import { ItemPosting } from './entities/item-posting.entity';
+import {
+  InventoryAuditService,
+  cloneAuthForAudit,
+  cloneInventoryItemForAudit,
+  clonePostingForAudit,
+} from './inventory-audit.service';
 import { computeCreditCardPriceFromTbh } from './credit-card-price.util';
+import { effectiveInventoryUnitPrice } from './inventory-effective-price.util';
 import { ItemAuthenticationMetric } from './entities/item-authentication-metric.entity';
 import { AuthenticationMetric } from '../authentication-metrics/entities/authentication-metric.entity';
 import {
@@ -41,6 +48,7 @@ import { CreateItemPhotoshootsDto } from './dto/create-item-photoshoots.dto';
 import { CreateStockInventoryItemDto } from './dto/create-stock-inventory-item.dto';
 import { normalizeClientVipStatus } from '../clients/client-vip-status.util';
 import type { ClientVipStatus } from '../clients/client-vip-status.util';
+import { VipPricingService } from '../clients/vip-pricing.service';
 import { BatchAssignAuthenticatorDto } from './dto/batch-assign-authenticator.dto';
 import type { MulterFile } from '../inquiries/multer-file.type';
 import { MediaOwnerType } from '../enums/media-owner-type.enum';
@@ -233,6 +241,8 @@ export type InventoryDetailForStaff = {
   promoPrice: string | null;
   /** When true, VIP/program discount logic may apply (`inventory_items.enable_discount`). */
   enableDiscount: boolean;
+  vipGoldPrice: string | null;
+  vipDiamondPrice: string | null;
   itemSnapshot: {
     clientItemId: string;
     form: Record<string, unknown>;
@@ -769,6 +779,8 @@ export class InventoryService {
     private readonly media: MediaService,
     private readonly config: ConfigService,
     private readonly tasks: TasksService,
+    private readonly inventoryAudit: InventoryAuditService,
+    private readonly vipPricing: VipPricingService,
   ) {}
 
   private async loadPostingPhotosSnapshot(
@@ -971,6 +983,12 @@ export class InventoryService {
       });
       await em.save(itemAuth);
 
+      await this.inventoryAudit.recordInitialCreation(
+        inventoryRow,
+        await this.inventoryAudit.staffActor(actorUserId),
+        em,
+      );
+
       return {
         id: inventoryRow.id,
         sku: inventoryRow.sku,
@@ -1028,6 +1046,12 @@ export class InventoryService {
     });
     await em.save(itemAuth);
 
+    await this.inventoryAudit.recordInitialCreation(
+      inventoryRow,
+      this.inventoryAudit.systemActor(),
+      em,
+    );
+
     await this.media.copyOwnerMedia(
       MediaOwnerType.INQUIRY,
       inquiry.id,
@@ -1083,18 +1107,34 @@ export class InventoryService {
       offerTransactionType === 'consignment'
         ? offerTransactionType
         : null;
+    const beforeInv = cloneInventoryItemForAudit(existingInv);
     existingInv.status = FOR_PHOTOSHOOT_INVENTORY_STATUS;
     existingInv.transactionType = tx;
     existingInv.updatedById = null;
     await em.save(existingInv);
+    await this.inventoryAudit.recordDiff(
+      existingInv.id,
+      beforeInv,
+      existingInv,
+      this.inventoryAudit.customerActor(null),
+      em,
+    );
     const auth = await em.findOne(ItemAuthentication, {
       where: { inventoryItemId: existingInv.id },
     });
     if (auth) {
+      const beforeAuth = cloneAuthForAudit(auth);
       auth.authenticationStatus = APPROVED_ITEM_AUTHENTICATION_STATUS;
       auth.assignedToId = null;
       auth.updatedById = null;
       await em.save(auth);
+      await this.inventoryAudit.recordAuthDiff(
+        existingInv.id,
+        beforeAuth,
+        auth,
+        this.inventoryAudit.customerActor(null),
+        em,
+      );
     }
   }
 
@@ -1151,6 +1191,7 @@ export class InventoryService {
     let certificatePhotosToSync: string[] | null = null;
 
     await this.itemAuthMetricRepo.manager.transaction(async (em) => {
+      const auditActor = await this.inventoryAudit.staffActor(actor.userId);
       if (dto.itemSnapshotForm) {
         const inv = await em.findOne(InventoryItem, {
           where: { id: inventoryItemId },
@@ -1158,9 +1199,17 @@ export class InventoryService {
         if (!inv) {
           throw new NotFoundException('Inventory item not found');
         }
+        const beforeInv = cloneInventoryItemForAudit(inv);
         mergeItemAuthenticationFormIntoSnapshot(inv, dto.itemSnapshotForm);
         inv.updatedById = actor.userId;
         await em.save(inv);
+        await this.inventoryAudit.recordDiff(
+          inventoryItemId,
+          beforeInv,
+          inv,
+          auditActor,
+          em,
+        );
       }
 
       const authRow = await em.findOne(ItemAuthentication, {
@@ -1171,6 +1220,7 @@ export class InventoryService {
         throw new NotFoundException('Item authentication record not found');
       }
 
+      const beforeAuth = cloneAuthForAudit(authRow);
       if (dto.authenticationDetails) {
         applyAuthenticationDetailsToEntity(authRow, dto.authenticationDetails);
       }
@@ -1182,6 +1232,13 @@ export class InventoryService {
       }
       authRow.updatedById = actor.userId;
       await em.save(authRow);
+      await this.inventoryAudit.recordAuthDiff(
+        inventoryItemId,
+        beforeAuth,
+        authRow,
+        auditActor,
+        em,
+      );
 
       if (dto.thirdPartyAuthentication?.certificatePhotos !== undefined) {
         certificatePhotosToSync =
@@ -1292,13 +1349,28 @@ export class InventoryService {
     const auth = await this.enforceAuthenticatorAccess(inventoryItemId, actor, {
       createIfMissing: false,
     });
+    const auditActor = await this.inventoryAudit.staffActor(actor.userId);
+    const beforeAuth = cloneAuthForAudit(auth);
     auth.authenticationStatus = APPROVED_ITEM_AUTHENTICATION_STATUS;
     auth.updatedById = actor.userId;
     await this.itemAuthRepo.save(auth);
+    await this.inventoryAudit.recordAuthDiff(
+      inventoryItemId,
+      beforeAuth,
+      auth,
+      auditActor,
+    );
 
+    const beforeInv = cloneInventoryItemForAudit(item);
     item.status = FOR_PHOTOSHOOT_INVENTORY_STATUS;
     item.updatedById = actor.userId;
     await this.inventoryRepo.save(item);
+    await this.inventoryAudit.recordDiff(
+      item.id,
+      beforeInv,
+      item,
+      auditActor,
+    );
 
     if (item.inquiryId) {
       if (approvingThirdPartyAuthentication) {
@@ -1398,15 +1470,33 @@ export class InventoryService {
 
           await em.save(inquiry);
 
+          const beforeAuth = cloneAuthForAudit(auth);
           auth.authenticationStatus =
             REQUESTED_FOR_REAUTHENTICATION_ITEM_AUTH_STATUS;
           auth.updatedById = actor.userId;
           await em.save(auth);
 
+          const beforeInv = cloneInventoryItemForAudit(item);
           item.status =
             AUTHENTICATED_REQUESTED_FOR_REAUTHENTICATION_INVENTORY_STATUS;
           item.updatedById = actor.userId;
           await em.save(item);
+
+          const auditActor = await this.inventoryAudit.staffActor(actor.userId);
+          await this.inventoryAudit.recordAuthDiff(
+            inventoryItemId,
+            beforeAuth,
+            auth,
+            auditActor,
+            em,
+          );
+          await this.inventoryAudit.recordDiff(
+            item.id,
+            beforeInv,
+            item,
+            auditActor,
+            em,
+          );
 
           return {
             status: item.status,
@@ -1445,13 +1535,23 @@ export class InventoryService {
     const auth = await this.enforceAuthenticatorAccess(inventoryItemId, actor, {
       createIfMissing: false,
     });
+    const auditActor = await this.inventoryAudit.staffActor(actor.userId);
+    const beforeAuth = cloneAuthForAudit(auth);
     auth.authenticationStatus = REJECTED_ITEM_AUTHENTICATION_STATUS;
     auth.updatedById = actor.userId;
     await this.itemAuthRepo.save(auth);
 
+    const beforeInv = cloneInventoryItemForAudit(item);
     item.status = AUTHENTICATION_REJECTED_INVENTORY_STATUS;
     item.updatedById = actor.userId;
     await this.inventoryRepo.save(item);
+    await this.inventoryAudit.recordAuthDiff(
+      inventoryItemId,
+      beforeAuth,
+      auth,
+      auditActor,
+    );
+    await this.inventoryAudit.recordDiff(item.id, beforeInv, item, auditActor);
 
     return {
       status: item.status,
@@ -1535,13 +1635,23 @@ export class InventoryService {
       photosDataUrls: dto.returnPhotos,
     });
 
+    const auditActor = await this.inventoryAudit.staffActor(actor.userId);
+    const beforeInv = cloneInventoryItemForAudit(item);
     item.status = AUTHENTICATED_FOR_RENEGOTIATION_INVENTORY_STATUS;
     item.updatedById = actor.userId;
     await this.inventoryRepo.save(item);
 
+    const beforeAuth = cloneAuthForAudit(auth);
     auth.authenticationStatus = FOR_RENEGOTIATION_ITEM_AUTHENTICATION_STATUS;
     auth.updatedById = actor.userId;
     await this.itemAuthRepo.save(auth);
+    await this.inventoryAudit.recordDiff(item.id, beforeInv, item, auditActor);
+    await this.inventoryAudit.recordAuthDiff(
+      inventoryItemId,
+      beforeAuth,
+      auth,
+      auditActor,
+    );
 
     if (item.inquiryId) {
       void this.notifications
@@ -1639,6 +1749,7 @@ export class InventoryService {
           where: { inventoryItemId },
         });
         const alreadyAssigned = auth?.assignedToId === dto.employeeId;
+        const beforeAuth = auth ? cloneAuthForAudit(auth) : null;
         if (!auth) {
           auth = em.create(ItemAuthentication, {
             inventoryItemId,
@@ -1652,6 +1763,13 @@ export class InventoryService {
           auth.updatedById = actor.userId;
         }
         await em.save(auth);
+        await this.inventoryAudit.recordAuthDiff(
+          inventoryItemId,
+          beforeAuth,
+          auth,
+          await this.inventoryAudit.staffActor(actor.userId),
+          em,
+        );
         assignedItems.push({
           itemId: item.id,
           sku: item.sku,
@@ -1781,6 +1899,7 @@ export class InventoryService {
     const storedTbh = normalizedTbhPriceString(item.tbhSellingPrice);
     let nextTbh: string | null = storedTbh;
     let priceChanged = false;
+    const beforeInv = cloneInventoryItemForAudit(item);
 
     if (priceProvided) {
       const raw = dto.tbhSellingPrice;
@@ -1827,6 +1946,12 @@ export class InventoryService {
 
     item.updatedById = actorUserId;
     await this.inventoryRepo.save(item);
+    await this.inventoryAudit.recordDiff(
+      item.id,
+      beforeInv,
+      item,
+      await this.inventoryAudit.staffActor(actorUserId),
+    );
     return {
       id: item.id,
       tbhSellingPrice: nextTbh,
@@ -1880,15 +2005,24 @@ export class InventoryService {
 
       if (options.updateStatus) {
         if (item.status !== AVAILABLE_FOR_PURCHASE_INVENTORY_STATUS) {
+          const beforeInv = cloneInventoryItemForAudit(item);
           item.status = FOR_POSTING_INVENTORY_STATUS;
           item.updatedById = actorUserId;
           await em.save(item);
+          await this.inventoryAudit.recordDiff(
+            item.id,
+            beforeInv,
+            item,
+            await this.inventoryAudit.staffActor(actorUserId),
+            em,
+          );
         }
       }
 
       let posting = await em.findOne(ItemPosting, {
         where: { inventoryItemId },
       });
+      const beforePosting = posting ? clonePostingForAudit(posting) : null;
       if (!posting) {
         posting = em.create(ItemPosting, {
           inventoryItemId,
@@ -1906,6 +2040,13 @@ export class InventoryService {
       posting.productDescription = productDescription;
       posting.updatedById = actorUserId;
       await em.save(posting);
+      await this.inventoryAudit.recordPostingDiff(
+        inventoryItemId,
+        beforePosting,
+        posting,
+        await this.inventoryAudit.staffActor(actorUserId),
+        em,
+      );
 
       await this.media.referenceExistingKeys(
         MediaOwnerType.ITEM_POSTING,
@@ -1983,6 +2124,12 @@ export class InventoryService {
           ),
         )
       : [];
+    const vipSettings = await this.vipPricing.loadSettings();
+    const vipTierPrices = this.vipPricing.tierPriceStrings(
+      effectiveInventoryUnitPrice(r),
+      Boolean(r.enableDiscount),
+      vipSettings,
+    );
     return {
       id: r.id,
       sku: r.sku,
@@ -2034,6 +2181,8 @@ export class InventoryService {
           ? String(r.promoPrice)
           : null,
       enableDiscount: r.enableDiscount,
+      vipGoldPrice: vipTierPrices.gold,
+      vipDiamondPrice: vipTierPrices.diamond,
       itemSnapshot: {
         clientItemId: r.itemSnapshot.clientItemId,
         form: (r.itemSnapshot.form ?? {}) as Record<string, unknown>,
@@ -2121,6 +2270,17 @@ export class InventoryService {
     if (!row) {
       throw new BadRequestException('Unable to add client to waitlist');
     }
+
+    const clientLabel =
+      `${row.client.firstName} ${row.client.lastName}`.trim() ||
+      row.client.email;
+    await this.inventoryAudit.recordChange(
+      item.id,
+      'Waitlist',
+      '',
+      `${clientLabel} added`,
+      await this.inventoryAudit.staffActor(actorUserId),
+    );
 
     return {
       id: row.id,
@@ -2254,6 +2414,7 @@ export class InventoryService {
         let posting = await em.findOne(ItemPosting, {
           where: { inventoryItemId },
         });
+        const beforePosting = posting ? clonePostingForAudit(posting) : null;
         if (!posting) {
           posting = em.create(ItemPosting, {
             inventoryItemId,
@@ -2267,12 +2428,22 @@ export class InventoryService {
         posting.postingDate = postingDate;
         posting.updatedById = actorUserId;
         await em.save(posting);
+        await this.inventoryAudit.recordPostingDiff(
+          inventoryItemId,
+          beforePosting,
+          posting,
+          await this.inventoryAudit.staffActor(actorUserId),
+          em,
+        );
       }
     });
     return { updated: uniqueIds.length };
   }
 
-  async postItemToShopify(inventoryItemId: string): Promise<{
+  async postItemToShopify(
+    inventoryItemId: string,
+    actorUserId: string,
+  ): Promise<{
     productId: string;
     variantId: string | null;
     collectionCount: number;
@@ -2319,13 +2490,27 @@ export class InventoryService {
       );
     }
 
+    const beforePosting = clonePostingForAudit(posting);
     posting.shopifyProductId = created.id;
     posting.shopifyVariantId = variantId;
     posting.shopifyPostedAt = new Date();
     await this.itemPostingRepo.save(posting);
+    await this.inventoryAudit.recordPostingDiff(
+      inventoryItemId,
+      beforePosting,
+      posting,
+      await this.inventoryAudit.staffActor(actorUserId),
+    );
 
+    const beforeInv = cloneInventoryItemForAudit(item);
     item.status = AVAILABLE_FOR_PURCHASE_INVENTORY_STATUS;
     await this.inventoryRepo.save(item);
+    await this.inventoryAudit.recordDiff(
+      item.id,
+      beforeInv,
+      item,
+      await this.inventoryAudit.staffActor(actorUserId),
+    );
 
     return {
       productId: created.id,
@@ -2456,6 +2641,7 @@ export class InventoryService {
   async linkShopifyProduct(
     inventoryItemId: string,
     shopifyProductIdRaw: string,
+    actorUserId: string,
   ): Promise<{ productId: string; variantId: string | null }> {
     const shopifyProductId = String(shopifyProductIdRaw ?? '').trim();
     if (!shopifyProductId) {
@@ -2482,12 +2668,19 @@ export class InventoryService {
     const product = await this.shopifyAdmin.getProduct(shopifyProductId);
     const variantId = product.variants[0]?.id ?? null;
 
+    const beforePosting = clonePostingForAudit(posting);
     posting.shopifyProductId = product.id;
     posting.shopifyVariantId = variantId;
     if (!posting.shopifyPostedAt) {
       posting.shopifyPostedAt = new Date();
     }
     await this.itemPostingRepo.save(posting);
+    await this.inventoryAudit.recordPostingDiff(
+      inventoryItemId,
+      beforePosting,
+      posting,
+      await this.inventoryAudit.staffActor(actorUserId),
+    );
 
     return { productId: product.id, variantId };
   }
@@ -2651,9 +2844,16 @@ export class InventoryService {
         `At least ${MIN_PHOTOS_TO_FINISH_PHOTOSHOOT} photo is required before you can finish the photoshoot (saved: ${photoCount}).`,
       );
     }
+    const beforeInv = cloneInventoryItemForAudit(item);
     item.status = FOR_PRICING_INVENTORY_STATUS;
     item.updatedById = actorUserId;
     await this.inventoryRepo.save(item);
+    await this.inventoryAudit.recordDiff(
+      item.id,
+      beforeInv,
+      item,
+      await this.inventoryAudit.staffActor(actorUserId),
+    );
     return { status: item.status, sku: item.sku };
   }
 
@@ -2691,12 +2891,21 @@ export class InventoryService {
         existingRows.map((p) => [p.inventoryItem.id, p]),
       );
       const resultIds: string[] = [];
+      const auditActor = await this.inventoryAudit.staffActor(actorUserId);
       for (const inventoryItemId of uniqueIds) {
         const row = existingByInvId.get(inventoryItemId);
         if (row) {
+          const beforeRow = { photoshootDate: row.photoshootDate } as ItemPhotoshoot;
           row.photoshootDate = photoshootDate;
           row.updatedById = actorUserId;
           await psRepo.save(row);
+          await this.inventoryAudit.recordPhotoshootDate(
+            inventoryItemId,
+            beforeRow,
+            row,
+            auditActor,
+            em,
+          );
           resultIds.push(row.id);
         } else {
           const inserted = await psRepo.save(
@@ -2707,6 +2916,13 @@ export class InventoryService {
               createdById: actorUserId,
               updatedById: actorUserId,
             }),
+          );
+          await this.inventoryAudit.recordPhotoshootDate(
+            inventoryItemId,
+            null,
+            inserted,
+            auditActor,
+            em,
           );
           resultIds.push(inserted.id);
         }
@@ -2778,12 +2994,22 @@ export class InventoryService {
         );
       }
 
+      const beforeInv = cloneInventoryItemForAudit(item);
       item.status = INVENTORY_STATUS_SOLD_FINAL;
       item.dateSoldFinal = soldFinalAt;
       if (actorUserId) {
         item.updatedById = actorUserId;
       }
       await manager.save(item);
+      await this.inventoryAudit.recordDiff(
+        item.id,
+        beforeInv,
+        item,
+        actorUserId
+          ? await this.inventoryAudit.staffActor(actorUserId)
+          : this.inventoryAudit.systemActor(),
+        manager,
+      );
 
       return { status: item.status };
     });

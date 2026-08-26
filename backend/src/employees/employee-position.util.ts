@@ -2,10 +2,11 @@ import { Repository } from 'typeorm';
 import { Employee } from './entities/employee.entity';
 import {
   CEO_POSITION,
+  CONSIGNMENT_COORDINATOR_POSITION,
   GENERAL_MANAGER_POSITION,
 } from '../notifications/notification.constants';
 
-export { CEO_POSITION, GENERAL_MANAGER_POSITION };
+export { CEO_POSITION, CONSIGNMENT_COORDINATOR_POSITION, GENERAL_MANAGER_POSITION };
 
 export const CEO_POSITION_TAKEN_MESSAGE =
   'A CEO is already registered. Only one employee can have the CEO position.';
@@ -15,6 +16,15 @@ export const GENERAL_MANAGER_POSITION_TAKEN_MESSAGE =
 
 export function isCeoPosition(position: string | null | undefined): boolean {
   return (position ?? '').trim().toLowerCase() === CEO_POSITION.toLowerCase();
+}
+
+export function isConsignmentCoordinatorPosition(
+  position: string | null | undefined,
+): boolean {
+  return (
+    (position ?? '').trim().toLowerCase() ===
+    CONSIGNMENT_COORDINATOR_POSITION.toLowerCase()
+  );
 }
 
 export function isGeneralManagerPosition(
