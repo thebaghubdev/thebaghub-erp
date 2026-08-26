@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
+import { apiUrl } from "../lib/api";
 
 export function ClientResendVerificationPage() {
   const [email, setEmail] = useState("");
@@ -13,7 +14,7 @@ export function ClientResendVerificationPage() {
     setSuccess(null);
     setSubmitting(true);
     try {
-      const res = await fetch("/api/auth/resend-client-verification", {
+      const res = await fetch(apiUrl("/api/auth/resend-client-verification"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: email.trim() }),

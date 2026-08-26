@@ -3,6 +3,9 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
@@ -23,6 +26,7 @@
     "react-dom": "^19.2.4",
     "react-router-dom": "^7.14.0",
     "recharts": "^3.10.1",
+    "serve": "^14.2.6",
     "socket.io-client": "^4.8.3",
     "stream-chat": "^9.51.0",
     "stream-chat-react": "^14.11.1",

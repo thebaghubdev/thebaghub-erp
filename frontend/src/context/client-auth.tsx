@@ -7,7 +7,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { apiFetch } from '../lib/api'
+import { apiFetch, apiUrl } from '../lib/api'
 import { normalizeClientProfile, type AuthUser } from './auth-user'
 
 const STORAGE_TOKEN = 'baghub_client_token'
@@ -111,7 +111,7 @@ export function ClientAuthProvider({ children }: { children: ReactNode }) {
   }, [token, logout])
 
   const login = useCallback(async (username: string, password: string) => {
-    const res = await fetch('/api/auth/login', {
+    const res = await fetch(apiUrl('/api/auth/login'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),

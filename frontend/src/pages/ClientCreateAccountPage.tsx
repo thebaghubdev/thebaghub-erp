@@ -3,6 +3,7 @@ import { Link, Navigate } from "react-router-dom";
 import { PasswordField } from "../components/PasswordField";
 import { TurnstileChallenge } from "../components/TurnstileChallenge";
 import { useClientAuth } from "../context/client-auth";
+import { apiUrl } from "../lib/api";
 
 const turnstileSiteKey =
   import.meta.env.VITE_TURNSTILE_SITE_KEY?.trim() ?? "";
@@ -40,7 +41,7 @@ export function ClientCreateAccountPage() {
     }
     setSubmitting(true);
     try {
-      const res = await fetch("/api/auth/register/client", {
+      const res = await fetch(apiUrl("/api/auth/register/client"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

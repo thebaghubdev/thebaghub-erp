@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { apiUrl } from "../lib/api";
 
 export function ClientVerifyEmailPage() {
   const [searchParams] = useSearchParams();
@@ -21,7 +22,7 @@ export function ClientVerifyEmailPage() {
     let cancelled = false;
     void (async () => {
       try {
-        const res = await fetch("/api/auth/verify-client-email", {
+        const res = await fetch(apiUrl("/api/auth/verify-client-email"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ token }),

@@ -85,14 +85,8 @@ import { MessagingModule } from './messaging/messaging.module';
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        type: 'postgres',
-        host: config.get<string>('DB_HOST', 'localhost'),
-        port: config.get<number>('DB_PORT', 5432),
-        username: config.get<string>('DB_USERNAME', 'baghub'),
-        password: config.get<string>('DB_PASSWORD', 'baghub'),
-        database: config.get<string>('DB_DATABASE', 'baghub'),
-        entities: [
+      useFactory: (config: ConfigService) => {
+        const entities = [
           Inquiry,
           InquiryAuditEntry,
           User,
@@ -131,10 +125,31 @@ import { MessagingModule } from './messaging/messaging.module';
           WalkInAuthenticationMetric,
           FeatureAccess,
           Task,
-        ],
-        synchronize:
-          config.get<string>('NODE_ENV', 'development') !== 'production',
-      }),
+        ];
+        const synchronize =
+          config.get<string>('TYPEORM_SYNCHRONIZE') === 'true' ||
+          config.get<string>('NODE_ENV', 'development') !== 'production';
+        const databaseUrl = config.get<string>('DATABASE_URL')?.trim();
+        if (databaseUrl) {
+          return {
+            type: 'postgres' as const,
+            url: databaseUrl,
+            ssl: { rejectUnauthorized: false },
+            entities,
+            synchronize,
+          };
+        }
+        return {
+          type: 'postgres' as const,
+          host: config.get<string>('DB_HOST', 'localhost'),
+          port: config.get<number>('DB_PORT', 5432),
+          username: config.get<string>('DB_USERNAME', 'baghub'),
+          password: config.get<string>('DB_PASSWORD', 'baghub'),
+          database: config.get<string>('DB_DATABASE', 'baghub'),
+          entities,
+          synchronize,
+        };
+      },
     }),
     DatabaseModule,
     AuthModule,

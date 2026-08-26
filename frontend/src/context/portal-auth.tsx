@@ -7,7 +7,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { apiFetch } from '../lib/api'
+import { apiFetch, apiUrl } from '../lib/api'
 import type { FeatureAccessMap } from '../lib/feature-access'
 import { normalizeClientProfile, type AuthUser } from './auth-user'
 
@@ -145,7 +145,7 @@ export function PortalAuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(
     async (username: string, password: string) => {
-      const res = await fetch('/api/auth/login', {
+      const res = await fetch(apiUrl('/api/auth/login'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),

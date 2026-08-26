@@ -2,6 +2,8 @@
 
 interface ImportMetaEnv {
   readonly VITE_TURNSTILE_SITE_KEY?: string;
+  /** e.g. `https://tbh-erp-stg-be.herokuapp.com` on Heroku; leave unset locally */
+  readonly VITE_API_URL?: string;
   /** e.g. `http://localhost:3000` if WebSocket is not behind the Vite dev proxy */
   readonly VITE_SOCKET_URL?: string;
 }
