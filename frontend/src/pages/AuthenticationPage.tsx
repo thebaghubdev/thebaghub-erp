@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DataTable } from "../components/data-table/DataTable";
+import { SearchableSelect } from "../components/SearchableSelect";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
@@ -1171,31 +1172,25 @@ export function AuthenticationPage() {
                               >
                                 Brand
                               </label>
-                              <select
+                              <SearchableSelect
                                 id="am-brand"
                                 required
                                 className={formFieldClass}
                                 value={createForm.brand}
+                                options={brands}
                                 disabled={createBusy}
-                                onChange={(e) =>
+                                placeholder={
+                                  brands.length === 0
+                                    ? "No brands — check settings"
+                                    : "Select brand"
+                                }
+                                onChange={(brand) =>
                                   setCreateForm((f) => ({
                                     ...f,
-                                    brand: e.target.value,
+                                    brand,
                                   }))
                                 }
-                              >
-                                {brands.length === 0 ? (
-                                  <option value="">
-                                    No brands — check settings
-                                  </option>
-                                ) : (
-                                  brands.map((b) => (
-                                    <option key={b} value={b}>
-                                      {b}
-                                    </option>
-                                  ))
-                                )}
-                              </select>
+                              />
                             </div>
                             <div>
                               <label

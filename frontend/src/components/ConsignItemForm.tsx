@@ -3,6 +3,7 @@ import { useClientAuth } from "../context/client-auth";
 import { apiFetch } from "../lib/api";
 import type { ConsignItemFormData } from "../types/consign-inquiry";
 import { PhpPriceInput } from "./PhpPriceInput";
+import { SearchableSelect } from "./SearchableSelect";
 import { TermsHtmlModal } from "./TermsHtmlModal";
 
 const DIRECT_PURCHASE_TERMS_URL = "/terms/direct-purchase.txt";
@@ -129,21 +130,16 @@ export function ConsignItemForm({
           <label htmlFor="consign-brand" className={label}>
             Brand
           </label>
-          <select
+          <SearchableSelect
             id="consign-brand"
             value={value.brand}
-            onChange={(e) => patch({ brand: e.target.value })}
+            options={options.brands}
+            onChange={(brand) => patch({ brand })}
             className={field}
+            placeholder="Select brand"
             required
             disabled={optionsLoading}
-          >
-            <option value="">Select brand</option>
-            {options.brands.map((b) => (
-              <option key={b} value={b}>
-                {b}
-              </option>
-            ))}
-          </select>
+          />
           {!optionsLoading && options.brands.length === 0 && (
             <p className="mt-1 text-xs text-slate-500">
               No brands configured yet. Staff can add options under Settings →

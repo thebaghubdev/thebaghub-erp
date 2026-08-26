@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "../lib/api";
 import type { ConsignItemFormData } from "../types/consign-inquiry";
 import { PhpPriceInput } from "./PhpPriceInput";
+import { SearchableSelect } from "./SearchableSelect";
 
 type ConsignFormOptions = {
   brands: string[];
@@ -118,21 +119,16 @@ export function StaffWalkInConsignmentItemForm({
           <label htmlFor="staff-walkin-brand" className={label}>
             Brand
           </label>
-          <select
+          <SearchableSelect
             id="staff-walkin-brand"
             value={value.brand}
-            onChange={(e) => patch({ brand: e.target.value })}
+            options={options.brands}
+            onChange={(brand) => patch({ brand })}
             className={field}
+            placeholder="Select brand"
             required
             disabled={optionsLoading}
-          >
-            <option value="">Select brand</option>
-            {options.brands.map((b) => (
-              <option key={b} value={b}>
-                {b}
-              </option>
-            ))}
-          </select>
+          />
           {!optionsLoading && options.brands.length === 0 && (
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
               No brands configured yet. Staff can add options under Settings →

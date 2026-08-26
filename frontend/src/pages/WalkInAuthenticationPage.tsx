@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { DataTable } from "../components/data-table/DataTable";
 import { PhpPriceInput } from "../components/PhpPriceInput";
+import { SearchableSelect } from "../components/SearchableSelect";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
@@ -629,20 +630,15 @@ export function WalkInAuthenticationPage() {
               <label className={labelClass} htmlFor="wia-brand">
                 Brand
               </label>
-              <select
+              <SearchableSelect
                 id="wia-brand"
                 className={fieldClass}
                 value={form.brand}
-                onChange={(e) => patchForm({ brand: e.target.value })}
+                options={brands}
+                onChange={(brand) => patchForm({ brand })}
+                placeholder="Select brand"
                 required
-              >
-                <option value="">Select brand</option>
-                {brands.map((b) => (
-                  <option key={b} value={b}>
-                    {b}
-                  </option>
-                ))}
-              </select>
+              />
             </div>
             <div>
               <label className={labelClass} htmlFor="wia-category">

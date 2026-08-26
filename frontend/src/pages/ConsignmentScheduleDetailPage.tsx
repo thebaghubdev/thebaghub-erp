@@ -9,6 +9,7 @@ import { createPortal } from "react-dom";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DatePickerField } from "../components/DatePickerField";
+import { SearchableSelect } from "../components/SearchableSelect";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
@@ -1098,33 +1099,26 @@ export function ConsignmentScheduleDetailPage() {
                         />
                       </div>
                       <div>
-                        <label
-                          htmlFor={`${verifyFieldId}-brand`}
-                          className="font-medium text-slate-700 dark:text-slate-300"
-                        >
-                          Brand
-                        </label>
-                        <select
-                          id={`${verifyFieldId}-brand`}
-                          value={itemVerifyForm.brand}
-                          onChange={(e) =>
-                            setItemVerifyForm((prev) =>
-                              prev
-                                ? { ...prev, brand: e.target.value }
-                                : null,
-                            )
-                          }
-                          className={verifyInputClass}
-                          disabled={picklistsLoading || !!picklistsError}
-                          required
-                        >
-                          <option value="">Select brand</option>
-                          {consignPicklists.brands.map((b) => (
-                            <option key={b} value={b}>
-                              {b}
-                            </option>
-                          ))}
-                        </select>
+                          <label
+                            htmlFor={`${verifyFieldId}-brand`}
+                            className="font-medium text-slate-700 dark:text-slate-300"
+                          >
+                            Brand
+                          </label>
+                          <SearchableSelect
+                            id={`${verifyFieldId}-brand`}
+                            value={itemVerifyForm.brand}
+                            options={consignPicklists.brands}
+                            onChange={(brand) =>
+                              setItemVerifyForm((prev) =>
+                                prev ? { ...prev, brand } : null,
+                              )
+                            }
+                            className={verifyInputClass}
+                            placeholder="Select brand"
+                            disabled={picklistsLoading || !!picklistsError}
+                            required
+                          />
                         {!picklistsLoading &&
                         !picklistsError &&
                         consignPicklists.brands.length === 0 ? (

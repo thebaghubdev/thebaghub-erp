@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "../lib/api";
+import { SearchableSelect } from "./SearchableSelect";
 
 type ConsignFormOptions = {
   brands: string[];
@@ -207,21 +208,16 @@ export function AddStockInventoryItemForm({ portalToken, onCreated }: Props) {
         <label htmlFor="stock-brand" className={label}>
           Brand
         </label>
-        <select
+        <SearchableSelect
           id="stock-brand"
           value={value.brand}
-          onChange={(e) => patch({ brand: e.target.value })}
+          options={options.brands}
+          onChange={(brand) => patch({ brand })}
           className={field}
+          placeholder="Select brand"
           required
           disabled={optionsLoading}
-        >
-          <option value="">Select brand</option>
-          {options.brands.map((b) => (
-            <option key={b} value={b}>
-              {b}
-            </option>
-          ))}
-        </select>
+        />
       </div>
 
       <div>

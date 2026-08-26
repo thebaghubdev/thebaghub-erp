@@ -6,6 +6,7 @@ import {
   type MetricVerdict,
 } from "../components/MetricAuthCard";
 import { PhpPriceInput } from "../components/PhpPriceInput";
+import { SearchableSelect } from "../components/SearchableSelect";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
 import {
@@ -589,20 +590,15 @@ export function WalkInAuthenticationDetailPage() {
           <label className={labelClass} htmlFor="wia-d-brand">
             Brand
           </label>
-          <select
+          <SearchableSelect
             id="wia-d-brand"
             className={fieldClass}
             value={brand}
+            options={brands}
             disabled={readOnly}
-            onChange={(e) => setBrand(e.target.value)}
-          >
-            <option value="">Select brand</option>
-            {brands.map((b) => (
-              <option key={b} value={b}>
-                {b}
-              </option>
-            ))}
-          </select>
+            onChange={setBrand}
+            placeholder="Select brand"
+          />
         </div>
         <div>
           <label className={labelClass} htmlFor="wia-d-category">
