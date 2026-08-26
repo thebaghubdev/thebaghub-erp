@@ -1780,6 +1780,17 @@ export class InventoryService {
 
     for (const { itemId, sku, createTask } of assignedItems) {
       if (!createTask) continue;
+      void this.notifications
+        .notify({
+          message: `Item ${sku} has been assigned to you for authentication.`,
+          receiverId: dto.employeeId,
+        })
+        .catch((err: unknown) => {
+          this.logger.error(
+            'Failed to notify authenticator for assignment',
+            err,
+          );
+        });
       void this.tasks
         .createAssigned({
           assigneeId: dto.employeeId,

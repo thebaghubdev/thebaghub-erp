@@ -28,6 +28,12 @@ export function isSupervisorPosition(
   return (position ?? "").trim().toLowerCase() === "supervisor";
 }
 
+export function isPhotographerPosition(
+  position: string | null | undefined,
+): boolean {
+  return (position ?? "").trim().toLowerCase() === "photographer";
+}
+
 /** Supervisors (and admins) may assign authentication/orders to other staff. */
 export function canAssignWorkToOthers(
   isAdmin: boolean,

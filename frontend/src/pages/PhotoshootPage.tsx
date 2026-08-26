@@ -10,6 +10,7 @@ import {
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
 import { InventoryStatusBadge } from "../components/InventoryStatusBadge";
+import { isPhotographerPosition } from "../lib/employee-position";
 import { useFeatureAccess } from "../lib/use-feature-access";
 
 type PhotoshootTab = "calendar" | "scheduling";
@@ -130,8 +131,10 @@ async function readApiErrorMessage(res: Response): Promise<string> {
 export function PhotoshootPage() {
   const [tab, setTab] = useState<PhotoshootTab>("calendar");
   const scheduleDateId = useId();
-  const { token } = usePortalAuth();
+  const { token, user } = usePortalAuth();
   const { canEdit, readOnly } = useFeatureAccess("photoshoot");
+  const canSchedule =
+    !readOnly && !isPhotographerPosition(user?.employee?.position);
   const [scheduleDate, setScheduleDate] = useState("");
   const [rows, setRows] = useState<InventoryRow[]>([]);
   const [inventoryLoading, setInventoryLoading] = useState(false);
@@ -186,6 +189,12 @@ export function PhotoshootPage() {
   }, [token]);
 
   useEffect(() => {
+    if (!canSchedule && tab === "scheduling") {
+      setTab("calendar");
+    }
+  }, [canSchedule, tab]);
+
+  useEffect(() => {
     if (tab !== "calendar" && tab !== "scheduling") return;
     void loadPhotoshoots();
   }, [tab, loadPhotoshoots]);
@@ -238,10 +247,16 @@ export function PhotoshootPage() {
   }, []);
 
   const showCreate =
-    !readOnly && Boolean(scheduleDate.trim()) && selectedIds.size > 0;
+    canSchedule && Boolean(scheduleDate.trim()) && selectedIds.size > 0;
 
   const handleCreate = async () => {
-    if (!canEdit || !token || !scheduleDate.trim() || selectedIds.size === 0)
+    if (
+      !canSchedule ||
+      !canEdit ||
+      !token ||
+      !scheduleDate.trim() ||
+      selectedIds.size === 0
+    )
       return;
     setCreateError(null);
     setCreateSubmitting(true);
@@ -301,7 +316,7 @@ export function PhotoshootPage() {
         >
           Photoshoot Calendar
         </button>
-        {!readOnly ? (
+        {canSchedule ? (
           <button
             type="button"
             role="tab"
@@ -339,7 +354,7 @@ export function PhotoshootPage() {
         </section>
       )}
 
-      {tab === "scheduling" && !readOnly && (
+      {tab === "scheduling" && canSchedule && (
         <section
           id="panel-photoshoot-scheduling"
           role="tabpanel"
