@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useApp } from "../context/useApp";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
 import { useFeatureAccess } from "../lib/use-feature-access";
@@ -55,7 +54,6 @@ function buildStringArrayValue(state: StringArrayEditState): string {
 export function SettingsPage() {
   const { token } = usePortalAuth();
   const { canEdit, readOnly } = useFeatureAccess("settings");
-  const { theme, toggleTheme } = useApp();
   const [rows, setRows] = useState<SettingRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -106,16 +104,12 @@ export function SettingsPage() {
       list.push(s);
       m.set(s.category, list);
     }
-    const hasGeneralInApp = rows.some((r) => r.category === GENERAL_CATEGORY);
-    if (hasGeneralInApp && !m.has(GENERAL_CATEGORY)) {
-      m.set(GENERAL_CATEGORY, []);
-    }
     return [...m.entries()].sort((a, b) => {
       if (a[0] === GENERAL_CATEGORY && b[0] !== GENERAL_CATEGORY) return -1;
       if (b[0] === GENERAL_CATEGORY && a[0] !== GENERAL_CATEGORY) return 1;
       return a[0].localeCompare(b[0]);
     });
-  }, [filtered, rows]);
+  }, [filtered]);
 
   const beginEdit = (s: SettingRow) => {
     if (!canEdit) return;
@@ -350,14 +344,11 @@ export function SettingsPage() {
             No settings found.
           </p>
         )}
-        {!loading &&
-          rows.length > 0 &&
-          filtered.length === 0 &&
-          !rows.some((r) => r.category === GENERAL_CATEGORY) && (
-            <p className="px-4 py-10 text-center text-sm text-slate-500">
-              No settings match your search.
-            </p>
-          )}
+        {!loading && rows.length > 0 && filtered.length === 0 && (
+          <p className="px-4 py-10 text-center text-sm text-slate-500">
+            No settings match your search.
+          </p>
+        )}
 
         {grouped.map(([category, list]) => (
           <section
@@ -376,35 +367,6 @@ export function SettingsPage() {
                   <col className="max-w-[10rem] min-w-0" />
                 </colgroup>
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                  {category === GENERAL_CATEGORY && (
-                    <tr className="align-top hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                      <td className="max-w-[10rem] min-w-0 align-top px-4 py-3 font-medium text-slate-900 dark:text-slate-100">
-                        Appearance
-                      </td>
-                      <td className="max-w-[10rem] min-w-0 align-top px-4 py-3 text-slate-600 dark:text-slate-400">
-                        Switch between light and dark interface for the app.
-                      </td>
-                      <td className="max-w-[10rem] min-w-0 align-top px-4 py-3">
-                        <button
-                          type="button"
-                          onClick={toggleTheme}
-                          className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
-                        >
-                          {theme === "light" ? "Dark mode" : "Light mode"}
-                        </button>
-                        <span className="mt-2 block text-xs text-slate-500 dark:text-slate-400">
-                          Currently using{" "}
-                          <span className="font-medium text-slate-700 dark:text-slate-300">
-                            {theme === "light" ? "light" : "dark"}
-                          </span>{" "}
-                          theme.
-                        </span>
-                      </td>
-                      <td className="max-w-[10rem] min-w-0 align-top px-4 py-3 text-right text-slate-400 dark:text-slate-600">
-                        —
-                      </td>
-                    </tr>
-                  )}
                   {list.map((s) => {
                     const isEditing = editingKey === s.key;
                     return (

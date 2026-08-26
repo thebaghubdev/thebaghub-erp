@@ -12,7 +12,7 @@ const activeClass =
   "bg-violet-100 text-violet-900 dark:bg-violet-950/60 dark:text-violet-100";
 
 export function Sidenav() {
-  const { user, logout, featureAccess, featureAccessLoading } = usePortalAuth();
+  const { user, featureAccess, featureAccessLoading } = usePortalAuth();
 
   const visibleItems = PORTAL_NAV_ITEMS.filter(
     (item) =>
@@ -42,21 +42,6 @@ export function Sidenav() {
           </NavLink>
         ))}
       </nav>
-      <div className="border-t border-slate-200 p-2 dark:border-slate-800">
-        <p
-          className="mb-2 truncate px-2 text-xs text-slate-500"
-          title={user?.username}
-        >
-          {user?.username}
-        </p>
-        <button
-          type="button"
-          onClick={() => logout()}
-          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-left text-sm font-medium text-slate-800 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
-        >
-          Log out
-        </button>
-      </div>
     </aside>
   );
 }

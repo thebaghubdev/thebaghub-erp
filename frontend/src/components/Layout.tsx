@@ -5,6 +5,7 @@ import { Breadcrumb } from "./Breadcrumb";
 import { MessagingButton } from "./MessagingButton";
 import { NotificationBell } from "./NotificationBell";
 import { Sidenav } from "./Sidenav";
+import { UserMenu } from "./UserMenu";
 
 function HeaderUser() {
   const { user } = usePortalAuth();
@@ -45,6 +46,7 @@ export function Layout() {
               <HeaderUser />
               <MessagingButton />
               <NotificationBell />
+              <UserMenu />
             </div>
           </header>
           <main

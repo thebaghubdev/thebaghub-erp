@@ -344,6 +344,9 @@ export class AuthService {
         firstName: string;
         lastName: string;
         position: string;
+        email: string;
+        contactNumber: string;
+        hireDate: string;
       } | null,
       client: null as {
         firstName: string;
@@ -377,6 +380,12 @@ export class AuthService {
           firstName: emp.firstName,
           lastName: emp.lastName,
           position: emp.position,
+          email: emp.email,
+          contactNumber: emp.contactNumber,
+          hireDate:
+            emp.hireDate instanceof Date
+              ? emp.hireDate.toISOString().slice(0, 10)
+              : String(emp.hireDate).slice(0, 10),
         };
       }
     }

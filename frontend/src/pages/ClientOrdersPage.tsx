@@ -11,7 +11,7 @@ import { apiFetch } from "../lib/api";
 import { formatPhpDisplay } from "../lib/format-php";
 import { paymentTypeLabel } from "../lib/order-status-filter-options";
 
-type ClientOrdersTab = "orders" | "waitlists" | "appointments";
+type ClientOrdersTab = "orders" | "waitlists";
 
 type MyOrderRow = {
   id: string;
@@ -129,21 +129,6 @@ export function ClientOrdersPage() {
           onClick={() => setTab("waitlists")}
         >
           My waitlists
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "appointments"}
-          id="tab-client-appointments"
-          aria-controls="panel-client-appointments"
-          className={`${tabBtn} ${
-            tab === "appointments"
-              ? "border-violet-600 text-violet-700"
-              : "text-slate-600 hover:text-slate-900"
-          }`}
-          onClick={() => setTab("appointments")}
-        >
-          My appointments
         </button>
       </div>
 
@@ -396,20 +381,6 @@ export function ClientOrdersPage() {
                 </tbody>
               </table>
             </HorizontalScrollMirror>
-          </div>
-        </section>
-      )}
-
-      {tab === "appointments" && (
-        <section
-          id="panel-client-appointments"
-          role="tabpanel"
-          aria-labelledby="tab-client-appointments"
-        >
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <p className="text-sm leading-relaxed text-slate-600">
-              Your appointments will appear here.
-            </p>
           </div>
         </section>
       )}

@@ -58,6 +58,7 @@ import { ClientOrderDetailPage } from './pages/ClientOrderDetailPage'
 import { ClientOrdersPage } from './pages/ClientOrdersPage'
 import { RegisterPage } from './pages/RegisterPage'
 import { SettingsPage } from './pages/SettingsPage'
+import { StaffProfilePage } from './pages/StaffProfilePage'
 import { DashboardsPage } from './pages/DashboardsPage'
 import { TaskboardPage } from './pages/TaskboardPage'
 import { UnauthorizedPage } from './pages/UnauthorizedPage'
@@ -371,6 +372,7 @@ const router = createBrowserRouter([
             ),
           },
           { path: 'messaging', element: <MessagingPage /> },
+          { path: 'profile', element: <StaffProfilePage /> },
           { path: '*', element: <Navigate to="/portal/taskboard" replace /> },
         ],
       },

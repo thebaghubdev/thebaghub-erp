@@ -30,6 +30,9 @@ export type AuthUser = {
     firstName: string
     lastName: string
     position: string
+    email?: string
+    contactNumber?: string
+    hireDate?: string
   } | null
   client: ClientProfile | null
 }
