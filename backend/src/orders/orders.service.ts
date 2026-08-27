@@ -634,6 +634,46 @@ export class OrdersService {
     });
   }
 
+  private notifyAndTaskAssignedSalesAssociateOrderPaid(
+    order:
+      | Pick<Order, 'id' | 'orderNumber' | 'assignedToId'>
+      | null
+      | undefined,
+  ): void {
+    const assigneeId = order?.assignedToId?.trim();
+    if (!order || !assigneeId) {
+      return;
+    }
+    const orderId = order.id;
+    const orderNumber = order.orderNumber;
+    void this.notifications
+      .notify({
+        message: `Order #${orderNumber} has been marked as Paid.`,
+        receiverId: assigneeId,
+        orderId,
+      })
+      .catch((err: unknown) => {
+        this.logger.error(
+          'Failed to notify sales associate that order is Paid',
+          err instanceof Error ? err.stack : err,
+        );
+      });
+    void this.tasks
+      .createAssigned({
+        assigneeId,
+        title: `Order #${orderNumber} is Paid`,
+        description: portalPageUrl(this.config, `/portal/orders/${orderId}`),
+        severity: 'moderate',
+        dueDate: null,
+      })
+      .catch((err: unknown) => {
+        this.logger.error(
+          'Failed to create task for sales associate that order is Paid',
+          err instanceof Error ? err.stack : err,
+        );
+      });
+  }
+
   private async notifyPaymentVerificationNeeded(input: {
     order: Pick<Order, 'id' | 'orderNumber'>;
     kind?: 'payment' | 'reservation';
@@ -1109,9 +1149,9 @@ export class OrdersService {
     em: typeof this.ordersRepo.manager,
     order: Order,
     userId: string,
-  ): Promise<void> {
+  ): Promise<boolean> {
     if (order.convertedToLayawayAt == null) {
-      return;
+      return false;
     }
 
     const paymentRows = await em.find(OrderPayment, {
@@ -1120,7 +1160,7 @@ export class OrdersService {
     });
     const credit = computeFullPaymentCredit(order, paymentRows);
     if (credit <= 0) {
-      return;
+      return false;
     }
 
     const installments = await em.find(OrderInstallment, {
@@ -1128,7 +1168,7 @@ export class OrdersService {
       order: { installmentNumber: 'ASC' },
     });
     if (installments.length === 0) {
-      return;
+      return false;
     }
 
     const item = await em.findOne(InventoryItem, {
@@ -1136,7 +1176,7 @@ export class OrdersService {
       relations: { inquiry: true },
     });
     if (!item) {
-      return;
+      return false;
     }
 
     const paymentDate = this.latestConfirmedPaymentDate(paymentRows);
@@ -1164,6 +1204,7 @@ export class OrdersService {
       );
     }
 
+    let becamePaid = false;
     for (const installmentNumber of fullyPaidInstallmentNumbers) {
       if (
         order.consignorPaymentRelease != null &&
@@ -1178,7 +1219,8 @@ export class OrdersService {
       }
       if (
         order.layawayMonths != null &&
-        installmentNumber === order.layawayMonths
+        installmentNumber === order.layawayMonths &&
+        order.status !== ORDER_STATUS_PAID
       ) {
         order.status = ORDER_STATUS_PAID;
         order.updatedById = userId;
@@ -1190,8 +1232,10 @@ export class OrdersService {
           actor,
           em,
         );
+        becamePaid = true;
       }
     }
+    return becamePaid;
   }
 
   private async areAllInstallmentsPaid(
@@ -1773,7 +1817,7 @@ export class OrdersService {
     dto: ApproveLayawayOrderDto,
   ): Promise<StaffOrderDetail> {
     await this.enforceOrderMutationAccess(user, id);
-    await this.dataSource.transaction(async (em) => {
+    const paidNotify = await this.dataSource.transaction(async (em) => {
       const order = await em.findOne(Order, {
         where: { id },
         lock: { mode: 'pessimistic_write' },
@@ -1847,8 +1891,21 @@ export class OrdersService {
       );
 
       await this.createInstallmentsForOrder(order, em, user.userId);
-      await this.applyPreConversionPaymentCredit(em, order, user.userId);
+      const becamePaid = await this.applyPreConversionPaymentCredit(
+        em,
+        order,
+        user.userId,
+      );
+      return becamePaid
+        ? {
+            id: order.id,
+            orderNumber: order.orderNumber,
+            assignedToId: order.assignedToId,
+          }
+        : null;
     });
+
+    this.notifyAndTaskAssignedSalesAssociateOrderPaid(paidNotify);
 
     return this.findOneForStaff(id);
   }
@@ -1934,7 +1991,7 @@ export class OrdersService {
       throw new BadRequestException('Layaway price must be greater than zero');
     }
 
-    await this.dataSource.transaction(async (em) => {
+    const paidNotify = await this.dataSource.transaction(async (em) => {
       const order = await em.findOne(Order, {
         where: { id },
         lock: { mode: 'pessimistic_write' },
@@ -2014,8 +2071,21 @@ export class OrdersService {
       );
 
       await this.createInstallmentsForOrder(order, em, user.userId);
-      await this.applyPreConversionPaymentCredit(em, order, user.userId);
+      const becamePaid = await this.applyPreConversionPaymentCredit(
+        em,
+        order,
+        user.userId,
+      );
+      return becamePaid
+        ? {
+            id: order.id,
+            orderNumber: order.orderNumber,
+            assignedToId: order.assignedToId,
+          }
+        : null;
     });
+
+    this.notifyAndTaskAssignedSalesAssociateOrderPaid(paidNotify);
 
     return this.findOneForStaff(id);
   }
@@ -2235,6 +2305,8 @@ export class OrdersService {
       order,
       await this.auditActor(user),
     );
+
+    this.notifyAndTaskAssignedSalesAssociateOrderPaid(order);
 
     return this.findOneForStaff(id);
   }
@@ -2858,7 +2930,7 @@ export class OrdersService {
       'edit',
     );
 
-    await this.dataSource.transaction(async (em) => {
+    const paidNotify = await this.dataSource.transaction(async (em) => {
       const order = await em.findOne(Order, {
         where: { id: orderId },
         lock: { mode: 'pessimistic_write' },
@@ -2999,7 +3071,7 @@ export class OrdersService {
           ) {
             order.status = ORDER_STATUS_ITEM_RECEIVED_PAID;
           }
-        } else {
+        } else if (order.status !== ORDER_STATUS_PAID) {
           order.status = ORDER_STATUS_PAID;
         }
         order.updatedById = user.userId;
@@ -3012,7 +3084,18 @@ export class OrdersService {
           em,
         );
       }
+
+      return order.status === ORDER_STATUS_PAID &&
+        beforeOrder.status !== ORDER_STATUS_PAID
+        ? {
+            id: order.id,
+            orderNumber: order.orderNumber,
+            assignedToId: order.assignedToId,
+          }
+        : null;
     });
+
+    this.notifyAndTaskAssignedSalesAssociateOrderPaid(paidNotify);
 
     return this.findOneForStaff(orderId);
   }
@@ -4409,7 +4492,7 @@ export class OrdersService {
       await this.ensureInstallments(orderPreview, userId);
     }
 
-    await this.dataSource.transaction(async (em) => {
+    const paidNotify = await this.dataSource.transaction(async (em) => {
       const order = await em.findOne(Order, {
         where: { id: orderId },
         lock: { mode: 'pessimistic_write' },
@@ -4450,9 +4533,10 @@ export class OrdersService {
 
       const paymentDate = today;
       const now = new Date();
+      let becamePaid = false;
 
       if (isInstallmentPaymentType(order.paymentType)) {
-        await this.applyVoucherToNextInstallment(
+        becamePaid = await this.applyVoucherToNextInstallment(
           em,
           order,
           voucher,
@@ -4487,7 +4571,16 @@ export class OrdersService {
       voucher.status = VOUCHER_STATUS_REDEEMED;
       voucher.updatedById = userId;
       await em.save(voucher);
+      return becamePaid
+        ? {
+            id: order.id,
+            orderNumber: order.orderNumber,
+            assignedToId: order.assignedToId,
+          }
+        : null;
     });
+
+    this.notifyAndTaskAssignedSalesAssociateOrderPaid(paidNotify);
   }
 
   private async applyVoucherToFullPaymentOrder(
@@ -4576,7 +4669,7 @@ export class OrdersService {
     userId: string,
     paymentDate: string,
     now: Date,
-  ): Promise<void> {
+  ): Promise<boolean> {
     this.assertInstallmentScheduleAccessible(order);
 
     const rows = await em.find(OrderInstallment, {
@@ -4640,7 +4733,7 @@ export class OrdersService {
       em,
     );
 
-    await this.runInstallmentPaidSideEffects(
+    return this.runInstallmentPaidSideEffects(
       em,
       order,
       installmentNumber,
@@ -4655,7 +4748,7 @@ export class OrdersService {
     installmentNumber: number,
     markedPaidAt: Date,
     userId: string,
-  ): Promise<void> {
+  ): Promise<boolean> {
     if (
       order.consignorPaymentRelease != null &&
       installmentNumber === order.consignorPaymentRelease &&
@@ -4687,6 +4780,7 @@ export class OrdersService {
       installmentNumber === order.layawayMonths
     ) {
       const before = cloneOrderForAudit(order);
+      const wasPaid = order.status === ORDER_STATUS_PAID;
       if (isCreditLinePaymentType(order.paymentType)) {
         if (
           order.status === ORDER_STATUS_ITEM_RECEIVED_UNPAID ||
@@ -4694,7 +4788,7 @@ export class OrdersService {
         ) {
           order.status = ORDER_STATUS_ITEM_RECEIVED_PAID;
         }
-      } else {
+      } else if (!wasPaid) {
         order.status = ORDER_STATUS_PAID;
       }
       order.updatedById = userId;
@@ -4706,7 +4800,9 @@ export class OrdersService {
         await this.auditActorFromUserId(userId),
         em,
       );
+      return !wasPaid && order.status === ORDER_STATUS_PAID;
     }
+    return false;
   }
 
   private toClientSummary(order: Order): ClientOrderSummary {

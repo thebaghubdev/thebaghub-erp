@@ -32,6 +32,7 @@ export function isSystemGeneratedTaskTitle(title: string): boolean {
     /^Verify authentication fee for Inquiry .+$/u.test(t) ||
     /^Verify walk-in authentication payment for .+$/u.test(t) ||
     /^Order #\d+ is assigned to you$/u.test(t) ||
+    /^Order #\d+ is Paid$/u.test(t) ||
     /^Item .+ is assigned to you for authentication$/u.test(t) ||
     /^Item .+ is ready for editing$/u.test(t)
   );
