@@ -325,6 +325,7 @@ export class InquiryAuditService {
       contractRenewalRequestedPrice: null,
       offerSignaturePresent: false,
       notes: null,
+      declineReason: null,
       pulloutFee: null,
       pulloutReason: null,
       pulloutPaymentStatus: null,
