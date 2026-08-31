@@ -26,6 +26,7 @@ import {
 import {
   ForwardMessageAction,
   ForwardMessageProvider,
+  ForwardMessageQuickAction,
   MessagingTranslationIndicator,
 } from "../components/ForwardMessageModal";
 import { ManageGroupMembersModal } from "../components/ManageGroupMembersModal";
@@ -117,13 +118,25 @@ function MessagingMessageActions() {
   const { message } = useMessageContext();
   const messageActionSet = useMemo(() => {
     if (!canForwardMessage(message)) return messagingMessageActionSet;
+    const quickAndToggle = messagingMessageActionSet.filter(
+      (action) => action.placement !== "dropdown",
+    );
+    const dropdown = messagingMessageActionSet.filter(
+      (action) => action.placement === "dropdown",
+    );
     return [
-      ...messagingMessageActionSet,
+      ...quickAndToggle,
+      {
+        Component: ForwardMessageQuickAction,
+        placement: "quick" as const,
+        type: "forwardQuick",
+      },
       {
         Component: ForwardMessageAction,
         placement: "dropdown" as const,
         type: "forward",
       },
+      ...dropdown,
     ];
   }, [message]);
   return <MessageActions messageActionSet={messageActionSet} />;

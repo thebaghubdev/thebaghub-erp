@@ -70,6 +70,7 @@ type ClientInquiryDetail = {
   offerPrice: string | null;
   consignmentRequestedPrice: string | null;
   contractRenewalRequestedPrice: string | null;
+  declineReason?: string | null;
   clientOfferConfirmation?: ClientOfferConfirmation | null;
   contractStartDate: string | null;
   contractExpirationDate: string | null;
@@ -79,6 +80,8 @@ type ClientInquiryDetail = {
     deliveryTimeSlot: string | null;
     modeOfTransfer: string;
     branch: string;
+    status?: string;
+    rescheduleReason?: string | null;
   } | null;
   itemSnapshot: {
     clientItemId: string;
@@ -567,6 +570,22 @@ export function ClientConsignmentDetailPage() {
               <p className="mt-1 text-sm text-slate-600">{detail.itemLabel}</p>
             ) : null}
 
+            {detail.status.trim().toLowerCase() === "declined" &&
+            detail.declineReason?.trim() ? (
+              <div className="mt-3 rounded-lg border border-red-200 bg-red-50/80 p-3 text-sm dark:border-red-900/50 dark:bg-red-950/30">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-red-900 dark:text-red-200">
+                  Decline reason
+                </h3>
+                <p className="mt-2 whitespace-pre-wrap text-slate-800 dark:text-slate-200">
+                  {detail.declineReason.trim()}
+                </p>
+              </div>
+            ) : detail.status.trim().toLowerCase() === "declined" ? (
+              <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-950">
+                This consignment request was declined.
+              </p>
+            ) : null}
+
             {isForDirectPurchaseApproval(detail.status) ? (
               <p className="mt-3 rounded-lg border border-fuchsia-200 bg-fuchsia-50 px-3 py-2 text-sm text-fuchsia-950">
                 A direct purchase offer is awaiting internal approval. You will
@@ -719,6 +738,16 @@ export function ClientConsignmentDetailPage() {
                       )}
                     </dd>
                   </div>
+                  {detail.deliverySchedule.rescheduleReason?.trim() ? (
+                    <div>
+                      <dt className="text-slate-500 dark:text-slate-400">
+                        Reschedule reason
+                      </dt>
+                      <dd className="mt-1 whitespace-pre-wrap rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 font-medium text-slate-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
+                        {detail.deliverySchedule.rescheduleReason.trim()}
+                      </dd>
+                    </div>
+                  ) : null}
                 </dl>
               </div>
             ) : null}

@@ -111,6 +111,10 @@ export class Inquiry extends AuditedEntity {
   @Column({ type: 'text', nullable: true })
   notes: string | null;
 
+  /** Coordinator reason when declining; shown to the consignor. */
+  @Column({ name: 'decline_reason', type: 'text', nullable: true })
+  declineReason: string | null;
+
   /** Created via staff walk-in flow (Create Inquiry tab). */
   @Column({ name: 'is_walk_in', type: 'boolean', default: false })
   isWalkIn: boolean;

@@ -81,6 +81,8 @@ If you did not create an account, you can ignore this message.`;
     to: string;
     firstName: string;
     viewOfferUrl: string;
+    sku?: string | null;
+    itemLabel?: string | null;
   }): Promise<void> {
     const fromName =
       this.config.get<string>('MAIL_FROM_NAME', '')?.trim() || 'The Bag Hub';
@@ -89,10 +91,12 @@ If you did not create an account, you can ignore this message.`;
       throw new Error('MAIL_FROM is not set.');
     }
     const from = `${fromName} <${fromAddr}>`;
+    const itemPlain = consignorItemDetailsPlain(params);
+    const itemHtml = consignorItemDetailsHtml(params);
     const subject = 'Your consignment inquiry has an offer — The Bag Hub';
     const text = `Hi ${params.firstName},
 
-We have prepared an offer for your consignment inquiry.
+We have prepared an offer for your consignment inquiry.${itemPlain ? `\n\n${itemPlain}` : ''}
 
 Please sign in to your client account and open this link to review and confirm your offer:
 ${params.viewOfferUrl}
@@ -101,6 +105,7 @@ If you did not expect this message, you can ignore it or contact support.`;
 
     const html = `<p>Hi ${escapeHtml(params.firstName)},</p>
 <p>We have prepared an offer for your consignment inquiry. Please sign in to review them.</p>
+${itemHtml}
 <p><a href="${escapeHtml(params.viewOfferUrl)}">View and confirm your offer</a></p>
 <p style="color:#64748b;font-size:12px">If you did not expect this message, you can ignore it or contact support.</p>`;
 
@@ -119,6 +124,8 @@ If you did not expect this message, you can ignore it or contact support.`;
     to: string;
     firstName: string;
     viewOfferUrl: string;
+    sku?: string | null;
+    itemLabel?: string | null;
   }): Promise<void> {
     const fromName =
       this.config.get<string>('MAIL_FROM_NAME', '')?.trim() || 'The Bag Hub';
@@ -127,10 +134,12 @@ If you did not expect this message, you can ignore it or contact support.`;
       throw new Error('MAIL_FROM is not set.');
     }
     const from = `${fromName} <${fromAddr}>`;
+    const itemPlain = consignorItemDetailsPlain(params);
+    const itemHtml = consignorItemDetailsHtml(params);
     const subject = 'Your consignment offers are ready — The Bag Hub';
     const text = `Hi ${params.firstName},
 
-Offers for consignment and direct purchase have been sent for your consignment inquiry.
+Offers for consignment and direct purchase have been sent for your consignment inquiry.${itemPlain ? `\n\n${itemPlain}` : ''}
 
 Please sign in to your client account and open this link to review the terms, choose an offer, and accept or cancel:
 ${params.viewOfferUrl}
@@ -139,6 +148,7 @@ If you did not expect this message, you can ignore it or contact support.`;
 
     const html = `<p>Hi ${escapeHtml(params.firstName)},</p>
 <p>Offers for consignment and direct purchase have been sent for your consignment inquiry. Please sign in to review the terms, choose an offer, and accept or cancel.</p>
+${itemHtml}
 <p><a href="${escapeHtml(params.viewOfferUrl)}">View your inquiry</a></p>
 <p style="color:#64748b;font-size:12px">If you did not expect this message, you can ignore it or contact support.</p>`;
 
@@ -156,6 +166,8 @@ If you did not expect this message, you can ignore it or contact support.`;
   async sendConsignorDirectPurchaseOfferRejected(params: {
     to: string;
     firstName: string;
+    sku?: string | null;
+    itemLabel?: string | null;
   }): Promise<void> {
     const fromName =
       this.config.get<string>('MAIL_FROM_NAME', '')?.trim() || 'The Bag Hub';
@@ -164,16 +176,19 @@ If you did not expect this message, you can ignore it or contact support.`;
       throw new Error('MAIL_FROM is not set.');
     }
     const from = `${fromName} <${fromAddr}>`;
+    const itemPlain = consignorItemDetailsPlain(params);
+    const itemHtml = consignorItemDetailsHtml(params);
     const subject =
       'Direct purchase offer was not approved — The Bag Hub';
     const text = `Hi ${params.firstName},
 
-The direct purchase offer for your consignment inquiry was not approved. Your inquiry is pending again.
+The direct purchase offer for your consignment inquiry was not approved. Your inquiry is pending again.${itemPlain ? `\n\n${itemPlain}` : ''}
 
 If you have questions, please contact support.`;
 
     const html = `<p>Hi ${escapeHtml(params.firstName)},</p>
 <p>The direct purchase offer for your consignment inquiry was not approved. Your inquiry is pending again.</p>
+${itemHtml}
 <p style="color:#64748b;font-size:12px">If you have questions, please contact support.</p>`;
 
     await this.getTransporter().sendMail({
@@ -196,6 +211,7 @@ If you have questions, please contact support.`;
     firstName: string;
     /** e.g. "Gucci Marmont" from inquiry snapshot; may be a short fallback. */
     itemBrandAndModel: string;
+    sku?: string | null;
     viewInquiryUrl: string;
   }): Promise<void> {
     const fromName =
@@ -207,10 +223,13 @@ If you have questions, please contact support.`;
     const from = `${fromName} <${fromAddr}>`;
     const subject =
       'Action Required: Confirm Reauthentication Request - The Bag Hub';
-    const itemWords = params.itemBrandAndModel.trim();
-    const itemPhrasePlain = itemWords ? ` *${itemWords}*` : '';
-    const itemPhraseHtml = itemWords
-      ? ` <strong>${escapeHtml(itemWords)}</strong>`
+    const itemRef = formatConsignorItemRef({
+      sku: params.sku,
+      itemLabel: params.itemBrandAndModel,
+    });
+    const itemPhrasePlain = itemRef ? ` *${itemRef}*` : '';
+    const itemPhraseHtml = itemRef
+      ? ` <strong>${escapeHtml(itemRef)}</strong>`
       : '';
     const text = `Hi ${params.firstName},
 
@@ -355,6 +374,7 @@ ${depositSlipHtml}
     firstName: string;
     auditDateLabel: string;
     reason: string;
+    items?: string[];
     attachments: Array<{
       filename: string;
       content: Buffer;
@@ -374,10 +394,12 @@ ${depositSlipHtml}
       params.attachments.length > 0
         ? '\n\nA supporting image is attached to this email.'
         : '';
+    const itemsPlain = consignorItemListPlain(params.items);
+    const itemsHtml = consignorItemListHtml(params.items);
 
     const text = `Hi ${params.firstName},
 
-We were unable to send your consignor payment for the ${params.auditDateLabel} payment batch.
+We were unable to send your consignor payment for the ${params.auditDateLabel} payment batch.${itemsPlain}
 
 Reason:
 ${params.reason}${attachmentNote}
@@ -393,6 +415,7 @@ Thank you for consigning with The Bag Hub.`;
 
     const html = `<p>Hi ${escapeHtml(params.firstName)},</p>
 <p>We were unable to send your consignor payment for the <strong>${escapeHtml(params.auditDateLabel)}</strong> payment batch.</p>
+${itemsHtml}
 <p><strong>Reason:</strong></p>
 <p>${escapeHtml(params.reason).replace(/\n/g, '<br />')}</p>
 ${attachmentHtml}
@@ -489,6 +512,7 @@ ${depositSlipHtml}
     to: string;
     firstName: string;
     reason: string;
+    items?: string[];
     attachments: Array<{
       filename: string;
       content: Buffer;
@@ -508,10 +532,12 @@ ${depositSlipHtml}
       params.attachments.length > 0
         ? '\n\nA supporting image is attached to this email.'
         : '';
+    const itemsPlain = consignorItemListPlain(params.items);
+    const itemsHtml = consignorItemListHtml(params.items);
 
     const text = `Hi ${params.firstName},
 
-We were unable to send your direct purchase payment.
+We were unable to send your direct purchase payment.${itemsPlain}
 
 Reason:
 ${params.reason}${attachmentNote}
@@ -527,6 +553,7 @@ Thank you for selling with The Bag Hub.`;
 
     const html = `<p>Hi ${escapeHtml(params.firstName)},</p>
 <p>We were unable to send your direct purchase payment.</p>
+${itemsHtml}
 <p><strong>Reason:</strong></p>
 <p>${escapeHtml(params.reason).replace(/\n/g, '<br />')}</p>
 ${attachmentHtml}
@@ -556,4 +583,44 @@ function escapeHtml(s: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+/** Brand/model plus SKU so consignors can tell which item an email refers to. */
+function formatConsignorItemRef(params: {
+  sku?: string | null;
+  itemLabel?: string | null;
+}): string {
+  const label = params.itemLabel?.trim() ?? '';
+  const sku = params.sku?.trim() ?? '';
+  const usefulLabel = label && label !== 'Item' ? label : '';
+  if (usefulLabel && sku) return `${usefulLabel} (${sku})`;
+  return usefulLabel || sku;
+}
+
+function consignorItemDetailsPlain(params: {
+  sku?: string | null;
+  itemLabel?: string | null;
+}): string {
+  const ref = formatConsignorItemRef(params);
+  return ref ? `Item: ${ref}` : '';
+}
+
+function consignorItemDetailsHtml(params: {
+  sku?: string | null;
+  itemLabel?: string | null;
+}): string {
+  const ref = formatConsignorItemRef(params);
+  return ref ? `<p><strong>Item:</strong> ${escapeHtml(ref)}</p>` : '';
+}
+
+function consignorItemListPlain(items?: string[]): string {
+  if (!items || items.length === 0) return '';
+  return `\n\nThis payment is for:\n${items.map((item) => `- ${item}`).join('\n')}`;
+}
+
+function consignorItemListHtml(items?: string[]): string {
+  if (!items || items.length === 0) return '';
+  return `<p>This payment is for:</p><ul>${items
+    .map((item) => `<li>${escapeHtml(item)}</li>`)
+    .join('')}</ul>`;
 }

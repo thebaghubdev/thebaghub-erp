@@ -12,7 +12,10 @@ import { InquiryStatusBadge } from "../components/InquiryStatusBadge";
 import { formatOfferTransactionLabel } from "../lib/format-offer-transaction-type";
 import { formatPhpDisplay } from "../lib/format-php";
 import { INQUIRY_STATUS_FILTER_OPTIONS } from "../lib/inquiry-status-filter-options";
-import { picklistToFilterOptions } from "../lib/picklist-to-filter-options";
+import {
+  picklistToFilterOptions,
+  sortPicklistValues,
+} from "../lib/picklist-to-filter-options";
 
 type InquiryRow = {
   id: string;
@@ -315,7 +318,9 @@ export function InquiryPage() {
           categories?: unknown;
         };
         const brands = Array.isArray(data.brands)
-          ? data.brands.filter((b): b is string => typeof b === "string")
+          ? sortPicklistValues(
+              data.brands.filter((b): b is string => typeof b === "string"),
+            )
           : [];
         const categories = Array.isArray(data.categories)
           ? data.categories.filter((c): c is string => typeof c === "string")

@@ -34,6 +34,7 @@ type ClientScheduleRow = {
   items: ClientScheduleItem[];
   createdAt: string;
   hasClientRescheduled: boolean;
+  rescheduleReason: string | null;
 };
 
 const MS_24H = 24 * 60 * 60 * 1000;
@@ -223,6 +224,7 @@ function ClientRescheduleModal({
         deliveryTimeSlot?: string | null;
         status?: string;
         hasClientRescheduled?: boolean;
+        rescheduleReason?: string | null;
       };
       onSuccess({
         ...schedule,
@@ -230,6 +232,7 @@ function ClientRescheduleModal({
         deliveryTimeSlot: body.deliveryTimeSlot ?? schedule.deliveryTimeSlot,
         status: body.status ?? "rescheduled",
         hasClientRescheduled: body.hasClientRescheduled ?? true,
+        rescheduleReason: body.rescheduleReason ?? reason.trim(),
       });
       onClose();
     } catch (e) {
@@ -440,6 +443,16 @@ function ScheduleItemsModal({
                 {formatScheduleStatus(schedule.status)}
               </dd>
             </div>
+            {schedule.rescheduleReason?.trim() ? (
+              <div className="sm:col-span-2">
+                <dt className="font-medium text-slate-500">
+                  Reschedule reason
+                </dt>
+                <dd className="mt-1 whitespace-pre-wrap rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-slate-800">
+                  {schedule.rescheduleReason.trim()}
+                </dd>
+              </div>
+            ) : null}
           </dl>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
@@ -678,7 +691,15 @@ export function ClientMySchedulesPanel({
                     {row.inquiryCount}
                   </td>
                   <td className="px-4 py-3 text-slate-800">
-                    {formatScheduleStatus(row.status)}
+                    <div>{formatScheduleStatus(row.status)}</div>
+                    {row.rescheduleReason?.trim() ? (
+                      <p
+                        className="mt-0.5 max-w-[14rem] truncate text-xs text-slate-500"
+                        title={row.rescheduleReason.trim()}
+                      >
+                        {row.rescheduleReason.trim()}
+                      </p>
+                    ) : null}
                   </td>
                   <td className="px-4 py-3 text-slate-800">
                     <SubmittedAtCell iso={row.createdAt} />

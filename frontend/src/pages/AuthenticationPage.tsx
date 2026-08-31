@@ -14,7 +14,10 @@ import { formatOfferTransactionLabel } from "../lib/format-offer-transaction-typ
 import { InventoryStatusBadge } from "../components/InventoryStatusBadge";
 import { ItemAuthenticationStatusBadge } from "../components/ItemAuthenticationStatusBadge";
 import { INVENTORY_ITEM_STATUS_FILTER_OPTIONS } from "../lib/inventory-item-status-filter-options";
-import { picklistToFilterOptions } from "../lib/picklist-to-filter-options";
+import {
+  picklistToFilterOptions,
+  sortPicklistValues,
+} from "../lib/picklist-to-filter-options";
 
 const FOR_AUTHENTICATION_STATUS = "For Authentication";
 const FOR_PHOTOSHOOT_STATUS = "For Photoshoot";
@@ -366,7 +369,7 @@ export function AuthenticationPage() {
         );
         setBrands(
           brandRow?.type === "string[]"
-            ? parseStringArraySetting(brandRow.value)
+            ? sortPicklistValues(parseStringArraySetting(brandRow.value))
             : [],
         );
       } catch (e) {

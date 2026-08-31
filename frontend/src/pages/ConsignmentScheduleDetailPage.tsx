@@ -18,6 +18,7 @@ import {
   parseDailyLimit,
   type ScheduleListRowForLimit,
 } from "../lib/consignment-daily-limit";
+import { sortPicklistValues } from "../lib/picklist-to-filter-options";
 import {
   branchLabel,
   DELIVERY_TIME_SLOT_OPTIONS,
@@ -254,7 +255,9 @@ export function ConsignmentScheduleDetailPage() {
       }
       const data = (await res.json()) as ConsignPicklists;
       setConsignPicklists({
-        brands: Array.isArray(data.brands) ? data.brands : [],
+        brands: Array.isArray(data.brands)
+          ? sortPicklistValues(data.brands)
+          : [],
         categories: Array.isArray(data.categories) ? data.categories : [],
       });
     } catch (e) {

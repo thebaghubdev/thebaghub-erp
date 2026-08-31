@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useClientAuth } from "../context/client-auth";
 import { apiFetch } from "../lib/api";
+import { sortPicklistValues } from "../lib/picklist-to-filter-options";
 import type { ConsignItemFormData } from "../types/consign-inquiry";
 import { PhpPriceInput } from "./PhpPriceInput";
 import { SearchableSelect } from "./SearchableSelect";
@@ -68,7 +69,9 @@ export function ConsignItemForm({
       }
       const data = (await res.json()) as ConsignFormOptions;
       setOptions({
-        brands: Array.isArray(data.brands) ? data.brands : [],
+        brands: Array.isArray(data.brands)
+          ? sortPicklistValues(data.brands)
+          : [],
         categories: Array.isArray(data.categories) ? data.categories : [],
       });
     } catch (e) {

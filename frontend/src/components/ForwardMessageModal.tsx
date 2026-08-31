@@ -73,6 +73,7 @@ export function ForwardMessageAction(props: ContextMenuItemProps) {
     <ContextMenuButton
       {...props}
       Icon={ForwardedIcon}
+      className="str-chat__message-actions-list-item-button"
       aria-label="Forward message"
       onClick={(event) => {
         props.onClick?.(event);
@@ -85,11 +86,43 @@ export function ForwardMessageAction(props: ContextMenuItemProps) {
   );
 }
 
-function ForwardedLabel() {
+export function ForwardMessageQuickAction() {
+  const { message } = useMessageContext();
+  const { requestForward } = useForwardMessage();
+
+  if (!canForwardMessage(message)) return null;
+
+  return (
+    <button
+      type="button"
+      aria-label="Forward message"
+      className="str-chat__message-reply-in-thread-button"
+      onClick={() => requestForward(message)}
+    >
+      <ForwardedIcon className="str-chat__message-action-icon" />
+    </button>
+  );
+}
+
+function isForwardedMessage(message: LocalMessage): boolean {
+  if (message.forwarded) return true;
+  const text = message.text?.trim() ?? "";
+  return text.startsWith("Forwarded from ") || text.startsWith("Forwarded\n");
+}
+
+function forwardedFromName(message: LocalMessage): string | undefined {
+  const named = message.forwarded_from_name?.trim();
+  if (named) return named;
+  const firstLine = message.text?.trim().split("\n")[0] ?? "";
+  const match = /^Forwarded from (.+)$/.exec(firstLine);
+  return match?.[1]?.trim() || undefined;
+}
+
+function ForwardedLabel({ fromName }: { fromName?: string }) {
   return (
     <div className="tbh-messenger-forwarded-label">
       <ForwardedIcon className="tbh-messenger-forwarded-icon" />
-      Forwarded
+      {fromName ? `Forwarded from ${fromName}` : "Forwarded"}
     </div>
   );
 }
@@ -99,9 +132,12 @@ export function MessagingTranslationIndicator(
 ) {
   const { message: contextMessage } = useMessageContext();
   const message = props.message ?? contextMessage;
+  if (!isForwardedMessage(message)) {
+    return <StreamMessageTranslationIndicator {...props} />;
+  }
   return (
     <>
-      {message.forwarded ? <ForwardedLabel /> : null}
+      <ForwardedLabel fromName={forwardedFromName(message)} />
       <StreamMessageTranslationIndicator {...props} />
     </>
   );
@@ -170,7 +206,7 @@ function ForwardMessageModal({
             members: { $in: [currentUserId] },
           },
           { last_message_at: -1 },
-          { limit: 30, state: true, watch: false },
+          { limit: 100, state: true, watch: false },
         );
         if (!cancelled) {
           setChannels(
@@ -225,6 +261,7 @@ function ForwardMessageModal({
     setErrorMessage(null);
     const note = comment.trim();
     const originalText = message.text?.trim() ?? "";
+    const fromName = message.user?.name?.trim();
     const text = [note, originalText].filter(Boolean).join("\n\n");
     const attachments = cloneForwardableAttachments(message.attachments);
     const failed: string[] = [];
@@ -235,13 +272,7 @@ function ForwardMessageModal({
         continue;
       }
       try {
-        const payload = {
-          text,
-          forwarded: true as const,
-          forwarded_from_name: message.user?.name,
-          ...(attachments.length > 0 ? { attachments } : {}),
-        };
-        await dest.sendMessage(payload);
+        await sendForwardedMessage(dest, { text, attachments, fromName });
       } catch {
         failed.push(conversationTitle(dest, currentUserId));
       }
@@ -410,4 +441,38 @@ function ForwardMessageModal({
     </div>,
     document.body,
   );
+}
+
+async function sendForwardedMessage(
+  dest: Channel,
+  params: {
+    text: string;
+    attachments: ReturnType<typeof cloneForwardableAttachments>;
+    fromName?: string;
+  },
+) {
+  const base = {
+    ...(params.text ? { text: params.text } : {}),
+    ...(params.attachments.length > 0
+      ? { attachments: params.attachments }
+      : {}),
+  };
+  try {
+    await dest.sendMessage({
+      ...base,
+      forwarded: true,
+      forwarded_from_name: params.fromName,
+    });
+  } catch {
+    const fallbackText = [
+      params.fromName ? `Forwarded from ${params.fromName}` : "Forwarded",
+      params.text,
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+    await dest.sendMessage({
+      ...base,
+      text: fallbackText || "Forwarded",
+    });
+  }
 }

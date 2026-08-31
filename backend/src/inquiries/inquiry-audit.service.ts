@@ -34,6 +34,7 @@ type AuditState = {
   contractRenewalRequestedPrice: string | null;
   offerSignaturePresent: boolean;
   notes: string | null;
+  declineReason: string | null;
   pulloutFee: string | null;
   pulloutReason: string | null;
   pulloutPaymentStatus: string | null;
@@ -66,6 +67,7 @@ export function cloneInquiryForAudit(r: Inquiry): Inquiry {
       directPurchaseRejectReason: r.directPurchaseRejectReason,
       contractRenewalRequestedPrice: r.contractRenewalRequestedPrice,
       notes: r.notes,
+      declineReason: r.declineReason,
       itemSnapshot: r.itemSnapshot,
       pulloutFee: r.pulloutFee,
       pulloutReason: r.pulloutReason,
@@ -120,6 +122,11 @@ function toAuditState(
     notes: (() => {
       if (r.notes == null) return null;
       const t = String(r.notes).trim();
+      return t === '' ? null : truncate(t);
+    })(),
+    declineReason: (() => {
+      if (r.declineReason == null) return null;
+      const t = String(r.declineReason).trim();
       return t === '' ? null : truncate(t);
     })(),
     pulloutFee:
@@ -224,6 +231,7 @@ function diffStates(
   const aSig = after.offerSignaturePresent ? 'Provided' : '';
   push('Offer signature', bSig, aSig);
   push('Staff notes', before.notes, after.notes);
+  push('Decline reason', before.declineReason, after.declineReason);
   push('Pullout fee', before.pulloutFee, after.pulloutFee);
   push('Pullout reason', before.pulloutReason, after.pulloutReason);
   push(

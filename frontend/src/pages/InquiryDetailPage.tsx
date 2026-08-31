@@ -103,6 +103,7 @@ type InquiryDetail = {
   clientOfferConfirmation?: ClientOfferConfirmation | null;
   /** Staff-only notes persisted on the inquiry row. */
   notes: string | null;
+  declineReason: string | null;
   isWalkIn: boolean;
   walkInBranch: string | null;
   contractStartDate: string | null;
@@ -380,6 +381,7 @@ export function InquiryDetailPage() {
   >(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [declineConfirmOpen, setDeclineConfirmOpen] = useState(false);
+  const [declineReason, setDeclineReason] = useState("");
   const [notesModalOpen, setNotesModalOpen] = useState(false);
   const [notesDraft, setNotesDraft] = useState("");
   const [reauthNotesModalOpen, setReauthNotesModalOpen] = useState(false);
@@ -721,12 +723,20 @@ export function InquiryDetailPage() {
 
   const confirmDecline = useCallback(async () => {
     if (!canEditFeature || !isCoordinator || !id || !token) return;
+    const reason = declineReason.trim();
+    if (!reason) {
+      setActionError("Please enter a reason for declining this inquiry.");
+      return;
+    }
     setActionError(null);
     setActionBusy("decline");
     try {
       const res = await apiFetch(
         `/api/inquiries/${id}/decline`,
-        { method: "POST" },
+        {
+          method: "POST",
+          body: JSON.stringify({ reason }),
+        },
         token,
       );
       if (!res.ok) throw new Error(await readApiErrorMessage(res));
@@ -734,6 +744,7 @@ export function InquiryDetailPage() {
       setDetail(data);
       setAuditRows(null);
       setDeclineConfirmOpen(false);
+      setDeclineReason("");
     } catch (e) {
       setActionError(
         e instanceof Error ? e.message : "Could not decline inquiry",
@@ -741,7 +752,7 @@ export function InquiryDetailPage() {
     } finally {
       setActionBusy(null);
     }
-  }, [canEditFeature, isCoordinator, id, token]);
+  }, [canEditFeature, isCoordinator, declineReason, id, token]);
 
   const openOfferModal = useCallback(() => {
     if (!canEditFeature || !isCoordinator || !detail) return;
@@ -1472,6 +1483,17 @@ export function InquiryDetailPage() {
               </p>
             ) : null}
 
+            {detail.declineReason?.trim() ? (
+              <div className="mt-4 rounded-lg border border-red-200 bg-red-50/80 p-3 text-sm dark:border-red-900/50 dark:bg-red-950/30">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-red-900 dark:text-red-200">
+                  Decline reason
+                </h3>
+                <p className="mt-2 whitespace-pre-wrap text-slate-800 dark:text-slate-200">
+                  {detail.declineReason.trim()}
+                </p>
+              </div>
+            ) : null}
+
             <div className="mt-4 flex flex-wrap gap-2">
               {canEditFeature ? (
               <button
@@ -1511,6 +1533,7 @@ export function InquiryDetailPage() {
                   disabled={actionBusy !== null}
                   onClick={() => {
                     setActionError(null);
+                    setDeclineReason("");
                     setDeclineConfirmOpen(true);
                   }}
                   className="rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-800 shadow-sm hover:bg-red-50 disabled:opacity-50 dark:border-red-900 dark:bg-slate-950 dark:text-red-200 dark:hover:bg-red-950/40"
@@ -3953,16 +3976,43 @@ export function InquiryDetailPage() {
       <ConfirmDialog
         open={declineConfirmOpen}
         title="Decline this inquiry?"
-        description="Its status will be set to declined. The consignor will see this inquiry as no longer active."
+        description={
+          <div className="space-y-3">
+            <p>
+              Its status will be set to declined. The consignor will see this
+              inquiry as no longer active, along with the reason you provide.
+            </p>
+            <label className="block">
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                Reason for declining{" "}
+                <span className="text-red-600 dark:text-red-400">*</span>
+              </span>
+              <textarea
+                value={declineReason}
+                onChange={(e) => {
+                  setDeclineReason(e.target.value);
+                  if (actionError) setActionError(null);
+                }}
+                rows={4}
+                maxLength={10000}
+                disabled={actionBusy === "decline"}
+                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-500/30 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                placeholder="Explain why this consignment request is being declined."
+              />
+            </label>
+          </div>
+        }
         confirmLabel="Decline"
         cancelLabel="Cancel"
         danger
         busy={actionBusy === "decline"}
+        confirmDisabled={!declineReason.trim()}
         errorMessage={actionError}
         onCancel={() => {
           if (actionBusy !== null) return;
           setActionError(null);
           setDeclineConfirmOpen(false);
+          setDeclineReason("");
         }}
         onConfirm={confirmDecline}
       />

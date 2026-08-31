@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "../lib/api";
+import { sortPicklistValues } from "../lib/picklist-to-filter-options";
 import { SearchableSelect } from "./SearchableSelect";
 
 type ConsignFormOptions = {
@@ -88,7 +89,9 @@ export function AddStockInventoryItemForm({ portalToken, onCreated }: Props) {
       }
       const data = (await res.json()) as ConsignFormOptions;
       setOptions({
-        brands: Array.isArray(data.brands) ? data.brands : [],
+        brands: Array.isArray(data.brands)
+          ? sortPicklistValues(data.brands)
+          : [],
         categories: Array.isArray(data.categories) ? data.categories : [],
       });
     } catch (e) {

@@ -6,6 +6,7 @@ import { InventoryStatusBadge } from "../components/InventoryStatusBadge";
 import { RichTextEditor } from "../components/RichTextEditor";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
+import { sortPicklistValues } from "../lib/picklist-to-filter-options";
 import { useFeatureAccess } from "../lib/use-feature-access";
 import { formatOfferTransactionLabel } from "../lib/format-offer-transaction-type";
 import { formatPhpDisplay } from "../lib/format-php";
@@ -38,9 +39,7 @@ function parseStringArraySetting(raw: string | undefined): string[] {
 function brandsWeConsignFromSettings(rows: SettingApiRow[]): string[] {
   const brandRow = rows.find((r) => r.key === BRANDS_WE_CONSIGN_KEY);
   if (brandRow?.type !== "string[]") return [];
-  return [...parseStringArraySetting(brandRow.value)].sort((a, b) =>
-    a.localeCompare(b),
-  );
+  return sortPicklistValues(parseStringArraySetting(brandRow.value));
 }
 
 type InventoryDetailForStaff = {

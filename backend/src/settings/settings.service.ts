@@ -62,7 +62,11 @@ export class SettingsService {
       this.settingsRepo.findOne({ where: { key: ITEM_CATEGORIES_KEY } }),
     ]);
     return {
-      brands: brandsRow ? parseStringArraySetting(brandsRow.value) : [],
+      brands: brandsRow
+        ? parseStringArraySetting(brandsRow.value).sort((a, b) =>
+            a.localeCompare(b, undefined, { sensitivity: 'base' }),
+          )
+        : [],
       categories: categoriesRow
         ? parseStringArraySetting(categoriesRow.value)
         : [],

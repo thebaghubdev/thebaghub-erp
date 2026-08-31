@@ -128,6 +128,17 @@ function brandModelFromSnapshot(
   return `${brand} - ${model}`;
 }
 
+function itemDetailsForEmail(
+  inquiry:
+    | { sku?: string | null; itemSnapshot?: InquiryItemSnapshot | null }
+    | null
+    | undefined,
+): string {
+  const label = brandModelFromSnapshot(inquiry?.itemSnapshot) || 'Item';
+  const sku = inquiry?.sku?.trim() ?? '';
+  return sku ? `${label} (${sku})` : label;
+}
+
 function parseOfferPrice(raw: string | null | undefined): number {
   if (raw == null || String(raw).trim() === '') return 0;
   const n = Number.parseFloat(String(raw));
@@ -406,8 +417,7 @@ export class ConsignorPaymentsService {
             inquiry?.offerPrice != null ? String(inquiry.offerPrice) : null,
           );
           return {
-            brandModel:
-              brandModelFromSnapshot(inquiry?.itemSnapshot) || 'Item',
+            brandModel: itemDetailsForEmail(inquiry),
             priceLabel: formatPhpAmount(price),
           };
         });
@@ -548,6 +558,7 @@ export class ConsignorPaymentsService {
       auditDateLabel: string;
       reason: string;
       inquiryId: string | null;
+      items: string[];
       photoStorageKey: string | null;
     } | null = null;
 
@@ -591,6 +602,9 @@ export class ConsignorPaymentsService {
         auditDateLabel: formatPgDate(payment.auditDate),
         reason,
         inquiryId: firstInquiryId,
+        items: (fullGroup.items ?? []).map((item) =>
+          itemDetailsForEmail(item.inquiry),
+        ),
         photoStorageKey,
       };
     });
@@ -616,6 +630,7 @@ export class ConsignorPaymentsService {
     auditDateLabel: string;
     reason: string;
     inquiryId: string | null;
+    items: string[];
     photoStorageKey: string | null;
   }): Promise<void> {
     const coordinatorMessage = `Consignor payment could not be sent to ${params.consignorName} (audit ${params.auditDateLabel}): ${params.reason}`;
@@ -671,6 +686,7 @@ export class ConsignorPaymentsService {
       firstName: params.firstName,
       auditDateLabel: params.auditDateLabel,
       reason: params.reason,
+      items: params.items,
       attachments,
     });
   }

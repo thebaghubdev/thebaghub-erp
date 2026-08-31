@@ -47,6 +47,7 @@ export class SeedService implements OnModuleInit {
 
   async onModuleInit() {
     await this.ensureInquiryDirectPurchaseSchema();
+    await this.ensureInquiryDeclineReasonSchema();
     await this.ensureDirectPurchasePaymentsSchema();
     await this.ensurePenaltyWaiveSchema();
     await this.ensureOrderAuditSchema();
@@ -86,6 +87,21 @@ export class SeedService implements OnModuleInit {
     } catch (err) {
       this.logger.warn(
         `Could not ensure direct purchase payments schema: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+
+  private async ensureInquiryDeclineReasonSchema() {
+    try {
+      await this.employeesRepo.query(`
+        ALTER TABLE inquiries
+          ADD COLUMN IF NOT EXISTS decline_reason text
+      `);
+    } catch (err) {
+      this.logger.warn(
+        `Could not ensure inquiry decline_reason column: ${
           err instanceof Error ? err.message : String(err)
         }`,
       );

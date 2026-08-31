@@ -9,6 +9,7 @@ import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
 import { canAssignWorkToOthers } from "../lib/employee-position";
+import { sortPicklistValues } from "../lib/picklist-to-filter-options";
 import { formatPhpDisplay, parsePhpStringToNumber } from "../lib/format-php";
 import { orderPaymentStatusBadgeClass } from "../lib/order-payments";
 import { isPaymentConfirmed } from "../lib/payment-status";
@@ -169,7 +170,11 @@ export function WalkInAuthenticationPage() {
         if (!res.ok) return;
         const data = (await res.json()) as SettingApiRow[];
         const byKey = new Map(data.map((r) => [r.key, r.value]));
-        setBrands(parseStringArraySetting(byKey.get(BRANDS_WE_CONSIGN_KEY)));
+        setBrands(
+          sortPicklistValues(
+            parseStringArraySetting(byKey.get(BRANDS_WE_CONSIGN_KEY)),
+          ),
+        );
         setCategories(parseStringArraySetting(byKey.get(ITEM_CATEGORIES_KEY)));
       } catch {
         /* ignore */

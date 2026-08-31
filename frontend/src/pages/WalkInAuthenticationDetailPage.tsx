@@ -10,6 +10,7 @@ import { PhpPriceInput } from "../components/PhpPriceInput";
 import { SearchableSelect } from "../components/SearchableSelect";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
+import { sortPicklistValues } from "../lib/picklist-to-filter-options";
 import {
   type AuthenticationMetricApi,
   filterMetricsForItem,
@@ -259,7 +260,11 @@ export function WalkInAuthenticationDetailPage() {
         if (settingsRes.ok) {
           const settings = (await settingsRes.json()) as SettingApiRow[];
           const byKey = new Map(settings.map((r) => [r.key, r.value]));
-          setBrands(parseStringArraySetting(byKey.get(BRANDS_WE_CONSIGN_KEY)));
+          setBrands(
+            sortPicklistValues(
+              parseStringArraySetting(byKey.get(BRANDS_WE_CONSIGN_KEY)),
+            ),
+          );
           setCategories(
             parseStringArraySetting(byKey.get(ITEM_CATEGORIES_KEY)),
           );

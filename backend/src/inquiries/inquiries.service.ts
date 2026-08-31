@@ -50,6 +50,7 @@ import { SubmitAuthenticatedReturnNewOfferDto } from './dto/submit-authenticated
 import { UpdateInquiryNotesDto } from './dto/update-inquiry-notes.dto';
 import { UpdateReauthenticationNotesDto } from './dto/update-reauthentication-notes.dto';
 import { SubmitOfferDto } from './dto/submit-offer.dto';
+import { DeclineInquiryDto } from './dto/decline-inquiry.dto';
 import { RequestDirectPurchaseApprovalDto } from './dto/request-direct-purchase-approval.dto';
 import { RejectDirectPurchaseApprovalDto } from './dto/reject-direct-purchase-approval.dto';
 import { ConfirmOfferDto } from './dto/confirm-offer.dto';
@@ -267,6 +268,8 @@ export type StaffInquiryRow = {
   repricingProofUrl: string | null;
   clientOfferConfirmation: ClientOfferConfirmationView | null;
   notes: string | null;
+  /** Coordinator reason when status is declined; shown to the consignor. */
+  declineReason: string | null;
   isWalkIn: boolean;
   walkInBranch: string | null;
   contractStartDate: string | null;
@@ -326,6 +329,9 @@ export type ClientDeliveryScheduleInfo = {
   deliveryTimeSlot: string | null;
   modeOfTransfer: string;
   branch: string;
+  status: string;
+  /** Present when staff or the client has rescheduled this delivery. */
+  rescheduleReason: string | null;
 };
 
 /** Client-facing inquiry detail (no internal staff notes). */
@@ -423,10 +429,8 @@ export class InquiriesService {
     );
   }
 
-  private notifyConsignorOfferEmail(
-    inquiryId: string,
-    consignor: Client | null | undefined,
-  ): void {
+  private notifyConsignorOfferEmail(inquiry: Inquiry): void {
+    const consignor = inquiry.consignor;
     if (!consignor?.email?.trim()) {
       return;
     }
@@ -437,22 +441,22 @@ export class InquiriesService {
       return;
     }
     const firstName = consignor.firstName?.trim() || 'there';
-    const viewOfferUrl = this.consignorInquiryUrl(inquiryId);
+    const viewOfferUrl = this.consignorInquiryUrl(inquiry.id);
     void this.mail
       .sendConsignorInquiryOfferAvailable({
         to: consignor.email.trim(),
         firstName,
         viewOfferUrl,
+        sku: inquiry.sku,
+        itemLabel: itemLabelFromSnapshot(inquiry.itemSnapshot),
       })
       .catch((err: unknown) => {
         this.logger.error('Failed to send consignor offer email', err);
       });
   }
 
-  private notifyConsignorDirectPurchaseOfferEmail(
-    inquiryId: string,
-    consignor: Client | null | undefined,
-  ): void {
+  private notifyConsignorDirectPurchaseOfferEmail(inquiry: Inquiry): void {
+    const consignor = inquiry.consignor;
     if (!consignor?.email?.trim()) {
       return;
     }
@@ -463,12 +467,14 @@ export class InquiriesService {
       return;
     }
     const firstName = consignor.firstName?.trim() || 'there';
-    const viewOfferUrl = this.consignorInquiryUrl(inquiryId);
+    const viewOfferUrl = this.consignorInquiryUrl(inquiry.id);
     void this.mail
       .sendConsignorDirectPurchaseOfferAvailable({
         to: consignor.email.trim(),
         firstName,
         viewOfferUrl,
+        sku: inquiry.sku,
+        itemLabel: itemLabelFromSnapshot(inquiry.itemSnapshot),
       })
       .catch((err: unknown) => {
         this.logger.error(
@@ -478,9 +484,8 @@ export class InquiriesService {
       });
   }
 
-  private notifyConsignorDirectPurchaseRejectedEmail(
-    consignor: Client | null | undefined,
-  ): void {
+  private notifyConsignorDirectPurchaseRejectedEmail(inquiry: Inquiry): void {
+    const consignor = inquiry.consignor;
     if (!consignor?.email?.trim()) {
       return;
     }
@@ -495,6 +500,8 @@ export class InquiriesService {
       .sendConsignorDirectPurchaseOfferRejected({
         to: consignor.email.trim(),
         firstName,
+        sku: inquiry.sku,
+        itemLabel: itemLabelFromSnapshot(inquiry.itemSnapshot),
       })
       .catch((err: unknown) => {
         this.logger.error(
@@ -650,6 +657,7 @@ export class InquiriesService {
         to: c.email.trim(),
         firstName,
         itemBrandAndModel,
+        sku: r.sku,
         viewInquiryUrl,
       })
       .catch((err: unknown) => {
@@ -675,11 +683,14 @@ export class InquiriesService {
     if (!sch || sch.type !== 'delivery') {
       return null;
     }
+    const rr = sch.rescheduleReason?.trim();
     return {
       deliveryDate: sch.deliveryDate.toISOString(),
       deliveryTimeSlot: sch.deliveryTimeSlot,
       modeOfTransfer: sch.modeOfTransfer,
       branch: sch.branch,
+      status: sch.status,
+      rescheduleReason: rr && rr.length > 0 ? rr : null,
     };
   }
 
@@ -833,6 +844,7 @@ export class InquiriesService {
       items: Array<{ id: string; sku: string; itemLabel: string }>;
       createdAt: string;
       hasClientRescheduled: boolean;
+      rescheduleReason: string | null;
     }>
   > {
     const client = await this.clientsRepo.findOne({
@@ -876,6 +888,7 @@ export class InquiriesService {
             row != null && row.sku !== '',
         )
         .sort((a, b) => a.sku.localeCompare(b.sku));
+      const rr = s.rescheduleReason?.trim();
       return {
         id: s.id,
         deliveryDate: s.deliveryDate.toISOString(),
@@ -887,6 +900,7 @@ export class InquiriesService {
         items,
         createdAt: s.createdAt.toISOString(),
         hasClientRescheduled: s.hasClientRescheduled,
+        rescheduleReason: rr && rr.length > 0 ? rr : null,
       };
     });
   }
@@ -1022,6 +1036,7 @@ export class InquiriesService {
     deliveryTimeSlot: string | null;
     status: string;
     hasClientRescheduled: boolean;
+    rescheduleReason: string | null;
   }> {
     const client = await this.clientsRepo.findOne({
       where: { userId: user.userId },
@@ -1126,6 +1141,7 @@ export class InquiriesService {
       deliveryTimeSlot: schedule.deliveryTimeSlot,
       status: schedule.status,
       hasClientRescheduled: true,
+      rescheduleReason: schedule.rescheduleReason,
     };
   }
 
@@ -1255,6 +1271,11 @@ export class InquiriesService {
       notes: (() => {
         if (r.notes == null) return null;
         const t = String(r.notes).trim();
+        return t === '' ? null : t;
+      })(),
+      declineReason: (() => {
+        if (r.declineReason == null) return null;
+        const t = String(r.declineReason).trim();
         return t === '' ? null : t;
       })(),
       isWalkIn: Boolean(r.isWalkIn),
@@ -2710,7 +2731,11 @@ export class InquiriesService {
     InquiryStatus.CANCELLED,
   ]);
 
-  async declineInquiry(id: string, user: JwtUser): Promise<StaffInquiryDetail> {
+  async declineInquiry(
+    id: string,
+    user: JwtUser,
+    dto: DeclineInquiryDto,
+  ): Promise<StaffInquiryDetail> {
     await this.assertActorIsConsignmentCoordinator(user);
     const r = await this.inquiriesRepo.findOne({ where: { id } });
     if (!r) {
@@ -2734,6 +2759,7 @@ export class InquiriesService {
     }
     const before = cloneInquiryForAudit(r);
     r.status = InquiryStatus.DECLINED;
+    r.declineReason = dto.reason.trim();
     await this.inquiriesRepo.save(r);
     const label = await this.inquiryAudit.staffActorLabel(user.userId);
     await this.inquiryAudit.recordDiff(id, before, r, {
@@ -2828,7 +2854,7 @@ export class InquiriesService {
       beforeMedia,
       afterMedia,
     );
-    this.notifyConsignorOfferEmail(id, r.consignor);
+    this.notifyConsignorOfferEmail(r);
     return this.findOneForStaff(id);
   }
 
@@ -2995,7 +3021,7 @@ export class InquiriesService {
       afterMedia,
     );
     this.notifyCoordinatorsDirectPurchaseApproved(r);
-    this.notifyConsignorDirectPurchaseOfferEmail(id, r.consignor);
+    this.notifyConsignorDirectPurchaseOfferEmail(r);
     return this.findOneForStaff(id);
   }
 
@@ -3027,7 +3053,7 @@ export class InquiriesService {
       userId: user.userId,
       label,
     });
-    this.notifyConsignorDirectPurchaseRejectedEmail(r.consignor);
+    this.notifyConsignorDirectPurchaseRejectedEmail(r);
     return this.findOneForStaff(id);
   }
 
@@ -3076,7 +3102,7 @@ export class InquiriesService {
       beforeMedia,
       afterMedia,
     );
-    this.notifyConsignorOfferEmail(id, r.consignor);
+    this.notifyConsignorOfferEmail(r);
     return this.findOneForStaff(id);
   }
 

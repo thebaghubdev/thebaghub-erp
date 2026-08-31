@@ -108,6 +108,17 @@ function brandModelFromSnapshot(
   return `${brand} - ${model}`;
 }
 
+function itemDetailsForEmail(
+  inquiry:
+    | { sku?: string | null; itemSnapshot?: InquiryItemSnapshot | null }
+    | null
+    | undefined,
+): string {
+  const label = brandModelFromSnapshot(inquiry?.itemSnapshot) || 'Item';
+  const sku = inquiry?.sku?.trim() ?? '';
+  return sku ? `${label} (${sku})` : label;
+}
+
 function parseOfferPrice(raw: string | null | undefined): number {
   if (raw == null || String(raw).trim() === '') return 0;
   const n = Number.parseFloat(String(raw));
@@ -369,7 +380,7 @@ export class DirectPurchasePaymentsService {
             inquiry?.offerPrice != null ? String(inquiry.offerPrice) : null,
           );
           return {
-            brandModel: brandModelFromSnapshot(inquiry?.itemSnapshot) || 'Item',
+            brandModel: itemDetailsForEmail(inquiry),
             priceLabel: formatPhpAmount(price),
           };
         });
@@ -500,6 +511,7 @@ export class DirectPurchasePaymentsService {
       firstName: string;
       reason: string;
       inquiryId: string | null;
+      items: string[];
       photoStorageKey: string | null;
     } | null = null;
 
@@ -542,6 +554,9 @@ export class DirectPurchasePaymentsService {
         firstName: client?.firstName?.trim() || 'there',
         reason,
         inquiryId: firstInquiryId,
+        items: (fullPayment.items ?? []).map((item) =>
+          itemDetailsForEmail(item.inquiry),
+        ),
         photoStorageKey,
       };
     });
@@ -566,6 +581,7 @@ export class DirectPurchasePaymentsService {
     firstName: string;
     reason: string;
     inquiryId: string | null;
+    items: string[];
     photoStorageKey: string | null;
   }): Promise<void> {
     const coordinatorMessage = `Direct purchase payment could not be sent to ${params.consignorName}: ${params.reason}`;
@@ -622,6 +638,7 @@ export class DirectPurchasePaymentsService {
       to: params.consignorEmail,
       firstName: params.firstName,
       reason: params.reason,
+      items: params.items,
       attachments,
     });
   }

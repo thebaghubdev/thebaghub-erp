@@ -19,6 +19,7 @@ import { RequireFeature } from '../access-control/require-feature.decorator';
 import { JwtUser } from '../auth/jwt-user';
 import { StaffOnlyGuard } from '../auth/staff-only.guard';
 import type { MulterFile } from './multer-file.type';
+import { DeclineInquiryDto } from './dto/decline-inquiry.dto';
 import { UpdateInquiryNotesDto } from './dto/update-inquiry-notes.dto';
 import { UpdateReauthenticationNotesDto } from './dto/update-reauthentication-notes.dto';
 import { SubmitAuthenticatedReturnNewOfferDto } from './dto/submit-authenticated-return-new-offer.dto';
@@ -83,8 +84,9 @@ export class InquiriesController {
   decline(
     @Req() req: { user: JwtUser },
     @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: DeclineInquiryDto,
   ) {
-    return this.inquiriesService.declineInquiry(id, req.user);
+    return this.inquiriesService.declineInquiry(id, req.user, dto);
   }
 
   @Post(':id/pullout')
