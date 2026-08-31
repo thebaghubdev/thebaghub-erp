@@ -324,3 +324,29 @@ html.dark .tbh-messenger-media-tab--active {
 .tbh-messenger-chat .str-chat__channel-list-empty-state {
   padding: 1.5rem 1rem;
 }
+
+.tbh-messenger-forwarded-label {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-bottom: 0.15rem;
+  font-size: 0.6875rem;
+  font-style: italic;
+  font-weight: 600;
+  line-height: 1.2;
+  color: #64748b;
+}
+
+.str-chat__message--me .tbh-messenger-forwarded-label {
+  justify-content: flex-end;
+}
+
+html.dark .tbh-messenger-forwarded-label {
+  color: #94a3b8;
+}
+
+.tbh-messenger-forwarded-icon {
+  height: 0.85rem;
+  width: 0.85rem;
+  flex-shrink: 0;
+}

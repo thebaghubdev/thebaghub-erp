@@ -253,13 +253,13 @@ export class MessagingService {
     currentUserId: string,
     otherUserId: string,
   ): Promise<MessagingChannelRef> {
-    const existing = await this.queryChannelsOrThrow(stream, {
-      type: 'messaging',
-      kind: 'direct',
-      members: { $eq: [currentUserId, otherUserId] },
-    });
-    if (existing[0]) {
-      return this.toChannelRef(existing[0]);
+    const existing = await this.findDirectChannel(
+      stream,
+      currentUserId,
+      otherUserId,
+    );
+    if (existing) {
+      return this.toChannelRef(existing);
     }
 
     const channel = stream.channel('messaging', {
@@ -273,6 +273,42 @@ export class MessagingService {
       this.throwStreamError(err);
     }
     return this.toChannelRef(channel);
+  }
+
+  private async findDirectChannel(
+    stream: StreamChat,
+    currentUserId: string,
+    otherUserId: string,
+  ): Promise<Channel | undefined> {
+    let offset = 0;
+    const limit = 30;
+    for (;;) {
+      const channels = await this.queryChannelsOrThrow(
+        stream,
+        {
+          type: 'messaging',
+          kind: 'direct',
+          $and: [
+            { members: { $in: [currentUserId] } },
+            { members: { $in: [otherUserId] } },
+          ],
+        },
+        offset,
+        limit,
+      );
+      const match = channels.find((channel) => {
+        const memberIds = Object.keys(channel.state.members ?? {});
+        return (
+          memberIds.length === 2 &&
+          memberIds.includes(currentUserId) &&
+          memberIds.includes(otherUserId)
+        );
+      });
+      if (match) return match;
+      if (channels.length < limit) return undefined;
+      offset += limit;
+      if (offset > 300) return undefined;
+    }
   }
 
   private async createGroupChannel(

@@ -14,6 +14,7 @@ import {
   Window,
   useChannelStateContext,
   useChatContext,
+  useMessageContext,
   WithComponents,
 } from "stream-chat-react";
 import "stream-chat-react/dist/css/index.css";
@@ -22,6 +23,11 @@ import {
   ConversationMediaPanel,
   SharedMediaIcon,
 } from "../components/ConversationMediaPanel";
+import {
+  ForwardMessageAction,
+  ForwardMessageProvider,
+  MessagingTranslationIndicator,
+} from "../components/ForwardMessageModal";
 import { ManageGroupMembersModal } from "../components/ManageGroupMembersModal";
 import {
   CreateConversationModal,
@@ -32,6 +38,10 @@ import { useMessagingClient } from "../context/messaging-client";
 import { usePortalAuth } from "../context/portal-auth";
 import { useApp } from "../context/useApp";
 import { apiFetch } from "../lib/api";
+import {
+  canForwardMessage,
+  conversationTitle,
+} from "../lib/conversation-title";
 
 export function MessagingPage() {
   const { token, user } = usePortalAuth();
@@ -104,7 +114,19 @@ function HiddenUi() {
 }
 
 function MessagingMessageActions() {
-  return <MessageActions messageActionSet={messagingMessageActionSet} />;
+  const { message } = useMessageContext();
+  const messageActionSet = useMemo(() => {
+    if (!canForwardMessage(message)) return messagingMessageActionSet;
+    return [
+      ...messagingMessageActionSet,
+      {
+        Component: ForwardMessageAction,
+        placement: "dropdown" as const,
+        type: "forward",
+      },
+    ];
+  }, [message]);
+  return <MessageActions messageActionSet={messageActionSet} />;
 }
 
 function MessagingAttachmentSelector() {
@@ -121,6 +143,7 @@ const messagingComponentOverrides = {
   MessageActions: MessagingMessageActions,
   MessageRepliesCountButton: HiddenUi,
   AttachmentSelector: MessagingAttachmentSelector,
+  MessageTranslationIndicator: MessagingTranslationIndicator,
 };
 
 function EmptyChannelPlaceholder() {
@@ -318,7 +341,7 @@ function MessagingShell({
       const q = search.trim().toLowerCase();
       if (!q) return channels;
       return channels.filter((ch) => {
-        const title = typeof ch.data?.name === "string" ? ch.data.name : "";
+        const title = conversationTitle(ch, userId);
         const members = Object.values(ch.state.members)
           .map((m) => m.user?.name ?? m.user_id ?? "")
           .join(" ");
@@ -373,8 +396,9 @@ function MessagingShell({
   );
 
   return (
-    <div className="tbh-messenger-layout">
-      <WithComponents overrides={messagingComponentOverrides}>
+    <ForwardMessageProvider>
+      <div className="tbh-messenger-layout">
+        <WithComponents overrides={messagingComponentOverrides}>
         <aside className="tbh-messenger-sidebar">
           <div className="tbh-messenger-sidebar-header">
             <div className="flex items-center justify-between gap-2">
@@ -432,6 +456,7 @@ function MessagingShell({
         onCancel={closeCreate}
         onCreate={onCreate}
       />
-    </div>
+      </div>
+    </ForwardMessageProvider>
   );
 }

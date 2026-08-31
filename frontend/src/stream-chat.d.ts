@@ -5,4 +5,9 @@ declare module "stream-chat" {
     name?: string;
     kind?: "direct" | "group";
   }
+
+  interface CustomMessageData {
+    forwarded?: boolean;
+    forwarded_from_name?: string;
+  }
 }
