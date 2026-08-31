@@ -19,7 +19,6 @@ import { VipPricingService } from '../clients/vip-pricing.service';
 import type { VipDiscountTier } from '../clients/vip-discount.util';
 import { Employee } from '../employees/entities/employee.entity';
 import {
-  canAssignWorkToOthers,
   GENERAL_MANAGER_POSITION,
   isGeneralManagerPosition,
 } from '../employees/employee-position.util';
@@ -737,7 +736,13 @@ export class OrdersService {
     actor: JwtUser,
   ): Promise<{ updated: number }> {
     const actorEmployee = await this.employeeForUser(actor.userId);
-    if (!canAssignWorkToOthers(actor.isAdmin, actorEmployee?.position)) {
+    const canAssignToOthers = await this.featureAccess.hasAccess(
+      actor.userId,
+      actor.isAdmin,
+      'order-assignment',
+      'edit',
+    );
+    if (!canAssignToOthers) {
       if (!actorEmployee?.id) {
         throw new ForbiddenException(
           'Your account is not linked to an employee record.',
@@ -745,7 +750,7 @@ export class OrdersService {
       }
       if (actorEmployee.id !== dto.employeeId) {
         throw new ForbiddenException(
-          'Only a supervisor can assign orders to other staff.',
+          'You do not have permission to assign orders to other staff.',
         );
       }
     }
@@ -769,10 +774,6 @@ export class OrdersService {
       orderNumber: number;
       createTask: boolean;
     }[] = [];
-    const supervisorAssignment = canAssignWorkToOthers(
-      actor.isAdmin,
-      actorEmployee?.position,
-    );
     const auditActor = await this.auditActor(actor);
 
     await this.ordersRepo.manager.transaction(async (em) => {
@@ -801,7 +802,7 @@ export class OrdersService {
         assignedOrders.push({
           orderId: order.id,
           orderNumber: order.orderNumber,
-          createTask: supervisorAssignment && !alreadyAssigned,
+          createTask: canAssignToOthers && !alreadyAssigned,
         });
       }
     });

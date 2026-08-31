@@ -7,6 +7,7 @@ import {
 } from 'typeorm';
 import { Client } from '../../clients/entities/client.entity';
 import { AuditedEntity } from '../../common/entities/audited.entity';
+import { Employee } from '../../employees/entities/employee.entity';
 import { InquiryStatus } from '../../enums/inquiry-status.enum';
 
 /** API-facing image reference (resolved from `media` table). */
@@ -40,6 +41,13 @@ export class Inquiry extends AuditedEntity {
   @ManyToOne(() => Client, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'consignor_id' })
   consignor: Client;
+
+  @Column({ name: 'assigned_to_id', type: 'uuid', nullable: true })
+  assignedToId: string | null;
+
+  @ManyToOne(() => Employee, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'assigned_to_id' })
+  assignedTo: Employee | null;
 
   /** e.g. INQ-2026-0413-01 — date + daily sequence (UTC). */
   @Column({ length: 48, unique: true })

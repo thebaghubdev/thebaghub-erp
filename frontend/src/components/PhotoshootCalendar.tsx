@@ -28,6 +28,8 @@ export type PhotoshootCalendarRow = {
   itemLabel: string;
   inclusions: string;
   consignorName: string | null;
+  assignedToEmployeeId: string | null;
+  assignedToName: string | null;
   photos: Array<{ key: string; url: string }>;
 };
 
@@ -248,6 +250,9 @@ export function PhotoshootCalendar({ rows, isLoading }: Props) {
                   </p>
                   <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
                     Consignor: {r.consignorName ?? "—"}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
+                    Assigned to: {r.assignedToName?.trim() || "—"}
                   </p>
                 </Link>
               </li>

@@ -24,6 +24,7 @@ import type { MulterFile } from '../inquiries/multer-file.type';
 import { CreateItemPhotoshootsDto } from './dto/create-item-photoshoots.dto';
 import { CreateStockInventoryItemDto } from './dto/create-stock-inventory-item.dto';
 import { BatchAssignAuthenticatorDto } from './dto/batch-assign-authenticator.dto';
+import { BatchAssignPhotographerDto } from './dto/batch-assign-photographer.dto';
 import { SaveItemAuthenticationMetricsDto } from './dto/save-item-authentication-metrics.dto';
 import { ForThirdPartyAuthenticationDto } from './dto/for-third-party-authentication.dto';
 import { ReturnToCoordinatorDto } from './dto/return-to-coordinator.dto';
@@ -73,6 +74,22 @@ export class InventoryController {
     return this.inventoryService.listItemPhotoshootsForStaff();
   }
 
+  @Get('photographers')
+  @RequireFeature('photoshoot', 'view')
+  listPhotographers() {
+    return this.inventoryService.listPhotographers();
+  }
+
+  @Post('batch-assign-photographer')
+  @RequireFeature('photoshoot', 'edit')
+  @HttpCode(HttpStatus.OK)
+  batchAssignPhotographer(
+    @Body() dto: BatchAssignPhotographerDto,
+    @Req() req: { user: JwtUser },
+  ) {
+    return this.inventoryService.batchAssignPhotographer(dto, req.user);
+  }
+
   @Get('item-photoshoots/:photoshootId')
   @RequireFeature('photoshoot', 'view')
   findOneItemPhotoshoot(
@@ -109,7 +126,7 @@ export class InventoryController {
       photoshootId,
       files ?? [],
       retainKeys,
-      req.user.userId,
+      req.user,
     );
   }
 
@@ -122,7 +139,7 @@ export class InventoryController {
   ) {
     return this.inventoryService.finishItemPhotoshoot(
       photoshootId,
-      req.user.userId,
+      req.user,
     );
   }
 

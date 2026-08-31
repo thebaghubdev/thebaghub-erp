@@ -68,6 +68,7 @@ export function cloneInquiryForAudit(r: Inquiry): Inquiry {
       contractRenewalRequestedPrice: r.contractRenewalRequestedPrice,
       notes: r.notes,
       declineReason: r.declineReason,
+      assignedToId: r.assignedToId,
       itemSnapshot: r.itemSnapshot,
       pulloutFee: r.pulloutFee,
       pulloutReason: r.pulloutReason,
@@ -304,6 +305,28 @@ export class InquiryAuditService {
     );
     if (rows.length === 0) return;
     await this.persistRows(inquiryId, rows, actor, manager);
+  }
+
+  async recordAssignedTo(
+    inquiryId: string,
+    fromName: string,
+    toName: string,
+    actor: InquiryAuditActor,
+    manager?: EntityManager,
+  ): Promise<void> {
+    if (fromName === toName) return;
+    await this.persistRows(
+      inquiryId,
+      [
+        {
+          propertyName: 'Assigned to',
+          fromValue: fromName === '' ? '—' : fromName,
+          toValue: toName === '' ? '—' : toName,
+        },
+      ],
+      actor,
+      manager,
+    );
   }
 
   /** First submission: diff from empty state to the saved inquiry. */

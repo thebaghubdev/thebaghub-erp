@@ -2,6 +2,8 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -20,6 +22,7 @@ import { JwtUser } from '../auth/jwt-user';
 import { StaffOnlyGuard } from '../auth/staff-only.guard';
 import type { MulterFile } from './multer-file.type';
 import { DeclineInquiryDto } from './dto/decline-inquiry.dto';
+import { BatchAssignCoordinatorDto } from './dto/batch-assign-coordinator.dto';
 import { UpdateInquiryNotesDto } from './dto/update-inquiry-notes.dto';
 import { UpdateReauthenticationNotesDto } from './dto/update-reauthentication-notes.dto';
 import { SubmitAuthenticatedReturnNewOfferDto } from './dto/submit-authenticated-return-new-offer.dto';
@@ -41,6 +44,22 @@ export class InquiriesController {
   @RequireFeature('inquiries', 'view')
   findAll(@Query('status') status?: string) {
     return this.inquiriesService.findAllForStaff(status);
+  }
+
+  @Get('coordinators')
+  @RequireFeature('inquiries', 'view')
+  listCoordinators() {
+    return this.inquiriesService.listCoordinators();
+  }
+
+  @Post('batch-assign-coordinator')
+  @RequireFeature('inquiries', 'edit')
+  @HttpCode(HttpStatus.OK)
+  batchAssignCoordinator(
+    @Body() dto: BatchAssignCoordinatorDto,
+    @Req() req: { user: JwtUser },
+  ) {
+    return this.inquiriesService.batchAssignCoordinator(dto, req.user);
   }
 
   /** Walk-in consignment: staff submits on behalf of a selected client (multipart like client flow). */

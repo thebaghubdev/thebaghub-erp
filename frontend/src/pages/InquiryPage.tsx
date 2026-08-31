@@ -1,5 +1,6 @@
 import { createColumnHelper } from "@tanstack/react-table";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DataTable } from "../components/data-table/DataTable";
@@ -11,6 +12,7 @@ import { useFeatureAccess } from "../lib/use-feature-access";
 import { InquiryStatusBadge } from "../components/InquiryStatusBadge";
 import { formatOfferTransactionLabel } from "../lib/format-offer-transaction-type";
 import { formatPhpDisplay } from "../lib/format-php";
+import { isInquiryOpenForStaffUpdates } from "../lib/inquiry-assignment";
 import { INQUIRY_STATUS_FILTER_OPTIONS } from "../lib/inquiry-status-filter-options";
 import {
   picklistToFilterOptions,
@@ -36,6 +38,12 @@ type InquiryRow = {
   isWalkIn: boolean;
   contractStartDate: string | null;
   contractExpirationDate: string | null;
+  assignedToName: string | null;
+};
+
+type CoordinatorOption = {
+  id: string;
+  displayName: string;
 };
 
 type InquiryTab = "all" | "create";
@@ -92,6 +100,15 @@ const inquiryColumns = [
     id: "status",
     header: "Status",
     cell: ({ row }) => <InquiryStatusBadge status={row.original.status} />,
+  }),
+  columnHelper.accessor("assignedToName", {
+    id: "assignedToName",
+    header: "Assigned to",
+    cell: ({ getValue }) => (
+      <span className="text-slate-700 dark:text-slate-300">
+        {getValue()?.trim() || "—"}
+      </span>
+    ),
   }),
   columnHelper.accessor("consignorName", {
     header: "Consignor",
@@ -237,10 +254,19 @@ const inquiryColumns = [
   }),
 ];
 
+const formFieldClass =
+  "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100";
+
+const formLabelClass =
+  "block text-sm font-medium text-slate-700 dark:text-slate-300";
+
 export function InquiryPage() {
   const navigate = useNavigate();
-  const { token } = usePortalAuth();
+  const { token, user } = usePortalAuth();
   const { canEdit, readOnly } = useFeatureAccess("inquiries");
+  const inquiryAssignment = useFeatureAccess("inquiry-assignment");
+  const canAssignToOthers = inquiryAssignment.canEdit;
+  const assignModalTitleId = useId();
   const [tab, setTab] = useState<InquiryTab>("all");
   const [tabLeaveOpen, setTabLeaveOpen] = useState(false);
   const [pendingInquiryTab, setPendingInquiryTab] =
@@ -260,6 +286,15 @@ export function InquiryPage() {
   const [clientsError, setClientsError] = useState<string | null>(null);
   const [selectedClientId, setSelectedClientId] = useState("");
   const [wizardDirty, setWizardDirty] = useState(false);
+  const [inquirySelectedIds, setInquirySelectedIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [assignModalOpen, setAssignModalOpen] = useState(false);
+  const [assignEmployeeId, setAssignEmployeeId] = useState("");
+  const [coordinators, setCoordinators] = useState<CoordinatorOption[]>([]);
+  const [coordinatorsLoading, setCoordinatorsLoading] = useState(false);
+  const [assignBusy, setAssignBusy] = useState(false);
+  const [assignError, setAssignError] = useState<string | null>(null);
 
   const sortedClients = useMemo(() => {
     return [...clients].sort((a, b) => {
@@ -344,6 +379,121 @@ export function InquiryPage() {
   useEffect(() => {
     if (tab === "all") setWizardDirty(false);
   }, [tab]);
+
+  const toggleInquiryRow = useCallback((id: string, selected: boolean) => {
+    setInquirySelectedIds((prev) => {
+      const next = new Set(prev);
+      if (selected) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }, []);
+
+  const toggleInquiryPage = useCallback((ids: string[], selected: boolean) => {
+    setInquirySelectedIds((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) {
+        if (selected) next.add(id);
+        else next.delete(id);
+      }
+      return next;
+    });
+  }, []);
+
+  const inquiriesRowSelection = useMemo(
+    () => ({
+      selectedIds: inquirySelectedIds,
+      onToggleRow: toggleInquiryRow,
+      onTogglePage: toggleInquiryPage,
+      isRowSelectable: (r: InquiryRow) => isInquiryOpenForStaffUpdates(r.status),
+    }),
+    [inquirySelectedIds, toggleInquiryRow, toggleInquiryPage],
+  );
+
+  const openAssignModal = useCallback(async () => {
+    if (!canEdit || !token) return;
+    setAssignError(null);
+    setAssignEmployeeId("");
+    setAssignModalOpen(true);
+    setCoordinatorsLoading(true);
+    try {
+      const res = await apiFetch("/api/inquiries/coordinators", {}, token);
+      if (!res.ok) throw new Error(`Request failed (${res.status})`);
+      const data = (await res.json()) as CoordinatorOption[];
+      setCoordinators(data);
+    } catch (e) {
+      setAssignError(
+        e instanceof Error ? e.message : "Failed to load coordinators",
+      );
+      setCoordinators([]);
+    } finally {
+      setCoordinatorsLoading(false);
+    }
+  }, [canEdit, token]);
+
+  const submitAssignCoordinator = useCallback(
+    async (employeeId: string) => {
+      if (!canEdit || !token) return;
+      if (!employeeId.trim()) {
+        setAssignError("Select a coordinator.");
+        return;
+      }
+      if (inquirySelectedIds.size === 0) return;
+      setAssignBusy(true);
+      setAssignError(null);
+      try {
+        const res = await apiFetch(
+          "/api/inquiries/batch-assign-coordinator",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              inquiryIds: [...inquirySelectedIds],
+              employeeId: employeeId.trim(),
+            }),
+          },
+          token,
+        );
+        if (!res.ok) {
+          let msg = `Request failed (${res.status})`;
+          try {
+            const j = (await res.json()) as { message?: string | string[] };
+            if (Array.isArray(j.message)) msg = j.message.join("; ");
+            else if (typeof j.message === "string") msg = j.message;
+          } catch {
+            /* ignore */
+          }
+          throw new Error(msg);
+        }
+        setAssignModalOpen(false);
+        setInquirySelectedIds(new Set());
+        await loadInquiries();
+      } catch (e) {
+        setAssignError(
+          e instanceof Error ? e.message : "Could not assign coordinator",
+        );
+      } finally {
+        setAssignBusy(false);
+      }
+    },
+    [canEdit, token, inquirySelectedIds, loadInquiries],
+  );
+
+  const assignSelectedToSelf = useCallback(async () => {
+    const myId = user?.employee?.id?.trim();
+    if (!myId) {
+      setAssignError("Your account is not linked to an employee record.");
+      return;
+    }
+    await submitAssignCoordinator(myId);
+  }, [user?.employee?.id, submitAssignCoordinator]);
+
+  const onAssignToolbarClick = useCallback(() => {
+    if (canAssignToOthers) {
+      void openAssignModal();
+      return;
+    }
+    void assignSelectedToSelf();
+  }, [canAssignToOthers, openAssignModal, assignSelectedToSelf]);
 
   useEffect(() => {
     if (tab !== "create" || !token) return;
@@ -457,6 +607,11 @@ export function InquiryPage() {
               {error}
             </p>
           )}
+          {!assignModalOpen && assignError ? (
+            <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+              {assignError}
+            </p>
+          ) : null}
 
           <DataTable<InquiryRow>
             data={rows}
@@ -473,7 +628,105 @@ export function InquiryPage() {
             getRowAriaLabel={(row) =>
               `Inquiry ${row.sku}, ${row.itemLabel || "item"}`
             }
+            rowSelection={inquiriesRowSelection}
+            toolbarRight={
+              !readOnly && inquirySelectedIds.size > 0 ? (
+                <button
+                  type="button"
+                  onClick={onAssignToolbarClick}
+                  disabled={assignBusy}
+                  className="rounded-lg bg-violet-600 px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-violet-700 focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500 disabled:opacity-50"
+                >
+                  {assignBusy
+                    ? "Assigning…"
+                    : canAssignToOthers
+                      ? `Assign to Coordinator (${inquirySelectedIds.size})`
+                      : `Assign to me (${inquirySelectedIds.size})`}
+                </button>
+              ) : null
+            }
           />
+
+          {assignModalOpen && typeof document !== "undefined"
+            ? createPortal(
+                <div
+                  className="fixed inset-0 z-[100] flex items-end justify-center p-4 sm:items-center"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby={assignModalTitleId}
+                >
+                  <button
+                    type="button"
+                    className="absolute inset-0 bg-slate-900/50"
+                    aria-label="Close"
+                    disabled={assignBusy}
+                    onClick={() => !assignBusy && setAssignModalOpen(false)}
+                  />
+                  <div className="relative z-10 w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+                    <h2
+                      id={assignModalTitleId}
+                      className="text-lg font-semibold text-slate-900 dark:text-slate-100"
+                    >
+                      Assign to coordinator
+                    </h2>
+                    <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+                      {inquirySelectedIds.size} inquir
+                      {inquirySelectedIds.size === 1 ? "y" : "ies"} selected.
+                    </p>
+                    <label
+                      className={`${formLabelClass} mt-4`}
+                      htmlFor="assign-coordinator-select"
+                    >
+                      Coordinator
+                    </label>
+                    <select
+                      id="assign-coordinator-select"
+                      className={formFieldClass}
+                      value={assignEmployeeId}
+                      onChange={(e) => setAssignEmployeeId(e.target.value)}
+                      disabled={assignBusy || coordinatorsLoading}
+                    >
+                      <option value="">
+                        {coordinatorsLoading
+                          ? "Loading…"
+                          : "Select coordinator"}
+                      </option>
+                      {coordinators.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.displayName}
+                        </option>
+                      ))}
+                    </select>
+                    {assignError ? (
+                      <p className="mt-3 text-sm text-red-700 dark:text-red-300">
+                        {assignError}
+                      </p>
+                    ) : null}
+                    <div className="mt-5 flex flex-wrap justify-end gap-2">
+                      <button
+                        type="button"
+                        className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-800"
+                        disabled={assignBusy}
+                        onClick={() => setAssignModalOpen(false)}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-lg bg-violet-600 px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-violet-700 disabled:opacity-50"
+                        disabled={assignBusy || coordinatorsLoading}
+                        onClick={() =>
+                          void submitAssignCoordinator(assignEmployeeId)
+                        }
+                      >
+                        {assignBusy ? "Assigning…" : "Assign"}
+                      </button>
+                    </div>
+                  </div>
+                </div>,
+                document.body,
+              )
+            : null}
         </section>
       )}
 

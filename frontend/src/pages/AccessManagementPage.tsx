@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { EmployeeMultiSelect } from "../components/EmployeeMultiSelect";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
@@ -10,6 +10,20 @@ import {
   type ManagedFeatureKey,
 } from "../lib/feature-access";
 import { useFeatureAccess } from "../lib/use-feature-access";
+
+const searchInputClass =
+  "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-500/30 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500";
+
+function featureMatchesQuery(
+  featureKey: ManagedFeatureKey,
+  query: string,
+): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  const label = MANAGED_FEATURE_LABELS[featureKey];
+  const keyText = featureKey.replace(/-/g, " ");
+  return label.toLowerCase().includes(q) || keyText.includes(q);
+}
 
 type EmployeeRow = {
   id: string;
@@ -55,9 +69,11 @@ function matrixToDraft(rows: MatrixRow[]): DraftRow[] {
 export function AccessManagementPage() {
   const { token, refreshFeatureAccess } = usePortalAuth();
   const { canEdit, readOnly } = useFeatureAccess("access-management");
+  const searchId = useId();
 
   const [employees, setEmployees] = useState<EmployeeRow[]>([]);
   const [draft, setDraft] = useState<DraftRow[]>(() => emptyDraft());
+  const [featureSearch, setFeatureSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -65,6 +81,12 @@ export function AccessManagementPage() {
     Partial<Record<ManagedFeatureKey, string>>
   >({});
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+
+  const visibleDraft = useMemo(
+    () =>
+      draft.filter((row) => featureMatchesQuery(row.featureKey, featureSearch)),
+    [draft, featureSearch],
+  );
 
   const employeeOptions = useMemo(
     () =>
@@ -169,42 +191,52 @@ export function AccessManagementPage() {
   };
 
   return (
-    <div className="mx-auto max-w-5xl space-y-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-100">
-            Access Management
-          </h1>
-          <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-            Assign view-only or edit access per feature.
-          </p>
+    <div className="absolute inset-0 flex flex-col overflow-hidden bg-slate-50 dark:bg-slate-950">
+      <header className="shrink-0 border-b border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950">
+        <div className="mx-auto flex max-w-5xl items-center gap-3">
+          <label className="min-w-0 flex-1" htmlFor={searchId}>
+            <span className="sr-only">Search features</span>
+            <input
+              id={searchId}
+              type="search"
+              value={featureSearch}
+              onChange={(e) => setFeatureSearch(e.target.value)}
+              placeholder="Search features…"
+              className={searchInputClass}
+              autoComplete="off"
+            />
+          </label>
+          {canEdit ? (
+            <button
+              type="button"
+              disabled={saving || loading}
+              onClick={() => void handleSave()}
+              className="shrink-0 rounded-lg bg-violet-700 px-4 py-2 text-sm font-medium text-white hover:bg-violet-800 disabled:opacity-60 dark:bg-violet-600 dark:hover:bg-violet-500"
+            >
+              {saving ? "Saving…" : "Save"}
+            </button>
+          ) : null}
         </div>
-        {canEdit ? (
-          <button
-            type="button"
-            disabled={saving || loading}
-            onClick={() => void handleSave()}
-            className="rounded-lg bg-violet-700 px-4 py-2 text-sm font-medium text-white hover:bg-violet-800 disabled:opacity-60 dark:bg-violet-600 dark:hover:bg-violet-500"
+        {error ? (
+          <p
+            className="mx-auto mt-2 max-w-5xl text-sm text-red-600 dark:text-red-400"
+            role="alert"
           >
-            {saving ? "Saving…" : "Save"}
-          </button>
+            {error}
+          </p>
         ) : null}
-      </div>
+        {saveMessage ? (
+          <p className="mx-auto mt-2 max-w-5xl text-sm text-emerald-700 dark:text-emerald-400">
+            {saveMessage}
+          </p>
+        ) : null}
+      </header>
 
+      <div className="app-themed-scrollbar min-h-0 flex-1 overflow-y-auto px-4 py-4">
+      <div className="mx-auto max-w-5xl space-y-4">
       {readOnly ? (
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
           You have view-only access. Changes cannot be saved.
-        </p>
-      ) : null}
-
-      {error ? (
-        <p className="text-sm text-red-600 dark:text-red-400" role="alert">
-          {error}
-        </p>
-      ) : null}
-      {saveMessage ? (
-        <p className="text-sm text-emerald-700 dark:text-emerald-400">
-          {saveMessage}
         </p>
       ) : null}
 
@@ -212,7 +244,12 @@ export function AccessManagementPage() {
         <p className="text-sm text-slate-500">Loading…</p>
       ) : (
         <div className="space-y-4">
-          {draft.map((row) => {
+          {visibleDraft.length === 0 ? (
+            <p className="rounded-xl border border-slate-200 bg-white px-4 py-6 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
+              No features match “{featureSearch.trim()}”.
+            </p>
+          ) : null}
+          {visibleDraft.map((row) => {
             const label = MANAGED_FEATURE_LABELS[row.featureKey];
             const rowError = rowErrors[row.featureKey];
             return (
@@ -306,6 +343,8 @@ export function AccessManagementPage() {
           })}
         </div>
       )}
+      </div>
+      </div>
     </div>
   );
 }

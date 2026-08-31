@@ -10,10 +10,7 @@ import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { usePortalAuth } from "../context/portal-auth";
 import { apiFetch } from "../lib/api";
 import { useFeatureAccess } from "../lib/use-feature-access";
-import {
-  canAssignWorkToOthers,
-  canCreateStaffOrder,
-} from "../lib/employee-position";
+import { canCreateStaffOrder } from "../lib/employee-position";
 import { formatPhpDisplay } from "../lib/format-php";
 import { isOrderOpenForStaffUpdates } from "../lib/order-assignment";
 import {
@@ -140,6 +137,7 @@ export function OrdersPage() {
   const navigate = useNavigate();
   const { token, user } = usePortalAuth();
   const { canEdit, readOnly } = useFeatureAccess("orders");
+  const orderAssignment = useFeatureAccess("order-assignment");
   const assignModalTitleId = useId();
   const [tab, setTab] = useState<OrdersTab>("all");
   const [rows, setRows] = useState<OrderRow[]>([]);
@@ -165,10 +163,7 @@ export function OrdersPage() {
   const mayCreateOrder =
     canEdit &&
     canCreateStaffOrder(Boolean(user?.isAdmin), user?.employee?.position);
-  const canAssignToOthers = canAssignWorkToOthers(
-    Boolean(user?.isAdmin),
-    user?.employee?.position,
-  );
+  const canAssignToOthers = orderAssignment.canEdit;
 
   const load = useCallback(async () => {
     if (!token) return;

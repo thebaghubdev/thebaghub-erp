@@ -48,6 +48,7 @@ export class SeedService implements OnModuleInit {
   async onModuleInit() {
     await this.ensureInquiryDirectPurchaseSchema();
     await this.ensureInquiryDeclineReasonSchema();
+    await this.ensureInquiryAssignedToSchema();
     await this.ensureDirectPurchasePaymentsSchema();
     await this.ensurePenaltyWaiveSchema();
     await this.ensureOrderAuditSchema();
@@ -87,6 +88,34 @@ export class SeedService implements OnModuleInit {
     } catch (err) {
       this.logger.warn(
         `Could not ensure direct purchase payments schema: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+
+  private async ensureInquiryAssignedToSchema() {
+    try {
+      await this.employeesRepo.query(`
+        ALTER TABLE inquiries
+          ADD COLUMN IF NOT EXISTS assigned_to_id uuid
+      `);
+      await this.employeesRepo.query(`
+        DO $$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint WHERE conname = 'FK_inquiries_assigned_to_id'
+          ) THEN
+            ALTER TABLE inquiries
+              ADD CONSTRAINT "FK_inquiries_assigned_to_id"
+              FOREIGN KEY (assigned_to_id) REFERENCES employees(id)
+              ON DELETE SET NULL;
+          END IF;
+        END $$;
+      `);
+    } catch (err) {
+      this.logger.warn(
+        `Could not ensure inquiry assigned_to_id column: ${
           err instanceof Error ? err.message : String(err)
         }`,
       );

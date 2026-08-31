@@ -53,7 +53,7 @@ export function Layout() {
             className={
               isMessaging
                 ? "min-h-0 min-w-0 flex-1 overflow-hidden"
-                : "app-themed-scrollbar min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-4"
+                : "app-themed-scrollbar relative min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-4"
             }
           >
             <Outlet />

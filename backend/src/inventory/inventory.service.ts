@@ -21,10 +21,14 @@ import {
   utcDayRange,
   utcInventoryDayLockKey,
 } from './inventory-sku.util';
+import { FeatureAccessService } from '../access-control/feature-access.service';
 import { JwtUser } from '../auth/jwt-user';
 import { portalPageUrl } from '../common/frontend-url.util';
 import { Employee } from '../employees/entities/employee.entity';
-import { canAssignWorkToOthers } from '../employees/employee-position.util';
+import {
+  canAssignWorkToOthers,
+  isPhotographerPosition,
+} from '../employees/employee-position.util';
 import { InventoryItem } from './entities/inventory-item.entity';
 import { ItemAuthentication } from './entities/item-authentication.entity';
 import { ItemPhotoshoot } from './entities/item-photoshoot.entity';
@@ -50,6 +54,7 @@ import { normalizeClientVipStatus } from '../clients/client-vip-status.util';
 import type { ClientVipStatus } from '../clients/client-vip-status.util';
 import { VipPricingService } from '../clients/vip-pricing.service';
 import { BatchAssignAuthenticatorDto } from './dto/batch-assign-authenticator.dto';
+import { BatchAssignPhotographerDto } from './dto/batch-assign-photographer.dto';
 import type { MulterFile } from '../inquiries/multer-file.type';
 import { MediaOwnerType } from '../enums/media-owner-type.enum';
 import { MediaPurpose } from '../enums/media-purpose.enum';
@@ -132,6 +137,8 @@ export type ItemPhotoshootCalendarRow = {
   itemLabel: string;
   inclusions: string;
   consignorName: string | null;
+  assignedToEmployeeId: string | null;
+  assignedToName: string | null;
   /** Saved S3-backed photoshoot images from media. */
   photos: Array<{ key: string; url: string }>;
 };
@@ -784,6 +791,7 @@ export class InventoryService {
     private readonly tasks: TasksService,
     private readonly inventoryAudit: InventoryAuditService,
     private readonly vipPricing: VipPricingService,
+    private readonly featureAccess: FeatureAccessService,
   ) {}
 
   private async loadPostingPhotosSnapshot(
@@ -1816,6 +1824,163 @@ export class InventoryService {
     return { updated: uniqueIds.length };
   }
 
+  async listPhotographers(): Promise<{ id: string; displayName: string }[]> {
+    const rows = await this.employeesRepo
+      .createQueryBuilder('e')
+      .where('LOWER(TRIM(e.position)) = :p', { p: 'photographer' })
+      .orderBy('e.lastName', 'ASC')
+      .addOrderBy('e.firstName', 'ASC')
+      .getMany();
+    return rows.map((e) => ({
+      id: e.id,
+      displayName: formatEmployeeName(e) ?? e.email,
+    }));
+  }
+
+  async batchAssignPhotographer(
+    dto: BatchAssignPhotographerDto,
+    actor: JwtUser,
+  ): Promise<{ updated: number }> {
+    const actorEmployee = await this.employeesRepo.findOne({
+      where: { userId: actor.userId },
+    });
+    const canAssignToOthers = await this.featureAccess.hasAccess(
+      actor.userId,
+      actor.isAdmin,
+      'photoshoot-assignment',
+      'edit',
+    );
+    if (!canAssignToOthers) {
+      if (!actorEmployee?.id) {
+        throw new ForbiddenException(
+          'Your account is not linked to an employee record.',
+        );
+      }
+      if (actorEmployee.id !== dto.employeeId) {
+        throw new ForbiddenException(
+          'You do not have permission to assign photoshoots to other staff.',
+        );
+      }
+    }
+    const employee = await this.employeesRepo.findOne({
+      where: { id: dto.employeeId },
+    });
+    if (!employee) {
+      throw new NotFoundException('Employee not found');
+    }
+    if (!isPhotographerPosition(employee.position)) {
+      throw new BadRequestException(
+        actorEmployee?.id === dto.employeeId
+          ? 'You must be in the Photographer position to assign photoshoots to yourself.'
+          : 'Selected person is not in the Photographer position.',
+      );
+    }
+    const uniqueIds = [...new Set(dto.photoshootIds)];
+    const assignedItems: {
+      photoshootId: string;
+      sku: string;
+      createTask: boolean;
+    }[] = [];
+    const assigneeName = formatEmployeeName(employee) ?? employee.email;
+    const auditActor = await this.inventoryAudit.staffActor(actor.userId);
+
+    await this.itemPhotoshootRepo.manager.transaction(async (em) => {
+      for (const photoshootId of uniqueIds) {
+        const row = await em.findOne(ItemPhotoshoot, {
+          where: { id: photoshootId },
+          relations: { inventoryItem: true, photographer: true },
+        });
+        if (!row) {
+          throw new NotFoundException(`Photoshoot ${photoshootId} not found`);
+        }
+        const item = row.inventoryItem;
+        if (!item) {
+          throw new BadRequestException('Inventory item not found');
+        }
+        if (item.status !== FOR_PHOTOSHOOT_INVENTORY_STATUS) {
+          throw new BadRequestException(
+            `Item ${item.sku} is not in "For Photoshoot" status.`,
+          );
+        }
+        const alreadyAssigned = row.employeeId === dto.employeeId;
+        const fromName =
+          formatEmployeeName(row.photographer) ??
+          (row.employeeId ? row.employeeId : '');
+        row.employeeId = dto.employeeId;
+        row.updatedById = actor.userId;
+        await em.save(row);
+        await this.inventoryAudit.recordChange(
+          item.id,
+          'Photoshoot assigned to',
+          fromName,
+          assigneeName,
+          auditActor,
+          em,
+        );
+        assignedItems.push({
+          photoshootId: row.id,
+          sku: item.sku,
+          createTask: canAssignToOthers && !alreadyAssigned,
+        });
+      }
+    });
+
+    for (const { photoshootId, sku, createTask } of assignedItems) {
+      void this.notifications
+        .notify({
+          message: `Item ${sku} has been assigned to you for photoshoot.`,
+          receiverId: dto.employeeId,
+        })
+        .catch((err: unknown) => {
+          this.logger.error(
+            'Failed to notify photographer for assignment',
+            err,
+          );
+        });
+      if (!createTask) continue;
+      void this.tasks
+        .createAssigned({
+          assigneeId: dto.employeeId,
+          title: `Item ${sku} is assigned to you for photoshoot`,
+          description: portalPageUrl(
+            this.config,
+            `/portal/photoshoot/item/${photoshootId}`,
+          ),
+          severity: 'moderate',
+          dueDate: null,
+        })
+        .catch((err: unknown) => {
+          this.logger.error(
+            'Failed to create task for photographer assignment',
+            err,
+          );
+        });
+    }
+
+    return { updated: uniqueIds.length };
+  }
+
+  private async enforcePhotoshootMutationAccess(
+    row: ItemPhotoshoot,
+    actor: JwtUser,
+  ): Promise<void> {
+    if (actor.isAdmin) return;
+    const employee = await this.employeesRepo.findOne({
+      where: { userId: actor.userId },
+    });
+    const assigneeId = row.employeeId;
+    if (!assigneeId) {
+      throw new ForbiddenException(
+        'This photoshoot must be assigned to a photographer before it can be updated.',
+      );
+    }
+    if (!employee?.id || employee.id !== assigneeId) {
+      throw new ForbiddenException(
+        'Only the assigned photographer can perform this action.',
+      );
+    }
+  }
+
   async findAllForStaff(): Promise<InventoryListRow[]> {
     const rows = await this.inventoryRepo.find({
       relations: { inquiry: true, consignor: true, itemPosting: true },
@@ -2413,6 +2578,7 @@ export class InventoryService {
       .createQueryBuilder('p')
       .innerJoinAndSelect('p.inventoryItem', 'inv')
       .leftJoinAndSelect('inv.consignor', 'consignor')
+      .leftJoinAndSelect('p.photographer', 'photographer')
       .where('inv.status = :forPs', {
         forPs: FOR_PHOTOSHOOT_INVENTORY_STATUS,
       })
@@ -2760,7 +2926,7 @@ export class InventoryService {
   ): Promise<ItemPhotoshootCalendarRow> {
     const p = await this.itemPhotoshootRepo.findOne({
       where: { id },
-      relations: { inventoryItem: { consignor: true } },
+      relations: { inventoryItem: { consignor: true }, photographer: true },
     });
     if (!p) {
       throw new NotFoundException('Photoshoot schedule not found');
@@ -2774,7 +2940,7 @@ export class InventoryService {
   ): Promise<ItemPhotoshootCalendarRow | null> {
     const p = await this.itemPhotoshootRepo.findOne({
       where: { inventoryItem: { id: inventoryItemId } },
-      relations: { inventoryItem: { consignor: true } },
+      relations: { inventoryItem: { consignor: true }, photographer: true },
     });
     if (!p) {
       return null;
@@ -2806,6 +2972,8 @@ export class InventoryService {
       itemLabel: itemLabelFromSnapshot(inv.itemSnapshot),
       inclusions: inclusionsFromSnapshot(inv.itemSnapshot),
       consignorName,
+      assignedToEmployeeId: p.employeeId ?? null,
+      assignedToName: formatEmployeeName(p.photographer),
       photos,
     };
   }
@@ -2814,7 +2982,7 @@ export class InventoryService {
     photoshootId: string,
     files: MulterFile[],
     retainKeysRaw: string | undefined,
-    actorUserId: string,
+    actor: JwtUser,
   ): Promise<ItemPhotoshootCalendarRow> {
     let retainKeys: string[] = [];
     if (retainKeysRaw != null && String(retainKeysRaw).trim() !== '') {
@@ -2842,11 +3010,13 @@ export class InventoryService {
 
     const row = await this.itemPhotoshootRepo.findOne({
       where: { id: photoshootId },
-      relations: { inventoryItem: { consignor: true } },
+      relations: { inventoryItem: { consignor: true }, photographer: true },
     });
     if (!row) {
       throw new NotFoundException('Photoshoot schedule not found');
     }
+    await this.enforcePhotoshootMutationAccess(row, actor);
+    const actorUserId = actor.userId;
 
     for (const file of files) {
       const mime = file.mimetype?.toLowerCase() ?? '';
@@ -2886,7 +3056,7 @@ export class InventoryService {
    */
   async finishItemPhotoshoot(
     photoshootId: string,
-    actorUserId: string,
+    actor: JwtUser,
   ): Promise<{ status: string; sku: string }> {
     const row = await this.itemPhotoshootRepo.findOne({
       where: { id: photoshootId },
@@ -2895,6 +3065,8 @@ export class InventoryService {
     if (!row) {
       throw new NotFoundException('Photoshoot schedule not found');
     }
+    await this.enforcePhotoshootMutationAccess(row, actor);
+    const actorUserId = actor.userId;
     const item = row.inventoryItem;
     if (!item) {
       throw new BadRequestException('Inventory item not found');

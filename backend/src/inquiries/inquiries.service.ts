@@ -13,6 +13,7 @@ import { plainToInstance } from 'class-transformer';
 import { validateOrReject } from 'class-validator';
 import { randomUUID } from 'node:crypto';
 import { Between, EntityManager, In, Repository } from 'typeorm';
+import { FeatureAccessService } from '../access-control/feature-access.service';
 import { Client } from '../clients/entities/client.entity';
 import {
   extractBankDetailsFromClient,
@@ -38,6 +39,7 @@ import {
   cloneInventoryItemForAudit,
 } from '../inventory/inventory-audit.service';
 import { InventoryService } from '../inventory/inventory.service';
+import { portalPageUrl } from '../common/frontend-url.util';
 import { InquiryStatus } from '../enums/inquiry-status.enum';
 import { JwtUser } from '../auth/jwt-user';
 import { CONTRACT_EXPIRATION_DAYS_KEY } from '../settings/consignment-setting-keys';
@@ -56,6 +58,7 @@ import { RejectDirectPurchaseApprovalDto } from './dto/reject-direct-purchase-ap
 import { ConfirmOfferDto } from './dto/confirm-offer.dto';
 import { SubmitConsignmentInquiryDto } from './dto/submit-consignment-inquiry.dto';
 import { SubmitWalkInConsignmentInquiryDto } from './dto/submit-walk-in-consignment-inquiry.dto';
+import { BatchAssignCoordinatorDto } from './dto/batch-assign-coordinator.dto';
 import { CreateClientDeliveryScheduleDto } from './dto/create-client-delivery-schedule.dto';
 import { RescheduleClientDeliveryScheduleDto } from './dto/reschedule-client-delivery-schedule.dto';
 import { ScheduleClientDeliveryDto } from './dto/schedule-client-delivery.dto';
@@ -76,6 +79,7 @@ import {
 } from '../employees/employee-position.util';
 import { Employee } from '../employees/entities/employee.entity';
 import { NotificationsService } from '../notifications/notifications.service';
+import { TasksService } from '../tasks/tasks.service';
 import { DirectPurchasePaymentsService } from '../direct-purchase-payments/direct-purchase-payments.service';
 import {
   isPaymentAwaitingVerification,
@@ -278,6 +282,8 @@ export type StaffInquiryRow = {
   pulloutReason: string | null;
   pulloutPaymentStatus: string | null;
   pulloutPaymentProofUrl: string | null;
+  assignedToEmployeeId: string | null;
+  assignedToName: string | null;
 };
 
 /** Client/staff API shape (public URL for signature image). */
@@ -341,6 +347,8 @@ export type ClientInquiryDetail = Omit<
   | 'directPurchaseRequestedPrice'
   | 'directPurchaseApproverNotes'
   | 'directPurchaseRejectReason'
+  | 'assignedToEmployeeId'
+  | 'assignedToName'
 > & {
   updatedAt: Date;
   itemSnapshot: {
@@ -391,6 +399,8 @@ export class InquiriesService {
     private readonly config: ConfigService,
     private readonly directPurchasePaymentsService: DirectPurchasePaymentsService,
     private readonly paymentVerification: PaymentVerificationNotifyService,
+    private readonly featureAccess: FeatureAccessService,
+    private readonly tasks: TasksService,
   ) {}
 
   private async inquiryMediaAudit(
@@ -555,17 +565,183 @@ export class InquiriesService {
     }
   }
 
-  private async assertActorIsConsignmentCoordinator(
+  private formatEmployeeName(
+    employee: Employee | null | undefined,
+  ): string | null {
+    if (!employee) return null;
+    const name = [employee.firstName, employee.lastName]
+      .filter(Boolean)
+      .join(' ')
+      .trim();
+    return name.length > 0 ? name : null;
+  }
+
+  private isInquiryOpenForStaffUpdates(status: InquiryStatus): boolean {
+    return (
+      status !== InquiryStatus.DECLINED &&
+      status !== InquiryStatus.CANCELLED &&
+      status !== InquiryStatus.PULLED_OUT &&
+      status !== InquiryStatus.PAID_TO_CONSIGNOR
+    );
+  }
+
+  private async enforceInquiryMutationAccess(
     user: JwtUser,
+    inquiry: Pick<Inquiry, 'assignedToId'>,
   ): Promise<void> {
-    const emp = await this.employeesRepo.findOne({
+    if (user.isAdmin) return;
+    const employee = await this.employeesRepo.findOne({
       where: { userId: user.userId },
     });
-    if (!emp || !isConsignmentCoordinatorPosition(emp.position)) {
+    const assigneeId = inquiry.assignedToId;
+    if (!assigneeId) {
       throw new ForbiddenException(
-        'Only a Consignment Coordinator can perform this action',
+        'This inquiry must be assigned to a coordinator before it can be updated.',
       );
     }
+    if (!employee?.id || employee.id !== assigneeId) {
+      throw new ForbiddenException(
+        'Only the assigned coordinator can perform this action.',
+      );
+    }
+  }
+
+  async listCoordinators(): Promise<{ id: string; displayName: string }[]> {
+    const rows = await this.employeesRepo
+      .createQueryBuilder('e')
+      .where('LOWER(TRIM(e.position)) = :p', {
+        p: CONSIGNMENT_COORDINATOR_POSITION.toLowerCase(),
+      })
+      .orderBy('e.lastName', 'ASC')
+      .addOrderBy('e.firstName', 'ASC')
+      .getMany();
+    return rows.map((e) => ({
+      id: e.id,
+      displayName: this.formatEmployeeName(e) ?? e.email,
+    }));
+  }
+
+  async batchAssignCoordinator(
+    dto: BatchAssignCoordinatorDto,
+    actor: JwtUser,
+  ): Promise<{ updated: number }> {
+    const actorEmployee = await this.employeesRepo.findOne({
+      where: { userId: actor.userId },
+    });
+    const canAssignToOthers = await this.featureAccess.hasAccess(
+      actor.userId,
+      actor.isAdmin,
+      'inquiry-assignment',
+      'edit',
+    );
+    if (!canAssignToOthers) {
+      if (!actorEmployee?.id) {
+        throw new ForbiddenException(
+          'Your account is not linked to an employee record.',
+        );
+      }
+      if (actorEmployee.id !== dto.employeeId) {
+        throw new ForbiddenException(
+          'You do not have permission to assign inquiries to other staff.',
+        );
+      }
+    }
+    const employee = await this.employeesRepo.findOne({
+      where: { id: dto.employeeId },
+    });
+    if (!employee) {
+      throw new NotFoundException('Employee not found');
+    }
+    if (!isConsignmentCoordinatorPosition(employee.position)) {
+      throw new BadRequestException(
+        actorEmployee?.id === dto.employeeId
+          ? 'You must be in the Consignment Coordinator position to assign inquiries to yourself.'
+          : 'Selected person is not in the Consignment Coordinator position.',
+      );
+    }
+
+    const uniqueIds = [...new Set(dto.inquiryIds)];
+    const assignedInquiries: {
+      inquiryId: string;
+      sku: string;
+      createTask: boolean;
+    }[] = [];
+    const assigneeName = this.formatEmployeeName(employee) ?? employee.email;
+    const auditActor = {
+      userId: actor.userId,
+      label: await this.inquiryAudit.staffActorLabel(actor.userId),
+    };
+
+    await this.inquiriesRepo.manager.transaction(async (em) => {
+      for (const inquiryId of uniqueIds) {
+        const inquiry = await em.findOne(Inquiry, {
+          where: { id: inquiryId },
+          relations: { assignedTo: true },
+        });
+        if (!inquiry) {
+          throw new NotFoundException(`Inquiry ${inquiryId} not found`);
+        }
+        if (!this.isInquiryOpenForStaffUpdates(inquiry.status)) {
+          throw new BadRequestException(
+            `Inquiry ${inquiry.sku} is closed and cannot be assigned.`,
+          );
+        }
+        const alreadyAssigned = inquiry.assignedToId === dto.employeeId;
+        const fromName =
+          this.formatEmployeeName(inquiry.assignedTo) ??
+          (inquiry.assignedToId ? inquiry.assignedToId : '');
+        inquiry.assignedToId = dto.employeeId;
+        inquiry.updatedById = actor.userId;
+        await em.save(inquiry);
+        await this.inquiryAudit.recordAssignedTo(
+          inquiry.id,
+          fromName,
+          assigneeName,
+          auditActor,
+          em,
+        );
+        assignedInquiries.push({
+          inquiryId: inquiry.id,
+          sku: inquiry.sku,
+          createTask: canAssignToOthers && !alreadyAssigned,
+        });
+      }
+    });
+
+    for (const { inquiryId, sku, createTask } of assignedInquiries) {
+      void this.notifications
+        .notify({
+          message: `Inquiry ${sku} has been assigned to you.`,
+          receiverId: dto.employeeId,
+          inquiryId,
+        })
+        .catch((err: unknown) => {
+          this.logger.error(
+            'Failed to notify coordinator for inquiry assignment',
+            err,
+          );
+        });
+      if (!createTask) continue;
+      void this.tasks
+        .createAssigned({
+          assigneeId: dto.employeeId,
+          title: `Inquiry ${sku} is assigned to you`,
+          description: portalPageUrl(
+            this.config,
+            `/portal/inquiries/${inquiryId}`,
+          ),
+          severity: 'moderate',
+          dueDate: null,
+        })
+        .catch((err: unknown) => {
+          this.logger.error(
+            'Failed to create task for coordinator inquiry assignment',
+            err,
+          );
+        });
+    }
+
+    return { updated: uniqueIds.length };
   }
 
   private trimToNull(value: string | null | undefined): string | null {
@@ -1299,6 +1475,8 @@ export class InquiriesService {
           ? String(r.pulloutPaymentStatus).trim()
           : null,
       pulloutPaymentProofUrl,
+      assignedToEmployeeId: r.assignedToId ?? null,
+      assignedToName: this.formatEmployeeName(r.assignedTo),
     };
   }
 
@@ -1311,7 +1489,7 @@ export class InquiriesService {
     const rows = await this.inquiriesRepo.find({
       where,
       order: { createdAt: 'DESC' },
-      relations: { consignor: true },
+      relations: { consignor: true, assignedTo: true },
     });
     const photoCounts = await this.media.countByOwners(
       MediaOwnerType.INQUIRY,
@@ -1338,7 +1516,7 @@ export class InquiriesService {
   async findOneForStaff(id: string): Promise<StaffInquiryDetail> {
     const r = await this.inquiriesRepo.findOne({
       where: { id },
-      relations: { consignor: true },
+      relations: { consignor: true, assignedTo: true },
     });
     if (!r) {
       throw new NotFoundException('Inquiry not found');
@@ -1507,6 +1685,8 @@ export class InquiriesService {
       directPurchaseRequestedPrice: _dpPrice,
       directPurchaseApproverNotes: _dpNotes,
       directPurchaseRejectReason: _dpReject,
+      assignedToEmployeeId: _assignedToEmployeeId,
+      assignedToName: _assignedToName,
       consignmentRequestedPrice: consignmentRequestedPriceStaff,
       ...rest
     } = base;
@@ -1611,6 +1791,7 @@ export class InquiriesService {
     if (!r) {
       throw new NotFoundException('Inquiry not found');
     }
+    await this.enforceInquiryMutationAccess(user, r);
     if (
       r.status !== InquiryStatus.AUTHENTICATED_REQUESTED_FOR_REAUTHENTICATION
     ) {
@@ -1873,6 +2054,12 @@ export class InquiriesService {
 
     const label = await this.inquiryAudit.staffActorLabel(user.userId);
     const staffActor = { userId: user.userId, label };
+
+    const existing = await this.inquiriesRepo.findOne({ where: { id } });
+    if (!existing) {
+      throw new NotFoundException('Inquiry not found');
+    }
+    await this.enforceInquiryMutationAccess(user, existing);
 
     const sku = await this.inquiriesRepo.manager.transaction(async (em) => {
       const r = await em.findOne(Inquiry, { where: { id } });
@@ -2670,6 +2857,14 @@ export class InquiriesService {
       });
     }
 
+    const actorEmployee = await this.employeesRepo.findOne({
+      where: { userId: user.userId },
+    });
+    const walkInAssignedToId =
+      actorEmployee && isConsignmentCoordinatorPosition(actorEmployee.position)
+        ? actorEmployee.id
+        : null;
+
     const out = await this.inquiriesRepo.manager.transaction(async (em) => {
       await em.query(
         `SELECT pg_advisory_xact_lock(hashtext($1::text)::bigint)`,
@@ -2698,6 +2893,7 @@ export class InquiriesService {
           itemSnapshot: row.itemSnapshot,
           isWalkIn: true,
           walkInBranch: dto.walkInBranch,
+          assignedToId: walkInAssignedToId,
           createdById: user.userId,
           updatedById: user.userId,
         });
@@ -2736,11 +2932,11 @@ export class InquiriesService {
     user: JwtUser,
     dto: DeclineInquiryDto,
   ): Promise<StaffInquiryDetail> {
-    await this.assertActorIsConsignmentCoordinator(user);
     const r = await this.inquiriesRepo.findOne({ where: { id } });
     if (!r) {
       throw new NotFoundException('Inquiry not found');
     }
+    await this.enforceInquiryMutationAccess(user, r);
     if (InquiriesService.terminalInquiryStatuses.has(r.status)) {
       throw new BadRequestException('This inquiry cannot be declined');
     }
@@ -2774,7 +2970,6 @@ export class InquiriesService {
     dto: SubmitOfferDto,
     user: JwtUser,
   ): Promise<StaffInquiryDetail> {
-    await this.assertActorIsConsignmentCoordinator(user);
     const r = await this.inquiriesRepo.findOne({
       where: { id },
       relations: { consignor: true },
@@ -2782,6 +2977,7 @@ export class InquiriesService {
     if (!r) {
       throw new NotFoundException('Inquiry not found');
     }
+    await this.enforceInquiryMutationAccess(user, r);
     if (InquiriesService.terminalInquiryStatuses.has(r.status)) {
       throw new BadRequestException('Cannot submit an offer for this inquiry');
     }
@@ -2863,7 +3059,6 @@ export class InquiriesService {
     dto: RequestDirectPurchaseApprovalDto,
     user: JwtUser,
   ): Promise<StaffInquiryDetail> {
-    await this.assertActorIsConsignmentCoordinator(user);
     const r = await this.inquiriesRepo.findOne({
       where: { id },
       relations: { consignor: true },
@@ -2871,6 +3066,7 @@ export class InquiriesService {
     if (!r) {
       throw new NotFoundException('Inquiry not found');
     }
+    await this.enforceInquiryMutationAccess(user, r);
     if (r.status !== InquiryStatus.PENDING) {
       throw new BadRequestException(
         'Direct purchase approval can only be requested while the inquiry is pending',
@@ -2907,7 +3103,6 @@ export class InquiriesService {
     dto: RequestDirectPurchaseApprovalDto,
     user: JwtUser,
   ): Promise<StaffInquiryDetail> {
-    await this.assertActorIsConsignmentCoordinator(user);
     const r = await this.inquiriesRepo.findOne({
       where: { id },
       relations: { consignor: true },
@@ -2915,6 +3110,7 @@ export class InquiriesService {
     if (!r) {
       throw new NotFoundException('Inquiry not found');
     }
+    await this.enforceInquiryMutationAccess(user, r);
     if (r.status !== InquiryStatus.FOR_DIRECT_PURCHASE_APPROVAL) {
       throw new BadRequestException(
         'The direct purchase request can only be edited while awaiting CEO approval',
@@ -2942,7 +3138,6 @@ export class InquiriesService {
     id: string,
     user: JwtUser,
   ): Promise<StaffInquiryDetail> {
-    await this.assertActorIsConsignmentCoordinator(user);
     const r = await this.inquiriesRepo.findOne({
       where: { id },
       relations: { consignor: true },
@@ -2950,6 +3145,7 @@ export class InquiriesService {
     if (!r) {
       throw new NotFoundException('Inquiry not found');
     }
+    await this.enforceInquiryMutationAccess(user, r);
     if (r.status !== InquiryStatus.FOR_DIRECT_PURCHASE_APPROVAL) {
       throw new BadRequestException(
         'The direct purchase request can only be withdrawn while awaiting CEO approval',
@@ -3069,6 +3265,7 @@ export class InquiriesService {
     if (!r) {
       throw new NotFoundException('Inquiry not found');
     }
+    await this.enforceInquiryMutationAccess(user, r);
     if (InquiriesService.terminalInquiryStatuses.has(r.status)) {
       throw new BadRequestException('Cannot update this inquiry');
     }
@@ -3146,6 +3343,12 @@ export class InquiriesService {
     );
     const label = await this.inquiryAudit.staffActorLabel(user.userId);
 
+    const existing = await this.inquiriesRepo.findOne({ where: { id } });
+    if (!existing) {
+      throw new NotFoundException('Inquiry not found');
+    }
+    await this.enforceInquiryMutationAccess(user, existing);
+
     await this.inquiriesRepo.manager.transaction(async (em) => {
       const r = await em.findOne(Inquiry, { where: { id } });
       if (!r) {
@@ -3209,6 +3412,7 @@ export class InquiriesService {
     if (!r) {
       throw new NotFoundException('Inquiry not found');
     }
+    await this.enforceInquiryMutationAccess(user, r);
     if (r.offerPrice == null || String(r.offerPrice).trim() === '') {
       throw new BadRequestException('Current offer price is not set.');
     }
@@ -3267,6 +3471,11 @@ export class InquiriesService {
     id: string,
     user: JwtUser,
   ): Promise<StaffInquiryDetail> {
+    const existing = await this.inquiriesRepo.findOne({ where: { id } });
+    if (!existing) {
+      throw new NotFoundException('Inquiry not found');
+    }
+    await this.enforceInquiryMutationAccess(user, existing);
     const label = await this.inquiryAudit.staffActorLabel(user.userId);
 
     await this.inquiriesRepo.manager.transaction(async (em) => {
@@ -3336,6 +3545,7 @@ export class InquiriesService {
     if (!r) {
       throw new NotFoundException('Inquiry not found');
     }
+    await this.enforceInquiryMutationAccess(user, r);
     const before = cloneInquiryForAudit(r);
     const trimmed = dto.notes.trim();
     r.notes = trimmed === '' ? null : trimmed;
@@ -3357,6 +3567,7 @@ export class InquiriesService {
     if (!r) {
       throw new NotFoundException('Inquiry not found');
     }
+    await this.enforceInquiryMutationAccess(user, r);
     if (!this.inquiryIsInThirdPartyPaymentFlow(r.status)) {
       throw new BadRequestException(
         'Reauthentication notes can only be updated while the inquiry is in the third-party reauthentication flow.',

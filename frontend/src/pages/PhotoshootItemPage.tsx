@@ -66,8 +66,8 @@ async function readApiErrorMessage(res: Response): Promise<string> {
 export function PhotoshootItemPage() {
   const { photoshootId } = useParams<{ photoshootId: string }>();
   const navigate = useNavigate();
-  const { token } = usePortalAuth();
-  const { canEdit, readOnly } = useFeatureAccess("photoshoot");
+  const { token, user } = usePortalAuth();
+  const { canEdit: featureCanEdit, readOnly } = useFeatureAccess("photoshoot");
   const inputId = useId();
   const [meta, setMeta] = useState<PhotoshootCalendarRow | null>(null);
   const [metaError, setMetaError] = useState<string | null>(null);
@@ -128,8 +128,15 @@ export function PhotoshootItemPage() {
     };
   }, [photoshootId, token]);
 
+  const canEditPhotoshoot = Boolean(
+    featureCanEdit &&
+      (user?.isAdmin ||
+        (meta?.assignedToEmployeeId != null &&
+          user?.employee?.id === meta.assignedToEmployeeId)),
+  );
+
   const addFiles = useCallback((fileList: FileList | File[]) => {
-    if (!canEdit) return;
+    if (!canEditPhotoshoot) return;
     const list = Array.from(fileList).filter(isImageFile);
     if (list.length === 0) return;
     setPhotoEntries((prev) => [
@@ -141,16 +148,16 @@ export function PhotoshootItemPage() {
         previewUrl: URL.createObjectURL(file),
       })),
     ]);
-  }, [canEdit]);
+  }, [canEditPhotoshoot]);
 
   const removeAt = useCallback((id: string) => {
-    if (!canEdit) return;
+    if (!canEditPhotoshoot) return;
     setPhotoEntries((prev) => {
       const img = prev.find((i) => i.id === id);
       if (img?.kind === "local") URL.revokeObjectURL(img.previewUrl);
       return prev.filter((i) => i.id !== id);
     });
-  }, [canEdit]);
+  }, [canEditPhotoshoot]);
 
   const persistPhotos = useCallback(async (): Promise<PhotoshootCalendarRow> => {
     if (!token || !photoshootId) {
@@ -178,7 +185,7 @@ export function PhotoshootItemPage() {
   }, [token, photoshootId, photoEntries]);
 
   const handleSaveChanges = useCallback(async () => {
-    if (!canEdit) return;
+    if (!canEditPhotoshoot) return;
     setSaveError(null);
     setSaveSaving(true);
     try {
@@ -195,13 +202,13 @@ export function PhotoshootItemPage() {
     } finally {
       setSaveSaving(false);
     }
-  }, [canEdit, persistPhotos]);
+  }, [canEditPhotoshoot, persistPhotos]);
 
   const photoCount = photoEntries.length;
   const canFinishPhotoshoot = photoCount >= MIN_PHOTOS_FOR_FINISH;
 
   const handleFinishPhotoshoot = useCallback(async () => {
-    if (!canEdit || !token || !photoshootId || !canFinishPhotoshoot) return;
+    if (!canEditPhotoshoot || !token || !photoshootId || !canFinishPhotoshoot) return;
     setFinishError(null);
     setFinishSaving(true);
     try {
@@ -240,7 +247,7 @@ export function PhotoshootItemPage() {
       setFinishSaving(false);
     }
   }, [
-    canEdit,
+    canEditPhotoshoot,
     token,
     photoshootId,
     canFinishPhotoshoot,
@@ -288,6 +295,29 @@ export function PhotoshootItemPage() {
           You have view-only access to this feature.
         </p>
       ) : null}
+      {!canEditPhotoshoot && !readOnly ? (
+        <p
+          className="rounded-xl border border-amber-200/80 bg-amber-50/90 px-4 py-3 text-sm leading-relaxed text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/25 dark:text-amber-100"
+          role="status"
+        >
+          <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/50 dark:text-amber-200">
+            View only
+          </span>
+          <span className="mt-2 block sm:mt-0 sm:ml-2 sm:inline">
+            {meta.assignedToEmployeeId ? (
+              <>
+                This photoshoot is assigned to{" "}
+                <span className="font-medium">
+                  {meta.assignedToName ?? "a photographer"}
+                </span>
+                .
+              </>
+            ) : (
+              "This photoshoot is not assigned to a photographer yet."
+            )}
+          </span>
+        </p>
+      ) : null}
       <div>
         <Link
           to="/portal/photoshoot"
@@ -308,7 +338,13 @@ export function PhotoshootItemPage() {
           Scheduled: {formatPhotoshootDateCell(meta.photoshootDate)}
           {meta.consignorName ? ` · ${meta.consignorName}` : null}
         </p>
-        {!readOnly ? (
+        <p className="text-sm text-slate-600 dark:text-slate-400">
+          Assigned to:{" "}
+          <span className="font-medium text-slate-800 dark:text-slate-200">
+            {meta.assignedToName?.trim() || "—"}
+          </span>
+        </p>
+        {canEditPhotoshoot ? (
         <div className="flex flex-col gap-1 pt-3">
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-start sm:gap-3">
             <button
@@ -349,7 +385,7 @@ export function PhotoshootItemPage() {
         ) : null}
       </header>
 
-      {!readOnly ? (
+      {canEditPhotoshoot ? (
       <div>
         <h2 className="sr-only">Upload photos</h2>
         <input
@@ -433,7 +469,7 @@ export function PhotoshootItemPage() {
                   }
                   className="h-full w-full object-cover"
                 />
-                {!readOnly ? (
+                {canEditPhotoshoot ? (
                 <button
                   type="button"
                   onClick={() => removeAt(img.id)}

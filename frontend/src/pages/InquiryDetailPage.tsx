@@ -33,7 +33,7 @@ import {
   isPaymentConfirmed,
 } from "../lib/payment-status";
 import { orderPaymentStatusBadgeClass } from "../lib/order-payments";
-import { isCeoPosition, isConsignmentCoordinatorPosition } from "../lib/employee-position";
+import { isCeoPosition } from "../lib/employee-position";
 
 type TransactionType = "consignment" | "direct_purchase";
 
@@ -112,6 +112,8 @@ type InquiryDetail = {
   pulloutReason: string | null;
   pulloutPaymentStatus: string | null;
   pulloutPaymentProofUrl: string | null;
+  assignedToEmployeeId: string | null;
+  assignedToName: string | null;
   /** Present when an inventory line references this inquiry. */
   linkedInventoryItemId: string | null;
   /** Present when an inventory line references this inquiry. */
@@ -343,10 +345,13 @@ export function InquiryDetailPage() {
   const paymentVerification = useFeatureAccess("payment-verification");
   const canVerifyPayments = paymentVerification.canEdit;
   const isCeo = isCeoPosition(user?.employee?.position);
-  const isCoordinator = isConsignmentCoordinatorPosition(
-    user?.employee?.position,
-  );
   const [detail, setDetail] = useState<InquiryDetail | null>(null);
+  const canEditInquiry = Boolean(
+    canEditFeature &&
+      (user?.isAdmin ||
+        (detail?.assignedToEmployeeId != null &&
+          user?.employee?.id === detail.assignedToEmployeeId)),
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [offerModalOpen, setOfferModalOpen] = useState(false);
@@ -722,7 +727,7 @@ export function InquiryDetailPage() {
   }, [detail]);
 
   const confirmDecline = useCallback(async () => {
-    if (!canEditFeature || !isCoordinator || !id || !token) return;
+    if (!canEditInquiry || !id || !token) return;
     const reason = declineReason.trim();
     if (!reason) {
       setActionError("Please enter a reason for declining this inquiry.");
@@ -752,10 +757,10 @@ export function InquiryDetailPage() {
     } finally {
       setActionBusy(null);
     }
-  }, [canEditFeature, isCoordinator, declineReason, id, token]);
+  }, [canEditInquiry, declineReason, id, token]);
 
   const openOfferModal = useCallback(() => {
-    if (!canEditFeature || !isCoordinator || !detail) return;
+    if (!canEditInquiry || !detail) return;
     setActionError(null);
     setOfferPriceInput(
       detail.offerPrice != null && detail.offerPrice !== ""
@@ -766,12 +771,12 @@ export function InquiryDetailPage() {
         : "",
     );
     setOfferModalOpen(true);
-  }, [canEditFeature, isCoordinator, detail]);
+  }, [canEditFeature, canEditInquiry, detail]);
 
   const submitOffer = useCallback(
     async (e: FormEvent) => {
       e.preventDefault();
-      if (!canEditFeature || !isCoordinator || !id || !token || !detail) return;
+      if (!canEditInquiry || !id || !token || !detail) return;
       const price = parsePhpStringToNumber(offerPriceInput);
       if (price == null || price <= 0) {
         setActionError("Enter a valid offer price greater than zero.");
@@ -804,7 +809,7 @@ export function InquiryDetailPage() {
         setActionBusy(null);
       }
     },
-    [canEditFeature, isCoordinator, id, token, detail, offerPriceInput],
+    [canEditFeature, canEditInquiry, id, token, detail, offerPriceInput],
   );
 
   const prefillDirectPurchasePrice = useCallback((row: InquiryDetail) => {
@@ -833,7 +838,7 @@ export function InquiryDetailPage() {
 
   const openDpRequestModal = useCallback(
     (asEdit: boolean) => {
-      if (!canEditFeature || !isCoordinator || !detail) return;
+      if (!canEditInquiry || !detail) return;
       setActionError(null);
       setDpRequestIsEdit(asEdit);
       setDpPriceInput(prefillDirectPurchasePrice(detail));
@@ -843,7 +848,7 @@ export function InquiryDetailPage() {
     },
     [
       canEditFeature,
-      isCoordinator,
+      canEditInquiry,
       detail,
       prefillDirectPurchasePrice,
       prefillConsignmentOfferPrice,
@@ -853,7 +858,7 @@ export function InquiryDetailPage() {
   const submitDpRequest = useCallback(
     async (e: FormEvent) => {
       e.preventDefault();
-      if (!canEditFeature || !isCoordinator || !id || !token || !detail) return;
+      if (!canEditInquiry || !id || !token || !detail) return;
       const price = parsePhpStringToNumber(dpPriceInput);
       if (price == null || price <= 0) {
         setActionError("Enter a valid offer price greater than zero.");
@@ -898,7 +903,7 @@ export function InquiryDetailPage() {
     },
     [
       canEditFeature,
-      isCoordinator,
+      canEditInquiry,
       id,
       token,
       detail,
@@ -910,7 +915,7 @@ export function InquiryDetailPage() {
   );
 
   const confirmWithdrawDpRequest = useCallback(async () => {
-    if (!canEditFeature || !isCoordinator || !id || !token) return;
+    if (!canEditInquiry || !id || !token) return;
     setActionError(null);
     setActionBusy("dpWithdraw");
     try {
@@ -933,7 +938,7 @@ export function InquiryDetailPage() {
     } finally {
       setActionBusy(null);
     }
-  }, [canEditFeature, isCoordinator, id, token]);
+  }, [canEditFeature, canEditInquiry, id, token]);
 
   const confirmApproveDp = useCallback(async () => {
     if (!canEditFeature || !id || !token) return;
@@ -1001,14 +1006,14 @@ export function InquiryDetailPage() {
   );
 
   const openNotesModal = useCallback(() => {
-    if (!canEditFeature || !detail) return;
+    if (!canEditInquiry || !detail) return;
     setActionError(null);
     setNotesDraft(detail.notes ?? "");
     setNotesModalOpen(true);
   }, [canEditFeature, detail]);
 
   const openCreateNewOfferModal = useCallback(() => {
-    if (!canEditFeature || !detail?.authenticatedReturnDetail) return;
+    if (!canEditInquiry || !detail?.authenticatedReturnDetail) return;
     setActionError(null);
     setCreateNewOfferPriceInput(
       detail.offerPrice != null && detail.offerPrice !== ""
@@ -1024,7 +1029,7 @@ export function InquiryDetailPage() {
   const submitAuthenticatedReturnNewOffer = useCallback(
     async (e: FormEvent) => {
       e.preventDefault();
-      if (!canEditFeature || !id || !token || !detail?.authenticatedReturnDetail)
+      if (!canEditInquiry || !id || !token || !detail?.authenticatedReturnDetail)
         return;
       const price = parsePhpStringToNumber(createNewOfferPriceInput);
       if (price == null || price <= 0) {
@@ -1408,7 +1413,7 @@ export function InquiryDetailPage() {
     detail.contractStartDate != null &&
     detail.contractStartDate.trim() !== "";
   const showMoreActions =
-    (canEditFeature &&
+    (canEditInquiry &&
       (showThirdPartyActions ||
         showAvailableForPurchaseActions ||
         showContractRenewalActions ||
@@ -1430,6 +1435,34 @@ export function InquiryDetailPage() {
       {readOnly ? (
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
           You have view-only access to this feature.
+        </p>
+      ) : null}
+
+      {!canEditInquiry &&
+      !readOnly &&
+      !canVerifyPayments &&
+      !isCeo &&
+      detail ? (
+        <p
+          className="rounded-xl border border-amber-200/80 bg-amber-50/90 px-4 py-3 text-sm leading-relaxed text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/25 dark:text-amber-100"
+          role="status"
+        >
+          <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/50 dark:text-amber-200">
+            View only
+          </span>
+          <span className="mt-2 block sm:mt-0 sm:ml-2 sm:inline">
+            {detail.assignedToEmployeeId ? (
+              <>
+                This inquiry is assigned to{" "}
+                <span className="font-medium">
+                  {detail.assignedToName ?? "a coordinator"}
+                </span>
+                .
+              </>
+            ) : (
+              "This inquiry is not assigned to a coordinator yet."
+            )}
+          </span>
         </p>
       ) : null}
 
@@ -1482,6 +1515,12 @@ export function InquiryDetailPage() {
                 {detail.itemLabel}
               </p>
             ) : null}
+            <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+              Assigned to:{" "}
+              <span className="font-medium text-slate-800 dark:text-slate-200">
+                {detail.assignedToName?.trim() || "—"}
+              </span>
+            </p>
 
             {detail.declineReason?.trim() ? (
               <div className="mt-4 rounded-lg border border-red-200 bg-red-50/80 p-3 text-sm dark:border-red-900/50 dark:bg-red-950/30">
@@ -1495,7 +1534,7 @@ export function InquiryDetailPage() {
             ) : null}
 
             <div className="mt-4 flex flex-wrap gap-2">
-              {canEditFeature ? (
+              {canEditInquiry ? (
               <button
                 type="button"
                 disabled={actionBusy !== null}
@@ -1513,7 +1552,7 @@ export function InquiryDetailPage() {
                   View in Inventory
                 </Link>
               ) : null}
-              {canEditFeature &&
+              {canEditInquiry &&
               isAuthenticatedReturnedStatus(detail.status) &&
               detail.authenticatedReturnDetail ? (
                 <button
@@ -1525,8 +1564,7 @@ export function InquiryDetailPage() {
                   Create New Offer
                 </button>
               ) : null}
-              {canEditFeature &&
-              isCoordinator &&
+              {canEditInquiry &&
               isPending(detail.status) ? (
                 <button
                   type="button"
@@ -1541,8 +1579,7 @@ export function InquiryDetailPage() {
                   {actionBusy === "decline" ? "Declining…" : "Decline"}
                 </button>
               ) : null}
-              {canEditFeature &&
-              isCoordinator &&
+              {canEditInquiry &&
               isPending(detail.status) ? (
                 <button
                   type="button"
@@ -1553,8 +1590,7 @@ export function InquiryDetailPage() {
                   Create Consignment Offer
                 </button>
               ) : null}
-              {canEditFeature &&
-              isCoordinator &&
+              {canEditInquiry &&
               isPending(detail.status) &&
               detail.consentDirectPurchase ? (
                 <button
@@ -1566,8 +1602,7 @@ export function InquiryDetailPage() {
                   Request Direct Purchase Approval
                 </button>
               ) : null}
-              {canEditFeature &&
-              isCoordinator &&
+              {canEditInquiry &&
               isForDirectPurchaseApproval(detail.status) &&
               !isCeo ? (
                 <>
@@ -1621,8 +1656,7 @@ export function InquiryDetailPage() {
                   </button>
                 </>
               ) : null}
-              {canEditFeature &&
-              isCoordinator &&
+              {canEditInquiry &&
               canShowUpdateOfferButton(
                 detail.status,
                 detail.offerTransactionType,
@@ -1671,7 +1705,7 @@ export function InquiryDetailPage() {
                       role="menu"
                       className="absolute right-0 top-full z-50 mt-1 min-w-[16rem] rounded-lg border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-600 dark:bg-slate-900"
                     >
-                      {canEditFeature && showAvailableForPurchaseActions ? (
+                      {canEditInquiry && showAvailableForPurchaseActions ? (
                         <>
                           <li role="none">
                             <button
@@ -1705,7 +1739,7 @@ export function InquiryDetailPage() {
                           </li>
                         </>
                       ) : null}
-                      {canEditFeature && showContractRenewalActions ? (
+                      {canEditInquiry && showContractRenewalActions ? (
                         <li role="none">
                           <button
                             type="button"
@@ -1722,7 +1756,7 @@ export function InquiryDetailPage() {
                           </button>
                         </li>
                       ) : null}
-                      {canEditFeature &&
+                      {canEditInquiry &&
                       showThirdPartyActions &&
                       detail.status.trim().toLowerCase() ===
                         "authenticated_requested_for_reauthentication" ? (
@@ -1759,7 +1793,7 @@ export function InquiryDetailPage() {
                           </button>
                         </li>
                       ) : null}
-                      {canEditFeature && showThirdPartyActions ? (
+                      {canEditInquiry && showThirdPartyActions ? (
                         <li role="none">
                           <button
                             type="button"
@@ -1818,7 +1852,7 @@ export function InquiryDetailPage() {
                           </button>
                         </li>
                       ) : null}
-                      {canEditFeature && showPulloutAction ? (
+                      {canEditInquiry && showPulloutAction ? (
                         <li role="none">
                           <button
                             type="button"
