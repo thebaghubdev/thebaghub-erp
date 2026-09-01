@@ -2,8 +2,7 @@ import { useCallback, useId, useState } from "react";
 import { randomId } from "../lib/random-id";
 import type { LocalConsignImage } from "../types/consign-inquiry";
 
-/** Served from `public/photo-guide/` (kept in sync with `src/assets/photo-guide/`). */
-const PHOTO_GUIDELINES_URL = "/photo-guide/guidelines.html";
+const PHOTO_GUIDELINES_URL = "/photo-guide/guidelines";
 
 const dropzoneClass =
   "flex min-h-[11rem] cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50/80 px-4 py-8 text-center transition-colors hover:border-violet-400 hover:bg-violet-50/50 focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500 dark:border-slate-600 dark:bg-slate-900/60 dark:hover:border-violet-500 dark:hover:bg-violet-950/40 dark:focus-visible:ring-violet-400";

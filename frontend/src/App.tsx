@@ -64,6 +64,7 @@ import { TaskboardPage } from './pages/TaskboardPage'
 import { UnauthorizedPage } from './pages/UnauthorizedPage'
 import { AccessManagementPage } from './pages/AccessManagementPage'
 import { MessagingPage } from './pages/MessagingPage'
+import { PhotoGuidelinesPage } from './pages/PhotoGuidelinesPage'
 import type { FeatureKey } from './lib/feature-access'
 import type { ReactNode } from 'react'
 
@@ -394,6 +395,11 @@ const router = createBrowserRouter([
     children: [
       { index: true, element: <Navigate to="/login" replace /> },
       { path: 'login', element: <ClientLoginPage /> },
+      { path: 'photo-guide/guidelines', element: <PhotoGuidelinesPage /> },
+      {
+        path: 'photo-guide/guidelines.html',
+        element: <Navigate to="/photo-guide/guidelines" replace />,
+      },
       { path: 'create-account', element: <ClientCreateAccountPage /> },
       { path: 'verify-email', element: <ClientVerifyEmailPage /> },
       {
