@@ -994,9 +994,13 @@ export class InventoryService {
       });
       await em.save(itemAuth);
 
-      await this.inventoryAudit.recordInitialCreation(
-        inventoryRow,
-        await this.inventoryAudit.staffActor(actorUserId),
+      const actor = await this.inventoryAudit.staffActor(actorUserId);
+      await this.inventoryAudit.recordInitialCreation(inventoryRow, actor, em);
+      await this.inventoryAudit.recordAuthDiff(
+        inventoryRow.id,
+        null,
+        itemAuth,
+        actor,
         em,
       );
 
@@ -1057,9 +1061,13 @@ export class InventoryService {
     });
     await em.save(itemAuth);
 
-    await this.inventoryAudit.recordInitialCreation(
-      inventoryRow,
-      this.inventoryAudit.systemActor(),
+    const actor = this.inventoryAudit.systemActor();
+    await this.inventoryAudit.recordInitialCreation(inventoryRow, actor, em);
+    await this.inventoryAudit.recordAuthDiff(
+      inventoryRow.id,
+      null,
+      itemAuth,
+      actor,
       em,
     );
 

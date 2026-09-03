@@ -467,8 +467,14 @@ export class InventoryAuditService {
     actor: InventoryAuditActor,
     manager?: EntityManager,
   ): Promise<void> {
-    const rows = diffItemStates(emptyItemState(), toItemState(item));
-    if (rows.length === 0) return;
+    const rows = [
+      {
+        propertyName: 'Record created',
+        fromValue: '—',
+        toValue: 'Created',
+      },
+      ...diffItemStates(emptyItemState(), toItemState(item)),
+    ];
     await this.persistRows(item.id, rows, actor, manager);
   }
 

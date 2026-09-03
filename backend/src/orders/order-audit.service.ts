@@ -25,6 +25,7 @@ export type OrderAuditRow = {
 };
 
 type OrderAuditState = {
+  orderNumber: string;
   status: string;
   assignedToId: string | null;
   assignedToName: string;
@@ -142,6 +143,7 @@ function displayOrDash(value: string): string {
 export function cloneOrderForAudit(r: Order): Order {
   return JSON.parse(
     JSON.stringify({
+      orderNumber: r.orderNumber,
       status: r.status,
       assignedToId: r.assignedToId,
       paymentType: r.paymentType,
@@ -203,6 +205,7 @@ export function clonePaymentForAudit(r: OrderPayment): OrderPayment {
 
 function emptyOrderState(): OrderAuditState {
   return {
+    orderNumber: '',
     status: '',
     assignedToId: null,
     assignedToName: '',
@@ -261,6 +264,10 @@ function toOrderState(
 ): OrderAuditState {
   const assignedToId = r.assignedToId ?? null;
   return {
+    orderNumber:
+      r.orderNumber != null && Number.isFinite(Number(r.orderNumber))
+        ? `#${r.orderNumber}`
+        : '',
     status: textOrEmpty(r.status),
     assignedToId,
     assignedToName: assignedToId
@@ -339,6 +346,7 @@ function diffOrderStates(
   after: OrderAuditState,
 ): Array<{ propertyName: string; fromValue: string; toValue: string }> {
   return diffPairs([
+    ['Order number', before.orderNumber, after.orderNumber],
     ['Status', before.status, after.status],
     ['Assigned to', before.assignedToName, after.assignedToName],
     ['Payment type', before.paymentType, after.paymentType],
@@ -464,11 +472,14 @@ export class OrderAuditService {
     manager?: EntityManager,
   ): Promise<void> {
     const nameById = await this.assignedNames([order.assignedToId]);
-    const rows = diffOrderStates(
-      emptyOrderState(),
-      toOrderState(order, nameById),
-    );
-    if (rows.length === 0) return;
+    const rows = [
+      {
+        propertyName: 'Record created',
+        fromValue: '—',
+        toValue: 'Created',
+      },
+      ...diffOrderStates(emptyOrderState(), toOrderState(order, nameById)),
+    ];
     await this.persistRows(order.id, rows, actor, manager);
   }
 

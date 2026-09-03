@@ -47,6 +47,7 @@ import { Setting } from '../settings/entities/setting.entity';
 import {
   InquiryAuditService,
   cloneInquiryForAudit,
+  type InquiryAuditActor,
 } from './inquiry-audit.service';
 import { SubmitAuthenticatedReturnNewOfferDto } from './dto/submit-authenticated-return-new-offer.dto';
 import { UpdateInquiryNotesDto } from './dto/update-inquiry-notes.dto';
@@ -419,6 +420,33 @@ export class InquiriesService {
       ),
     ]);
     return { imageCount, offerSignaturePresent };
+  }
+
+  private async recordInquiryCreatedAudit(
+    inquiryId: string,
+    actor: InquiryAuditActor,
+    assignedToName?: string,
+  ): Promise<void> {
+    const inquiry = await this.inquiriesRepo.findOne({
+      where: { id: inquiryId },
+    });
+    if (!inquiry) return;
+    const media = await this.inquiryMediaAudit(inquiryId);
+    await this.inquiryAudit.recordInitialSubmission(
+      inquiry.id,
+      inquiry,
+      actor,
+      undefined,
+      media,
+    );
+    if (assignedToName && assignedToName.trim() !== '') {
+      await this.inquiryAudit.recordAssignedTo(
+        inquiry.id,
+        '',
+        assignedToName.trim(),
+        actor,
+      );
+    }
   }
 
   /** Client portal URL for this inquiry (consignor reviews / confirms offer). */
@@ -2762,6 +2790,11 @@ export class InquiriesService {
       );
     }
 
+    const consignorActor = this.inquiryAudit.consignorActor(user.userId);
+    for (const created of out.inquiries) {
+      await this.recordInquiryCreatedAudit(created.id, consignorActor);
+    }
+
     const skus = out.inquiries.map((i) => i.sku).join(', ');
     const text =
       out.inquiries.length === 1
@@ -2916,6 +2949,24 @@ export class InquiriesService {
           return `inquiries/${row.inquiryId}/${randomUUID()}.${extFromMime(mime)}`;
         },
         { uploadedByUserId: user.userId, createdById: user.userId },
+      );
+    }
+
+    const staffActor: InquiryAuditActor = {
+      userId: user.userId,
+      label: await this.inquiryAudit.staffActorLabel(user.userId),
+    };
+    const assignedToName = walkInAssignedToId
+      ? [actorEmployee?.firstName, actorEmployee?.lastName]
+          .filter(Boolean)
+          .join(' ')
+          .trim() || staffActor.label
+      : undefined;
+    for (const created of out.inquiries) {
+      await this.recordInquiryCreatedAudit(
+        created.id,
+        staffActor,
+        assignedToName,
       );
     }
 

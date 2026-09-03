@@ -24,7 +24,10 @@ export type InquiryAuditRow = {
 };
 
 type AuditState = {
+  sku: string;
   status: string;
+  isWalkIn: boolean;
+  walkInBranch: string | null;
   offerTransactionType: string | null;
   offerPrice: string | null;
   directPurchaseRequestedPrice: string | null;
@@ -58,7 +61,10 @@ function formValueString(v: unknown): string {
 export function cloneInquiryForAudit(r: Inquiry): Inquiry {
   return JSON.parse(
     JSON.stringify({
+      sku: r.sku,
       status: r.status,
+      isWalkIn: r.isWalkIn,
+      walkInBranch: r.walkInBranch,
       offerTransactionType: r.offerTransactionType,
       offerPrice: r.offerPrice,
       directPurchaseRequestedPrice: r.directPurchaseRequestedPrice,
@@ -88,7 +94,14 @@ function toAuditState(
     itemForm[k] = formValueString(form[k]);
   }
   return {
+    sku: r.sku != null && String(r.sku).trim() !== '' ? String(r.sku).trim() : '',
     status: String(r.status),
+    isWalkIn: Boolean(r.isWalkIn),
+    walkInBranch: (() => {
+      if (r.walkInBranch == null) return null;
+      const t = String(r.walkInBranch).trim();
+      return t === '' ? null : t;
+    })(),
     offerTransactionType: r.offerTransactionType ?? null,
     offerPrice:
       r.offerPrice != null && String(r.offerPrice).trim() !== ''
@@ -196,7 +209,10 @@ function diffStates(
     });
   };
 
+  push('SKU', before.sku, after.sku);
   push('Status', before.status, after.status);
+  push('Walk-in', before.isWalkIn ? 'Yes' : '', after.isWalkIn ? 'Yes' : '');
+  push('Walk-in branch', before.walkInBranch, after.walkInBranch);
   push(
     'Offer transaction type',
     before.offerTransactionType,
@@ -247,8 +263,8 @@ function diffStates(
   );
   push(
     'Photos (count)',
-    String(before.imageCount),
-    String(after.imageCount),
+    before.imageCount > 0 ? String(before.imageCount) : '',
+    after.imageCount > 0 ? String(after.imageCount) : '',
   );
 
   const formKeys = new Set([
@@ -329,7 +345,7 @@ export class InquiryAuditService {
     );
   }
 
-  /** First submission: diff from empty state to the saved inquiry. */
+  /** First submission: creation event plus initial field values. */
   async recordInitialSubmission(
     inquiryId: string,
     inquiry: Inquiry,
@@ -338,7 +354,10 @@ export class InquiryAuditService {
     media?: InquiryMediaAuditSnapshot,
   ): Promise<void> {
     const empty: AuditState = {
+      sku: '',
       status: '',
+      isWalkIn: false,
+      walkInBranch: null,
       offerTransactionType: null,
       offerPrice: null,
       directPurchaseRequestedPrice: null,
@@ -356,8 +375,14 @@ export class InquiryAuditService {
       itemForm: {},
       imageCount: 0,
     };
-    const rows = diffStates(empty, toAuditState(inquiry, media));
-    if (rows.length === 0) return;
+    const rows = [
+      {
+        propertyName: 'Record created',
+        fromValue: '—',
+        toValue: 'Created',
+      },
+      ...diffStates(empty, toAuditState(inquiry, media)),
+    ];
     await this.persistRows(inquiryId, rows, actor, manager);
   }
 
