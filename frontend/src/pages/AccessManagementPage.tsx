@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { EmployeeMultiSelect } from "../components/EmployeeMultiSelect";
 import { usePortalAuth } from "../context/portal-auth";
+import { useUnsavedChangesGuard } from "../context/unsaved-changes";
 import { apiFetch } from "../lib/api";
 import {
   MANAGED_FEATURE_KEYS,
@@ -73,6 +74,7 @@ export function AccessManagementPage() {
 
   const [employees, setEmployees] = useState<EmployeeRow[]>([]);
   const [draft, setDraft] = useState<DraftRow[]>(() => emptyDraft());
+  const [savedSnapshot, setSavedSnapshot] = useState("");
   const [featureSearch, setFeatureSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -122,7 +124,9 @@ export function AccessManagementPage() {
       const matrix = (await matrixRes.json()) as MatrixRow[];
       const empRows = (await empRes.json()) as EmployeeRow[];
       setEmployees(empRows);
-      setDraft(matrixToDraft(matrix));
+      const nextDraft = matrixToDraft(matrix);
+      setDraft(nextDraft);
+      setSavedSnapshot(JSON.stringify(nextDraft));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");
     } finally {
@@ -133,6 +137,16 @@ export function AccessManagementPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const isDirty =
+    !loading && savedSnapshot !== "" && JSON.stringify(draft) !== savedSnapshot;
+
+  useUnsavedChangesGuard({
+    isDirty,
+    bypass: saving,
+    description:
+      "You have unsaved changes to access management. Leave this page?",
+  });
 
   const updateRow = (
     featureKey: ManagedFeatureKey,
@@ -179,7 +193,9 @@ export function AccessManagementPage() {
         throw new Error(msg);
       }
       const matrix = (await res.json()) as MatrixRow[];
-      setDraft(matrixToDraft(matrix));
+      const nextDraft = matrixToDraft(matrix);
+      setDraft(nextDraft);
+      setSavedSnapshot(JSON.stringify(nextDraft));
       setRowErrors({});
       setSaveMessage("Access settings saved.");
       await refreshFeatureAccess();

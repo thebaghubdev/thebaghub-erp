@@ -4,6 +4,7 @@ import { Link, useParams } from "react-router-dom";
 import { DataTable } from "../components/data-table/DataTable";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { usePortalAuth } from "../context/portal-auth";
+import { useUnsavedChangesGuard } from "../context/unsaved-changes";
 import { apiFetch } from "../lib/api";
 import { branchLabel } from "../lib/consignment-schedule-labels";
 import {
@@ -193,6 +194,33 @@ export function ClientAccountDetailPage() {
   const [vouchers, setVouchers] = useState<ClientVoucherRow[]>([]);
   const [vouchersLoading, setVouchersLoading] = useState(false);
   const [vouchersError, setVouchersError] = useState<string | null>(null);
+
+  const clientAccountDirty = Boolean(
+    detail &&
+      ((vipEditOpen && vipEditValue !== detail.vipStatus) ||
+        (creditLineEditOpen && creditLineEditValue !== detail.isCreditLine) ||
+        (paymentEditOpen &&
+          (paymentMethodEdit !==
+            (parseClientPaymentMethod(detail.preferredPaymentMethod) ??
+              "check_pickup") ||
+            paymentBranchEdit !==
+              parseClientPaymentBranch(detail.preferredPaymentBranch) ||
+            bankCodeEdit !==
+              (detail.bankCode === "bdo" ||
+              detail.bankCode === "bpi" ||
+              detail.bankCode === "other"
+                ? detail.bankCode
+                : "") ||
+            accountNumberEdit !== (detail.bankAccountNumber ?? "") ||
+            accountNameEdit !== (detail.bankAccountName ?? "")))),
+  );
+
+  useUnsavedChangesGuard({
+    isDirty: clientAccountDirty,
+    bypass: vipEditSaving || creditLineEditSaving || paymentEditSaving,
+    description:
+      "You have unsaved changes to this client account. Leave this page?",
+  });
 
   const loadVouchers = useCallback(async () => {
     if (!token || !clientId) return;

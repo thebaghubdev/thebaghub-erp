@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePortalAuth } from "../context/portal-auth";
+import { useUnsavedChangesGuard } from "../context/unsaved-changes";
 import { apiFetch } from "../lib/api";
 import { useFeatureAccess } from "../lib/use-feature-access";
 
@@ -65,6 +66,21 @@ export function SettingsPage() {
   const [stringArrayAdd, setStringArrayAdd] = useState("");
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  const isDirty = Boolean(
+    editingKey &&
+      (stringArrayEdit
+        ? stringArrayAdd.trim() !== "" ||
+          buildStringArrayValue(stringArrayEdit) !==
+            (rows.find((r) => r.key === editingKey)?.value ?? "")
+        : draftValue !== (rows.find((r) => r.key === editingKey)?.value ?? "")),
+  );
+
+  useUnsavedChangesGuard({
+    isDirty,
+    bypass: saving,
+    description: "You have unsaved changes to this setting. Leave this page?",
+  });
 
   const loadSettings = useCallback(async () => {
     setError(null);

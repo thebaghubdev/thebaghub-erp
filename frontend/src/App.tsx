@@ -8,6 +8,7 @@ import { ClientHtmlTheme } from './components/ClientHtmlTheme'
 import { PortalHtmlTheme } from './components/PortalHtmlTheme'
 import { ClientAuthProvider } from './context/client-auth'
 import { PortalAuthProvider } from './context/portal-auth'
+import { UnsavedChangesProvider } from './context/unsaved-changes'
 import { ClientLayout } from './components/ClientLayout'
 import { Layout } from './components/Layout'
 import { RequireClientAuth } from './components/RequireClientAuth'
@@ -88,7 +89,9 @@ function PortalBranch() {
   return (
     <>
       <PortalHtmlTheme />
-      <Outlet />
+      <UnsavedChangesProvider>
+        <Outlet />
+      </UnsavedChangesProvider>
     </>
   )
 }
@@ -97,7 +100,9 @@ function ClientBranch() {
   return (
     <>
       <ClientHtmlTheme />
-      <Outlet />
+      <UnsavedChangesProvider>
+        <Outlet />
+      </UnsavedChangesProvider>
     </>
   )
 }

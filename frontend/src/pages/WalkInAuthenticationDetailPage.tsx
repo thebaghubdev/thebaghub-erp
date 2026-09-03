@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   MetricAuthCard,
@@ -9,6 +9,7 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { PhpPriceInput } from "../components/PhpPriceInput";
 import { SearchableSelect } from "../components/SearchableSelect";
 import { usePortalAuth } from "../context/portal-auth";
+import { useUnsavedChangesGuard } from "../context/unsaved-changes";
 import { apiFetch } from "../lib/api";
 import { sortPicklistValues } from "../lib/picklist-to-filter-options";
 import {
@@ -171,6 +172,7 @@ export function WalkInAuthenticationDetailPage() {
     Record<string, MetricDraftValue>
   >({});
   const [result, setResult] = useState<string>("");
+  const savedSnapshotRef = useRef("");
 
   const myEmployeeId = user?.employee?.id ?? null;
   const feature = useFeatureAccess("walk-in-authentication");
@@ -189,6 +191,49 @@ export function WalkInAuthenticationDetailPage() {
   }, [detail, user?.isAdmin, myEmployeeId]);
 
   const canEdit = roleCanEdit && feature.canEdit;
+
+  const walkInDirty =
+    canEdit &&
+    !loading &&
+    (certificateFiles.length > 0 ||
+      Object.values(draftByMetricId).some((d) => d.files.length > 0) ||
+      JSON.stringify({
+        itemModel,
+        brand,
+        category,
+        serialNumber,
+        color,
+        material,
+        inclusions,
+        dimensions,
+        marketPrice,
+        retailPrice,
+        marketResearchNotes,
+        marketResearchLink,
+        authenticatorNotes,
+        thirdPartyAuthenticator,
+        certificateLink,
+        certificateNotes,
+        certificatePhotos,
+        result,
+        drafts: Object.fromEntries(
+          Object.entries(draftByMetricId).map(([key, d]) => [
+            key,
+            {
+              metricStatus: d.metricStatus,
+              notes: d.notes,
+              photos: d.photos,
+            },
+          ]),
+        ),
+      }) !== savedSnapshotRef.current);
+
+  useUnsavedChangesGuard({
+    isDirty: walkInDirty,
+    bypass: busy,
+    description:
+      "You have unsaved authentication changes. Leave this page?",
+  });
 
   const load = useCallback(async () => {
     if (!token || !id) return;
@@ -237,6 +282,41 @@ export function WalkInAuthenticationDetailPage() {
         };
       }
       setDraftByMetricId(drafts);
+      savedSnapshotRef.current = JSON.stringify({
+        itemModel: data.itemModel ?? "",
+        brand: data.brand ?? "",
+        category: data.category ?? "",
+        serialNumber: data.serialNumber ?? "",
+        color: data.color ?? "",
+        material: data.material ?? "",
+        inclusions: data.inclusions ?? "",
+        dimensions: data.dimensions ?? "",
+        marketPrice: data.marketPrice ?? "",
+        retailPrice: data.retailPrice ?? "",
+        marketResearchNotes: data.marketResearchNotes ?? "",
+        marketResearchLink: data.marketResearchLink ?? "",
+        authenticatorNotes: data.authenticatorNotes ?? "",
+        thirdPartyAuthenticator:
+          data.thirdPartyAuthentication?.selectedAuthenticator ?? "",
+        certificateLink: data.thirdPartyAuthentication?.certificateLink ?? "",
+        certificateNotes: data.thirdPartyAuthentication?.notes ?? "",
+        certificatePhotos: Array.isArray(
+          data.thirdPartyAuthentication?.certificatePhotos,
+        )
+          ? [...data.thirdPartyAuthentication.certificatePhotos]
+          : [],
+        result: data.result ?? "",
+        drafts: Object.fromEntries(
+          Object.entries(drafts).map(([key, d]) => [
+            key,
+            {
+              metricStatus: d.metricStatus,
+              notes: d.notes,
+              photos: d.photos,
+            },
+          ]),
+        ),
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");
       setDetail(null);

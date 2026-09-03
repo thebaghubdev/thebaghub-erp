@@ -2,11 +2,13 @@ import { createColumnHelper } from "@tanstack/react-table";
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DataTable } from "../components/data-table/DataTable";
 import { PhpPriceInput } from "../components/PhpPriceInput";
 import { SearchableSelect } from "../components/SearchableSelect";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { usePortalAuth } from "../context/portal-auth";
+import { useUnsavedChangesGuard } from "../context/unsaved-changes";
 import { apiFetch } from "../lib/api";
 import { canAssignWorkToOthers } from "../lib/employee-position";
 import { sortPicklistValues } from "../lib/picklist-to-filter-options";
@@ -140,6 +142,19 @@ export function WalkInAuthenticationPage() {
   const [createBusy, setCreateBusy] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [createSuccess, setCreateSuccess] = useState<string | null>(null);
+  const [tabLeaveOpen, setTabLeaveOpen] = useState(false);
+
+  const createDirty =
+    tab === "create" &&
+    (JSON.stringify(form) !== JSON.stringify(emptyCreateForm()) ||
+      proofFile != null);
+
+  useUnsavedChangesGuard({
+    isDirty: createDirty,
+    bypass: createBusy,
+    description:
+      "You have unsaved changes to this walk-in authentication. Leave this page?",
+  });
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -443,6 +458,18 @@ export function WalkInAuthenticationPage() {
           You have view-only access to this feature.
         </p>
       ) : null}
+      <ConfirmDialog
+        open={tabLeaveOpen}
+        title="Unsaved changes"
+        description="You have unsaved changes to this walk-in authentication. Switch tabs anyway?"
+        cancelLabel="Stay"
+        confirmLabel="Switch tab"
+        onCancel={() => setTabLeaveOpen(false)}
+        onConfirm={() => {
+          setTab("queue");
+          setTabLeaveOpen(false);
+        }}
+      />
 
       <div className="flex gap-2 border-b border-slate-200 dark:border-slate-700">
         <button
@@ -453,7 +480,13 @@ export function WalkInAuthenticationPage() {
               ? "border-b-2 border-violet-600 text-violet-800 dark:text-violet-200"
               : "text-slate-600 hover:text-slate-900 dark:text-slate-400",
           ].join(" ")}
-          onClick={() => setTab("queue")}
+          onClick={() => {
+            if (tab === "create" && createDirty) {
+              setTabLeaveOpen(true);
+              return;
+            }
+            setTab("queue");
+          }}
         >
           Queue
         </button>

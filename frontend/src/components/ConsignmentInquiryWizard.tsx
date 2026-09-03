@@ -6,8 +6,8 @@ import {
   useRef,
   useState,
 } from 'react'
-import { useBlocker, type BlockerFunction } from 'react-router-dom'
 import { useClientAuth } from '../context/client-auth'
+import { useUnsavedChangesGuard } from '../context/unsaved-changes'
 import { apiFetch } from '../lib/api'
 import {
   buildSnapshotFromWizardState,
@@ -279,27 +279,6 @@ export const ConsignmentInquiryWizard = forwardRef<
     inquiryConsignmentTermsAccepted,
     reviewExpandedById,
   ])
-
-  useEffect(() => {
-    if (!hasUnsavedEdits) return
-    const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      e.preventDefault()
-      e.returnValue = ''
-    }
-    window.addEventListener('beforeunload', onBeforeUnload)
-    return () => window.removeEventListener('beforeunload', onBeforeUnload)
-  }, [hasUnsavedEdits])
-
-  const shouldBlockRouterNavigation = useCallback<BlockerFunction>(
-    ({ currentLocation, nextLocation }) =>
-      hasUnsavedEdits &&
-      !submitting &&
-      !saveBusy &&
-      currentLocation.pathname !== nextLocation.pathname,
-    [hasUnsavedEdits, submitting, saveBusy],
-  )
-
-  const blocker = useBlocker(shouldBlockRouterNavigation)
 
   const clearDraft = useCallback((revoke: boolean) => {
     if (revoke) revokeAll(draftImages)
@@ -585,6 +564,32 @@ export const ConsignmentInquiryWizard = forwardRef<
     reviewExpandedById,
   ])
 
+  const renderLeaveDialog = useCallback(
+    (ctrl: {
+      open: boolean
+      onStay: () => void
+      onLeave: () => void
+    }) => (
+      <UnsavedConsignmentDraftDialog
+        open={ctrl.open}
+        saveBusy={saveBusy}
+        onStay={ctrl.onStay}
+        onLeaveWithoutSaving={ctrl.onLeave}
+        onSave={async () => {
+          const ok = await persistDraft()
+          if (ok) ctrl.onLeave()
+        }}
+      />
+    ),
+    [persistDraft, saveBusy],
+  )
+
+  useUnsavedChangesGuard({
+    isDirty: hasUnsavedEdits,
+    bypass: submitting,
+    renderDialog: renderLeaveDialog,
+  })
+
   useImperativeHandle(
     ref,
     () => ({
@@ -610,16 +615,6 @@ export const ConsignmentInquiryWizard = forwardRef<
         onClose={() => setConsignmentTermsModalOpen(false)}
         url={CONSIGNMENT_TERMS_URL}
         title="Consignment — terms and conditions"
-      />
-      <UnsavedConsignmentDraftDialog
-        open={blocker.state === 'blocked'}
-        saveBusy={saveBusy}
-        onStay={() => blocker.reset?.()}
-        onLeaveWithoutSaving={() => blocker.proceed?.()}
-        onSave={async () => {
-          const ok = await persistDraft()
-          if (ok) blocker.proceed?.()
-        }}
       />
       <ConfirmDialog
         open={pendingDeleteItem !== null}

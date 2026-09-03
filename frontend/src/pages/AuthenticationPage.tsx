@@ -7,6 +7,7 @@ import { DataTable } from "../components/data-table/DataTable";
 import { SearchableSelect } from "../components/SearchableSelect";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { usePortalAuth } from "../context/portal-auth";
+import { useUnsavedChangesGuard } from "../context/unsaved-changes";
 import { apiFetch } from "../lib/api";
 import { canAssignWorkToOthers } from "../lib/employee-position";
 import { useFeatureAccess } from "../lib/use-feature-access";
@@ -294,6 +295,21 @@ export function AuthenticationPage() {
   const [assignBusy, setAssignBusy] = useState(false);
   const [assignError, setAssignError] = useState<string | null>(null);
   const assignModalTitleId = useId();
+
+  const metricCreateDirty =
+    createModalOpen &&
+    (createForm.metricCategory.trim() !== "" ||
+      createForm.metric.trim() !== "" ||
+      createForm.description.trim() !== "" ||
+      createForm.type !== "default" ||
+      createForm.model.trim() !== "");
+
+  useUnsavedChangesGuard({
+    isDirty: metricCreateDirty,
+    bypass: createBusy,
+    description:
+      "You have unsaved changes to this authentication metric. Leave this page?",
+  });
 
   const metricCategoryFilterOptions = useMemo(
     () =>

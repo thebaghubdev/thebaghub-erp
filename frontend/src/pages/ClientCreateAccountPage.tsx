@@ -3,6 +3,7 @@ import { Link, Navigate } from "react-router-dom";
 import { PasswordField } from "../components/PasswordField";
 import { TurnstileChallenge } from "../components/TurnstileChallenge";
 import { useClientAuth } from "../context/client-auth";
+import { useUnsavedChangesGuard } from "../context/unsaved-changes";
 import { apiUrl } from "../lib/api";
 
 const turnstileSiteKey =
@@ -22,6 +23,22 @@ export function ClientCreateAccountPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  const createAccountDirty =
+    password !== "" ||
+    confirmPassword !== "" ||
+    firstName.trim() !== "" ||
+    lastName.trim() !== "" ||
+    email.trim() !== "" ||
+    contactNumber.trim() !== "" ||
+    completeAddress.trim() !== "";
+
+  useUnsavedChangesGuard({
+    isDirty: createAccountDirty,
+    bypass: submitting,
+    description:
+      "You have unsaved changes to this account form. Leave this page?",
+  });
 
   if (token) {
     return <Navigate to="/consignments" replace />;

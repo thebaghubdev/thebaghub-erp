@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useBlocker, type BlockerFunction } from "react-router-dom";
 import { apiFetch } from "../lib/api";
+import { useUnsavedChangesGuard } from "../context/unsaved-changes";
 import { randomId } from "../lib/random-id";
 import { formatPhpDisplay } from "../lib/format-php";
 import { StaffWalkInConsignmentItemForm } from "./StaffWalkInConsignmentItemForm";
@@ -184,25 +184,12 @@ export function StaffWalkInConsignmentWizard({
     };
   }, [onDirtyChange]);
 
-  useEffect(() => {
-    if (!isWizardDirty) return;
-    const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      e.preventDefault();
-      e.returnValue = "";
-    };
-    window.addEventListener("beforeunload", onBeforeUnload);
-    return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [isWizardDirty]);
-
-  const shouldBlockRouterNavigation = useCallback<BlockerFunction>(
-    ({ currentLocation, nextLocation }) =>
-      isWizardDirty &&
-      !submitting &&
-      currentLocation.pathname !== nextLocation.pathname,
-    [isWizardDirty, submitting],
-  );
-
-  const blocker = useBlocker(shouldBlockRouterNavigation);
+  useUnsavedChangesGuard({
+    isDirty: isWizardDirty,
+    bypass: submitting,
+    description:
+      "You have unsaved changes to this consignment inquiry. Leave this page?",
+  });
 
   const clearDraft = useCallback(
     (revoke: boolean) => {
@@ -454,15 +441,6 @@ export function StaffWalkInConsignmentWizard({
         title={notice.title}
         message={notice.message}
         onClose={() => setNotice((n) => ({ ...n, open: false }))}
-      />
-      <ConfirmDialog
-        open={blocker.state === "blocked"}
-        title="Leave this page?"
-        description="You have unsaved changes to this consignment inquiry. Leave this page?"
-        cancelLabel="Stay"
-        confirmLabel="Leave"
-        onCancel={() => blocker.reset?.()}
-        onConfirm={() => blocker.proceed?.()}
       />
       <ConfirmDialog
         open={pendingDeleteItem !== null}

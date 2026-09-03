@@ -17,6 +17,7 @@ import {
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { PhpPriceInput } from "../components/PhpPriceInput";
 import { usePortalAuth } from "../context/portal-auth";
+import { useUnsavedChangesGuard } from "../context/unsaved-changes";
 import { useFeatureAccess } from "../lib/use-feature-access";
 import { apiFetch } from "../lib/api";
 import { formatPhpDisplay, parsePhpStringToNumber } from "../lib/format-php";
@@ -600,6 +601,13 @@ export function ItemAuthenticationPage() {
   ]);
 
   const isDirty = metricsDirty || authFormDirty || thirdPartyAuthDirty;
+
+  useUnsavedChangesGuard({
+    isDirty,
+    bypass: saveBusy || approveBusy,
+    description:
+      "You have unsaved authentication changes. Leave this page?",
+  });
 
   const approveSummaryRows = useMemo(() => {
     const out: Array<{

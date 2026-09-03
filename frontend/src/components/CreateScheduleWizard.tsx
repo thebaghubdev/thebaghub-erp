@@ -5,6 +5,7 @@ import { DataTable } from "./data-table/DataTable";
 import { DatePickerField } from "./DatePickerField";
 import { SubmittedAtCell } from "./SubmittedAtCell";
 import { usePortalAuth } from "../context/portal-auth";
+import { useUnsavedChangesGuard } from "../context/unsaved-changes";
 import { apiFetch } from "../lib/api";
 import {
   branchLabel,
@@ -74,9 +75,10 @@ async function readApiErrorMessage(res: Response): Promise<string> {
 
 type Props = {
   onScheduleSaved?: () => void;
+  onDirtyChange?: (dirty: boolean) => void;
 };
 
-export function CreateScheduleWizard({ onScheduleSaved }: Props) {
+export function CreateScheduleWizard({ onScheduleSaved, onDirtyChange }: Props) {
   const { token } = usePortalAuth();
   const [step, setStep] = useState<1 | 2 | 3>(1);
 
@@ -103,6 +105,29 @@ export function CreateScheduleWizard({ onScheduleSaved }: Props) {
   const [saveLoading, setSaveLoading] = useState(false);
   const [limitExceededDialogOpen, setLimitExceededDialogOpen] =
     useState(false);
+
+  const isDirty =
+    step !== 1 ||
+    selectedIds.length > 0 ||
+    deliveryDate !== "" ||
+    scheduleKind !== "delivery" ||
+    branch !== "pasig" ||
+    mode !== DELIVERY_MODE_OPTIONS[0].value;
+
+  useEffect(() => {
+    onDirtyChange?.(isDirty);
+  }, [isDirty, onDirtyChange]);
+
+  useEffect(() => {
+    return () => onDirtyChange?.(false);
+  }, [onDirtyChange]);
+
+  useUnsavedChangesGuard({
+    isDirty,
+    bypass: saveLoading,
+    description:
+      "You have unsaved changes to this schedule. Leave this page?",
+  });
 
   useEffect(() => {
     if (scheduleKind === "delivery") {

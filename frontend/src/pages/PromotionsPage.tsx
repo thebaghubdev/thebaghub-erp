@@ -5,6 +5,7 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DataTable } from "../components/data-table/DataTable";
 import { DatePickerField } from "../components/DatePickerField";
 import { usePortalAuth } from "../context/portal-auth";
+import { useUnsavedChangesGuard } from "../context/unsaved-changes";
 import { apiFetch } from "../lib/api";
 import { formatPhpDisplay } from "../lib/format-php";
 import {
@@ -199,12 +200,30 @@ export function PromotionsPage() {
   const [wizardError, setWizardError] = useState<string | null>(null);
   const [submitBusy, setSubmitBusy] = useState(false);
 
+  const createDirty =
+    tab === "create" &&
+    (promotionName.trim() !== "" ||
+      startDate !== "" ||
+      endDate !== "" ||
+      pickerSelected.size > 0 ||
+      pricingRows.length > 0 ||
+      wizardStep !== 1 ||
+      editingId != null);
+
+  useUnsavedChangesGuard({
+    isDirty: createDirty,
+    bypass: submitBusy,
+    description:
+      "You have unsaved changes to this promotion. Leave this page?",
+  });
+
   const [bulkModalOpen, setBulkModalOpen] = useState(false);
   const [bulkDiscountType, setBulkDiscountType] = useState<"percent" | "value">(
     "percent",
   );
   const [bulkAmount, setBulkAmount] = useState("");
   const [bulkError, setBulkError] = useState<string | null>(null);
+  const [tabLeaveOpen, setTabLeaveOpen] = useState(false);
 
   const onPromoPriceChange = useCallback(
     (inventoryId: string, promoPrice: string) => {
@@ -644,6 +663,19 @@ export function PromotionsPage() {
           You have view-only access to this feature.
         </p>
       ) : null}
+      <ConfirmDialog
+        open={tabLeaveOpen}
+        title="Unsaved changes"
+        description="You have unsaved changes to this promotion. Switch tabs anyway?"
+        cancelLabel="Stay"
+        confirmLabel="Switch tab"
+        onCancel={() => setTabLeaveOpen(false)}
+        onConfirm={() => {
+          setTab("list");
+          resetWizard();
+          setTabLeaveOpen(false);
+        }}
+      />
       <div
         className="mb-6 flex items-end gap-2 border-b border-slate-200 dark:border-slate-800"
         role="tablist"
@@ -661,6 +693,10 @@ export function PromotionsPage() {
               : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
           }`}
           onClick={() => {
+            if (tab === "create" && createDirty) {
+              setTabLeaveOpen(true);
+              return;
+            }
             setTab("list");
             resetWizard();
           }}

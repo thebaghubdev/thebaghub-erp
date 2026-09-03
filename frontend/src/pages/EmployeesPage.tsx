@@ -4,6 +4,7 @@ import { HireDatePicker } from "../components/HireDatePicker";
 import { HorizontalScrollMirror } from "../components/HorizontalScrollMirror";
 import { TablePaginationBar } from "../components/TablePaginationBar";
 import { usePortalAuth } from "../context/portal-auth";
+import { useUnsavedChangesGuard } from "../context/unsaved-changes";
 import { apiFetch } from "../lib/api";
 import { isCeoPosition, isGeneralManagerPosition } from "../lib/employee-position";
 import { useFeatureAccess } from "../lib/use-feature-access";
@@ -68,6 +69,23 @@ export function EmployeesPage() {
   const [efPosition, setEfPosition] = useState("");
   const [editError, setEditError] = useState<string | null>(null);
   const [editSaving, setEditSaving] = useState(false);
+
+  const employeeEditDirty = Boolean(
+    editRow &&
+      (efFirst !== editRow.firstName ||
+        efLast !== editRow.lastName ||
+        efEmail !== editRow.email ||
+        efContact !== editRow.contactNumber ||
+        efHire !== editRow.hireDate ||
+        efPosition !== editRow.position),
+  );
+
+  useUnsavedChangesGuard({
+    isDirty: employeeEditDirty,
+    bypass: editSaving,
+    description:
+      "You have unsaved changes to this employee. Leave this page?",
+  });
 
   const employeesPagination = useClientPagination(employees);
 

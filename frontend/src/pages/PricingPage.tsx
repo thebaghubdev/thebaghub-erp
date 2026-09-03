@@ -6,6 +6,7 @@ import { DataTable } from "../components/data-table/DataTable";
 import { InventoryStatusBadge } from "../components/InventoryStatusBadge";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { usePortalAuth } from "../context/portal-auth";
+import { useUnsavedChangesGuard } from "../context/unsaved-changes";
 import { apiFetch } from "../lib/api";
 import { branchLabel } from "../lib/consignment-schedule-labels";
 import { formatOfferTransactionLabel } from "../lib/format-offer-transaction-type";
@@ -224,6 +225,24 @@ export function PricingPage() {
     setDraftEnableDiscountById({});
     setPricingSaveError(null);
   }, [closeMarkupRangeWarning]);
+
+  const pricingDirty =
+    pricingEditMode &&
+    rows.some((r) => {
+      const n = normalizedStoredTbh(r.tbhSellingPrice);
+      const expected = n != null ? n : "";
+      if ((draftTbhById[r.id] ?? "") !== expected) return true;
+      if ((draftEnableDiscountById[r.id] ?? false) !== (r.enableDiscount ?? false)) {
+        return true;
+      }
+      return false;
+    });
+
+  useUnsavedChangesGuard({
+    isDirty: pricingDirty,
+    bypass: savingPricing,
+    description: "You have unsaved pricing changes. Leave this page?",
+  });
 
   const performPricingSave = useCallback(
     async (updates: PricingUpdate[]) => {

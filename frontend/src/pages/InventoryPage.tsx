@@ -2,6 +2,7 @@ import { createColumnHelper } from "@tanstack/react-table";
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AddStockInventoryItemForm } from "../components/AddStockInventoryItemForm";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DataTable } from "../components/data-table/DataTable";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { usePortalAuth } from "../context/portal-auth";
@@ -154,6 +155,8 @@ export function InventoryPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [addSuccess, setAddSuccess] = useState<string | null>(null);
+  const [addFormDirty, setAddFormDirty] = useState(false);
+  const [tabLeaveOpen, setTabLeaveOpen] = useState(false);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -182,11 +185,31 @@ export function InventoryPage() {
     }
   }, [tab, canAddInventoryItem]);
 
+  const requestTab = (next: InventoryTab) => {
+    if (tab === "add" && next === "all" && addFormDirty) {
+      setTabLeaveOpen(true);
+      return;
+    }
+    setTab(next);
+  };
+
   const tabBtn =
     "-mb-px border-b-2 border-transparent px-4 py-2 text-sm font-medium transition-colors focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500";
 
   return (
     <div className="w-full min-w-0">
+      <ConfirmDialog
+        open={tabLeaveOpen}
+        title="Unsaved changes"
+        description="You have unsaved changes to this stock item. Switch tabs anyway?"
+        cancelLabel="Stay"
+        confirmLabel="Switch tab"
+        onCancel={() => setTabLeaveOpen(false)}
+        onConfirm={() => {
+          setTab("all");
+          setTabLeaveOpen(false);
+        }}
+      />
       <div
         className="mb-6 flex items-end gap-2 border-b border-slate-200 dark:border-slate-800"
         role="tablist"
@@ -203,7 +226,7 @@ export function InventoryPage() {
               ? "border-violet-600 text-violet-700 dark:text-violet-300"
               : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
           }`}
-          onClick={() => setTab("all")}
+          onClick={() => requestTab("all")}
         >
           All Items
         </button>
@@ -219,7 +242,7 @@ export function InventoryPage() {
                 ? "border-violet-600 text-violet-700 dark:text-violet-300"
                 : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
             }`}
-            onClick={() => setTab("add")}
+            onClick={() => requestTab("add")}
           >
             Add Item
           </button>
@@ -279,6 +302,7 @@ export function InventoryPage() {
           ) : null}
           <AddStockInventoryItemForm
             portalToken={token}
+            onDirtyChange={setAddFormDirty}
             onCreated={({ sku }) => {
               setAddSuccess(
                 `Added ${sku} (For Authentication). You can add another item below.`,

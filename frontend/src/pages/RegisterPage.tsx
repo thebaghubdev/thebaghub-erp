@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { HireDatePicker } from "../components/HireDatePicker";
 import { PasswordField } from "../components/PasswordField";
 import { usePortalAuth } from "../context/portal-auth";
+import { useUnsavedChangesGuard } from "../context/unsaved-changes";
 import { apiFetch } from "../lib/api";
 import { isCeoPosition, isGeneralManagerPosition } from "../lib/employee-position";
 import { useFeatureAccess } from "../lib/use-feature-access";
@@ -47,6 +48,35 @@ export function RegisterPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  const isDirty = useMemo(
+    () =>
+      username.trim() !== "" ||
+      password !== "" ||
+      firstName.trim() !== "" ||
+      lastName.trim() !== "" ||
+      email.trim() !== "" ||
+      contactNumber.trim() !== "" ||
+      hireDate.trim() !== "" ||
+      position.trim() !== "",
+    [
+      username,
+      password,
+      firstName,
+      lastName,
+      email,
+      contactNumber,
+      hireDate,
+      position,
+    ],
+  );
+
+  useUnsavedChangesGuard({
+    isDirty,
+    bypass: submitting,
+    description:
+      "You have unsaved changes to this employee registration. Leave this page?",
+  });
 
   useEffect(() => {
     if (!token) {

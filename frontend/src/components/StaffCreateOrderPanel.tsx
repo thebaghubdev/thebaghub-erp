@@ -10,6 +10,7 @@ import { createPortal } from "react-dom";
 import { TermsScrollAgreeModal } from "./TermsScrollAgreeModal";
 import { OfferSignatureField } from "./OfferSignatureField";
 import { apiFetch } from "../lib/api";
+import { useUnsavedChangesGuard } from "../context/unsaved-changes";
 import { getLayawayEligibility } from "../lib/layaway-eligibility";
 import {
   calculateLayawayPricing,
@@ -303,13 +304,21 @@ export function StaffCreateOrderPanel({
     selectedItemId !== "" ||
     itemSearchQuery.trim() !== "" ||
     paymentType !== "full_payment" ||
+    layawayMonths !== String(DEFAULT_LAYAWAY_MONTHS) ||
     layawayTermsAccepted ||
     orderTermsAccepted ||
-    orderSignatureFile != null;
+    orderSignatureFile != null ||
+    JSON.stringify(pickupForm) !== JSON.stringify(EMPTY_ORDER_PICKUP_FORM);
 
   useEffect(() => {
     onDirtyChange?.(isDirty);
   }, [isDirty, onDirtyChange]);
+
+  useUnsavedChangesGuard({
+    isDirty,
+    bypass: submitBusy,
+    description: "You have unsaved changes to this order. Leave this page?",
+  });
 
   useEffect(() => {
     let cancelled = false;

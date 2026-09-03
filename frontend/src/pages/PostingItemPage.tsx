@@ -5,6 +5,7 @@ import { apiFetch } from "../lib/api";
 import { useFeatureAccess } from "../lib/use-feature-access";
 import { formatPhpDisplay } from "../lib/format-php";
 import { usePortalAuth } from "../context/portal-auth";
+import { useUnsavedChangesGuard } from "../context/unsaved-changes";
 
 type ItemPosting = {
   id: string;
@@ -62,6 +63,13 @@ export function PostingItemPage() {
   const [shopifyMessage, setShopifyMessage] = useState<string | null>(null);
   const [linkProductId, setLinkProductId] = useState("");
   const [linkingProduct, setLinkingProduct] = useState(false);
+
+  useUnsavedChangesGuard({
+    isDirty: linkProductId.trim() !== "",
+    bypass: linkingProduct || shopifyBusy,
+    description:
+      "You have unsaved changes on this posting form. Leave this page?",
+  });
 
   const load = useCallback(async () => {
     if (!itemId || !token) return;

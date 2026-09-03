@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { ConsignmentCalendar } from "../components/ConsignmentCalendar";
 import { CreateScheduleWizard } from "../components/CreateScheduleWizard";
 import { usePortalAuth } from "../context/portal-auth";
@@ -28,6 +29,8 @@ export function ConsignmentSchedulingPage() {
   const [rows, setRows] = useState<ConsignmentScheduleRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [createDirty, setCreateDirty] = useState(false);
+  const [tabLeaveOpen, setTabLeaveOpen] = useState(false);
 
   const load = useCallback(async () => {
     setError(null);
@@ -58,6 +61,18 @@ export function ConsignmentSchedulingPage() {
           You have view-only access to this feature.
         </p>
       ) : null}
+      <ConfirmDialog
+        open={tabLeaveOpen}
+        title="Unsaved changes"
+        description="You have unsaved changes to this schedule. Switch tabs anyway?"
+        cancelLabel="Stay"
+        confirmLabel="Switch tab"
+        onCancel={() => setTabLeaveOpen(false)}
+        onConfirm={() => {
+          setTab("calendar");
+          setTabLeaveOpen(false);
+        }}
+      />
       <div
         className="mb-6 flex items-end gap-2 border-b border-slate-200 dark:border-slate-800"
         role="tablist"
@@ -74,7 +89,13 @@ export function ConsignmentSchedulingPage() {
               ? "border-violet-600 text-violet-700 dark:text-violet-300"
               : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
           }`}
-          onClick={() => setTab("calendar")}
+          onClick={() => {
+            if (tab === "create" && createDirty) {
+              setTabLeaveOpen(true);
+              return;
+            }
+            setTab("calendar");
+          }}
         >
           Consignment Calendar
         </button>
@@ -91,6 +112,7 @@ export function ConsignmentSchedulingPage() {
                 : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
             }`}
             onClick={() => {
+              if (tab === "create") return;
               setTab("create");
               setCreateWizardKey((k) => k + 1);
             }}
@@ -125,6 +147,7 @@ export function ConsignmentSchedulingPage() {
           className="min-h-[12rem]"
         >
           <CreateScheduleWizard
+            onDirtyChange={setCreateDirty}
             onScheduleSaved={() => {
               void load().then(() => setTab("calendar"));
             }}

@@ -11,6 +11,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { OfferSignatureField } from "../components/OfferSignatureField";
 import { TermsScrollAgreeModal } from "../components/TermsScrollAgreeModal";
 import { useClientAuth } from "../context/client-auth";
+import { useUnsavedChangesGuard } from "../context/unsaved-changes";
 import { apiFetch } from "../lib/api";
 import { formatPhpDisplay } from "../lib/format-php";
 import {
@@ -159,6 +160,19 @@ export function ClientReserveItemPage() {
     EMPTY_ORDER_PICKUP_FORM,
   );
   const photosModalTitleId = useId();
+
+  const reserveFormDirty =
+    proofFile != null ||
+    termsAccepted ||
+    signatureFile != null ||
+    JSON.stringify(pickupForm) !== JSON.stringify(EMPTY_ORDER_PICKUP_FORM);
+
+  useUnsavedChangesGuard({
+    isDirty: reserveFormDirty,
+    bypass: submitBusy,
+    description:
+      "You have unsaved changes to this reservation. Leave this page?",
+  });
 
   useEffect(() => {
     let cancelled = false;

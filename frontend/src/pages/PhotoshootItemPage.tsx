@@ -3,6 +3,7 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import type { PhotoshootCalendarRow } from "../components/PhotoshootCalendar";
 import { usePortalAuth } from "../context/portal-auth";
+import { useUnsavedChangesGuard } from "../context/unsaved-changes";
 import { apiFetch } from "../lib/api";
 import { randomId } from "../lib/random-id";
 import { useFeatureAccess } from "../lib/use-feature-access";
@@ -80,6 +81,7 @@ export function PhotoshootItemPage() {
   const [finishError, setFinishError] = useState<string | null>(null);
   const photoEntriesRef = useRef<PhotoEntry[]>([]);
   photoEntriesRef.current = photoEntries;
+  const savedPhotoKeysBaselineRef = useRef("");
 
   useEffect(() => {
     return () => {
@@ -109,7 +111,16 @@ export function PhotoshootItemPage() {
         const data = (await res.json()) as PhotoshootCalendarRow;
         if (!cancelled) {
           setMeta(data);
-          setPhotoEntries(entriesFromMetaPhotos(data.photos));
+          const entries = entriesFromMetaPhotos(data.photos);
+          setPhotoEntries(entries);
+          savedPhotoKeysBaselineRef.current = JSON.stringify(
+            entries
+              .filter(
+                (e): e is Extract<PhotoEntry, { kind: "saved" }> =>
+                  e.kind === "saved",
+              )
+              .map((e) => e.key),
+          );
         }
       } catch (e) {
         if (!cancelled) {
@@ -134,6 +145,25 @@ export function PhotoshootItemPage() {
         (meta?.assignedToEmployeeId != null &&
           user?.employee?.id === meta.assignedToEmployeeId)),
   );
+
+  const photosDirty =
+    canEditPhotoshoot &&
+    (photoEntries.some((e) => e.kind === "local") ||
+      JSON.stringify(
+        photoEntries
+          .filter(
+            (e): e is Extract<PhotoEntry, { kind: "saved" }> =>
+              e.kind === "saved",
+          )
+          .map((e) => e.key),
+      ) !== savedPhotoKeysBaselineRef.current);
+
+  useUnsavedChangesGuard({
+    isDirty: photosDirty,
+    bypass: saveSaving || finishSaving,
+    description:
+      "You have unsaved photoshoot changes. Leave this page?",
+  });
 
   const addFiles = useCallback((fileList: FileList | File[]) => {
     if (!canEditPhotoshoot) return;
@@ -191,12 +221,21 @@ export function PhotoshootItemPage() {
     try {
       const data = await persistPhotos();
       setMeta(data);
+      const nextEntries = entriesFromMetaPhotos(data.photos);
       setPhotoEntries((prev) => {
         for (const e of prev) {
           if (e.kind === "local") URL.revokeObjectURL(e.previewUrl);
         }
-        return entriesFromMetaPhotos(data.photos);
+        return nextEntries;
       });
+      savedPhotoKeysBaselineRef.current = JSON.stringify(
+        nextEntries
+          .filter(
+            (e): e is Extract<PhotoEntry, { kind: "saved" }> =>
+              e.kind === "saved",
+          )
+          .map((e) => e.key),
+      );
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : "Save failed");
     } finally {

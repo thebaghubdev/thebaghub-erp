@@ -5,6 +5,7 @@ import { DataTable } from "../components/data-table/DataTable";
 import { DatePickerField } from "../components/DatePickerField";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
 import { usePortalAuth } from "../context/portal-auth";
+import { useUnsavedChangesGuard } from "../context/unsaved-changes";
 import { apiFetch } from "../lib/api";
 import { formatPhpDisplay } from "../lib/format-php";
 import { useFeatureAccess } from "../lib/use-feature-access";
@@ -91,6 +92,20 @@ export function VouchersPage() {
   const [notes, setNotes] = useState("");
   const [saveBusy, setSaveBusy] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [tabLeaveOpen, setTabLeaveOpen] = useState(false);
+
+  const createDirty =
+    tab === "create" &&
+    (selectedClientId !== "" ||
+      amount.trim() !== "" ||
+      expirationDate !== "" ||
+      notes.trim() !== "");
+
+  useUnsavedChangesGuard({
+    isDirty: createDirty,
+    bypass: saveBusy,
+    description: "You have unsaved changes to this voucher. Leave this page?",
+  });
 
   const loadVouchers = useCallback(async () => {
     setError(null);
@@ -345,6 +360,18 @@ export function VouchersPage() {
           You have view-only access to this feature.
         </p>
       ) : null}
+      <ConfirmDialog
+        open={tabLeaveOpen}
+        title="Unsaved changes"
+        description="You have unsaved changes to this voucher. Switch tabs anyway?"
+        cancelLabel="Stay"
+        confirmLabel="Switch tab"
+        onCancel={() => setTabLeaveOpen(false)}
+        onConfirm={() => {
+          setTab("all");
+          setTabLeaveOpen(false);
+        }}
+      />
       <div
         className="mb-6 flex items-end gap-2 border-b border-slate-200 dark:border-slate-800"
         role="tablist"
@@ -361,7 +388,13 @@ export function VouchersPage() {
               ? "border-violet-600 text-violet-700 dark:text-violet-300"
               : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
           }`}
-          onClick={() => setTab("all")}
+          onClick={() => {
+            if (tab === "create" && createDirty) {
+              setTabLeaveOpen(true);
+              return;
+            }
+            setTab("all");
+          }}
         >
           All Vouchers
         </button>

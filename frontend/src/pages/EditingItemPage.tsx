@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 import type { PhotoshootCalendarRow } from "../components/PhotoshootCalendar";
 import { InventoryStatusBadge } from "../components/InventoryStatusBadge";
 import { RichTextEditor } from "../components/RichTextEditor";
 import { usePortalAuth } from "../context/portal-auth";
+import { useUnsavedChangesGuard } from "../context/unsaved-changes";
 import { apiFetch } from "../lib/api";
 import { sortPicklistValues } from "../lib/picklist-to-filter-options";
 import { useFeatureAccess } from "../lib/use-feature-access";
@@ -219,6 +220,7 @@ export function EditingItemPage() {
   const [tagQuery, setTagQuery] = useState("");
   /** Photoshoot image keys in click order (badges show 1…n). */
   const [photoSelectionOrder, setPhotoSelectionOrder] = useState<string[]>([]);
+  const editingBaselineRef = useRef<string | null>(null);
 
   useEffect(() => {
     setPhotoSelectionOrder([]);
@@ -320,33 +322,38 @@ export function EditingItemPage() {
       setDetail(detailJson);
       const enableDiscount = detailJson.enableDiscount ?? false;
       const posting = detailJson.itemPosting;
-      if (posting) {
-        setProductName(posting.productName);
-        setCollectionValue(posting.collections[0] ?? "");
-        setTagsSelected(posting.tags);
-        setPostDescription(
-          applyVipDiscountNoticeToDescription(
+      const nextProductName = posting
+        ? posting.productName
+        : buildProductName(detailJson.itemSnapshot.form);
+      const nextCollection = posting ? (posting.collections[0] ?? "") : "";
+      const nextTags = posting ? posting.tags : [];
+      const nextDescription = posting
+        ? applyVipDiscountNoticeToDescription(
             posting.productDescription ?? "",
             enableDiscount,
-          ),
-        );
-        setPhotoSelectionOrder(
-          selectedPhotoKeysFromSnapshot(posting.selectedPhotosSnapshot),
-        );
-      } else {
-        setProductName(buildProductName(detailJson.itemSnapshot.form));
-        setCollectionValue("");
-        setTagsSelected([]);
-        setPostDescription(
-          normalizeVipNoticeGap(
+          )
+        : normalizeVipNoticeGap(
             buildPostDescriptionHtml(
               detailJson.itemSnapshot.form,
               detailJson.authenticationDetails,
               enableDiscount,
             ),
-          ),
-        );
-      }
+          );
+      const nextPhotos = posting
+        ? selectedPhotoKeysFromSnapshot(posting.selectedPhotosSnapshot)
+        : [];
+      setProductName(nextProductName);
+      setCollectionValue(nextCollection);
+      setTagsSelected(nextTags);
+      setPostDescription(nextDescription);
+      setPhotoSelectionOrder(nextPhotos);
+      editingBaselineRef.current = JSON.stringify({
+        productName: nextProductName,
+        collectionValue: nextCollection,
+        tagsSelected: nextTags,
+        postDescription: nextDescription,
+        photoSelectionOrder: nextPhotos,
+      });
 
       if (!shootRes.ok) {
         setPhotoshootRow(null);
@@ -369,6 +376,23 @@ export function EditingItemPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const editingDirty =
+    editingBaselineRef.current != null &&
+    JSON.stringify({
+      productName,
+      collectionValue,
+      tagsSelected,
+      postDescription,
+      photoSelectionOrder,
+    }) !== editingBaselineRef.current;
+
+  useUnsavedChangesGuard({
+    isDirty: editingDirty,
+    bypass: postingSaving || postingSubmitting,
+    description:
+      "You have unsaved changes to this posting draft. Leave this page?",
+  });
 
   const togglePhotoshootPhoto = useCallback((key: string) => {
     setPhotoSelectionOrder((prev) => {
@@ -499,6 +523,13 @@ export function EditingItemPage() {
                 ? "Changes saved. Link a Shopify product to enable automatic updates."
                 : "Changes saved.",
         );
+        editingBaselineRef.current = JSON.stringify({
+          productName,
+          collectionValue,
+          tagsSelected,
+          postDescription,
+          photoSelectionOrder,
+        });
       } catch (err) {
         setPostingError(
           err instanceof Error ? err.message : "Could not save posting data.",

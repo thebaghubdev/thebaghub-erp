@@ -9,6 +9,7 @@ import {
 import { createPortal } from "react-dom";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useClientAuth } from "../context/client-auth";
+import { useUnsavedChangesGuard } from "../context/unsaved-changes";
 import { TermsScrollAgreeModal } from "../components/TermsScrollAgreeModal";
 import { OfferSignatureField } from "../components/OfferSignatureField";
 import { apiFetch } from "../lib/api";
@@ -215,6 +216,20 @@ export function ClientOrderItemPage() {
     EMPTY_ORDER_PICKUP_FORM,
   );
   const photosModalTitleId = useId();
+
+  const orderFormDirty =
+    paymentType !== "full_payment" ||
+    layawayMonths !== String(DEFAULT_LAYAWAY_MONTHS) ||
+    layawayTermsAccepted ||
+    orderTermsAccepted ||
+    orderSignatureFile != null ||
+    JSON.stringify(pickupForm) !== JSON.stringify(EMPTY_ORDER_PICKUP_FORM);
+
+  useUnsavedChangesGuard({
+    isDirty: orderFormDirty,
+    bypass: submitBusy,
+    description: "You have unsaved changes to this order. Leave this page?",
+  });
 
   useEffect(() => {
     let cancelled = false;

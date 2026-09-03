@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useState, type FormEvent } from "react";
 import { useClientAuth } from "../context/client-auth";
+import { useUnsavedChangesGuard } from "../context/unsaved-changes";
 import { apiFetch } from "../lib/api";
 import { branchLabel } from "../lib/consignment-schedule-labels";
 import {
@@ -147,6 +148,34 @@ export function ClientMyAccountPage() {
     setPaymentModalOpen(false);
     setPaymentSaveError(null);
   }, []);
+
+  const accountFormsDirty = Boolean(
+    (bankModalOpen &&
+      c &&
+      (accountNumber !== (c.bankAccountNumber ?? "") ||
+        accountName !== (c.bankAccountName ?? "") ||
+        bankCode !==
+          (c.bankCode === "bdo" || c.bankCode === "bpi" || c.bankCode === "other"
+            ? c.bankCode
+            : ""))) ||
+      (addressModalOpen &&
+        c &&
+        completeAddress !== (c.completeAddress ?? "")) ||
+      (paymentModalOpen &&
+        c &&
+        (paymentMethod !==
+          (parseClientPaymentMethod(c.preferredPaymentMethod) ??
+            "check_pickup") ||
+          paymentBranch !==
+            parseClientPaymentBranch(c.preferredPaymentBranch))),
+  );
+
+  useUnsavedChangesGuard({
+    isDirty: accountFormsDirty,
+    bypass: saveBusy || addressSaveBusy || paymentSaveBusy,
+    description:
+      "You have unsaved changes to your account. Leave this page?",
+  });
 
   useEffect(() => {
     if (!bankModalOpen) return;

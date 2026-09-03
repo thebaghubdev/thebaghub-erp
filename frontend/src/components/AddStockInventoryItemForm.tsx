@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "../lib/api";
+import { useUnsavedChangesGuard } from "../context/unsaved-changes";
 import { sortPicklistValues } from "../lib/picklist-to-filter-options";
 import { SearchableSelect } from "./SearchableSelect";
 
@@ -56,12 +57,18 @@ const optionalHint = " (Optional)";
 type Props = {
   portalToken: string | null;
   onCreated: (result: { id: string; sku: string }) => void;
+  onDirtyChange?: (dirty: boolean) => void;
 };
 
-export function AddStockInventoryItemForm({ portalToken, onCreated }: Props) {
+export function AddStockInventoryItemForm({
+  portalToken,
+  onCreated,
+  onDirtyChange,
+}: Props) {
   const [value, setValue] = useState<StockInventoryItemFormData>(() =>
     emptyStockInventoryItemForm(),
   );
+  const baselineRef = useRef(JSON.stringify(emptyStockInventoryItemForm()));
   const [options, setOptions] = useState<ConsignFormOptions>({
     brands: [],
     categories: [],
@@ -107,6 +114,23 @@ export function AddStockInventoryItemForm({ portalToken, onCreated }: Props) {
     void loadOptions();
   }, [loadOptions]);
 
+  const isDirty = JSON.stringify(value) !== baselineRef.current;
+
+  useEffect(() => {
+    onDirtyChange?.(isDirty);
+  }, [isDirty, onDirtyChange]);
+
+  useEffect(() => {
+    return () => onDirtyChange?.(false);
+  }, [onDirtyChange]);
+
+  useUnsavedChangesGuard({
+    isDirty,
+    bypass: submitting,
+    description:
+      "You have unsaved changes to this stock item. Leave this page?",
+  });
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!portalToken || submitting) return;
@@ -150,7 +174,9 @@ export function AddStockInventoryItemForm({ portalToken, onCreated }: Props) {
         throw new Error(message);
       }
       const created = (await res.json()) as { id: string; sku: string };
-      setValue(emptyStockInventoryItemForm());
+      const reset = emptyStockInventoryItemForm();
+      setValue(reset);
+      baselineRef.current = JSON.stringify(reset);
       onCreated(created);
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : "Could not add item");

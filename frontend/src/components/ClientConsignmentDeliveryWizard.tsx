@@ -3,6 +3,7 @@ import { DatePickerField } from './DatePickerField'
 import { HorizontalScrollMirror } from './HorizontalScrollMirror'
 import { SubmittedAtCell } from './SubmittedAtCell'
 import { useClientAuth } from '../context/client-auth'
+import { useUnsavedChangesGuard } from '../context/unsaved-changes'
 import { apiFetch } from '../lib/api'
 import {
   branchLabel,
@@ -80,6 +81,20 @@ export function ClientConsignmentDeliveryWizard({
   const [step1Error, setStep1Error] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saveLoading, setSaveLoading] = useState(false)
+
+  const deliveryDirty =
+    step !== 1 ||
+    selectedIds.length > 0 ||
+    deliveryDate !== '' ||
+    mode !== 'courier' ||
+    branch !== 'pasig'
+
+  useUnsavedChangesGuard({
+    isDirty: deliveryDirty,
+    bypass: saveLoading,
+    description:
+      'You have unsaved changes to this delivery schedule. Leave this page?',
+  })
 
   const deliveryOptions = useMemo(() => {
     const allowPickup = clientCanUsePickupService(user?.client?.vipStatus)
