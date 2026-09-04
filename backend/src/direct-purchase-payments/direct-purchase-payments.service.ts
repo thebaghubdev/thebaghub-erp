@@ -132,9 +132,10 @@ function parseOfferPrice(raw: string | null | undefined): number {
 }
 
 function formatPhpAmount(value: number): string {
-  return `₱${value.toLocaleString('en-PH', {
+  return `₱${value.toLocaleString('en-US', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
+    useGrouping: true,
   })}`;
 }
 

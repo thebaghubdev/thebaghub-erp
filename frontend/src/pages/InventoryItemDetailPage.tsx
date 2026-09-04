@@ -11,7 +11,7 @@ import { useClientPagination } from "../hooks/useClientPagination";
 import { apiFetch } from "../lib/api";
 import { branchLabel } from "../lib/consignment-schedule-labels";
 import { formatOfferTransactionLabel } from "../lib/format-offer-transaction-type";
-import { formatPhpDisplay } from "../lib/format-php";
+import { formatAuditTrailValue, formatPhpDisplay } from "../lib/format-php";
 import {
   clientVipStatusBadgeClassName,
   formatClientVipStatus,
@@ -959,10 +959,16 @@ export function InventoryItemDetailPage() {
                             {row.propertyName}
                           </td>
                           <td className="max-w-[10rem] min-w-0 py-2 pr-3 align-top whitespace-pre-wrap break-words text-slate-600 dark:text-slate-400">
-                            {row.fromValue ?? "—"}
+                            {formatAuditTrailValue(
+                              row.propertyName,
+                              row.fromValue,
+                            )}
                           </td>
                           <td className="max-w-[10rem] min-w-0 py-2 pr-3 align-top whitespace-pre-wrap break-words text-slate-600 dark:text-slate-400">
-                            {row.toValue ?? "—"}
+                            {formatAuditTrailValue(
+                              row.propertyName,
+                              row.toValue,
+                            )}
                           </td>
                           <td className="max-w-[10rem] min-w-0 py-2 pr-3 align-top break-words text-slate-700 dark:text-slate-300">
                             {row.updatedBy}

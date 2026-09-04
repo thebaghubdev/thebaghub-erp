@@ -20,7 +20,11 @@ import { usePortalAuth } from "../context/portal-auth";
 import { useClientPagination } from "../hooks/useClientPagination";
 import { apiFetch } from "../lib/api";
 import { canBypassOrderAssignment, isGeneralManagerPosition } from "../lib/employee-position";
-import { formatPhpDisplay, parsePhpStringToNumber } from "../lib/format-php";
+import {
+  formatAuditTrailValue,
+  formatPhpDisplay,
+  parsePhpStringToNumber,
+} from "../lib/format-php";
 import {
   vipPriceFieldLabel,
   type VipDiscountTier,
@@ -1781,10 +1785,16 @@ export function OrderDetailPage() {
                             {row.propertyName}
                           </td>
                           <td className="max-w-[10rem] min-w-0 py-2 pr-3 align-top whitespace-pre-wrap break-words text-slate-600 dark:text-slate-400">
-                            {row.fromValue ?? "—"}
+                            {formatAuditTrailValue(
+                              row.propertyName,
+                              row.fromValue,
+                            )}
                           </td>
                           <td className="max-w-[10rem] min-w-0 py-2 pr-3 align-top whitespace-pre-wrap break-words text-slate-600 dark:text-slate-400">
-                            {row.toValue ?? "—"}
+                            {formatAuditTrailValue(
+                              row.propertyName,
+                              row.toValue,
+                            )}
                           </td>
                           <td className="max-w-[10rem] min-w-0 py-2 pr-3 align-top break-words text-slate-700 dark:text-slate-300">
                             {row.updatedBy}

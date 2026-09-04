@@ -1,4 +1,5 @@
-import { parsePhpStringToNumber } from "../lib/format-php";
+import { useState } from "react";
+import { formatPhpInputDisplay, parsePhpStringToNumber } from "../lib/format-php";
 
 type PhpPriceInputProps = {
   id: string;
@@ -13,7 +14,8 @@ type PhpPriceInputProps = {
 };
 
 /**
- * Price field with ₱ prefix; normalizes to two decimal places on blur.
+ * Price field with ₱ prefix; shows thousand separators when not focused
+ * and normalizes to two decimal places on blur.
  */
 export function PhpPriceInput({
   id,
@@ -25,6 +27,9 @@ export function PhpPriceInput({
   placeholder = "0.00",
   required,
 }: PhpPriceInputProps) {
+  const [focused, setFocused] = useState(false);
+  const displayValue = focused ? value : formatPhpInputDisplay(value);
+
   return (
     <div className="relative">
       <span
@@ -41,9 +46,11 @@ export function PhpPriceInput({
         disabled={disabled}
         required={required}
         aria-label={ariaLabel}
-        value={value}
+        value={displayValue}
+        onFocus={() => setFocused(true)}
         onChange={(e) => onChange(e.target.value)}
         onBlur={() => {
+          setFocused(false);
           const n = parsePhpStringToNumber(value);
           if (n != null && n >= 0) onChange(n.toFixed(2));
           else if (value.trim() === "") onChange("");
