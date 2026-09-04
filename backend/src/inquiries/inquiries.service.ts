@@ -20,6 +20,7 @@ import {
   isClientPaymentProfileReadyForOffer,
 } from '../clients/client-payment-preference.util';
 import { MailService } from '../mail/mail.service';
+import { consignorEmailItemFromSnapshot } from '../mail/consignor-item-details';
 import {
   ConsignmentSchedule,
   ConsignmentScheduleItem,
@@ -190,20 +191,6 @@ function itemLabelFromSnapshot(
   if (!brand) return model;
   if (!model) return brand;
   return `${brand} — ${model}`;
-}
-
-/** Brand + model for transactional copy (e.g. email); empty string when missing. */
-function brandAndModelForEmail(
-  snapshot: InquiryItemSnapshot | null | undefined,
-): string {
-  if (!snapshot?.form) return '';
-  const form = snapshot.form as { brand?: string; itemModel?: string };
-  const brand = (form.brand ?? '').trim();
-  const model = (form.itemModel ?? '').trim();
-  if (!brand && !model) return '';
-  if (!brand) return model;
-  if (!model) return brand;
-  return `${brand} ${model}`;
 }
 
 function snapshotFormString(
@@ -485,8 +472,7 @@ export class InquiriesService {
         to: consignor.email.trim(),
         firstName,
         viewOfferUrl,
-        sku: inquiry.sku,
-        itemLabel: itemLabelFromSnapshot(inquiry.itemSnapshot),
+        item: consignorEmailItemFromSnapshot(inquiry.sku, inquiry.itemSnapshot),
       })
       .catch((err: unknown) => {
         this.logger.error('Failed to send consignor offer email', err);
@@ -511,8 +497,7 @@ export class InquiriesService {
         to: consignor.email.trim(),
         firstName,
         viewOfferUrl,
-        sku: inquiry.sku,
-        itemLabel: itemLabelFromSnapshot(inquiry.itemSnapshot),
+        item: consignorEmailItemFromSnapshot(inquiry.sku, inquiry.itemSnapshot),
       })
       .catch((err: unknown) => {
         this.logger.error(
@@ -538,8 +523,7 @@ export class InquiriesService {
       .sendConsignorDirectPurchaseOfferRejected({
         to: consignor.email.trim(),
         firstName,
-        sku: inquiry.sku,
-        itemLabel: itemLabelFromSnapshot(inquiry.itemSnapshot),
+        item: consignorEmailItemFromSnapshot(inquiry.sku, inquiry.itemSnapshot),
       })
       .catch((err: unknown) => {
         this.logger.error(
@@ -855,13 +839,11 @@ export class InquiriesService {
     }
     const firstName = c.firstName?.trim() || 'there';
     const viewInquiryUrl = this.consignorInquiryUrl(r.id);
-    const itemBrandAndModel = brandAndModelForEmail(r.itemSnapshot);
     void this.mail
       .sendConsignorThirdPartyAuthNotice({
         to: c.email.trim(),
         firstName,
-        itemBrandAndModel,
-        sku: r.sku,
+        item: consignorEmailItemFromSnapshot(r.sku, r.itemSnapshot),
         viewInquiryUrl,
       })
       .catch((err: unknown) => {

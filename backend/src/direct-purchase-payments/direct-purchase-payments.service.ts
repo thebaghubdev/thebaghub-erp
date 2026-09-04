@@ -11,6 +11,10 @@ import { Order } from '../orders/entities/order.entity';
 import { INVENTORY_STATUS_PAID_TO_CONSIGNOR } from '../orders/order-status.constants';
 import { InquiryStatus } from '../enums/inquiry-status.enum';
 import { MailService } from '../mail/mail.service';
+import {
+  consignorEmailItemFromSnapshot,
+  consignorItemShortLabel,
+} from '../mail/consignor-item-details';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CONSIGNMENT_COORDINATOR_POSITION } from '../notifications/notification.constants';
 import {
@@ -114,9 +118,11 @@ function itemDetailsForEmail(
     | null
     | undefined,
 ): string {
-  const label = brandModelFromSnapshot(inquiry?.itemSnapshot) || 'Item';
-  const sku = inquiry?.sku?.trim() ?? '';
-  return sku ? `${label} (${sku})` : label;
+  return (
+    consignorItemShortLabel(
+      consignorEmailItemFromSnapshot(inquiry?.sku, inquiry?.itemSnapshot),
+    ) || 'Item'
+  );
 }
 
 function parseOfferPrice(raw: string | null | undefined): number {
