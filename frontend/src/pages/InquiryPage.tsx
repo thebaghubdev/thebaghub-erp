@@ -3,6 +3,10 @@ import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import {
+  ConsignmentInquiryCalendar,
+  type ConsignmentInquiryCalendarRow,
+} from "../components/ConsignmentInquiryCalendar";
 import { DataTable } from "../components/data-table/DataTable";
 import { StaffWalkInConsignmentWizard } from "../components/StaffWalkInConsignmentWizard";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
@@ -46,7 +50,7 @@ type CoordinatorOption = {
   displayName: string;
 };
 
-type InquiryTab = "all" | "create";
+type InquiryTab = "all" | "calendar" | "create";
 
 const LEAVE_TAB_MSG =
   "You have unsaved changes to this consignment inquiry. Switch tabs anyway?";
@@ -274,6 +278,11 @@ export function InquiryPage() {
   const [rows, setRows] = useState<InquiryRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [calendarRows, setCalendarRows] = useState<
+    ConsignmentInquiryCalendarRow[]
+  >([]);
+  const [calendarLoading, setCalendarLoading] = useState(false);
+  const [calendarError, setCalendarError] = useState<string | null>(null);
   const [inquiryBrandPicklist, setInquiryBrandPicklist] = useState<string[]>(
     [],
   );
@@ -336,6 +345,27 @@ export function InquiryPage() {
   useEffect(() => {
     if (tab === "all") void loadInquiries();
   }, [tab, loadInquiries]);
+
+  const loadCalendar = useCallback(async () => {
+    setCalendarError(null);
+    setCalendarLoading(true);
+    try {
+      const res = await apiFetch("/api/inquiries/calendar", {}, token);
+      if (!res.ok) throw new Error(`Request failed (${res.status})`);
+      const data = (await res.json()) as ConsignmentInquiryCalendarRow[];
+      setCalendarRows(data);
+    } catch (e) {
+      setCalendarError(
+        e instanceof Error ? e.message : "Failed to load calendar",
+      );
+    } finally {
+      setCalendarLoading(false);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    if (tab === "calendar") void loadCalendar();
+  }, [tab, loadCalendar]);
 
   useEffect(() => {
     if (tab !== "all" || !token) return;
@@ -530,7 +560,7 @@ export function InquiryPage() {
 
   const requestTab = (next: InquiryTab) => {
     if (next === "create" && !canEdit) return;
-    if (tab === "create" && next === "all" && wizardDirty) {
+    if (tab === "create" && next !== "create" && wizardDirty) {
       setPendingInquiryTab(next);
       setTabLeaveOpen(true);
       return;
@@ -580,6 +610,21 @@ export function InquiryPage() {
           onClick={() => requestTab("all")}
         >
           All Inquiries
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "calendar"}
+          id="tab-calendar"
+          aria-controls="panel-calendar"
+          className={`${tabBtn} ${
+            tab === "calendar"
+              ? "border-violet-600 text-violet-700 dark:text-violet-300"
+              : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
+          }`}
+          onClick={() => requestTab("calendar")}
+        >
+          Consignment Calendar
         </button>
         {!readOnly ? (
           <button
@@ -727,6 +772,24 @@ export function InquiryPage() {
                 document.body,
               )
             : null}
+        </section>
+      )}
+
+      {tab === "calendar" && (
+        <section
+          id="panel-calendar"
+          role="tabpanel"
+          aria-labelledby="tab-calendar"
+        >
+          {calendarError && (
+            <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+              {calendarError}
+            </p>
+          )}
+          <ConsignmentInquiryCalendar
+            rows={calendarRows}
+            isLoading={calendarLoading}
+          />
         </section>
       )}
 

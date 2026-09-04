@@ -46,6 +46,12 @@ export class InquiriesController {
     return this.inquiriesService.findAllForStaff(status);
   }
 
+  @Get('calendar')
+  @RequireFeature('inquiries', 'view')
+  findCalendar() {
+    return this.inquiriesService.findCalendarForStaff();
+  }
+
   @Get('coordinators')
   @RequireFeature('inquiries', 'view')
   listCoordinators() {

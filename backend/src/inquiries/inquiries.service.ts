@@ -228,6 +228,26 @@ function inquiryDateOnlyToIso(
   return d.toISOString().slice(0, 10);
 }
 
+export type StaffInquiryCalendarKind =
+  | 'delivery_scheduled'
+  | 'delivery_rescheduled'
+  | 'processing'
+  | 'processing_walkin'
+  | 'pullout_scheduled'
+  | 'pullout_rescheduled';
+
+export type StaffInquiryCalendarRow = {
+  inquiryId: string;
+  sku: string;
+  itemLabel: string;
+  consignorName: string;
+  /** `YYYY-MM-DD` (UTC day). */
+  eventDate: string;
+  kind: StaffInquiryCalendarKind;
+  status: InquiryStatus;
+  isWalkIn: boolean;
+};
+
 export type StaffInquiryRow = {
   id: string;
   sku: string;
@@ -1511,6 +1531,118 @@ export class InquiriesService {
         this.mapInquiryToStaffRowAsync(r, photoCounts.get(r.id) ?? 0),
       ),
     );
+  }
+
+  /** Flat per-inquiry rows for the staff consignment calendar. */
+  async findCalendarForStaff(): Promise<StaffInquiryCalendarRow[]> {
+    const inquiries = await this.inquiriesRepo.find({
+      where: {
+        status: In([
+          InquiryStatus.FOR_DELIVERY_SCHEDULED,
+          InquiryStatus.FOR_PULLOUT_SCHEDULED,
+          InquiryStatus.FOR_PROCESSING,
+        ]),
+      },
+      relations: { consignor: true },
+    });
+    if (inquiries.length === 0) return [];
+
+    const scheduledIds = inquiries
+      .filter(
+        (r) =>
+          r.status === InquiryStatus.FOR_DELIVERY_SCHEDULED ||
+          r.status === InquiryStatus.FOR_PULLOUT_SCHEDULED,
+      )
+      .map((r) => r.id);
+    const processingIds = inquiries
+      .filter((r) => r.status === InquiryStatus.FOR_PROCESSING)
+      .map((r) => r.id);
+
+    const scheduleItems =
+      scheduledIds.length > 0
+        ? await this.scheduleItemRepo.find({
+            where: { inquiry: { id: In(scheduledIds) } },
+            relations: { consignmentSchedule: true, inquiry: true },
+          })
+        : [];
+
+    const inventoryRows =
+      processingIds.length > 0
+        ? await this.inventoryItemRepo.find({
+            where: { inquiryId: In(processingIds) },
+            select: { id: true, inquiryId: true, dateReceived: true },
+          })
+        : [];
+    const dateReceivedByInquiryId = new Map<string, Date>();
+    for (const inv of inventoryRows) {
+      if (inv.inquiryId == null || !inv.dateReceived) continue;
+      const existing = dateReceivedByInquiryId.get(inv.inquiryId);
+      if (!existing || inv.dateReceived.getTime() < existing.getTime()) {
+        dateReceivedByInquiryId.set(inv.inquiryId, inv.dateReceived);
+      }
+    }
+
+    const out: StaffInquiryCalendarRow[] = [];
+    for (const r of inquiries) {
+      const c = r.consignor;
+      const name = c ? `${c.firstName ?? ''} ${c.lastName ?? ''}`.trim() : '';
+      const base = {
+        inquiryId: r.id,
+        sku: r.sku,
+        itemLabel: itemLabelFromSnapshot(r.itemSnapshot),
+        consignorName: name || '—',
+        status: r.status,
+        isWalkIn: Boolean(r.isWalkIn),
+      };
+
+      if (r.status === InquiryStatus.FOR_PROCESSING) {
+        const received = dateReceivedByInquiryId.get(r.id);
+        if (!received) continue;
+        out.push({
+          ...base,
+          eventDate: utcDateKeyFromDeliveryDate(received),
+          kind: r.isWalkIn ? 'processing_walkin' : 'processing',
+        });
+        continue;
+      }
+
+      const expectedType =
+        r.status === InquiryStatus.FOR_DELIVERY_SCHEDULED
+          ? 'delivery'
+          : 'pullout';
+      const matching = scheduleItems.filter(
+        (item) =>
+          item.inquiry?.id === r.id &&
+          item.consignmentSchedule?.type === expectedType,
+      );
+      matching.sort((a, b) => {
+        const da = a.consignmentSchedule.deliveryDate.getTime();
+        const db = b.consignmentSchedule.deliveryDate.getTime();
+        return db - da;
+      });
+      const sch = matching[0]?.consignmentSchedule;
+      if (!sch) continue;
+      const rescheduled = sch.status.trim().toLowerCase() === 'rescheduled';
+      const kind: StaffInquiryCalendarKind =
+        expectedType === 'delivery'
+          ? rescheduled
+            ? 'delivery_rescheduled'
+            : 'delivery_scheduled'
+          : rescheduled
+            ? 'pullout_rescheduled'
+            : 'pullout_scheduled';
+      out.push({
+        ...base,
+        eventDate: utcDateKeyFromDeliveryDate(sch.deliveryDate),
+        kind,
+      });
+    }
+
+    return out.sort((a, b) => {
+      const d = a.eventDate.localeCompare(b.eventDate);
+      if (d !== 0) return d;
+      return a.sku.localeCompare(b.sku);
+    });
   }
 
   private parseInquiryStatusFilter(raw: string): InquiryStatus {
