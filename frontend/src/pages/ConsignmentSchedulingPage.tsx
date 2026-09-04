@@ -19,12 +19,12 @@ type ConsignmentScheduleRow = {
   rescheduleReason: string | null;
 };
 
-type SchedulingTab = "calendar" | "create";
+type SchedulingTab = "schedules" | "create";
 
 export function ConsignmentSchedulingPage() {
   const { token } = usePortalAuth();
   const { readOnly } = useFeatureAccess("consignment-scheduling");
-  const [tab, setTab] = useState<SchedulingTab>("calendar");
+  const [tab, setTab] = useState<SchedulingTab>("schedules");
   const [createWizardKey, setCreateWizardKey] = useState(0);
   const [rows, setRows] = useState<ConsignmentScheduleRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -48,7 +48,7 @@ export function ConsignmentSchedulingPage() {
   }, [token]);
 
   useEffect(() => {
-    if (tab === "calendar") void load();
+    if (tab === "schedules") void load();
   }, [tab, load]);
 
   const tabBtn =
@@ -69,7 +69,7 @@ export function ConsignmentSchedulingPage() {
         confirmLabel="Switch tab"
         onCancel={() => setTabLeaveOpen(false)}
         onConfirm={() => {
-          setTab("calendar");
+          setTab("schedules");
           setTabLeaveOpen(false);
         }}
       />
@@ -81,11 +81,11 @@ export function ConsignmentSchedulingPage() {
         <button
           type="button"
           role="tab"
-          aria-selected={tab === "calendar"}
-          id="tab-sched-calendar"
-          aria-controls="panel-sched-calendar"
+          aria-selected={tab === "schedules"}
+          id="tab-sched-schedules"
+          aria-controls="panel-sched-schedules"
           className={`${tabBtn} ${
-            tab === "calendar"
+            tab === "schedules"
               ? "border-violet-600 text-violet-700 dark:text-violet-300"
               : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
           }`}
@@ -94,10 +94,10 @@ export function ConsignmentSchedulingPage() {
               setTabLeaveOpen(true);
               return;
             }
-            setTab("calendar");
+            setTab("schedules");
           }}
         >
-          Consignment Calendar
+          Consignment Schedules
         </button>
         {!readOnly ? (
           <button
@@ -122,11 +122,11 @@ export function ConsignmentSchedulingPage() {
         ) : null}
       </div>
 
-      {tab === "calendar" && (
+      {tab === "schedules" && (
         <section
-          id="panel-sched-calendar"
+          id="panel-sched-schedules"
           role="tabpanel"
-          aria-labelledby="tab-sched-calendar"
+          aria-labelledby="tab-sched-schedules"
           className="min-h-[12rem]"
         >
           {error && (
@@ -149,7 +149,7 @@ export function ConsignmentSchedulingPage() {
           <CreateScheduleWizard
             onDirtyChange={setCreateDirty}
             onScheduleSaved={() => {
-              void load().then(() => setTab("calendar"));
+              void load().then(() => setTab("schedules"));
             }}
           />
         </section>

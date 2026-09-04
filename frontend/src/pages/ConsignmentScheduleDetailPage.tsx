@@ -1502,8 +1502,8 @@ export function ConsignmentScheduleDetailPage() {
         title="Delete this schedule?"
         description={
           detail?.type === "pullout"
-            ? "This will remove the schedule from the consignment calendar. Inquiries in this batch will return to “For Pullout” (no longer scheduled). This cannot be undone."
-            : "This will remove the schedule from the consignment calendar. Inquiries in this batch will return to “For Delivery” (no longer scheduled). This cannot be undone."
+            ? "This will remove the schedule from Consignment Schedules. Inquiries in this batch will return to “For Pullout” (no longer scheduled). This cannot be undone."
+            : "This will remove the schedule from Consignment Schedules. Inquiries in this batch will return to “For Delivery” (no longer scheduled). This cannot be undone."
         }
         cancelLabel="Cancel"
         confirmLabel="Delete schedule"
