@@ -179,7 +179,7 @@ function authenticationDetailsAreComplete(p: {
 
 /** Item + authentication detail fields as loaded from the API. */
 function serializeAuthStateFromDetail(detail: ItemAuthenticationPayload): string {
-  const f = detail.itemSnapshot.form;
+  const f = detail.itemSnapshot?.form ?? {};
   const a = detail.authenticationDetails;
   return JSON.stringify({
     itemModel: str(f.itemModel),
@@ -320,6 +320,7 @@ export function ItemAuthenticationPage() {
     File[]
   >([]);
   const [thirdPartyPhotoDragOver, setThirdPartyPhotoDragOver] = useState(false);
+  const [authFieldsReady, setAuthFieldsReady] = useState(false);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -441,8 +442,11 @@ export function ItemAuthenticationPage() {
   }, [id, token]);
 
   useLayoutEffect(() => {
-    if (!detail) return;
-    const f = detail.itemSnapshot.form;
+    if (!detail) {
+      setAuthFieldsReady(false);
+      return;
+    }
+    const f = detail.itemSnapshot?.form ?? {};
     const a = detail.authenticationDetails;
     setItemFormModel(str(f.itemModel));
     setItemFormBrand(str(f.brand));
@@ -471,6 +475,7 @@ export function ItemAuthenticationPage() {
         : [],
     );
     setThirdPartyCertificateFiles([]);
+    setAuthFieldsReady(true);
   }, [detail]);
 
   const filteredMetrics = useMemo(() => {
@@ -524,7 +529,7 @@ export function ItemAuthenticationPage() {
   }, [draftByMetricId, canEditMetrics, entriesLoading]);
 
   const authFormDirty = useMemo(() => {
-    if (!canEditMetrics || !detail) return false;
+    if (!canEditMetrics || !detail || !authFieldsReady) return false;
     const baseline = serializeAuthStateFromDetail(detail);
     const current = JSON.stringify({
       itemModel: itemFormModel,
@@ -546,6 +551,7 @@ export function ItemAuthenticationPage() {
   }, [
     canEditMetrics,
     detail,
+    authFieldsReady,
     itemFormModel,
     itemFormBrand,
     itemFormCategory,
@@ -563,7 +569,7 @@ export function ItemAuthenticationPage() {
   ]);
 
   const thirdPartyAuthDirty = useMemo(() => {
-    if (!canEditMetrics || !detail) return false;
+    if (!canEditMetrics || !detail || !authFieldsReady) return false;
     if (!isForThirdPartyAuthenticationStatus(detail.authenticationStatus)) {
       return false;
     }
@@ -593,6 +599,7 @@ export function ItemAuthenticationPage() {
   }, [
     canEditMetrics,
     detail,
+    authFieldsReady,
     thirdPartyAuthenticator,
     thirdPartyCertificateLink,
     thirdPartyCertificateNotes,

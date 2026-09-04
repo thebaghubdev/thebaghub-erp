@@ -4,7 +4,6 @@ import {
   useContext,
   useEffect,
   useId,
-  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -40,42 +39,56 @@ const DEFAULT_TITLE = "Leave this page?";
 const DEFAULT_DESCRIPTION =
   "You have unsaved changes. Leave this page?";
 
+function pickActive(
+  registrations: Record<string, Registration>,
+): Registration | null {
+  return (
+    Object.values(registrations).find((r) => r.isDirty && !r.bypass) ?? null
+  );
+}
+
+function sameRegistration(
+  a: Registration | undefined,
+  b: Registration,
+): boolean {
+  return Boolean(
+    a &&
+      a.isDirty === b.isDirty &&
+      a.bypass === b.bypass &&
+      a.title === b.title &&
+      a.description === b.description &&
+      a.getRenderDialog === b.getRenderDialog,
+  );
+}
+
 export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
-  const [registrations, setRegistrations] = useState<
-    Record<string, Registration>
-  >({});
+  const registrationsRef = useRef<Record<string, Registration>>({});
+  const [active, setActive] = useState<Registration | null>(null);
 
   const setRegistration = useCallback(
     (id: string, registration: Registration | null) => {
-      setRegistrations((prev) => {
-        if (registration == null) {
-          if (!(id in prev)) return prev;
-          const next = { ...prev };
-          delete next[id];
-          return next;
+      const prev = registrationsRef.current;
+      if (registration == null) {
+        if (!(id in prev)) return;
+        const next = { ...prev };
+        delete next[id];
+        registrationsRef.current = next;
+      } else if (sameRegistration(prev[id], registration)) {
+        return;
+      } else {
+        registrationsRef.current = { ...prev, [id]: registration };
+      }
+      const nextActive = pickActive(registrationsRef.current);
+      setActive((current) => {
+        if (current == null && nextActive == null) return current;
+        if (current && nextActive && sameRegistration(current, nextActive)) {
+          return current;
         }
-        const existing = prev[id];
-        if (
-          existing &&
-          existing.isDirty === registration.isDirty &&
-          existing.bypass === registration.bypass &&
-          existing.title === registration.title &&
-          existing.description === registration.description &&
-          existing.getRenderDialog === registration.getRenderDialog
-        ) {
-          return prev;
-        }
-        return { ...prev, [id]: registration };
+        return nextActive;
       });
     },
     [],
   );
-
-  const active = useMemo(() => {
-    return (
-      Object.values(registrations).find((r) => r.isDirty && !r.bypass) ?? null
-    );
-  }, [registrations]);
 
   const shouldBlock = Boolean(active);
 
@@ -91,14 +104,24 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
 
   const shouldBlockRouterNavigation = useCallback<BlockerFunction>(
     ({ currentLocation, nextLocation }) =>
-      shouldBlock && currentLocation.pathname !== nextLocation.pathname,
-    [shouldBlock],
+      currentLocation.pathname !== nextLocation.pathname,
+    [],
   );
 
-  const blocker = useBlocker(shouldBlockRouterNavigation);
+  // Pass `false` when idle so React Router does not keep a blocker subscribed.
+  // An always-on function blocker can leave PUSH navigations with a new URL and
+  // a stuck UI after the source page unregisters during the transition.
+  const blocker = useBlocker(
+    shouldBlock ? shouldBlockRouterNavigation : false,
+  );
+
+  useEffect(() => {
+    if (blocker.state !== "blocked" || shouldBlock) return;
+    blocker.proceed?.();
+  }, [blocker.state, blocker.proceed, shouldBlock]);
 
   const ctrl: UnsavedChangesDialogController = {
-    open: blocker.state === "blocked",
+    open: blocker.state === "blocked" && shouldBlock,
     onStay: () => blocker.reset?.(),
     onLeave: () => blocker.proceed?.(),
   };
@@ -133,6 +156,7 @@ export function useUnsavedChangesGuard(options: {
   const ctx = useContext(UnsavedChangesContext);
   const id = useId();
   const bypass = options.bypass ?? false;
+  const isBlocking = options.isDirty && !bypass;
   const renderDialogRef = useRef(options.renderDialog);
   renderDialogRef.current = options.renderDialog;
 
@@ -143,9 +167,13 @@ export function useUnsavedChangesGuard(options: {
 
   useEffect(() => {
     if (!ctx) return;
+    if (!isBlocking) {
+      ctx.setRegistration(id, null);
+      return;
+    }
     ctx.setRegistration(id, {
-      isDirty: options.isDirty,
-      bypass,
+      isDirty: true,
+      bypass: false,
       title: options.title,
       description: options.description,
       getRenderDialog: options.renderDialog ? getRenderDialog : undefined,
@@ -154,11 +182,10 @@ export function useUnsavedChangesGuard(options: {
   }, [
     ctx,
     id,
-    options.isDirty,
+    isBlocking,
     options.title,
     options.description,
     options.renderDialog,
-    bypass,
     getRenderDialog,
   ]);
 }
