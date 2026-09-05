@@ -17,7 +17,10 @@ import {
   formatClientVipStatus,
   type ClientVipStatus,
 } from "../lib/client-payment-preference";
-import { logisticsStatusBadgeClass } from "../lib/logistics-display";
+import {
+  formatInventoryLogisticsStatus,
+  logisticsStatusBadgeClass,
+} from "../lib/logistics-display";
 
 type InventoryDetailForStaff = {
   id: string;
@@ -27,8 +30,10 @@ type InventoryDetailForStaff = {
   updatedAt: string;
   status: string;
   logisticsStatus: string;
+  inTransitDestination?: string | null;
   transactionType: string | null;
   currentBranch: string;
+  originalBranch?: string;
   inquiryId: string | null;
   inquirySku: string | null;
   consignorId: string | null;
@@ -448,6 +453,10 @@ export function InventoryItemDetailPage() {
   }
 
   const form = detail.itemSnapshot.form;
+  const logisticsStatusDisplay = formatInventoryLogisticsStatus(
+    detail.logisticsStatus || "In Stock",
+    detail.inTransitDestination,
+  );
   const brand = str(form.brand);
   const itemModel = str(form.itemModel);
   const brandModelSubtitle =
@@ -566,9 +575,9 @@ export function InventoryItemDetailPage() {
             </dt>
             <dd>
               <span
-                className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${logisticsStatusBadgeClass(detail.logisticsStatus || "In Stock")}`}
+                className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${logisticsStatusBadgeClass(logisticsStatusDisplay)}`}
               >
-                {detail.logisticsStatus || "In Stock"}
+                {logisticsStatusDisplay}
               </span>
             </dd>
           </div>
@@ -589,7 +598,15 @@ export function InventoryItemDetailPage() {
             </dd>
           </div>
           <div>
-            <dt className="text-slate-500 dark:text-slate-400">Branch</dt>
+            <dt className="text-slate-500 dark:text-slate-400">
+              Original location
+            </dt>
+            <dd>{branchLabel(detail.originalBranch || detail.currentBranch)}</dd>
+          </div>
+          <div>
+            <dt className="text-slate-500 dark:text-slate-400">
+              Current location
+            </dt>
             <dd>{branchLabel(detail.currentBranch)}</dd>
           </div>
           <div>

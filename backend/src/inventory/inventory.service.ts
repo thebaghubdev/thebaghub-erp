@@ -77,6 +77,7 @@ import {
   RETURNED_TO_COORDINATOR_ITEM_AUTH_STATUS,
 } from './inventory-auth-status.constants';
 import { NotificationsService } from '../notifications/notifications.service';
+import { LOGISTICS_STATUS_IN_TRANSIT } from '../logistics/logistics.constants';
 import { TasksService } from '../tasks/tasks.service';
 import { Client } from '../clients/entities/client.entity';
 import { Waitlist } from '../orders/entities/waitlist.entity';
@@ -178,6 +179,10 @@ export type InventoryListRow = {
   status: string;
   transactionType: string | null;
   currentBranch: string;
+  /** First location when the item was created. */
+  originalBranch: string;
+  /** Receiving branch of the open in-transit transfer, if any. */
+  inTransitDestination: string | null;
   itemLabel: string;
   /** Posted product name when available, otherwise item label. */
   productName: string;
@@ -217,6 +222,10 @@ export type InventoryDetailForStaff = {
   status: string;
   transactionType: string | null;
   currentBranch: string;
+  /** First location when the item was created. */
+  originalBranch: string;
+  /** Receiving branch of the open in-transit transfer, if any. */
+  inTransitDestination: string | null;
   inquiryId: string | null;
   inquirySku: string | null;
   consignorId: string | null;
@@ -973,6 +982,7 @@ export class InventoryService {
         status: FOR_AUTHENTICATION_INVENTORY_STATUS,
         transactionType: STOCK_TRANSACTION_TYPE,
         currentBranch: dto.currentBranch,
+        originalBranch: dto.currentBranch,
         itemSnapshot,
         createdById: actorUserId,
         updatedById: actorUserId,
@@ -1040,6 +1050,7 @@ export class InventoryService {
       status: FOR_AUTHENTICATION_INVENTORY_STATUS,
       transactionType,
       currentBranch,
+      originalBranch: currentBranch,
       itemSnapshot,
       createdById: null,
       updatedById: null,
@@ -2042,6 +2053,7 @@ export class InventoryService {
       });
       authByItemId = new Map(auths.map((a) => [a.inventoryItemId, a]));
     }
+    const inTransitByItemId = await this.inTransitDestinationsByItemId(ids);
     return rows.map((r) => {
       const name = consignorDisplayName({
         transactionType: r.transactionType,
@@ -2061,6 +2073,8 @@ export class InventoryService {
         status: r.status,
         transactionType: r.transactionType,
         currentBranch: r.currentBranch,
+        originalBranch: r.originalBranch,
+        inTransitDestination: inTransitByItemId.get(r.id) ?? null,
         itemLabel,
         productName,
         inclusions: inclusionsFromSnapshot(r.itemSnapshot),
@@ -2385,7 +2399,7 @@ export class InventoryService {
       consignor: c,
       itemSnapshot: r.itemSnapshot,
     });
-    const [auth, posting, photoshoot] = await Promise.all([
+    const [auth, posting, photoshoot, inTransitByItemId] = await Promise.all([
       this.itemAuthRepo.findOne({
         where: { inventoryItemId: id },
         relations: { assignedTo: true },
@@ -2396,6 +2410,7 @@ export class InventoryService {
       this.itemPhotoshootRepo.findOne({
         where: { inventoryItem: { id } },
       }),
+      this.inTransitDestinationsByItemId([id]),
     ]);
     const photoshootPhotos = photoshoot
       ? this.media.toKeyUrlList(
@@ -2422,6 +2437,8 @@ export class InventoryService {
       status: r.status,
       transactionType: r.transactionType,
       currentBranch: r.currentBranch,
+      originalBranch: r.originalBranch,
+      inTransitDestination: inTransitByItemId.get(id) ?? null,
       inquiryId: r.inquiryId,
       inquirySku: r.inquiry?.sku ?? null,
       consignorId: r.consignorId,
@@ -3261,6 +3278,29 @@ export class InventoryService {
       inventoryItemId,
       actorUserId,
       new Date(),
+    );
+  }
+
+  private async inTransitDestinationsByItemId(
+    inventoryItemIds: string[],
+  ): Promise<Map<string, string>> {
+    if (inventoryItemIds.length === 0) return new Map();
+    const rows: Array<{ inventoryItemId: string; receivingBranch: string }> =
+      await this.inventoryRepo.manager.query(
+        `
+        SELECT li.inventory_item_id AS "inventoryItemId",
+               l.receiving_branch AS "receivingBranch"
+        FROM logistics_items li
+        INNER JOIN logistics l ON l.id = li.logistics_id
+        WHERE l.status = $1
+          AND li.inventory_item_id = ANY($2::uuid[])
+        `,
+        [LOGISTICS_STATUS_IN_TRANSIT, inventoryItemIds],
+      );
+    return new Map(
+      rows
+        .filter((r) => r.inventoryItemId && r.receivingBranch)
+        .map((r) => [r.inventoryItemId, r.receivingBranch]),
     );
   }
 

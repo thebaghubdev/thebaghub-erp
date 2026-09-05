@@ -53,6 +53,10 @@ export class InventoryItem extends AuditedEntity {
   @Column({ name: 'current_branch', type: 'varchar', length: 32 })
   currentBranch: string;
 
+  /** First location when the item was created. Never updated after insert. */
+  @Column({ name: 'original_branch', type: 'varchar', length: 32 })
+  originalBranch: string;
+
   @Column({
     name: 'logistics_status',
     type: 'varchar',

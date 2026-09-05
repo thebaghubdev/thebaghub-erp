@@ -1,3 +1,5 @@
+import { branchLabel } from "./consignment-schedule-labels";
+
 /** Inventory statuses excluded from logistics item selection (case-insensitive). */
 export const LOGISTICS_BLOCKED_INVENTORY_STATUSES = [
   "Sold final",
@@ -24,7 +26,7 @@ export function logisticsStatusBadgeClass(status: string): string {
   if (s === "pending dispatch") {
     return "bg-sky-100 text-sky-900 dark:bg-sky-950/50 dark:text-sky-200";
   }
-  if (s === "in transit") {
+  if (s === "in transit" || s.startsWith("in transit ")) {
     return "bg-amber-100 text-amber-900 dark:bg-amber-950/50 dark:text-amber-200";
   }
   if (s === "completed") {
@@ -59,5 +61,18 @@ export function isInventoryEligibleForLogistics(row: {
   ) {
     return false;
   }
-  return row.logisticsStatus.trim().toLowerCase() !== "in transit";
+  const logistics = row.logisticsStatus.trim().toLowerCase();
+  return logistics !== "in transit" && !logistics.startsWith("in transit ");
+}
+
+/** Inventory-only display: append destination while an item is in transit. */
+export function formatInventoryLogisticsStatus(
+  status: string,
+  destination?: string | null,
+): string {
+  const raw = status?.trim() || "In Stock";
+  if (raw.toLowerCase() === "in transit" && destination?.trim()) {
+    return `In Transit to ${branchLabel(destination)}`;
+  }
+  return raw;
 }

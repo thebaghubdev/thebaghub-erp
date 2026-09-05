@@ -376,7 +376,7 @@ export function AddStockInventoryItemForm({
 
       <div>
         <label htmlFor="stock-branch" className={label}>
-          Current branch
+          Current location
         </label>
         <select
           id="stock-branch"
@@ -387,7 +387,7 @@ export function AddStockInventoryItemForm({
           className={field}
           required
         >
-          <option value="">Select branch</option>
+          <option value="">Select location</option>
           {STOCK_BRANCHES.map((b) => (
             <option key={b} value={b}>
               {b}

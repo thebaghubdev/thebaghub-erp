@@ -13,7 +13,10 @@ import { branchLabel } from "../lib/consignment-schedule-labels";
 import { formatOfferTransactionLabel } from "../lib/format-offer-transaction-type";
 import { formatPhpDisplay } from "../lib/format-php";
 import { INVENTORY_ITEM_STATUS_FILTER_OPTIONS } from "../lib/inventory-item-status-filter-options";
-import { logisticsStatusBadgeClass } from "../lib/logistics-display";
+import {
+  formatInventoryLogisticsStatus,
+  logisticsStatusBadgeClass,
+} from "../lib/logistics-display";
 
 type InventoryRow = {
   id: string;
@@ -24,6 +27,8 @@ type InventoryRow = {
   status: string;
   transactionType: string | null;
   currentBranch: string;
+  originalBranch: string;
+  inTransitDestination: string | null;
   itemLabel: string;
   inclusions: string;
   rating: string | null;
@@ -121,27 +126,43 @@ const columns = [
       </span>
     ),
   }),
-  columnHelper.accessor("currentBranch", {
-    header: "Branch",
+  columnHelper.accessor("originalBranch", {
+    header: "Original location",
     cell: ({ getValue }) => (
       <span className="text-slate-700 dark:text-slate-300">
-        {branchLabel(getValue())}
+        {branchLabel(getValue() || "")}
       </span>
     ),
   }),
-  columnHelper.accessor("logisticsStatus", {
-    header: "Logistics status",
-    cell: ({ getValue }) => {
-      const status = getValue() || "In Stock";
-      return (
-        <span
-          className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${logisticsStatusBadgeClass(status)}`}
-        >
-          {status}
-        </span>
-      );
-    },
+  columnHelper.accessor("currentBranch", {
+    header: "Current location",
+    cell: ({ getValue }) => (
+      <span className="text-slate-700 dark:text-slate-300">
+        {branchLabel(getValue() || "")}
+      </span>
+    ),
   }),
+  columnHelper.accessor(
+    (row) =>
+      formatInventoryLogisticsStatus(
+        row.logisticsStatus,
+        row.inTransitDestination,
+      ),
+    {
+      id: "logisticsStatus",
+      header: "Logistics status",
+      cell: ({ getValue }) => {
+        const status = getValue() || "In Stock";
+        return (
+          <span
+            className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${logisticsStatusBadgeClass(status)}`}
+          >
+            {status}
+          </span>
+        );
+      },
+    },
+  ),
 ];
 
 export function InventoryPage() {

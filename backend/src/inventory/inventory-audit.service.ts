@@ -30,6 +30,7 @@ type ItemAuditState = {
   status: string;
   transactionType: string;
   currentBranch: string;
+  originalBranch: string;
   logisticsStatus: string;
   tbhSellingPrice: string;
   creditCardPrice: string;
@@ -143,6 +144,7 @@ export function cloneInventoryItemForAudit(r: InventoryItem): InventoryItem {
       status: r.status,
       transactionType: r.transactionType,
       currentBranch: r.currentBranch,
+      originalBranch: r.originalBranch,
       logisticsStatus: r.logisticsStatus,
       tbhSellingPrice: r.tbhSellingPrice,
       creditCardPrice: r.creditCardPrice,
@@ -193,6 +195,7 @@ function emptyItemState(): ItemAuditState {
     status: '',
     transactionType: '',
     currentBranch: '',
+    originalBranch: '',
     logisticsStatus: '',
     tbhSellingPrice: '',
     creditCardPrice: '',
@@ -246,6 +249,7 @@ function toItemState(r: InventoryItem): ItemAuditState {
     status: textOrEmpty(r.status),
     transactionType: textOrEmpty(r.transactionType),
     currentBranch: textOrEmpty(r.currentBranch),
+    originalBranch: textOrEmpty(r.originalBranch),
     logisticsStatus: textOrEmpty(r.logisticsStatus),
     tbhSellingPrice: moneyText(r.tbhSellingPrice),
     creditCardPrice: moneyText(r.creditCardPrice),
@@ -322,7 +326,8 @@ function diffItemStates(
     ['SKU', before.sku, after.sku],
     ['Status', before.status, after.status],
     ['Transaction type', before.transactionType, after.transactionType],
-    ['Current branch', before.currentBranch, after.currentBranch],
+    ['Current location', before.currentBranch, after.currentBranch],
+    ['Original location', before.originalBranch, after.originalBranch],
     ['Logistics status', before.logisticsStatus, after.logisticsStatus],
     ['TBH selling price', before.tbhSellingPrice, after.tbhSellingPrice],
     ['Credit card price', before.creditCardPrice, after.creditCardPrice],

@@ -49,6 +49,7 @@ export class SeedService implements OnModuleInit {
     await this.ensureInquiryDirectPurchaseSchema();
     await this.ensureInquiryDeclineReasonSchema();
     await this.ensureInquiryAssignedToSchema();
+    await this.ensureInventoryOriginalBranchSchema();
     await this.ensureAuthenticationCoordinatorReturnSchema();
     await this.ensureDirectPurchasePaymentsSchema();
     await this.ensurePenaltyWaiveSchema();
@@ -59,6 +60,45 @@ export class SeedService implements OnModuleInit {
     await this.ensureAdministrator();
     await this.ensureConsignmentFormSettings();
     await this.ensureAuthenticationMetrics();
+  }
+
+  private async ensureInventoryOriginalBranchSchema() {
+    try {
+      await this.employeesRepo.query(`
+        ALTER TABLE inventory_items
+          ADD COLUMN IF NOT EXISTS original_branch varchar(32)
+      `);
+      await this.employeesRepo.query(`
+        UPDATE inventory_items i
+        SET original_branch = src.sending_branch
+        FROM (
+          SELECT DISTINCT ON (li.inventory_item_id)
+            li.inventory_item_id,
+            l.sending_branch
+          FROM logistics_items li
+          INNER JOIN logistics l ON l.id = li.logistics_id
+          WHERE l.status <> 'Cancelled'
+          ORDER BY li.inventory_item_id, l.created_at ASC
+        ) src
+        WHERE i.id = src.inventory_item_id
+          AND i.original_branch IS NULL
+      `);
+      await this.employeesRepo.query(`
+        UPDATE inventory_items
+        SET original_branch = current_branch
+        WHERE original_branch IS NULL
+      `);
+      await this.employeesRepo.query(`
+        ALTER TABLE inventory_items
+          ALTER COLUMN original_branch SET NOT NULL
+      `);
+    } catch (err) {
+      this.logger.warn(
+        `Could not ensure inventory original_branch column: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
   }
 
   /** Tables TypeORM synchronize may skip (especially in production). */
