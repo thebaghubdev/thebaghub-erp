@@ -8,8 +8,6 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, In, Repository } from 'typeorm';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
 import { Order } from '../orders/entities/order.entity';
-import { INVENTORY_STATUS_PAID_TO_CONSIGNOR } from '../orders/order-status.constants';
-import { InquiryStatus } from '../enums/inquiry-status.enum';
 import { MailService } from '../mail/mail.service';
 import {
   consignorEmailItemFromSnapshot,
@@ -17,10 +15,7 @@ import {
 } from '../mail/consignor-item-details';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CONSIGNMENT_COORDINATOR_POSITION } from '../notifications/notification.constants';
-import {
-  Inquiry,
-  type InquiryItemSnapshot,
-} from '../inquiries/entities/inquiry.entity';
+import { type InquiryItemSnapshot } from '../inquiries/entities/inquiry.entity';
 import { UpdateDirectPurchasePaymentStatusDto } from './dto/update-direct-purchase-payment-status.dto';
 import {
   ALLOWED_DIRECT_PURCHASE_PAYMENT_IMAGE_MIMES,
@@ -358,22 +353,6 @@ export class DirectPurchasePaymentsService {
 
         fullPayment.status = dto.status;
         await em.save(fullPayment);
-
-        const inquiryIds = (fullPayment.items ?? []).map(
-          (item) => item.inquiryId,
-        );
-        if (inquiryIds.length > 0) {
-          await em.update(
-            Inquiry,
-            { id: In(inquiryIds) },
-            { status: InquiryStatus.PAID_TO_CONSIGNOR },
-          );
-          await em.update(
-            InventoryItem,
-            { inquiryId: In(inquiryIds) },
-            { status: INVENTORY_STATUS_PAID_TO_CONSIGNOR },
-          );
-        }
 
         const depositSlipRows = await this.media.findByOwner(
           MediaOwnerType.DIRECT_PURCHASE_PAYMENT,

@@ -45,6 +45,21 @@ const tdBase =
 const isCheckboxColumnId = (id: string) =>
   id === "__select" || id === "select";
 
+/** Matches `thCheckbox` / `tdCheckbox` width so pinned offsets stay aligned. */
+const CHECKBOX_COLUMN_SIZE = 36;
+
+function withLeadingCheckboxPinned(
+  pinning: ColumnPinningState,
+  tableColumnIds: string[],
+): ColumnPinningState {
+  const checkboxIds = tableColumnIds.filter(isCheckboxColumnId);
+  const left = [
+    ...checkboxIds,
+    ...(pinning.left ?? []).filter((id) => !isCheckboxColumnId(id)),
+  ];
+  return { ...pinning, left };
+}
+
 const thCheckbox =
   "w-9 max-w-9 min-w-0 px-1 py-2 text-center text-[0.65rem] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400 sm:w-10 sm:max-w-10 sm:px-1.5 sm:py-2.5 sm:text-xs";
 const tdCheckbox =
@@ -277,7 +292,16 @@ function pinnedColumnClass<TData extends object>(
   zIndexClass: string,
 ): string {
   if (column.getIsPinned() !== "left") return "";
-  return `sticky ${zIndexClass} ${backgroundClass} shadow-[2px_0_0_rgba(148,163,184,0.25)]`;
+  const zClass = isCheckboxColumnId(column.id)
+    ? checkboxPinZIndex(zIndexClass)
+    : zIndexClass;
+  return `sticky ${zClass} ${backgroundClass} shadow-[2px_0_0_rgba(148,163,184,0.25)]`;
+}
+
+function checkboxPinZIndex(zIndexClass: string): string {
+  if (zIndexClass === "z-30") return "z-40";
+  if (zIndexClass === "z-20") return "z-30";
+  return "z-20";
 }
 
 function BrandColumnFilter<TData extends object>({
@@ -505,6 +529,9 @@ export function DataTable<TData extends object>({
       },
       enableSorting: false,
       enableColumnFilter: false,
+      size: CHECKBOX_COLUMN_SIZE,
+      minSize: CHECKBOX_COLUMN_SIZE,
+      maxSize: CHECKBOX_COLUMN_SIZE,
     };
     return [selectColumn, ...columns];
   }, [columns, getRowId, rowSelection]);
@@ -549,6 +576,19 @@ export function DataTable<TData extends object>({
       }
       return { ...current, left };
     });
+  }, [tableColumnIds]);
+
+  const tableColumnPinning = useMemo(
+    () => withLeadingCheckboxPinned(columnPinning, tableColumnIds),
+    [columnPinning, tableColumnIds],
+  );
+
+  const columnSizing = useMemo(() => {
+    const sizing: Record<string, number> = {};
+    for (const id of tableColumnIds) {
+      if (isCheckboxColumnId(id)) sizing[id] = CHECKBOX_COLUMN_SIZE;
+    }
+    return sizing;
   }, [tableColumnIds]);
 
   useEffect(() => {
@@ -620,7 +660,9 @@ export function DataTable<TData extends object>({
       const currentLeft = new Set(current.left ?? []);
       if (frozen) currentLeft.add(columnId);
       else currentLeft.delete(columnId);
-      const left = tableColumnIds.filter((id) => currentLeft.has(id));
+      const left = tableColumnIds.filter(
+        (id) => currentLeft.has(id) && !isCheckboxColumnId(id),
+      );
       return { ...current, left };
     });
   };
@@ -686,14 +728,27 @@ export function DataTable<TData extends object>({
       globalFilter,
       columnFilters,
       columnOrder,
-      columnPinning,
+      columnPinning: tableColumnPinning,
+      columnSizing,
       pagination,
     },
     onSortingChange: setSorting,
     onGlobalFilterChange: setGlobalFilter,
     onColumnFiltersChange: setColumnFilters,
     onColumnOrderChange: setColumnOrder,
-    onColumnPinningChange: setColumnPinning,
+    onColumnPinningChange: (updater) => {
+      setColumnPinning((current) => {
+        const next =
+          typeof updater === "function"
+            ? updater(withLeadingCheckboxPinned(current, tableColumnIds))
+            : updater;
+        const left = tableColumnIds.filter(
+          (id) =>
+            (next.left ?? []).includes(id) && !isCheckboxColumnId(id),
+        );
+        return { ...next, left };
+      });
+    },
     onPaginationChange: setPagination,
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
