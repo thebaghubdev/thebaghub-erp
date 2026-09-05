@@ -2,7 +2,6 @@ import { Type } from 'class-transformer';
 import {
   IsArray,
   IsIn,
-  IsNumberString,
   IsObject,
   IsOptional,
   IsString,
@@ -52,14 +51,6 @@ export class WalkInAuthDetailsDto {
   @IsString()
   @MaxLength(512)
   dimensions?: string | null;
-
-  @IsOptional()
-  @IsNumberString()
-  marketPrice?: string | null;
-
-  @IsOptional()
-  @IsNumberString()
-  retailPrice?: string | null;
 
   @IsOptional()
   @IsString()

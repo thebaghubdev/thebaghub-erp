@@ -135,14 +135,6 @@ function normalizeOptionalText(raw: string | null | undefined): string | null {
   return trimmed === '' ? null : trimmed;
 }
 
-function parseOptionalMoney(raw: string): number | null {
-  const cleaned = raw.trim().replace(/,/g, '').replace(/^\u20b1\s?/i, '');
-  if (cleaned === '') return null;
-  const n = Number(cleaned);
-  if (!Number.isFinite(n) || n < 0) return null;
-  return n;
-}
-
 function applyAuthDetails(
   row: WalkInAuthentication,
   dto: WalkInAuthDetailsDto,
@@ -158,26 +150,6 @@ function applyAuthDetails(
   }
   if (dto.authenticatorNotes !== undefined) {
     row.authenticatorNotes = normalizeOptionalText(dto.authenticatorNotes);
-  }
-  if (dto.marketPrice !== undefined) {
-    const trimmed = String(dto.marketPrice).trim();
-    if (trimmed === '') {
-      row.marketPrice = null;
-    } else {
-      const parsed = parseOptionalMoney(trimmed);
-      if (parsed == null) throw new BadRequestException('Invalid market price.');
-      row.marketPrice = parsed.toFixed(2);
-    }
-  }
-  if (dto.retailPrice !== undefined) {
-    const trimmed = String(dto.retailPrice).trim();
-    if (trimmed === '') {
-      row.retailPrice = null;
-    } else {
-      const parsed = parseOptionalMoney(trimmed);
-      if (parsed == null) throw new BadRequestException('Invalid retail price.');
-      row.retailPrice = parsed.toFixed(2);
-    }
   }
 }
 
@@ -343,9 +315,9 @@ export class WalkInAuthenticationService {
     );
 
     await this.paymentVerification.notifyVerifiers({
-      title: `Verify walk-in authentication payment for ${created.sku}`,
-      message: `A walk-in authentication payment proof for ${created.sku} is awaiting verification.`,
-      portalPath: `/portal/walk-in-authentication/${created.id}`,
+      title: `Verify 3rd-party authentication payment for ${created.sku}`,
+      message: `A 3rd-party authentication payment proof for ${created.sku} is awaiting verification.`,
+      portalPath: `/portal/3rd-party-authentication/${created.id}`,
       walkInAuthenticationId: created.id,
     });
 
@@ -429,7 +401,7 @@ export class WalkInAuthenticationService {
       for (const id of uniqueIds) {
         const row = await em.findOne(WalkInAuthentication, { where: { id } });
         if (!row) {
-          throw new NotFoundException(`Walk-in authentication ${id} not found`);
+          throw new NotFoundException(`3rd-party authentication ${id} not found`);
         }
         if (row.status === WALK_IN_AUTH_STATUS_COMPLETED) {
           throw new BadRequestException(
@@ -455,7 +427,7 @@ export class WalkInAuthenticationService {
       where: { id },
       relations: { salesAssociate: true, assignedTo: true },
     });
-    if (!row) throw new NotFoundException('Walk-in authentication not found');
+    if (!row) throw new NotFoundException('3rd-party authentication not found');
 
     const metricRows = await this.metricRepo.find({
       where: { walkInAuthenticationId: id },
@@ -520,8 +492,6 @@ export class WalkInAuthenticationService {
       assignedToId: row.assignedToId,
       assignedToName: formatEmployeeName(row.assignedTo),
       dimensions: row.dimensions,
-      marketPrice: row.marketPrice,
-      retailPrice: row.retailPrice,
       marketResearchNotes: row.marketResearchNotes,
       marketResearchLink: row.marketResearchLink,
       authenticatorNotes: row.authenticatorNotes,
@@ -548,10 +518,10 @@ export class WalkInAuthenticationService {
     user: JwtUser,
   ): Promise<Awaited<ReturnType<WalkInAuthenticationService['findOne']>>> {
     const row = await this.repo.findOne({ where: { id } });
-    if (!row) throw new NotFoundException('Walk-in authentication not found');
+    if (!row) throw new NotFoundException('3rd-party authentication not found');
     if (!isPaymentAwaitingVerification(row.paymentStatus)) {
       throw new BadRequestException(
-        'This walk-in authentication payment is not awaiting verification',
+        'This 3rd-party authentication payment is not awaiting verification',
       );
     }
     const hasProof = await this.media.hasMedia(
@@ -561,7 +531,7 @@ export class WalkInAuthenticationService {
     );
     if (!hasProof) {
       throw new BadRequestException(
-        'Upload proof of payment before verifying this walk-in authentication',
+        'Upload proof of payment before verifying this 3rd-party authentication',
       );
     }
     row.paymentStatus = PAYMENT_STATUS_CONFIRMED;
@@ -576,10 +546,10 @@ export class WalkInAuthenticationService {
     actor: { userId: string; isAdmin: boolean },
   ): Promise<{ saved: boolean }> {
     const row = await this.repo.findOne({ where: { id } });
-    if (!row) throw new NotFoundException('Walk-in authentication not found');
+    if (!row) throw new NotFoundException('3rd-party authentication not found');
     if (row.status !== WALK_IN_AUTH_STATUS_ASSIGNED) {
       throw new BadRequestException(
-        'Only assigned walk-in authentications can be edited.',
+        'Only assigned 3rd-party authentications can be edited.',
       );
     }
     await this.enforceAssigneeAccess(row, actor);
@@ -594,7 +564,7 @@ export class WalkInAuthenticationService {
         lock: { mode: 'pessimistic_write' },
       });
       if (!locked) {
-        throw new NotFoundException('Walk-in authentication not found');
+        throw new NotFoundException('3rd-party authentication not found');
       }
 
       if (dto.itemSnapshot) {
@@ -724,10 +694,10 @@ export class WalkInAuthenticationService {
     actor: { userId: string; isAdmin: boolean },
   ): Promise<{ status: string; result: string }> {
     const row = await this.repo.findOne({ where: { id } });
-    if (!row) throw new NotFoundException('Walk-in authentication not found');
+    if (!row) throw new NotFoundException('3rd-party authentication not found');
     if (row.status !== WALK_IN_AUTH_STATUS_ASSIGNED) {
       throw new BadRequestException(
-        'Only assigned walk-in authentications can be marked as done.',
+        'Only assigned 3rd-party authentications can be marked as done.',
       );
     }
     await this.enforceAssigneeAccess(row, actor);

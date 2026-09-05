@@ -6,7 +6,6 @@ import {
   type MetricVerdict,
 } from "../components/MetricAuthCard";
 import { ConfirmDialog } from "../components/ConfirmDialog";
-import { PhpPriceInput } from "../components/PhpPriceInput";
 import { SearchableSelect } from "../components/SearchableSelect";
 import { usePortalAuth } from "../context/portal-auth";
 import { useUnsavedChangesGuard } from "../context/unsaved-changes";
@@ -18,7 +17,7 @@ import {
   groupMetricsByMetricCategory,
   sortMetricsForDisplay,
 } from "../lib/filter-authentication-metrics";
-import { formatPhpDisplay, parsePhpStringToNumber } from "../lib/format-php";
+import { formatPhpDisplay } from "../lib/format-php";
 import { orderPaymentStatusBadgeClass } from "../lib/order-payments";
 import { isPaymentAwaitingVerification } from "../lib/payment-status";
 import { useFeatureAccess } from "../lib/use-feature-access";
@@ -60,8 +59,6 @@ type DetailPayload = {
   assignedToId: string | null;
   assignedToName: string | null;
   dimensions: string | null;
-  marketPrice: string | null;
-  retailPrice: string | null;
   marketResearchNotes: string | null;
   marketResearchLink: string | null;
   authenticatorNotes: string | null;
@@ -154,8 +151,6 @@ export function WalkInAuthenticationDetailPage() {
   const [inclusions, setInclusions] = useState("");
 
   const [dimensions, setDimensions] = useState("");
-  const [marketPrice, setMarketPrice] = useState("");
-  const [retailPrice, setRetailPrice] = useState("");
   const [marketResearchNotes, setMarketResearchNotes] = useState("");
   const [marketResearchLink, setMarketResearchLink] = useState("");
   const [authenticatorNotes, setAuthenticatorNotes] = useState("");
@@ -206,8 +201,6 @@ export function WalkInAuthenticationDetailPage() {
         material,
         inclusions,
         dimensions,
-        marketPrice,
-        retailPrice,
         marketResearchNotes,
         marketResearchLink,
         authenticatorNotes,
@@ -240,7 +233,7 @@ export function WalkInAuthenticationDetailPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await apiFetch(`/api/walk-in-authentication/${id}`, {}, token);
+      const res = await apiFetch(`/api/3rd-party-authentication/${id}`, {}, token);
       if (!res.ok) throw new Error(await readApiErrorMessage(res));
       const data = (await res.json()) as DetailPayload;
       setDetail(data);
@@ -252,8 +245,6 @@ export function WalkInAuthenticationDetailPage() {
       setMaterial(data.material ?? "");
       setInclusions(data.inclusions ?? "");
       setDimensions(data.dimensions ?? "");
-      setMarketPrice(data.marketPrice ?? "");
-      setRetailPrice(data.retailPrice ?? "");
       setMarketResearchNotes(data.marketResearchNotes ?? "");
       setMarketResearchLink(data.marketResearchLink ?? "");
       setAuthenticatorNotes(data.authenticatorNotes ?? "");
@@ -291,8 +282,6 @@ export function WalkInAuthenticationDetailPage() {
         material: data.material ?? "",
         inclusions: data.inclusions ?? "",
         dimensions: data.dimensions ?? "",
-        marketPrice: data.marketPrice ?? "",
-        retailPrice: data.retailPrice ?? "",
         marketResearchNotes: data.marketResearchNotes ?? "",
         marketResearchLink: data.marketResearchLink ?? "",
         authenticatorNotes: data.authenticatorNotes ?? "",
@@ -378,15 +367,6 @@ export function WalkInAuthenticationDetailPage() {
       throw new Error("Only the assigned authenticator can save changes.");
     }
 
-    const normalizedMarketPrice = (() => {
-      const n = parsePhpStringToNumber(marketPrice);
-      return n != null && n >= 0 ? n.toFixed(2) : marketPrice.trim();
-    })();
-    const normalizedRetailPrice = (() => {
-      const n = parsePhpStringToNumber(retailPrice);
-      return n != null && n >= 0 ? n.toFixed(2) : retailPrice.trim();
-    })();
-
     const rows = await Promise.all(
       filteredMetrics.map(async (m) => {
         const d = draftByMetricId[m.id] ?? emptyDraft();
@@ -407,7 +387,7 @@ export function WalkInAuthenticationDetailPage() {
     const certPhotosMerged = [...certificatePhotos, ...thirdPartyExtra];
 
     const res = await apiFetch(
-      `/api/walk-in-authentication/${id}`,
+      `/api/3rd-party-authentication/${id}`,
       {
         method: "PATCH",
         body: JSON.stringify({
@@ -423,8 +403,6 @@ export function WalkInAuthenticationDetailPage() {
           },
           authenticationDetails: {
             dimensions,
-            marketPrice: normalizedMarketPrice,
-            retailPrice: normalizedRetailPrice,
             marketResearchNotes,
             marketResearchLink,
             authenticatorNotes,
@@ -460,8 +438,6 @@ export function WalkInAuthenticationDetailPage() {
     material,
     inclusions,
     dimensions,
-    marketPrice,
-    retailPrice,
     marketResearchNotes,
     marketResearchLink,
     authenticatorNotes,
@@ -499,7 +475,7 @@ export function WalkInAuthenticationDetailPage() {
     try {
       await persist();
       const res = await apiFetch(
-        `/api/walk-in-authentication/${id}/complete`,
+        `/api/3rd-party-authentication/${id}/complete`,
         {
           method: "POST",
           body: JSON.stringify({ result }),
@@ -523,7 +499,7 @@ export function WalkInAuthenticationDetailPage() {
     setBusy(true);
     try {
       const res = await apiFetch(
-        `/api/walk-in-authentication/${id}/payment-verify`,
+        `/api/3rd-party-authentication/${id}/payment-verify`,
         { method: "POST" },
         token,
       );
@@ -543,7 +519,7 @@ export function WalkInAuthenticationDetailPage() {
 
   if (loading) {
     return (
-      <div className="p-6 text-sm text-slate-500">Loading walk-in authentication…</div>
+      <div className="p-6 text-sm text-slate-500">Loading 3rd-party authentication…</div>
     );
   }
 
@@ -554,7 +530,7 @@ export function WalkInAuthenticationDetailPage() {
           {error ?? "Not found"}
         </p>
         <Link
-          to="/portal/walk-in-authentication"
+          to="/portal/3rd-party-authentication"
           className="text-sm font-medium text-violet-700 underline dark:text-violet-300"
         >
           Back to queue
@@ -575,10 +551,10 @@ export function WalkInAuthenticationDetailPage() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <Link
-            to="/portal/walk-in-authentication"
+            to="/portal/3rd-party-authentication"
             className="text-sm text-violet-700 underline-offset-2 hover:underline dark:text-violet-300"
           >
-            ← Walk-in Authentication
+            ← 3rd-Party Authentication
           </Link>
           <h1 className="mt-2 text-xl font-semibold text-slate-900 dark:text-slate-100">
             {detail.sku}
@@ -825,30 +801,6 @@ export function WalkInAuthenticationDetailPage() {
             onChange={(e) => setDimensions(e.target.value)}
           />
         </div>
-        <div>
-          <label className={labelClass} htmlFor="wia-d-market-price">
-            Market price (optional)
-          </label>
-          <PhpPriceInput
-            id="wia-d-market-price"
-            className={`${fieldClass} pl-8`}
-            value={marketPrice}
-            disabled={readOnly}
-            onChange={setMarketPrice}
-          />
-        </div>
-        <div>
-          <label className={labelClass} htmlFor="wia-d-retail-price">
-            Retail price (optional)
-          </label>
-          <PhpPriceInput
-            id="wia-d-retail-price"
-            className={`${fieldClass} pl-8`}
-            value={retailPrice}
-            disabled={readOnly}
-            onChange={setRetailPrice}
-          />
-        </div>
         <div className="sm:col-span-2">
           <label className={labelClass} htmlFor="wia-d-research-notes">
             Market research notes (optional)
@@ -1078,7 +1030,7 @@ export function WalkInAuthenticationDetailPage() {
 
       <ConfirmDialog
         open={verifyConfirmOpen}
-        title="Verify walk-in authentication payment?"
+        title="Verify 3rd-party authentication payment?"
         description="This confirms the proof of payment. The item can then be assigned to an authenticator."
         confirmLabel="Verify payment"
         cancelLabel="Cancel"

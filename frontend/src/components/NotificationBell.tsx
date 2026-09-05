@@ -164,7 +164,7 @@ export function NotificationBell() {
       navigate(`/portal/orders/${n.orderId}`)
     } else if (n.walkInAuthenticationId) {
       setOpen(false)
-      navigate(`/portal/walk-in-authentication/${n.walkInAuthenticationId}`)
+      navigate(`/portal/3rd-party-authentication/${n.walkInAuthenticationId}`)
     }
   }
 
@@ -326,8 +326,8 @@ export function NotificationBell() {
                         {!n.inquiryId && !n.orderId && n.walkInAuthenticationId && (
                           <p className="mt-0.5 text-xs text-violet-600 dark:text-violet-400">
                             {n.isRead
-                              ? "View walk-in authentication"
-                              : "Open walk-in authentication (marks read)"}
+                              ? "View 3rd-party authentication"
+                              : "Open 3rd-party authentication (marks read)"}
                           </p>
                         )}
                       </button>

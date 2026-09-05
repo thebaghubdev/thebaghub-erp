@@ -153,7 +153,7 @@ export function WalkInAuthenticationPage() {
     isDirty: createDirty,
     bypass: createBusy,
     description:
-      "You have unsaved changes to this walk-in authentication. Leave this page?",
+      "You have unsaved changes to this 3rd-party authentication. Leave this page?",
   });
 
   const load = useCallback(async () => {
@@ -161,7 +161,7 @@ export function WalkInAuthenticationPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await apiFetch("/api/walk-in-authentication", {}, token);
+      const res = await apiFetch("/api/3rd-party-authentication", {}, token);
       if (!res.ok) throw new Error(await readApiErrorMessage(res));
       const data = (await res.json()) as WalkInAuthRow[];
       setRows(Array.isArray(data) ? data : []);
@@ -249,7 +249,7 @@ export function WalkInAuthenticationPage() {
     setAuthenticatorsLoading(true);
     try {
       const res = await apiFetch(
-        "/api/walk-in-authentication/authenticators",
+        "/api/3rd-party-authentication/authenticators",
         {},
         token,
       );
@@ -278,7 +278,7 @@ export function WalkInAuthenticationPage() {
       setAssignError(null);
       try {
         const res = await apiFetch(
-          "/api/walk-in-authentication/batch-assign-authenticator",
+          "/api/3rd-party-authentication/batch-assign-authenticator",
           {
             method: "POST",
             body: JSON.stringify({
@@ -373,7 +373,7 @@ export function WalkInAuthenticationPage() {
       fd.append("proof", proofFile);
 
       const res = await apiFetch(
-        "/api/walk-in-authentication",
+        "/api/3rd-party-authentication",
         { method: "POST", body: fd },
         token,
       );
@@ -461,7 +461,7 @@ export function WalkInAuthenticationPage() {
       <ConfirmDialog
         open={tabLeaveOpen}
         title="Unsaved changes"
-        description="You have unsaved changes to this walk-in authentication. Switch tabs anyway?"
+        description="You have unsaved changes to this 3rd-party authentication. Switch tabs anyway?"
         cancelLabel="Stay"
         confirmLabel="Switch tab"
         onCancel={() => setTabLeaveOpen(false)}
@@ -553,7 +553,7 @@ export function WalkInAuthenticationPage() {
             columns={columns}
             data={rows}
             isLoading={loading}
-            emptyMessage="No walk-in authentications yet."
+            emptyMessage="No 3rd-party authentications yet."
             hideEmptyState={!!error}
             searchPlaceholder="Search…"
             statusFilterOptions={[
@@ -563,10 +563,10 @@ export function WalkInAuthenticationPage() {
             ]}
             getRowId={(r) => r.id}
             onRowClick={(r) =>
-              navigate(`/portal/walk-in-authentication/${r.id}`)
+              navigate(`/portal/3rd-party-authentication/${r.id}`)
             }
             getRowAriaLabel={(r) =>
-              `Walk-in authentication ${r.sku}, ${r.clientName}`
+              `3rd-party authentication ${r.sku}, ${r.clientName}`
             }
             rowSelection={rowSelection}
             paginationItemLabel="inquiries"
@@ -795,7 +795,7 @@ export function WalkInAuthenticationPage() {
             disabled={createBusy}
             className="rounded-lg bg-violet-700 px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50"
           >
-            {createBusy ? "Submitting…" : "Submit walk-in authentication"}
+            {createBusy ? "Submitting…" : "Submit 3rd-party authentication"}
           </button>
         </form>
       )}

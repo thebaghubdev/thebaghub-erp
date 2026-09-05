@@ -47,7 +47,7 @@ export const MANAGED_FEATURE_LABELS: Record<ManagedFeatureKey, string> = {
   'payment-verification': 'Payment Verification',
   'consignor-payments': 'Consignor Payments',
   'direct-purchase-payments': 'Direct Purchase Payments',
-  'walk-in-authentication': 'Walk-in Authentication',
+  'walk-in-authentication': '3rd-Party Authentication',
   promotions: 'Promotions',
   vouchers: 'Credit Vouchers',
   logistics: 'Logistics',

@@ -23,7 +23,7 @@ import { CreateWalkInAuthenticationDto } from './dto/create-walk-in-authenticati
 import { SaveWalkInAuthenticationDto } from './dto/save-walk-in-authentication.dto';
 import { WalkInAuthenticationService } from './walk-in-authentication.service';
 
-@Controller('walk-in-authentication')
+@Controller(['3rd-party-authentication', 'walk-in-authentication'])
 @UseGuards(StaffOnlyGuard, FeatureAccessGuard)
 export class WalkInAuthenticationController {
   constructor(private readonly service: WalkInAuthenticationService) {}

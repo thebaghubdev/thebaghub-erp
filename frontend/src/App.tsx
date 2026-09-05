@@ -3,6 +3,7 @@ import {
   Outlet,
   RouterProvider,
   createBrowserRouter,
+  useParams,
 } from 'react-router-dom'
 import { ClientHtmlTheme } from './components/ClientHtmlTheme'
 import { PortalHtmlTheme } from './components/PortalHtmlTheme'
@@ -82,6 +83,13 @@ function FeatureRoute({
     <RequireFeatureAccess feature={feature} orFeatures={orFeatures}>
       {children}
     </RequireFeatureAccess>
+  )
+}
+
+function RedirectToThirdPartyAuthenticationDetail() {
+  const { id } = useParams()
+  return (
+    <Navigate to={`/portal/3rd-party-authentication/${id ?? ''}`} replace />
   )
 }
 
@@ -186,7 +194,7 @@ const router = createBrowserRouter([
             ),
           },
           {
-            path: 'walk-in-authentication/:id',
+            path: '3rd-party-authentication/:id',
             element: (
               <FeatureRoute
                 feature="walk-in-authentication"
@@ -197,11 +205,21 @@ const router = createBrowserRouter([
             ),
           },
           {
-            path: 'walk-in-authentication',
+            path: '3rd-party-authentication',
             element: (
               <FeatureRoute feature="walk-in-authentication">
                 <WalkInAuthenticationPage />
               </FeatureRoute>
+            ),
+          },
+          {
+            path: 'walk-in-authentication/:id',
+            element: <RedirectToThirdPartyAuthenticationDetail />,
+          },
+          {
+            path: 'walk-in-authentication',
+            element: (
+              <Navigate to="/portal/3rd-party-authentication" replace />
             ),
           },
           {
