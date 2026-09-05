@@ -11,7 +11,6 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomUUID } from 'node:crypto';
 import { Between, EntityManager, In, Repository } from 'typeorm';
-import { ConfigService } from '@nestjs/config';
 import {
   Inquiry,
   type InquiryItemSnapshot,
@@ -23,7 +22,7 @@ import {
 } from './inventory-sku.util';
 import { FeatureAccessService } from '../access-control/feature-access.service';
 import { JwtUser } from '../auth/jwt-user';
-import { portalPageUrl } from '../common/frontend-url.util';
+import { portalPagePath } from '../common/frontend-url.util';
 import { Employee } from '../employees/entities/employee.entity';
 import {
   canAssignWorkToOthers,
@@ -790,7 +789,6 @@ export class InventoryService {
     private readonly notifications: NotificationsService,
     private readonly shopifyAdmin: ShopifyAdminService,
     private readonly media: MediaService,
-    private readonly config: ConfigService,
     private readonly tasks: TasksService,
     private readonly inventoryAudit: InventoryAuditService,
     private readonly vipPricing: VipPricingService,
@@ -1864,10 +1862,7 @@ export class InventoryService {
         .createAssigned({
           assigneeId: dto.employeeId,
           title: `Item ${sku} is assigned to you for authentication`,
-          description: portalPageUrl(
-            this.config,
-            `/portal/authentication/${itemId}`,
-          ),
+          description: portalPagePath(`/portal/authentication/${itemId}`),
           severity: 'moderate',
           dueDate: null,
         })
@@ -2000,8 +1995,7 @@ export class InventoryService {
         .createAssigned({
           assigneeId: dto.employeeId,
           title: `Item ${sku} is assigned to you for photoshoot`,
-          description: portalPageUrl(
-            this.config,
+          description: portalPagePath(
             `/portal/photoshoot/item/${photoshootId}`,
           ),
           severity: 'moderate',
@@ -2213,7 +2207,7 @@ export class InventoryService {
     id: string;
     sku: string;
   }): void {
-    const itemUrl = portalPageUrl(this.config, `/portal/editing/${item.id}`);
+    const itemUrl = portalPagePath(`/portal/editing/${item.id}`);
     void this.employeesRepo
       .createQueryBuilder('e')
       .where('LOWER(TRIM(e.position)) = :p', {

@@ -48,7 +48,7 @@ import {
   FOR_AUTHENTICATION_PAYMENT_VERIFICATION_ITEM_AUTH_STATUS,
   RETURNED_TO_CONSIGNOR_ITEM_AUTH_STATUS,
 } from '../inventory/inventory-auth-status.constants';
-import { portalPageUrl } from '../common/frontend-url.util';
+import { portalPagePath } from '../common/frontend-url.util';
 import {
   AuthenticationReturnCase,
   authenticationReturnCaseHasRenegotiation,
@@ -830,10 +830,7 @@ export class InquiriesService {
         .createAssigned({
           assigneeId: dto.employeeId,
           title: `Inquiry ${sku} is assigned to you`,
-          description: portalPageUrl(
-            this.config,
-            `/portal/inquiries/${inquiryId}`,
-          ),
+          description: portalPagePath(`/portal/inquiries/${inquiryId}`),
           severity: 'moderate',
           dueDate: null,
         })

@@ -41,7 +41,7 @@ import { MailService } from '../mail/mail.service';
 import { computeConsignorPaymentAuditDate } from '../consignor-payments/consignor-payment-audit-date.util';
 import { ConsignorPaymentsService } from '../consignor-payments/consignor-payments.service';
 import { NotificationsService } from '../notifications/notifications.service';
-import { portalPageUrl } from '../common/frontend-url.util';
+import { portalPagePath } from '../common/frontend-url.util';
 import { TasksService } from '../tasks/tasks.service';
 import { PaymentVerificationNotifyService } from '../payment-verification/payment-verification-notify.service';
 import {
@@ -661,7 +661,7 @@ export class OrdersService {
       .createAssigned({
         assigneeId,
         title: `Order #${orderNumber} is Paid`,
-        description: portalPageUrl(this.config, `/portal/orders/${orderId}`),
+        description: portalPagePath(`/portal/orders/${orderId}`),
         severity: 'moderate',
         dueDate: null,
       })
@@ -824,7 +824,7 @@ export class OrdersService {
         .createAssigned({
           assigneeId: dto.employeeId,
           title: `Order #${orderNumber} is assigned to you`,
-          description: portalPageUrl(this.config, `/portal/orders/${orderId}`),
+          description: portalPagePath(`/portal/orders/${orderId}`),
           severity: 'moderate',
           dueDate: null,
         })

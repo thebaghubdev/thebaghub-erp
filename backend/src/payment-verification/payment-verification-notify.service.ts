@@ -1,7 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { FeatureAccessService } from '../access-control/feature-access.service';
-import { portalPageUrl } from '../common/frontend-url.util';
+import { portalPagePath } from '../common/frontend-url.util';
 import { NotificationsService } from '../notifications/notifications.service';
 import { TasksService } from '../tasks/tasks.service';
 
@@ -22,7 +21,6 @@ export class PaymentVerificationNotifyService {
     private readonly featureAccess: FeatureAccessService,
     private readonly notifications: NotificationsService,
     private readonly tasks: TasksService,
-    private readonly config: ConfigService,
   ) {}
 
   async notifyVerifiers(input: PaymentVerificationNotifyInput): Promise<void> {
@@ -33,7 +31,7 @@ export class PaymentVerificationNotifyService {
       return;
     }
 
-    const description = portalPageUrl(this.config, input.portalPath);
+    const description = portalPagePath(input.portalPath);
 
     for (const assigneeId of verifierIds) {
       void this.notifications

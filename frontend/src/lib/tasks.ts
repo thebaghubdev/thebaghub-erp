@@ -115,3 +115,20 @@ export function formatTaskDueDate(isoDate: string): string {
     year: 'numeric',
   }).format(new Date(y, m - 1, d))
 }
+
+/** In-app portal path from a task description (relative or legacy absolute URL). */
+export function taskPortalPath(
+  description: string | null | undefined,
+): string | null {
+  const value = description?.trim() ?? ''
+  if (!value) return null
+  if (value.startsWith('/portal/')) return value
+  if (!/^https?:\/\//i.test(value)) return null
+  try {
+    const url = new URL(value)
+    if (!url.pathname.startsWith('/portal/')) return null
+    return `${url.pathname}${url.search}${url.hash}`
+  } catch {
+    return null
+  }
+}

@@ -19,6 +19,7 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { Link } from 'react-router-dom'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { usePortalAuth } from '../context/portal-auth'
 import { apiFetch } from '../lib/api'
@@ -32,6 +33,7 @@ import {
   emptyBoard,
   formatTaskDueDate,
   taskFromLabel,
+  taskPortalPath,
   tasksToBoard,
   todayManila,
   type TaskAssignee,
@@ -134,6 +136,33 @@ function attachmentsChanged(
 
 function isHttpUrl(value: string): boolean {
   return /^https?:\/\//i.test(value.trim())
+}
+
+function TaskDescriptionLink({
+  value,
+  className,
+  children,
+}: {
+  value: string
+  className?: string
+  children?: string
+}) {
+  const portalPath = taskPortalPath(value)
+  if (portalPath) {
+    return (
+      <Link to={portalPath} className={className}>
+        {children ?? 'Open item'}
+      </Link>
+    )
+  }
+  if (isHttpUrl(value)) {
+    return (
+      <a href={value.trim()} className={className}>
+        {children ?? value.trim()}
+      </a>
+    )
+  }
+  return null
 }
 
 function PaperclipIcon({ className }: { className?: string }) {
@@ -546,6 +575,10 @@ function TaskCard({
     task.dueDate && task.progress !== 'completed' && task.dueDate < today,
   )
   const fromLabel = taskFromLabel(task)
+  const itemPath = taskPortalPath(task.description)
+  const showDescriptionText = Boolean(
+    task.description && !itemPath && !isHttpUrl(task.description),
+  )
   return (
     <article
       className={`rounded-lg border border-slate-200 border-l-4 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900 ${SEVERITY_CARD[task.severity]} ${
@@ -567,7 +600,7 @@ function TaskCard({
             {TASK_SEVERITY_LABELS[task.severity]}
           </span>
         </div>
-        {task.description && !isHttpUrl(task.description) ? (
+        {showDescriptionText ? (
           <p className="mt-1 line-clamp-2 text-xs text-slate-600 dark:text-slate-400">
             {task.description}
           </p>
@@ -608,15 +641,17 @@ function TaskCard({
           </div>
         ) : null}
       </button>
-      {task.description && isHttpUrl(task.description) ? (
-        <a
-          href={task.description.trim()}
-          className="mt-1 block truncate text-xs font-medium text-violet-700 hover:underline dark:text-violet-300"
+      {task.description && (itemPath || isHttpUrl(task.description)) ? (
+        <span
+          className="mt-1 block"
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}
         >
-          {task.description.trim()}
-        </a>
+          <TaskDescriptionLink
+            value={task.description}
+            className="block truncate text-xs font-medium text-violet-700 hover:underline dark:text-violet-300"
+          />
+        </span>
       ) : null}
     </article>
   )
@@ -687,6 +722,10 @@ function TaskFormDialog({
   if (!open || typeof document === 'undefined') return null
 
   const fromLabel = task ? taskFromLabel(task) : null
+  const itemPath = taskPortalPath(description)
+  const linkOnlyDescription = Boolean(
+    itemPath && (description.trim() === itemPath || isHttpUrl(description)),
+  )
 
   const addAttachmentFiles = (fileList: FileList | File[]) => {
     const list = Array.from(fileList).filter(isAcceptedAttachment)
@@ -756,10 +795,11 @@ function TaskFormDialog({
         severity,
       }
       if (task) {
-        payload.description = description.trim() || null
+        payload.description = itemPath ?? (description.trim() || null)
         payload.dueDate = dueDate || null
       } else {
-        if (description.trim()) payload.description = description.trim()
+        if (itemPath) payload.description = itemPath
+        else if (description.trim()) payload.description = description.trim()
         if (dueDate) payload.dueDate = dueDate
         if (assigneeId) payload.assigneeId = assigneeId
       }
@@ -864,21 +904,32 @@ function TaskFormDialog({
             <span className="mb-1 block font-medium text-slate-700 dark:text-slate-300">
               Description
             </span>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={3}
-              maxLength={4000}
-              className={FIELD_CLASS}
-            />
-            {isHttpUrl(description) ? (
-              <a
-                href={description.trim()}
-                className="mt-1 inline-block text-xs font-medium text-violet-700 hover:underline dark:text-violet-300"
-              >
-                Open link
-              </a>
-            ) : null}
+            {linkOnlyDescription ? (
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-600 dark:bg-slate-950">
+                <TaskDescriptionLink
+                  value={description}
+                  className="text-sm font-medium text-violet-700 hover:underline dark:text-violet-300"
+                />
+              </div>
+            ) : (
+              <>
+                <textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  rows={3}
+                  maxLength={4000}
+                  className={FIELD_CLASS}
+                />
+                {isHttpUrl(description) ? (
+                  <TaskDescriptionLink
+                    value={description}
+                    className="mt-1 inline-block text-xs font-medium text-violet-700 hover:underline dark:text-violet-300"
+                  >
+                    Open link
+                  </TaskDescriptionLink>
+                ) : null}
+              </>
+            )}
           </label>
           <label className="block text-sm">
             <span className="mb-1 block font-medium text-slate-700 dark:text-slate-300">
