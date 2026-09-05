@@ -749,7 +749,6 @@ export function PromotionsPage() {
             getRowId={(r) => r.id}
             onRowClick={(r) => void openDetail(r.id)}
             getRowAriaLabel={(r) => `Promotion ${r.promotionName}`}
-            paginationItemLabel="promotions"
           />
         </section>
       )}
@@ -852,7 +851,6 @@ export function PromotionsPage() {
                 isLoading={inventoryLoading}
                 emptyMessage="No items available for purchase."
                 getRowId={(r) => r.id}
-                paginationItemLabel="items"
               />
               <div className="flex gap-2">
                 <button
@@ -896,7 +894,6 @@ export function PromotionsPage() {
                 isLoading={false}
                 emptyMessage="No items selected."
                 getRowId={(r) => r.id}
-                paginationItemLabel="items"
               />
               <div className="flex gap-2">
                 <button
@@ -1011,7 +1008,6 @@ export function PromotionsPage() {
                     isLoading={false}
                     emptyMessage="No items in this promotion."
                     getRowId={(r) => r.id}
-                    paginationItemLabel="items"
                   />
                 ) : (
                   <p className="text-sm text-red-700">

@@ -668,7 +668,6 @@ export function ClientAccountDetailPage() {
           emptyMessage="No credit vouchers for this client."
           hideEmptyState={!!vouchersError}
           getRowId={(r) => r.id}
-          paginationItemLabel="vouchers"
         />
       </section>
 

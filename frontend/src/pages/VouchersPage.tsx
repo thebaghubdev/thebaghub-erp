@@ -439,7 +439,6 @@ export function VouchersPage() {
             emptyMessage="No vouchers yet."
             hideEmptyState={!!error}
             getRowId={(r) => r.id}
-            paginationItemLabel="vouchers"
           />
         </section>
       )}

@@ -15,7 +15,7 @@ type HorizontalScrollMirrorProps = {
 
 /**
  * Renders a second horizontal scrollbar above the content, synced with the
- * main scroll container below (for tables with pagination above headers).
+ * main scroll container below (so wide tables can keep a sticky header).
  */
 export function HorizontalScrollMirror({
   children,
@@ -70,13 +70,13 @@ export function HorizontalScrollMirror({
   }, [syncSpacerWidth]);
 
   const bottomClasses =
-    `app-themed-scrollbar min-w-0 overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch] ${bottomClassName}`.trim();
+    `app-themed-scrollbar min-h-0 min-w-0 flex-auto overflow-auto overscroll-contain [-webkit-overflow-scrolling:touch] ${bottomClassName}`.trim();
 
   const topClasses =
-    `app-themed-scrollbar min-w-0 overflow-x-auto overflow-y-hidden overscroll-x-contain [-webkit-overflow-scrolling:touch] border-b border-slate-200 dark:border-slate-800 ${topClassName}`.trim();
+    `app-themed-scrollbar min-w-0 shrink-0 overflow-x-auto overflow-y-hidden overscroll-x-contain [-webkit-overflow-scrolling:touch] border-b border-slate-200 dark:border-slate-800 ${topClassName}`.trim();
 
   return (
-    <>
+    <div className="flex min-h-0 min-w-0 flex-auto flex-col">
       <div
         ref={topRef}
         className={topClasses}
@@ -88,6 +88,6 @@ export function HorizontalScrollMirror({
       <div ref={bottomRef} className={bottomClasses} onScroll={onBottomScroll}>
         {children}
       </div>
-    </>
+    </div>
   );
 }

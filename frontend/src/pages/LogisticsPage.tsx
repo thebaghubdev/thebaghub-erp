@@ -672,7 +672,6 @@ export function LogisticsPage() {
             getRowAriaLabel={(r) =>
               `Transfer ${formatLogisticsTransferDate(r.transferDate)}, ${branchLabel(r.sendingBranch)} to ${branchLabel(r.receivingBranch)}`
             }
-            paginationItemLabel="transfers"
           />
         </section>
       )}

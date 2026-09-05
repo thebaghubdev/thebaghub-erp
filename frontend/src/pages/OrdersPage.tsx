@@ -411,7 +411,6 @@ export function OrdersPage() {
             getRowAriaLabel={(r) =>
               `Order ${r.orderNumber}, ${r.customerName}, ${r.status}`
             }
-            paginationItemLabel="orders"
             rowSelection={ordersRowSelection}
             toolbarRight={
               !readOnly && orderSelectedIds.size > 0 ? (

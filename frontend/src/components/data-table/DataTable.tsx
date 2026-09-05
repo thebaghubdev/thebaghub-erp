@@ -4,6 +4,7 @@ import {
   type ReactNode,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -21,16 +22,13 @@ import {
   type ColumnDef,
   type ColumnFiltersState,
   type FilterFn,
-  type PaginationState,
   type SortingState,
   flexRender,
   getCoreRowModel,
   getFilteredRowModel,
-  getPaginationRowModel,
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import { TablePaginationBar } from "../TablePaginationBar";
 
 const inputClass =
   "w-full min-h-8 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-900 placeholder:text-slate-400 focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500";
@@ -157,6 +155,63 @@ function getColumnDefId<TData extends object>(
   return `column_${index}`;
 }
 
+function resolveCreatedAtColumnId<TData extends object>(
+  columns: DataTableColumnDef<TData>[],
+): string | null {
+  for (let index = 0; index < columns.length; index++) {
+    const column = columns[index];
+    const accessorKey = (column as { accessorKey?: unknown }).accessorKey;
+    if (accessorKey === "createdAt" || column.id === "createdAt") {
+      return getColumnDefId(column, index);
+    }
+  }
+  return null;
+}
+
+function defaultCreatedAtSorting<TData extends object>(
+  columns: DataTableColumnDef<TData>[],
+): SortingState {
+  const columnId = resolveCreatedAtColumnId(columns);
+  return columnId ? [{ id: columnId, desc: true }] : [];
+}
+
+function createdAtTimestamp(value: unknown): number {
+  if (value instanceof Date) {
+    const time = value.getTime();
+    return Number.isFinite(time) ? time : Number.NEGATIVE_INFINITY;
+  }
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const time = Date.parse(value);
+    return Number.isNaN(time) ? Number.NEGATIVE_INFINITY : time;
+  }
+  return Number.NEGATIVE_INFINITY;
+}
+
+function sortRowsByCreatedAtDesc<TData extends object>(rows: TData[]): TData[] {
+  if (rows.length < 2) return rows;
+  const indexed = rows.map((row, index) => ({
+    row,
+    index,
+    time: createdAtTimestamp((row as Record<string, unknown>).createdAt),
+  }));
+  if (indexed.every((item) => item.time === Number.NEGATIVE_INFINITY)) {
+    return rows;
+  }
+  indexed.sort((a, b) => b.time - a.time || a.index - b.index);
+  return indexed.map((item) => item.row);
+}
+
+function sortingEquals(left: SortingState, right: SortingState): boolean {
+  return (
+    left.length === right.length &&
+    left.every(
+      (sort, index) =>
+        sort.id === right[index]?.id && sort.desc === right[index]?.desc,
+    )
+  );
+}
+
 function moveItem<T>(items: T[], fromIndex: number, toIndex: number): T[] {
   const next = [...items];
   const [item] = next.splice(fromIndex, 1);
@@ -209,7 +264,6 @@ function buildTablePreferenceConfig({
   columnFilters,
   columnOrder,
   columnPinning,
-  pageSize,
   tableColumnIds,
 }: {
   sorting: SortingState;
@@ -217,7 +271,6 @@ function buildTablePreferenceConfig({
   columnFilters: ColumnFiltersState;
   columnOrder: ColumnOrderState;
   columnPinning: ColumnPinningState;
-  pageSize: number;
   tableColumnIds: string[];
 }): TablePreferenceConfig {
   const validColumnIds = new Set(tableColumnIds);
@@ -241,7 +294,6 @@ function buildTablePreferenceConfig({
     ...(validSorting.length ? { sorting: validSorting } : {}),
     ...(validFilters.length ? { columnFilters: validFilters } : {}),
     ...(globalFilter ? { globalFilter } : {}),
-    pagination: { pageSize },
   };
 }
 
@@ -274,7 +326,6 @@ function sanitizeLoadedPreference(
       tableColumnIds,
     ),
     columnPinning: { left: pinnedLeft, right: pinnedRight },
-    pageSize: preference?.pagination?.pageSize ?? 10,
     tableColumnIds,
   });
 }
@@ -298,7 +349,33 @@ function pinnedColumnClass<TData extends object>(
   return `sticky ${zClass} ${backgroundClass} shadow-[2px_0_0_rgba(148,163,184,0.25)]`;
 }
 
+function headerCellStyle<TData extends object>(
+  column: Column<TData, unknown>,
+  top: number,
+): CSSProperties {
+  return {
+    ...pinnedColumnStyle(column),
+    top,
+  };
+}
+
+function headerCellClass<TData extends object>(
+  column: Column<TData, unknown>,
+  backgroundClass: string,
+  unpinnedZIndexClass: string,
+  pinnedZIndexClass: string,
+): string {
+  const pinned = pinnedColumnClass(
+    column,
+    backgroundClass,
+    pinnedZIndexClass,
+  );
+  if (pinned) return pinned;
+  return `sticky ${unpinnedZIndexClass} ${backgroundClass}`;
+}
+
 function checkboxPinZIndex(zIndexClass: string): string {
+  if (zIndexClass === "z-40") return "z-50";
   if (zIndexClass === "z-30") return "z-40";
   if (zIndexClass === "z-20") return "z-30";
   return "z-20";
@@ -400,8 +477,6 @@ export type DataTableProps<TData extends object> = {
   onRowClick?: (row: TData) => void;
   /** Accessible name for clickable rows (defaults to a generic label). */
   getRowAriaLabel?: (row: TData) => string;
-  /** Plural noun for the pagination summary (default "items"). */
-  paginationItemLabel?: string;
   /** Shown on the right of the search row (e.g. bulk actions). */
   toolbarRight?: ReactNode;
   /**
@@ -422,7 +497,7 @@ export type DataTableProps<TData extends object> = {
     selectedIds: ReadonlySet<string>;
     onToggleRow: (id: string, selected: boolean) => void;
     onTogglePage: (ids: string[], selected: boolean) => void;
-    /** When false, the row checkbox is disabled and excluded from “select all on this page”. */
+    /** When false, the row checkbox is disabled and excluded from “select all visible rows”. */
     isRowSelectable?: (row: TData) => boolean;
   };
 };
@@ -436,18 +511,19 @@ export function DataTable<TData extends object>({
   hideEmptyState = false,
   noResultsMessage = "No rows match your search or filters.",
   searchPlaceholder = "Search all columns…",
-  tableClassName = "w-max min-w-full border-collapse text-left",
+  tableClassName = "w-max min-w-full border-separate border-spacing-0 text-left",
   getRowId,
   onRowClick,
   getRowAriaLabel,
-  paginationItemLabel = "items",
   toolbarRight,
   brandFilterSuggestions,
   statusFilterOptions,
   categoryFilterOptions,
   rowSelection,
 }: DataTableProps<TData>) {
-  const [sorting, setSorting] = useState<SortingState>([]);
+  const [sorting, setSorting] = useState<SortingState>(() =>
+    defaultCreatedAtSorting(columns),
+  );
   const [globalFilter, setGlobalFilter] = useState("");
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [columnOrder, setColumnOrder] = useState<ColumnOrderState>([]);
@@ -456,11 +532,9 @@ export function DataTable<TData extends object>({
     right: [],
   });
   const [draggedColumnId, setDraggedColumnId] = useState<string | null>(null);
-  const [pagination, setPagination] = useState<PaginationState>({
-    pageIndex: 0,
-    pageSize: 10,
-  });
   const [preferencesHydrated, setPreferencesHydrated] = useState(!tableId);
+  const headerRowRef = useRef<HTMLTableRowElement>(null);
+  const [headerRowHeight, setHeaderRowHeight] = useState(0);
   const lastSavedPreferenceJsonRef = useRef<string | null>(null);
   const saveSequenceRef = useRef(0);
   const globalSearchId = useId();
@@ -485,8 +559,8 @@ export function DataTable<TData extends object>({
     const selectColumn: ColumnDef<TData, unknown> = {
       id: "__select",
       header: ({ table }) => {
-        const pageRows = table.getPaginationRowModel().rows;
-        const ids = pageRows
+        const visibleRows = table.getFilteredRowModel().rows;
+        const ids = visibleRows
           .filter((r) => rowCanSelect(r.original as TData))
           .map((r) => r.id);
         const allSelected =
@@ -504,7 +578,7 @@ export function DataTable<TData extends object>({
               e.stopPropagation();
               rs.onTogglePage(ids, e.target.checked);
             }}
-            aria-label="Select all rows on this page"
+            aria-label="Select all visible rows"
             className="h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-600 dark:bg-slate-900"
           />
         );
@@ -540,6 +614,11 @@ export function DataTable<TData extends object>({
     () => tableColumns.map((column, index) => getColumnDefId(column, index)),
     [tableColumns],
   );
+  const defaultSorting = useMemo(
+    () => defaultCreatedAtSorting(tableColumns),
+    [tableColumns],
+  );
+  const orderedData = useMemo(() => sortRowsByCreatedAtDesc(data), [data]);
   const tableColumnIdsKey = useMemo(
     () => tableColumnIds.join("\u001f"),
     [tableColumnIds],
@@ -624,17 +703,17 @@ export function DataTable<TData extends object>({
         left: [],
         right: [],
       };
-      const nextSorting = sanitizedPreference.sorting ?? [];
+      const nextSorting = sanitizedPreference.sorting?.length
+        ? sanitizedPreference.sorting
+        : defaultSorting;
       const nextColumnFilters = sanitizedPreference.columnFilters ?? [];
       const nextGlobalFilter = sanitizedPreference.globalFilter ?? "";
-      const nextPageSize = sanitizedPreference.pagination?.pageSize ?? 10;
 
       setSorting(nextSorting);
       setGlobalFilter(nextGlobalFilter);
       setColumnFilters(nextColumnFilters);
       setColumnOrder(nextColumnOrder);
       setColumnPinning(nextColumnPinning);
-      setPagination({ pageIndex: 0, pageSize: nextPageSize });
       lastSavedPreferenceJsonRef.current = stableStringify(
         buildTablePreferenceConfig({
           sorting: nextSorting,
@@ -642,7 +721,6 @@ export function DataTable<TData extends object>({
           columnFilters: nextColumnFilters,
           columnOrder: nextColumnOrder,
           columnPinning: nextColumnPinning,
-          pageSize: nextPageSize,
           tableColumnIds: columnIds,
         }),
       );
@@ -652,7 +730,7 @@ export function DataTable<TData extends object>({
     return () => {
       cancelled = true;
     };
-  }, [tableId, tableColumnIdsKey]);
+  }, [defaultSorting, tableId, tableColumnIdsKey]);
 
   const setColumnFrozen = (columnId: string, frozen: boolean) => {
     if (isCheckboxColumnId(columnId)) return;
@@ -719,8 +797,19 @@ export function DataTable<TData extends object>({
     [exactFilterColumnIds],
   );
 
+  useEffect(() => {
+    if (tableId && !preferencesHydrated) return;
+    setSorting((current) => {
+      if (current.length > 0) return current;
+      if (defaultSorting.length === 0 || sortingEquals(current, defaultSorting)) {
+        return current;
+      }
+      return defaultSorting;
+    });
+  }, [defaultSorting, preferencesHydrated, tableId]);
+
   const table = useReactTable<TData>({
-    data,
+    data: orderedData,
     columns: tableColumns,
     defaultColumn,
     state: {
@@ -730,7 +819,6 @@ export function DataTable<TData extends object>({
       columnOrder,
       columnPinning: tableColumnPinning,
       columnSizing,
-      pagination,
     },
     onSortingChange: setSorting,
     onGlobalFilterChange: setGlobalFilter,
@@ -749,11 +837,9 @@ export function DataTable<TData extends object>({
         return { ...next, left };
       });
     },
-    onPaginationChange: setPagination,
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
     globalFilterFn: globalMultiColumnFilter as FilterFn<TData>,
     getRowId: getRowId
       ? (original, index) => getRowId(original as TData, index)
@@ -768,7 +854,6 @@ export function DataTable<TData extends object>({
         columnFilters,
         columnOrder,
         columnPinning,
-        pageSize: pagination.pageSize,
         tableColumnIds: parseColumnIdsKey(tableColumnIdsKey),
       }),
     [
@@ -777,7 +862,6 @@ export function DataTable<TData extends object>({
       columnFilters,
       columnOrder,
       columnPinning,
-      pagination.pageSize,
       tableColumnIdsKey,
     ],
   );
@@ -808,21 +892,32 @@ export function DataTable<TData extends object>({
 
   const showEmpty = !hideEmptyState && !isLoading && data.length === 0;
   const filteredCount = table.getFilteredRowModel().rows.length;
-  const displayRows = table.getPaginationRowModel().rows;
+  const displayRows = table.getRowModel().rows;
   const showNoResults =
     !isLoading && data.length > 0 && filteredCount === 0;
 
+  useLayoutEffect(() => {
+    const row = headerRowRef.current;
+    if (!row) return;
+    const updateHeight = () => {
+      setHeaderRowHeight(row.getBoundingClientRect().height);
+    };
+    updateHeight();
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(row);
+    return () => observer.disconnect();
+  }, [colCount, preferencesHydrated]);
+
   const filterHeaderGroup = table.getHeaderGroups()[0];
   const hasActiveFiltersOrSorting =
-    sorting.length > 0 ||
+    !sortingEquals(sorting, defaultSorting) ||
     columnFilters.length > 0 ||
     String(globalFilter ?? "").trim() !== "";
 
   const resetFiltersAndSorting = () => {
-    setSorting([]);
+    setSorting(defaultSorting);
     setColumnFilters([]);
     setGlobalFilter("");
-    setPagination((current) => ({ ...current, pageIndex: 0 }));
   };
 
   const getDropAfterTarget = (e: DragEvent<HTMLTableCellElement>) => {
@@ -865,8 +960,8 @@ export function DataTable<TData extends object>({
   };
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex min-h-0 flex-col gap-3">
+      <div className="flex shrink-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <label className="sr-only" htmlFor={globalSearchId}>
           Search table
         </label>
@@ -892,32 +987,19 @@ export function DataTable<TData extends object>({
         </div>
       </div>
 
-      <div className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm [-webkit-overflow-scrolling:touch] dark:border-slate-800 dark:bg-slate-900">
-        <div className="border-b border-slate-200 bg-slate-50/80 px-3 py-3 dark:border-slate-800 dark:bg-slate-950/40 sm:px-4">
-          <TablePaginationBar
-            totalCount={filteredCount}
-            pageIndex={table.getState().pagination.pageIndex}
-            pageSize={table.getState().pagination.pageSize}
-            onPageIndexChange={(i) => table.setPageIndex(i)}
-            onPageSizeChange={(size) => {
-              table.setPageSize(size);
-              table.setPageIndex(0);
-            }}
-            disabled={isLoading && data.length === 0}
-            itemLabel={paginationItemLabel}
-          />
-        </div>
+      <div className="flex max-h-[calc(100svh-12.5rem)] min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm [-webkit-overflow-scrolling:touch] dark:border-slate-800 dark:bg-slate-900">
         <HorizontalScrollMirror>
         <table className={tableClassName}>
           <thead className="border-b border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950/50">
             {table.getHeaderGroups().map((headerGroup) => (
-              <tr key={headerGroup.id}>
+              <tr key={headerGroup.id} ref={headerRowRef}>
                 {headerGroup.headers.map((header) => (
                   <th
                     key={header.id}
                     scope="col"
-                    style={pinnedColumnStyle(
+                    style={headerCellStyle(
                       header.column as Column<TData, unknown>,
+                      0,
                     )}
                     draggable={!isCheckboxColumnId(header.column.id)}
                     onDragStart={(e) =>
@@ -935,10 +1017,11 @@ export function DataTable<TData extends object>({
                     }
                     className={`${
                       isCheckboxColumnId(header.column.id) ? thCheckbox : thBase
-                    } ${pinnedColumnClass(
+                    } ${headerCellClass(
                       header.column as Column<TData, unknown>,
                       "bg-slate-50 dark:bg-slate-950",
-                      "z-30",
+                      "z-20",
+                      "z-40",
                     )} ${
                       isCheckboxColumnId(header.column.id)
                         ? ""
@@ -1006,15 +1089,17 @@ export function DataTable<TData extends object>({
               {filterHeaderGroup?.headers.map((header) => (
                 <th
                   key={`f-${header.id}`}
-                  style={pinnedColumnStyle(
+                  style={headerCellStyle(
                     header.column as Column<TData, unknown>,
+                    headerRowHeight,
                   )}
                   className={`${
                     isCheckboxColumnId(header.column.id) ? thCheckbox : thBase
-                  } ${pinnedColumnClass(
+                  } ${headerCellClass(
                     header.column as Column<TData, unknown>,
                     "bg-slate-50 dark:bg-slate-950",
                     "z-20",
+                    "z-30",
                   )} pb-2 pt-0 font-normal normal-case`}
                 >
                   {header.column.getCanFilter() ? (

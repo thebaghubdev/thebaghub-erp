@@ -569,7 +569,6 @@ export function WalkInAuthenticationPage() {
               `3rd-party authentication ${r.sku}, ${r.clientName}`
             }
             rowSelection={rowSelection}
-            paginationItemLabel="inquiries"
           />
         </>
       )}

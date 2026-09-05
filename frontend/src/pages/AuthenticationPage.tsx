@@ -818,7 +818,6 @@ export function AuthenticationPage() {
             getRowAriaLabel={(r) =>
               `Authenticate inventory item ${r.sku}, ${r.itemLabel}, status ${r.status}`
             }
-            paginationItemLabel="items"
             rowSelection={authItemsRowSelection}
             toolbarRight={
               !readOnly && authItemSelectedIds.size > 0 ? (
@@ -953,7 +952,6 @@ export function AuthenticationPage() {
             brandFilterSuggestions={brands}
             categoryFilterOptions={metricCategoryFilterOptions}
             getRowId={(r) => r.id}
-            paginationItemLabel="metrics"
             rowSelection={metricsRowSelection}
             toolbarRight={
               <div className="flex flex-wrap items-center justify-end gap-2">
