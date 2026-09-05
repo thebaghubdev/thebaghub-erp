@@ -275,10 +275,6 @@ function isAuthenticatedReturnedToCoordinatorStatus(status: string): boolean {
   );
 }
 
-function isAuthenticatedReturnedToConsignorStatus(status: string): boolean {
-  return status.trim().toLowerCase() === "authenticated_returned_to_consignor";
-}
-
 function isForAuthenticationPaymentVerificationStatus(status: string): boolean {
   return (
     status.trim().toLowerCase() === "for_authentication_payment_verification"
