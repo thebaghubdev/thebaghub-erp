@@ -11,6 +11,8 @@ export function typeOrmDataSourceOptions(): DataSourceOptions {
     migrations: [join(__dirname, 'migrations', `*.${migrationExt}`)],
     synchronize: false,
     migrationsRun: false,
+    /** Allows a migration to set `transaction = false` (needed for PG enum ADD VALUE). */
+    migrationsTransactionMode: 'each',
   };
   if (databaseUrl) {
     return {
