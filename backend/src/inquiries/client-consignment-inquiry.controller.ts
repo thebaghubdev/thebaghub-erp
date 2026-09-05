@@ -11,7 +11,7 @@ import {
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
-import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
+import { FileFieldsInterceptor, FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { JwtUser } from '../auth/jwt-user';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ClientOnlyGuard } from '../auth/client-only.guard';
@@ -74,6 +74,36 @@ export class ClientConsignmentInquiryController {
       id,
       payload,
       signature,
+    );
+  }
+
+  /**
+   * Consignor agrees to a post-authentication return (new offer and/or 3rd-party fee).
+   * Multipart: `payload` JSON, optional `signature`, optional `photos` (fee proof).
+   */
+  @Post(':id/submit-coordinator-return')
+  @UseInterceptors(
+    FileFieldsInterceptor(
+      [
+        { name: 'signature', maxCount: 1 },
+        { name: 'photos', maxCount: 20 },
+      ],
+      { limits: { fileSize: 25 * 1024 * 1024 } },
+    ),
+  )
+  submitCoordinatorReturn(
+    @Req() req: { user: JwtUser },
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body('payload') payload: string,
+    @UploadedFiles()
+    files: { signature?: MulterFile[]; photos?: MulterFile[] },
+  ) {
+    return this.inquiriesService.submitCoordinatorReturnForClient(
+      req.user,
+      id,
+      payload,
+      files?.signature?.[0],
+      files?.photos,
     );
   }
 

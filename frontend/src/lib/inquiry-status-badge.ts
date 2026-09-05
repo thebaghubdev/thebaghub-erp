@@ -15,6 +15,10 @@ const BY_STATUS: Record<string, string> = {
   for_processing: "text-orange-800 dark:text-orange-300",
   pullout_requested: "text-rose-800 dark:text-rose-300",
   pulled_out: "text-zinc-600 dark:text-zinc-400",
+  authenticated_returned_to_coordinator: "text-amber-800 dark:text-amber-300",
+  authenticated_returned_to_consignor: "text-teal-800 dark:text-teal-300",
+  for_authentication_payment_verification: "text-sky-800 dark:text-sky-300",
+  for_3rd_party_authentication: "text-indigo-800 dark:text-indigo-300",
   authenticated_returned: "text-amber-800 dark:text-amber-300",
   authenticated_new_offer: "text-teal-800 dark:text-teal-300",
   authenticated_requested_for_reauthentication:

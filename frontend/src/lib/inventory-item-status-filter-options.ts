@@ -20,16 +20,20 @@ export const INVENTORY_ITEM_STATUS_FILTER_OPTIONS: {
   { value: "Paid to consignor", label: "Paid to consignor" },
   { value: "For Contract Renewal", label: "For Contract Renewal" },
   {
-    value: "Authenticated: Requested for Reauthentication",
-    label: "Authenticated: Requested for Reauthentication",
+    value: "Authenticated - Returned to Coordinator",
+    label: "Authenticated - Returned to Coordinator",
   },
   {
-    value: "Authenticated: For 3rd party authentication",
-    label: "Authenticated: For 3rd party authentication",
+    value: "Authenticated - Returned to Consignor",
+    label: "Authenticated - Returned to Consignor",
   },
   {
-    value: "Authenticated: For renegotiation",
-    label: "Authenticated: For renegotiation",
+    value: "For authentication payment verification",
+    label: "For authentication payment verification",
+  },
+  {
+    value: "For 3rd party authentication",
+    label: "For 3rd party authentication",
   },
   {
     value: "Authenticated: Rejected",

@@ -25,6 +25,7 @@ import { DeclineInquiryDto } from './dto/decline-inquiry.dto';
 import { BatchAssignCoordinatorDto } from './dto/batch-assign-coordinator.dto';
 import { UpdateInquiryNotesDto } from './dto/update-inquiry-notes.dto';
 import { UpdateReauthenticationNotesDto } from './dto/update-reauthentication-notes.dto';
+import { ReturnInquiryToConsignorDto } from './dto/return-inquiry-to-consignor.dto';
 import { SubmitAuthenticatedReturnNewOfferDto } from './dto/submit-authenticated-return-new-offer.dto';
 import { SubmitOfferDto } from './dto/submit-offer.dto';
 import { RequestDirectPurchaseApprovalDto } from './dto/request-direct-purchase-approval.dto';
@@ -219,16 +220,23 @@ export class InquiriesController {
     );
   }
 
-  @Post(':id/authenticated-return-new-offer')
+  @Post(':id/return-to-consignor')
   @RequireFeature('inquiries', 'edit')
-  submitAuthenticatedReturnNewOffer(
+  @UseInterceptors(
+    FilesInterceptor('photos', 20, {
+      limits: { fileSize: 25 * 1024 * 1024 },
+    }),
+  )
+  returnInquiryToConsignor(
     @Req() req: { user: JwtUser },
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() body: SubmitAuthenticatedReturnNewOfferDto,
+    @Body() body: ReturnInquiryToConsignorDto,
+    @UploadedFiles() files: MulterFile[],
   ) {
-    return this.inquiriesService.submitAuthenticatedReturnNewOffer(
+    return this.inquiriesService.returnInquiryToConsignor(
       id,
       body,
+      files,
       req.user,
     );
   }

@@ -22,6 +22,10 @@ const BY_STATUS: Record<string, string> = {
     "text-indigo-800 dark:text-indigo-300",
   "authenticated: returned": "text-amber-800 dark:text-amber-300",
   "authenticated: for renegotiation": "text-amber-800 dark:text-amber-300",
+  "authenticated - returned to coordinator": "text-amber-800 dark:text-amber-300",
+  "authenticated - returned to consignor": "text-teal-800 dark:text-teal-300",
+  "for authentication payment verification": "text-sky-800 dark:text-sky-300",
+  "for 3rd party authentication": "text-indigo-800 dark:text-indigo-300",
   "authenticated: rejected": "text-red-800 dark:text-red-300",
 };
 

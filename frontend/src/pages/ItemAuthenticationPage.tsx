@@ -32,7 +32,7 @@ import {
 const AUTHENTICATION_RATINGS_KEY = "authentication_ratings";
 const FOR_AUTHENTICATION_INVENTORY_STATUS = "For Authentication";
 const AUTHENTICATED_FOR_THIRD_PARTY_INVENTORY_STATUS =
-  "Authenticated: For 3rd party authentication";
+  "For 3rd party authentication";
 
 async function readApiErrorMessage(res: Response): Promise<string> {
   try {
@@ -157,7 +157,6 @@ function authenticationDetailsAreComplete(p: {
   rating: string;
   marketPrice: string;
   retailPrice: string;
-  marketResearchNotes: string;
   marketResearchLink: string;
 }): boolean {
   return (
@@ -172,7 +171,6 @@ function authenticationDetailsAreComplete(p: {
     str(p.rating) !== "" &&
     str(p.marketPrice) !== "" &&
     str(p.retailPrice) !== "" &&
-    str(p.marketResearchNotes) !== "" &&
     str(p.marketResearchLink) !== ""
   );
 }
@@ -260,6 +258,10 @@ export function ItemAuthenticationPage() {
   const thirdPartyModalFileInputRef = useRef<HTMLInputElement>(null);
   const thirdPartyModalPreviewsRef = useRef<ThirdPartyModalIssuePreview[]>([]);
   thirdPartyModalPreviewsRef.current = thirdPartyModalIssuePreviews;
+  const [thirdPartyRenegotiate, setThirdPartyRenegotiate] = useState(false);
+  const [thirdPartyReturnReasons, setThirdPartyReturnReasons] = useState("");
+  const [thirdPartyPriceFrom, setThirdPartyPriceFrom] = useState("");
+  const [thirdPartyPriceTo, setThirdPartyPriceTo] = useState("");
   const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
   const actionsMenuRef = useRef<HTMLDivElement>(null);
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
@@ -658,6 +660,10 @@ export function ItemAuthenticationPage() {
       for (const p of prev) URL.revokeObjectURL(p.url);
       return [];
     });
+    setThirdPartyRenegotiate(false);
+    setThirdPartyReturnReasons("");
+    setThirdPartyPriceFrom("");
+    setThirdPartyPriceTo("");
     setForThirdPartyAuthError(null);
   }, []);
 
@@ -723,12 +729,11 @@ export function ItemAuthenticationPage() {
         rating,
         marketPrice,
         retailPrice,
-        marketResearchNotes,
         marketResearchLink: researchSourceLink,
       })
     ) {
       setApproveGateMessage(
-        "Complete every required field in Authentication details (item details, dimensions, rating, prices, research, and link). Notes are optional.",
+        "Complete every required field in Authentication details (item details, dimensions, rating, prices, and research source link). Notes are optional.",
       );
       return;
     }
@@ -760,7 +765,6 @@ export function ItemAuthenticationPage() {
     rating,
     marketPrice,
     retailPrice,
-    marketResearchNotes,
     researchSourceLink,
     thirdPartyAuthenticator,
     thirdPartyCertificateLink,
@@ -941,6 +945,41 @@ export function ItemAuthenticationPage() {
       setForThirdPartyAuthError("Add at least one issue photo.");
       return;
     }
+    let priceRangeMin: string | undefined;
+    let priceRangeMax: string | undefined;
+    let returnReasons: string | undefined;
+    if (thirdPartyRenegotiate) {
+      const reasonsTrim = thirdPartyReturnReasons.trim();
+      if (!reasonsTrim) {
+        setForThirdPartyAuthError("Reasons for renegotiation are required.");
+        return;
+      }
+      returnReasons = reasonsTrim;
+      const fromTrim = thirdPartyPriceFrom.trim();
+      const toTrim = thirdPartyPriceTo.trim();
+      if (fromTrim === "" || toTrim === "") {
+        setForThirdPartyAuthError(
+          "Enter both the minimum and maximum for the suggested price range.",
+        );
+        return;
+      }
+      const nFrom = parsePhpStringToNumber(thirdPartyPriceFrom);
+      const nTo = parsePhpStringToNumber(thirdPartyPriceTo);
+      if (nFrom == null || nTo == null) {
+        setForThirdPartyAuthError(
+          "Enter valid amounts for the suggested price range.",
+        );
+        return;
+      }
+      if (nFrom > nTo) {
+        setForThirdPartyAuthError(
+          "Suggested range: minimum cannot be greater than maximum.",
+        );
+        return;
+      }
+      priceRangeMin = nFrom.toFixed(2);
+      priceRangeMax = nTo.toFixed(2);
+    }
     setForThirdPartyAuthError(null);
     setForThirdPartyAuthBusy(true);
     try {
@@ -953,6 +992,10 @@ export function ItemAuthenticationPage() {
           body: JSON.stringify({
             reauthenticationReasons: trimmed,
             issuePhotos,
+            renegotiate: thirdPartyRenegotiate,
+            ...(thirdPartyRenegotiate
+              ? { returnReasons, priceRangeMin, priceRangeMax }
+              : {}),
           }),
         },
         token,
@@ -979,6 +1022,10 @@ export function ItemAuthenticationPage() {
     load,
     thirdPartyReauthenticationReason,
     thirdPartyModalIssuePreviews,
+    thirdPartyRenegotiate,
+    thirdPartyReturnReasons,
+    thirdPartyPriceFrom,
+    thirdPartyPriceTo,
     resetThirdPartyModalForm,
   ]);
 
@@ -1474,7 +1521,8 @@ export function ItemAuthenticationPage() {
                       Approve
                     </button>
                   </li>
-                  {hasLinkedInquiry ? (
+                  {hasLinkedInquiry &&
+                  detail.status === FOR_AUTHENTICATION_INVENTORY_STATUS ? (
                     <li role="none">
                       <button
                         type="button"
@@ -1927,9 +1975,9 @@ export function ItemAuthenticationPage() {
                     Request for 3rd party authentication
                   </h2>
                   <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-                    This requests 3rd party re-authentication. Review the
-                    metrics summary below, then enter reasons and at least one
-                    issue photo before you submit.
+                    This returns the item to the assigned coordinator. The
+                    consignor is not notified yet. Optionally turn on
+                    Renegotiate to include a suggested price range.
                   </p>
                 </div>
                 <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-4">
@@ -2009,6 +2057,103 @@ export function ItemAuthenticationPage() {
                         : "—"}
                     </p>
                   </div>
+                  <div>
+                    <div className="flex items-center justify-between gap-3">
+                      <p className={authFieldLabel}>Renegotiate</p>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={thirdPartyRenegotiate}
+                        aria-label="Renegotiate"
+                        disabled={forThirdPartyAuthBusy}
+                        onClick={() =>
+                          setThirdPartyRenegotiate((v) => {
+                            const next = !v;
+                            if (!next) {
+                              setThirdPartyReturnReasons("");
+                              setThirdPartyPriceFrom("");
+                              setThirdPartyPriceTo("");
+                            }
+                            return next;
+                          })
+                        }
+                        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500 disabled:opacity-50 ${
+                          thirdPartyRenegotiate
+                            ? "bg-violet-600"
+                            : "bg-slate-300 dark:bg-slate-600"
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                            thirdPartyRenegotiate
+                              ? "translate-x-[1.35rem]"
+                              : "translate-x-0.5"
+                          }`}
+                        />
+                      </button>
+                    </div>
+                  </div>
+                  {thirdPartyRenegotiate ? (
+                    <>
+                    <div>
+                      <label
+                        htmlFor="third-party-return-reasons"
+                        className={authFieldLabel}
+                      >
+                        Reasons for renegotiation (issues, flaws, damages, etc.)
+                      </label>
+                      <textarea
+                        id="third-party-return-reasons"
+                        rows={4}
+                        value={thirdPartyReturnReasons}
+                        onChange={(e) =>
+                          setThirdPartyReturnReasons(e.target.value)
+                        }
+                        className={`${authInputClass} resize-y`}
+                        placeholder="Describe what needs coordinator attention…"
+                        autoComplete="off"
+                        disabled={forThirdPartyAuthBusy}
+                      />
+                    </div>
+                    <div>
+                      <p className={authFieldLabel}>Suggested price range</p>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div>
+                          <label
+                            htmlFor="third-party-price-from"
+                            className="mb-1 block text-xs text-slate-600 dark:text-slate-400"
+                          >
+                            From
+                          </label>
+                          <PhpPriceInput
+                            id="third-party-price-from"
+                            value={thirdPartyPriceFrom}
+                            onChange={setThirdPartyPriceFrom}
+                            className={authInputClass}
+                            disabled={forThirdPartyAuthBusy}
+                            placeholder="0.00"
+                          />
+                        </div>
+                        <div>
+                          <label
+                            htmlFor="third-party-price-to"
+                            className="mb-1 block text-xs text-slate-600 dark:text-slate-400"
+                          >
+                            To
+                          </label>
+                          <PhpPriceInput
+                            id="third-party-price-to"
+                            value={thirdPartyPriceTo}
+                            onChange={setThirdPartyPriceTo}
+                            className={authInputClass}
+                            disabled={forThirdPartyAuthBusy}
+                            placeholder="0.00"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                    </>
+                  ) : null}
                   <div>
                     <p className={authFieldLabel}>Issue photos</p>
                     <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">
@@ -2591,7 +2736,7 @@ export function ItemAuthenticationPage() {
                   htmlFor="item-auth-market-research-notes"
                   className={authFieldLabel}
                 >
-                  Market research notes
+                  Market research notes (optional)
                 </label>
                 <textarea
                   id="item-auth-market-research-notes"

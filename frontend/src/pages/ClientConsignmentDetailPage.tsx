@@ -22,6 +22,12 @@ import {
 } from "../lib/consignment-schedule-labels";
 import { InquiryStatusBadge } from "../components/InquiryStatusBadge";
 import { formatPhpDisplay } from "../lib/format-php";
+import { randomId } from "../lib/random-id";
+import {
+  authenticationReturnCaseHasRenegotiation,
+  authenticationReturnCaseHasThirdParty,
+  authenticationReturnCaseLabel,
+} from "../lib/authentication-return-case";
 import {
   formatClientBank,
   formatClientPaymentMethod,
@@ -94,6 +100,11 @@ type ClientInquiryDetail = {
   thirdPartyIssuePhotoUrls: string[];
   /** Staff notes visible during third-party reauthentication. */
   thirdPartyReauthenticationNotes: string | null;
+  authenticationReturnCase: string | null;
+  coordinatorReturnReason: string | null;
+  coordinatorReturnPhotoUrls: string[];
+  thirdPartyAuthenticationFee: string | null;
+  thirdPartyPaymentStatus: string | null;
 };
 
 function canClientCancelInquiry(status: string): boolean {
@@ -107,7 +118,11 @@ function canClientCancelInquiry(status: string): boolean {
 
 function isAwaitingOfferConfirmation(status: string): boolean {
   const s = status.trim().toLowerCase();
-  return s === "for_offer_confirmation" || s === "authenticated_new_offer";
+  return s === "for_offer_confirmation";
+}
+
+function isReturnedToConsignorStatus(status: string): boolean {
+  return status.trim().toLowerCase() === "authenticated_returned_to_consignor";
 }
 
 function hasDualApprovedOffers(detail: {
@@ -137,9 +152,17 @@ function canClientAddPhotos(status: string): boolean {
 }
 
 /** Consignor should see re-auth reasons and proof-of-payment (request or legacy 3rd party lane). */
-function isThirdPartyAuthPaymentFlowStatus(status: string): boolean {
+function isThirdPartyAuthPaymentFlowStatus(
+  status: string,
+  returnCase?: string | null,
+): boolean {
   const s = status.trim().toLowerCase();
+  if (s === "authenticated_returned_to_consignor") {
+    return authenticationReturnCaseHasThirdParty(returnCase);
+  }
   return (
+    s === "for_authentication_payment_verification" ||
+    s === "for_3rd_party_authentication" ||
     s === "authenticated_requested_for_reauthentication" ||
     s === "authenticated_for_3rd_party"
   );
@@ -267,6 +290,11 @@ export function ClientConsignmentDetailPage() {
   const [renewalSignatureFile, setRenewalSignatureFile] =
     useState<File | null>(null);
   const [renewalSignatureFieldKey, setRenewalSignatureFieldKey] = useState(0);
+  const [authReturnProofs, setAuthReturnProofs] = useState<
+    Array<{ id: string; file: File; previewUrl: string }>
+  >([]);
+  const [authReturnDropActive, setAuthReturnDropActive] = useState(false);
+  const authReturnProofInputId = useId();
   const confirmOfferTitleId = useId();
   const renewalModalTitleId = useId();
 
@@ -397,6 +425,10 @@ export function ClientConsignmentDetailPage() {
     setSelectedConfirmOfferType(null);
     setOfferSignatureFile(null);
     setSignatureFieldKey((k) => k + 1);
+    setAuthReturnProofs((prev) => {
+      for (const p of prev) URL.revokeObjectURL(p.previewUrl);
+      return [];
+    });
     void refreshUser();
     setConfirmModalOpen(true);
   }, [refreshUser]);
@@ -421,7 +453,72 @@ export function ClientConsignmentDetailPage() {
   const submitConfirmOffer = useCallback(
     async (e: FormEvent) => {
       e.preventDefault();
-      if (!id || !token) return;
+      if (!id || !token || !detail) return;
+      const returnedToConsignor = isReturnedToConsignorStatus(detail.status);
+      const hasRenegotiation = authenticationReturnCaseHasRenegotiation(
+        detail.authenticationReturnCase,
+      );
+      const hasThirdParty = authenticationReturnCaseHasThirdParty(
+        detail.authenticationReturnCase,
+      );
+
+      if (returnedToConsignor) {
+        if (hasRenegotiation) {
+          if (!consignmentTermsAccepted) {
+            setConfirmFormError(confirmOfferTerms.agreeError);
+            return;
+          }
+          if (!offerSignatureFile) {
+            setConfirmFormError(
+              "Please add your signature by drawing or uploading an image.",
+            );
+            return;
+          }
+          if (!isClientPaymentProfileReadyForOffer(user?.client)) {
+            setConfirmFormError(
+              "Complete your preferred payment method on My profile before confirming.",
+            );
+            return;
+          }
+        }
+        if (hasThirdParty && authReturnProofs.length === 0) {
+          setConfirmFormError(
+            "Upload proof of payment for the authentication fee.",
+          );
+          return;
+        }
+        setConfirmFormError(null);
+        setConfirmBusy(true);
+        try {
+          const fd = new FormData();
+          fd.append(
+            "payload",
+            JSON.stringify({ termsAccepted: consignmentTermsAccepted }),
+          );
+          if (offerSignatureFile) fd.append("signature", offerSignatureFile);
+          for (const p of authReturnProofs) {
+            fd.append("photos", p.file);
+          }
+          const res = await apiFetch(
+            `/api/client/consignment-inquiry/${id}/submit-coordinator-return`,
+            { method: "POST", body: fd },
+            token,
+          );
+          if (!res.ok) throw new Error(await readApiErrorMessage(res));
+          const data = (await res.json()) as ClientInquiryDetail;
+          setDetail(data);
+          await refreshUser();
+          setConfirmModalOpen(false);
+        } catch (err) {
+          setConfirmFormError(
+            err instanceof Error ? err.message : "Could not submit response",
+          );
+        } finally {
+          setConfirmBusy(false);
+        }
+        return;
+      }
+
       if (dualApprovedOffers && selectedConfirmOfferType == null) {
         setConfirmFormError(
           "Select consignment offer or direct purchase offer.",
@@ -479,6 +576,8 @@ export function ClientConsignmentDetailPage() {
       id,
       token,
       user,
+      detail,
+      authReturnProofs,
       dualApprovedOffers,
       selectedConfirmOfferType,
       consignmentTermsAccepted,
@@ -595,6 +694,7 @@ export function ClientConsignmentDetailPage() {
 
             {canClientCancelInquiry(detail.status) ||
             isAwaitingOfferConfirmation(detail.status) ||
+            isReturnedToConsignorStatus(detail.status) ||
             isForContractRenewalStatus(detail.status) ||
             isForDeliveryStatus(detail.status) ||
             isForProcessingStatus(detail.status) ? (
@@ -662,7 +762,8 @@ export function ClientConsignmentDetailPage() {
                     {cancelBusy ? "Cancelling…" : "Cancel"}
                   </button>
                 ) : null}
-                {isAwaitingOfferConfirmation(detail.status) ? (
+                {isAwaitingOfferConfirmation(detail.status) ||
+                isReturnedToConsignorStatus(detail.status) ? (
                   <button
                     type="button"
                     disabled={confirmBusy}
@@ -672,7 +773,9 @@ export function ClientConsignmentDetailPage() {
                     }}
                     className="rounded-lg bg-violet-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-violet-700 disabled:opacity-50"
                   >
-                    Confirm offer
+                    {isReturnedToConsignorStatus(detail.status)
+                      ? "Submit response"
+                      : "Confirm offer"}
                   </button>
                 ) : null}
                 {isForContractRenewalStatus(detail.status) ? (
@@ -752,69 +855,85 @@ export function ClientConsignmentDetailPage() {
               </div>
             ) : null}
 
-            {isThirdPartyAuthPaymentFlowStatus(detail.status) ? (
+            {isReturnedToConsignorStatus(detail.status) ? (
+              <div className="mt-4 rounded-lg border border-teal-200 bg-teal-50/80 p-3 text-sm dark:border-teal-900/50 dark:bg-teal-950/30">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-teal-900 dark:text-teal-200">
+                  Authentication results
+                </h3>
+                <p className="mt-2 text-xs font-medium text-slate-600 dark:text-slate-400">
+                  Case
+                </p>
+                <p className="mt-1 font-medium text-slate-900 dark:text-slate-100">
+                  {authenticationReturnCaseLabel(
+                    detail.authenticationReturnCase,
+                  )}
+                </p>
+                <p className="mt-3 text-xs font-medium text-slate-600 dark:text-slate-400">
+                  Coordinator reason
+                </p>
+                {detail.coordinatorReturnReason ? (
+                  <p className="mt-1 whitespace-pre-wrap text-slate-800 dark:text-slate-200">
+                    {detail.coordinatorReturnReason}
+                  </p>
+                ) : (
+                  <p className="mt-1 text-slate-500 dark:text-slate-400">—</p>
+                )}
+                {authenticationReturnCaseHasRenegotiation(
+                  detail.authenticationReturnCase,
+                ) ? (
+                  <>
+                    <p className="mt-3 text-xs font-medium text-slate-600 dark:text-slate-400">
+                      New offer price
+                    </p>
+                    <p className="mt-1 tabular-nums font-medium text-slate-900 dark:text-slate-100">
+                      {detail.offerPrice
+                        ? formatPhpDisplay(detail.offerPrice)
+                        : "—"}
+                    </p>
+                  </>
+                ) : null}
+                {detail.coordinatorReturnPhotoUrls.length > 0 ? (
+                  <div className="mt-3">
+                    <p className="text-xs font-medium text-slate-600 dark:text-slate-400">
+                      Photos
+                    </p>
+                    <ul className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                      {detail.coordinatorReturnPhotoUrls.map((url, i) => (
+                        <li
+                          key={`${url}-${i}`}
+                          className="overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900"
+                        >
+                          <a href={url} target="_blank" rel="noopener noreferrer">
+                            <img
+                              src={url}
+                              alt={`Photo ${i + 1}`}
+                              className="aspect-square w-full object-cover"
+                              loading="lazy"
+                            />
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {isThirdPartyAuthPaymentFlowStatus(
+              detail.status,
+              detail.authenticationReturnCase,
+            ) ? (
               <div className="mt-4 space-y-3">
-                <div className="rounded-lg border border-sky-200 bg-sky-50/80 p-3 text-sm dark:border-sky-900/50 dark:bg-sky-950/30">
-                  <h3 className="text-xs font-semibold uppercase tracking-wide text-sky-900 dark:text-sky-200">
-                    Requested for reauthentication
-                  </h3>
-                  <p className="mt-2 text-sm leading-relaxed text-slate-700 dark:text-slate-300">
-                    For further processing, our authenticator has asked that
-                    this item complete an in-depth authentication with
-                    third-party providers. Please communicate with our
-                    coordinators to complete the process.
-                  </p>
-                  <p className="mt-3 text-xs font-medium text-slate-600 dark:text-slate-400">
-                    Reauthentication reasons
-                  </p>
-                  {detail.thirdPartyReauthenticationReasons != null &&
-                  detail.thirdPartyReauthenticationReasons.trim() !== "" ? (
-                    <p className="mt-2 whitespace-pre-wrap text-slate-800 dark:text-slate-200">
-                      {detail.thirdPartyReauthenticationReasons}
+                {detail.thirdPartyAuthenticationFee ? (
+                  <div>
+                    <p className="text-xs font-medium text-slate-600 dark:text-slate-400">
+                      Authentication fee
                     </p>
-                  ) : (
-                    <p className="mt-2 text-slate-500 dark:text-slate-400">—</p>
-                  )}
-                  <p className="mt-3 text-xs font-medium text-slate-600 dark:text-slate-400">
-                    Notes
-                  </p>
-                  {detail.thirdPartyReauthenticationNotes != null &&
-                  detail.thirdPartyReauthenticationNotes.trim() !== "" ? (
-                    <p className="mt-2 whitespace-pre-wrap text-slate-800 dark:text-slate-200">
-                      {detail.thirdPartyReauthenticationNotes}
+                    <p className="mt-1 tabular-nums font-medium text-slate-900 dark:text-slate-100">
+                      {formatPhpDisplay(detail.thirdPartyAuthenticationFee)}
                     </p>
-                  ) : (
-                    <p className="mt-2 text-slate-500 dark:text-slate-400">—</p>
-                  )}
-                  {detail.thirdPartyIssuePhotoUrls.length > 0 ? (
-                    <div className="mt-4">
-                      <p className="text-xs font-medium text-slate-600 dark:text-slate-400">
-                        Issue photos
-                      </p>
-                      <ul className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
-                        {detail.thirdPartyIssuePhotoUrls.map((url, i) => (
-                          <li
-                            key={`${url}-${i}`}
-                            className="overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900"
-                          >
-                            <a
-                              href={url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                            >
-                              <img
-                                src={url}
-                                alt={`Issue ${i + 1}`}
-                                className="aspect-square w-full object-cover"
-                                loading="lazy"
-                              />
-                            </a>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : null}
-                </div>
+                  </div>
+                ) : null}
                 <div>
                   <p className="text-xs font-medium text-slate-600 dark:text-slate-400">
                     Uploaded proof of payment
@@ -843,7 +962,9 @@ export function ClientConsignmentDetailPage() {
                     </ul>
                   ) : (
                     <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-                      Awaiting upload from coordinators.
+                      {isReturnedToConsignorStatus(detail.status)
+                        ? "Upload proof of payment using Submit response."
+                        : "Awaiting payment verification."}
                     </p>
                   )}
                 </div>
@@ -1182,11 +1303,14 @@ export function ClientConsignmentDetailPage() {
                   id={confirmOfferTitleId}
                   className="text-base font-semibold text-slate-900"
                 >
-                  Confirm offer
+                  {detail && isReturnedToConsignorStatus(detail.status)
+                    ? "Submit response"
+                    : "Confirm offer"}
                 </h2>
                 <p className="mt-1 text-sm text-slate-600">
-                  Your saved payment preference on My profile will be used for
-                  this offer.
+                  {detail && isReturnedToConsignorStatus(detail.status)
+                    ? "Review the coordinator’s notes, then complete the required steps below."
+                    : "Your saved payment preference on My profile will be used for this offer."}
                 </p>
                 <form
                   onSubmit={(e) => void submitConfirmOffer(e)}
@@ -1266,6 +1390,14 @@ export function ClientConsignmentDetailPage() {
                       </p>
                     </fieldset>
                   ) : null}
+                  {!(
+                    detail &&
+                    isReturnedToConsignorStatus(detail.status) &&
+                    !authenticationReturnCaseHasRenegotiation(
+                      detail.authenticationReturnCase,
+                    )
+                  ) ? (
+                  <>
                   <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/80 p-3">
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <p className="text-sm text-slate-700">
@@ -1420,6 +1552,128 @@ export function ClientConsignmentDetailPage() {
                       />
                     </div>
                   </div>
+                  </>
+                  ) : null}
+
+                  {detail &&
+                  isReturnedToConsignorStatus(detail.status) &&
+                  authenticationReturnCaseHasThirdParty(
+                    detail.authenticationReturnCase,
+                  ) ? (
+                    <div className="space-y-3 rounded-lg border border-sky-200 bg-sky-50/70 p-3">
+                      <p className="text-sm font-medium text-slate-800">
+                        Authentication fee
+                      </p>
+                      <p className="tabular-nums text-slate-900">
+                        {detail.thirdPartyAuthenticationFee
+                          ? formatPhpDisplay(detail.thirdPartyAuthenticationFee)
+                          : "—"}
+                      </p>
+                      <p className="text-sm font-medium text-slate-800">
+                        Proof of payment
+                      </p>
+                      <input
+                        id={authReturnProofInputId}
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        className="sr-only"
+                        onChange={(e) => {
+                          const images = e.target.files
+                            ? Array.from(e.target.files).filter((f) =>
+                                /^image\//u.test(f.type),
+                              )
+                            : [];
+                          if (images.length === 0) return;
+                          setAuthReturnProofs((prev) => [
+                            ...prev,
+                            ...images.map((file) => ({
+                              id: randomId(),
+                              file,
+                              previewUrl: URL.createObjectURL(file),
+                            })),
+                          ]);
+                          e.target.value = "";
+                        }}
+                      />
+                      <label
+                        htmlFor={authReturnProofInputId}
+                        className={`flex w-full cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 py-8 text-center text-sm ${
+                          authReturnDropActive
+                            ? "border-violet-500 bg-violet-50"
+                            : "border-slate-300 bg-slate-50"
+                        }`}
+                        onDragEnter={(e) => {
+                          e.preventDefault();
+                          setAuthReturnDropActive(true);
+                        }}
+                        onDragLeave={(e) => {
+                          e.preventDefault();
+                          if (
+                            !e.currentTarget.contains(e.relatedTarget as Node)
+                          ) {
+                            setAuthReturnDropActive(false);
+                          }
+                        }}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = "copy";
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setAuthReturnDropActive(false);
+                          const images = Array.from(e.dataTransfer.files).filter(
+                            (f) => /^image\//u.test(f.type),
+                          );
+                          if (images.length === 0) return;
+                          setAuthReturnProofs((prev) => [
+                            ...prev,
+                            ...images.map((file) => ({
+                              id: randomId(),
+                              file,
+                              previewUrl: URL.createObjectURL(file),
+                            })),
+                          ]);
+                        }}
+                      >
+                        <span className="font-medium text-slate-800">
+                          Drop images here or click to choose
+                        </span>
+                      </label>
+                      {authReturnProofs.length > 0 ? (
+                        <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                          {authReturnProofs.map((p) => (
+                            <li
+                              key={p.id}
+                              className="relative overflow-hidden rounded-lg border border-slate-200"
+                            >
+                              <img
+                                src={p.previewUrl}
+                                alt=""
+                                className="aspect-square w-full object-cover"
+                              />
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setAuthReturnProofs((prev) => {
+                                    const next = prev.filter(
+                                      (x) => x.id !== p.id,
+                                    );
+                                    URL.revokeObjectURL(p.previewUrl);
+                                    return next;
+                                  })
+                                }
+                                className="absolute right-1 top-1 rounded bg-slate-900/70 px-2 py-0.5 text-xs font-medium text-white"
+                              >
+                                Remove
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
+                    </div>
+                  ) : null}
 
                   {confirmFormError ? (
                     <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
@@ -1440,8 +1694,18 @@ export function ClientConsignmentDetailPage() {
                       type="submit"
                       disabled={
                         confirmBusy ||
-                        !consignmentTermsAccepted ||
-                        !offerSignatureFile
+                        (detail &&
+                        isReturnedToConsignorStatus(detail.status)
+                          ? (authenticationReturnCaseHasRenegotiation(
+                              detail.authenticationReturnCase,
+                            ) &&
+                              (!consignmentTermsAccepted ||
+                                !offerSignatureFile)) ||
+                            (authenticationReturnCaseHasThirdParty(
+                              detail.authenticationReturnCase,
+                            ) &&
+                              authReturnProofs.length === 0)
+                          : !consignmentTermsAccepted || !offerSignatureFile)
                       }
                       className="rounded-lg bg-violet-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
                     >

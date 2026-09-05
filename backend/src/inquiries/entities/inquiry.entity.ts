@@ -8,6 +8,7 @@ import {
 import { Client } from '../../clients/entities/client.entity';
 import { AuditedEntity } from '../../common/entities/audited.entity';
 import { Employee } from '../../employees/entities/employee.entity';
+import { AuthenticationReturnCase } from '../../enums/authentication-return-case.enum';
 import { InquiryStatus } from '../../enums/inquiry-status.enum';
 
 /** API-facing image reference (resolved from `media` table). */
@@ -138,6 +139,32 @@ export class Inquiry extends AuditedEntity {
   /** Calendar date when the consignment contract expires (no time component). */
   @Column({ name: 'contract_expiration_date', type: 'date', nullable: true })
   contractExpirationDate: Date | null;
+
+  /**
+   * Distinguishes the three authenticator-return cases while inquiry/inventory
+   * status is Authenticated - Returned to Coordinator / Consignor.
+   */
+  @Column({
+    name: 'authentication_return_case',
+    type: 'varchar',
+    length: 64,
+    nullable: true,
+  })
+  authenticationReturnCase: AuthenticationReturnCase | null;
+
+  /** Coordinator narrative when returning the inquiry to the consignor. */
+  @Column({ name: 'coordinator_return_reason', type: 'text', nullable: true })
+  coordinatorReturnReason: string | null;
+
+  /** 3rd-party authentication fee the consignor must pay (PHP). */
+  @Column({
+    name: 'third_party_authentication_fee',
+    type: 'numeric',
+    precision: 12,
+    scale: 2,
+    nullable: true,
+  })
+  thirdPartyAuthenticationFee: string | null;
 
   /** Authenticator return-to-coordinator narrative (issues, flaws, damages, etc.). */
   @Column({ name: 'return_reasons', type: 'text', nullable: true })

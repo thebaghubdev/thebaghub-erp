@@ -40,7 +40,20 @@ import {
   cloneInventoryItemForAudit,
 } from '../inventory/inventory-audit.service';
 import { InventoryService } from '../inventory/inventory.service';
+import {
+  AUTHENTICATED_RETURNED_TO_CONSIGNOR_INVENTORY_STATUS,
+  FOR_3RD_PARTY_AUTHENTICATION_INVENTORY_STATUS,
+  FOR_3RD_PARTY_AUTHENTICATION_ITEM_AUTH_STATUS,
+  FOR_AUTHENTICATION_PAYMENT_VERIFICATION_INVENTORY_STATUS,
+  FOR_AUTHENTICATION_PAYMENT_VERIFICATION_ITEM_AUTH_STATUS,
+  RETURNED_TO_CONSIGNOR_ITEM_AUTH_STATUS,
+} from '../inventory/inventory-auth-status.constants';
 import { portalPageUrl } from '../common/frontend-url.util';
+import {
+  AuthenticationReturnCase,
+  authenticationReturnCaseHasRenegotiation,
+  authenticationReturnCaseHasThirdParty,
+} from '../enums/authentication-return-case.enum';
 import { InquiryStatus } from '../enums/inquiry-status.enum';
 import { JwtUser } from '../auth/jwt-user';
 import { CONTRACT_EXPIRATION_DAYS_KEY } from '../settings/consignment-setting-keys';
@@ -50,6 +63,7 @@ import {
   cloneInquiryForAudit,
   type InquiryAuditActor,
 } from './inquiry-audit.service';
+import { ReturnInquiryToConsignorDto } from './dto/return-inquiry-to-consignor.dto';
 import { SubmitAuthenticatedReturnNewOfferDto } from './dto/submit-authenticated-return-new-offer.dto';
 import { UpdateInquiryNotesDto } from './dto/update-inquiry-notes.dto';
 import { UpdateReauthenticationNotesDto } from './dto/update-reauthentication-notes.dto';
@@ -313,18 +327,25 @@ export type StaffInquiryDetail = StaffInquiryRow & {
     form: Record<string, unknown>;
     images: Array<{ key: string; url: string }>;
   };
-  /** Present when status is authenticated for renegotiation or authenticated new offer (coordinator review). */
+  /** Present when the authenticator returned the item to the coordinator. */
   authenticatedReturnDetail?: {
     authenticationSummary: Array<{
       metric: string;
       metricStatus: string | null;
       notes: string | null;
     }>;
+    authenticationReturnCase: AuthenticationReturnCase | null;
+    authenticatorNotes: string | null;
     priceRangeMin: string | null;
     priceRangeMax: string | null;
     returnReasons: string | null;
     returnPhotoUrls: string[];
+    thirdPartyReauthenticationReasons: string | null;
   };
+  authenticationReturnCase: AuthenticationReturnCase | null;
+  coordinatorReturnReason: string | null;
+  coordinatorReturnPhotoUrls: string[];
+  thirdPartyAuthenticationFee: string | null;
   /**
    * When in 3rd party payment flow: why re-authentication was requested (see `authenticated_requested_for_reauthentication` / legacy `authenticated_for_3rd_party`).
    */
@@ -367,13 +388,17 @@ export type ClientInquiryDetail = Omit<
   /** Present when linked to a delivery schedule (for_delivery_scheduled). */
   deliverySchedule: ClientDeliveryScheduleInfo | null;
   /**
-   * When in 3rd party payment flow: why re-authentication was requested.
+   * When in 3rd party payment / coordinator-return flow: why re-authentication was requested.
    */
   thirdPartyReauthenticationReasons: string | null;
   thirdPartyPaymentStatus: string | null;
   thirdPartyPaymentProofUrls: string[];
   thirdPartyIssuePhotoUrls: string[];
   thirdPartyReauthenticationNotes: string | null;
+  authenticationReturnCase: AuthenticationReturnCase | null;
+  coordinatorReturnReason: string | null;
+  coordinatorReturnPhotoUrls: string[];
+  thirdPartyAuthenticationFee: string | null;
 };
 
 @Injectable()
@@ -465,13 +490,60 @@ export class InquiriesService {
   }
 
   /**
-   * Consignor may owe the 3rd party auth fee: initial request, or legacy row still in the paid pipeline.
+   * Consignor may owe the 3rd party auth fee after the coordinator returned the inquiry,
+   * or while payment verification / 3rd-party work is in progress.
    */
-  private inquiryIsInThirdPartyPaymentFlow(status: InquiryStatus): boolean {
+  private inquiryIsInThirdPartyPaymentFlow(
+    status: InquiryStatus,
+    returnCase?: AuthenticationReturnCase | null,
+  ): boolean {
+    if (status === InquiryStatus.FOR_AUTHENTICATION_PAYMENT_VERIFICATION) {
+      return true;
+    }
+    if (status === InquiryStatus.FOR_3RD_PARTY_AUTHENTICATION) {
+      return true;
+    }
+    if (status === InquiryStatus.AUTHENTICATED_RETURNED_TO_CONSIGNOR) {
+      return authenticationReturnCaseHasThirdParty(returnCase);
+    }
+    return false;
+  }
+
+  private inquiryShowsCoordinatorAuthReturn(status: InquiryStatus): boolean {
     return (
-      status === InquiryStatus.AUTHENTICATED_REQUESTED_FOR_REAUTHENTICATION ||
-      status === InquiryStatus.AUTHENTICATED_FOR_3RD_PARTY
+      status === InquiryStatus.AUTHENTICATED_RETURNED_TO_COORDINATOR ||
+      status === InquiryStatus.AUTHENTICATED_RETURNED_TO_CONSIGNOR ||
+      status === InquiryStatus.FOR_AUTHENTICATION_PAYMENT_VERIFICATION ||
+      status === InquiryStatus.FOR_3RD_PARTY_AUTHENTICATION
     );
+  }
+
+  /** Notify only the coordinator assigned to this inquiry. */
+  async notifyAssignedCoordinator(
+    inquiryId: string,
+    message: string,
+  ): Promise<void> {
+    const inquiry = await this.inquiriesRepo.findOne({
+      where: { id: inquiryId },
+      select: { id: true, assignedToId: true, sku: true },
+    });
+    if (!inquiry) {
+      this.logger.warn(
+        `Inquiry ${inquiryId} not found for assigned-coordinator notification`,
+      );
+      return;
+    }
+    if (!inquiry.assignedToId) {
+      this.logger.warn(
+        `Inquiry ${inquiry.sku} has no assigned coordinator; skipping notification`,
+      );
+      return;
+    }
+    await this.notifications.notify({
+      message,
+      receiverId: inquiry.assignedToId,
+      inquiryId: inquiry.id,
+    });
   }
 
   private notifyConsignorOfferEmail(inquiry: Inquiry): void {
@@ -818,60 +890,55 @@ export class InquiriesService {
   }
 
   /**
-   * Invoked from inventory when an item is moved into the 3rd party re-auth / payment flow.
-   * Notifies consignment coordinators in-app; emails the consignor when mail is configured.
+   * Emails the consignor after the assigned coordinator returns the inquiry.
    */
-  async onInquirySentForThirdPartyAuthentication(
-    inquiryId: string,
-  ): Promise<void> {
-    const r = await this.inquiriesRepo.findOne({
-      where: { id: inquiryId },
-      relations: { consignor: true },
-    });
-    if (!r) {
-      this.logger.warn(
-        `Inquiry ${inquiryId} not found for 3rd party auth notifications`,
-      );
-      return;
-    }
-    void this.notifications
-      .notify({
-        message: `Inquiry ${r.sku} was requested for 3rd party authentication.`,
-        receiverRole: CONSIGNMENT_COORDINATOR_POSITION,
-        inquiryId: r.id,
-      })
-      .catch((err: unknown) => {
-        this.logger.error(
-          'Failed to notify coordinators of 3rd party authentication',
-          err,
-        );
-      });
-
-    const c = r.consignor;
+  private notifyConsignorAfterCoordinatorReturn(inquiry: Inquiry): void {
+    const c = inquiry.consignor;
     if (!c?.email?.trim()) {
       return;
     }
     if (!this.mail.isConfigured()) {
       this.logger.debug(
-        'MAIL_* not configured; skipping 3rd party consignor email',
+        'MAIL_* not configured; skipping consignor authentication-return email',
       );
       return;
     }
     const firstName = c.firstName?.trim() || 'there';
-    const viewInquiryUrl = this.consignorInquiryUrl(r.id);
-    void this.mail
-      .sendConsignorThirdPartyAuthNotice({
-        to: c.email.trim(),
-        firstName,
-        item: consignorEmailItemFromSnapshot(r.sku, r.itemSnapshot),
-        viewInquiryUrl,
-      })
-      .catch((err: unknown) => {
-        this.logger.error(
-          'Failed to send 3rd party authentication consignor email',
-          err,
-        );
-      });
+    const viewInquiryUrl = this.consignorInquiryUrl(inquiry.id);
+    const item = consignorEmailItemFromSnapshot(inquiry.sku, inquiry.itemSnapshot);
+    const hasThirdParty = authenticationReturnCaseHasThirdParty(
+      inquiry.authenticationReturnCase,
+    );
+    const hasRenegotiation = authenticationReturnCaseHasRenegotiation(
+      inquiry.authenticationReturnCase,
+    );
+    if (hasThirdParty) {
+      void this.mail
+        .sendConsignorThirdPartyAuthNotice({
+          to: c.email.trim(),
+          firstName,
+          item,
+          viewInquiryUrl,
+        })
+        .catch((err: unknown) => {
+          this.logger.error(
+            'Failed to send 3rd party authentication consignor email',
+            err,
+          );
+        });
+    }
+    if (hasRenegotiation) {
+      void this.mail
+        .sendConsignorInquiryOfferAvailable({
+          to: c.email.trim(),
+          firstName,
+          viewOfferUrl: viewInquiryUrl,
+          item,
+        })
+        .catch((err: unknown) => {
+          this.logger.error('Failed to send consignor offer email', err);
+        });
+    }
   }
 
   private async loadDeliveryScheduleForInquiry(
@@ -1675,14 +1742,17 @@ export class InquiriesService {
       select: { id: true, status: true },
     });
 
+    const showCoordinatorAuthReturn = this.inquiryShowsCoordinatorAuthReturn(
+      r.status,
+    );
     const thirdPartyReauthenticationReasons =
-      this.inquiryIsInThirdPartyPaymentFlow(r.status) &&
       r.thirdPartyReauthenticationReasons != null &&
       String(r.thirdPartyReauthenticationReasons).trim() !== ''
         ? String(r.thirdPartyReauthenticationReasons).trim()
         : null;
     const thirdPartyPaymentProofUrls = this.inquiryIsInThirdPartyPaymentFlow(
       r.status,
+      r.authenticationReturnCase,
     )
       ? this.media.toUrlList(
           await this.media.findByOwner(MediaOwnerType.INQUIRY, r.id, {
@@ -1692,9 +1762,7 @@ export class InquiriesService {
         )
       : [];
 
-    const thirdPartyIssuePhotoUrls = this.inquiryIsInThirdPartyPaymentFlow(
-      r.status,
-    )
+    const thirdPartyIssuePhotoUrls = showCoordinatorAuthReturn
       ? this.media.toUrlList(
           await this.media.findByOwner(MediaOwnerType.INQUIRY, r.id, {
             purpose: MediaPurpose.AUTH_RETURN,
@@ -1705,7 +1773,7 @@ export class InquiriesService {
       : [];
 
     let thirdPartyReauthenticationNotes: string | null = null;
-    if (linkedInv?.id && this.inquiryIsInThirdPartyPaymentFlow(r.status)) {
+    if (linkedInv?.id && this.inquiryIsInThirdPartyPaymentFlow(r.status, r.authenticationReturnCase)) {
       const authRow = await this.itemAuthRepo.findOne({
         where: { inventoryItemId: linkedInv.id },
         select: { reauthenticationNotes: true },
@@ -1714,6 +1782,18 @@ export class InquiriesService {
       thirdPartyReauthenticationNotes =
         raw != null && String(raw).trim() !== '' ? String(raw).trim() : null;
     }
+
+    const coordinatorReturnPhotoUrls = this.inquiryShowsCoordinatorAuthReturn(
+      r.status,
+    )
+      ? this.media.toUrlList(
+          await this.media.findByOwner(MediaOwnerType.INQUIRY, r.id, {
+            purpose: MediaPurpose.AUTH_RETURN,
+            metadata: { context: 'coordinator_to_consignor' },
+            orderBySort: true,
+          }),
+        )
+      : [];
 
     const detail: StaffInquiryDetail = {
       ...base,
@@ -1734,22 +1814,44 @@ export class InquiriesService {
       thirdPartyPaymentProofUrls,
       thirdPartyIssuePhotoUrls,
       thirdPartyReauthenticationNotes,
+      authenticationReturnCase: r.authenticationReturnCase ?? null,
+      coordinatorReturnReason:
+        r.coordinatorReturnReason != null &&
+        String(r.coordinatorReturnReason).trim() !== ''
+          ? String(r.coordinatorReturnReason).trim()
+          : null,
+      coordinatorReturnPhotoUrls,
+      thirdPartyAuthenticationFee:
+        r.thirdPartyAuthenticationFee != null &&
+        String(r.thirdPartyAuthenticationFee).trim() !== ''
+          ? String(r.thirdPartyAuthenticationFee)
+          : null,
     };
-    if (
-      r.status === InquiryStatus.AUTHENTICATED_RETURNED ||
-      r.status === InquiryStatus.AUTHENTICATED_NEW_OFFER
-    ) {
+    if (showCoordinatorAuthReturn) {
       const authenticationSummary =
         await this.inventoryService.getAuthenticationSummaryForInquiry(r.id);
-      const returnPhotoUrls = this.media.toUrlList(
+      const renegotiatePhotos = this.media.toUrlList(
         await this.media.findByOwner(MediaOwnerType.INQUIRY, r.id, {
           purpose: MediaPurpose.AUTH_RETURN,
           metadata: { context: 'coordinator_return' },
           orderBySort: true,
         }),
       );
+      const returnPhotoUrls = [...renegotiatePhotos, ...thirdPartyIssuePhotoUrls];
+      let authenticatorNotes: string | null = null;
+      if (linkedInv?.id) {
+        const authRow = await this.itemAuthRepo.findOne({
+          where: { inventoryItemId: linkedInv.id },
+          select: { authenticatorNotes: true },
+        });
+        const raw = authRow?.authenticatorNotes;
+        authenticatorNotes =
+          raw != null && String(raw).trim() !== '' ? String(raw).trim() : null;
+      }
       detail.authenticatedReturnDetail = {
         authenticationSummary,
+        authenticationReturnCase: r.authenticationReturnCase ?? null,
+        authenticatorNotes,
         priceRangeMin:
           r.priceRangeMin != null && String(r.priceRangeMin).trim() !== ''
             ? String(r.priceRangeMin)
@@ -1763,6 +1865,7 @@ export class InquiriesService {
             ? String(r.returnReasons).trim()
             : null,
         returnPhotoUrls,
+        thirdPartyReauthenticationReasons,
       };
     }
     return detail;
@@ -1843,7 +1946,7 @@ export class InquiriesService {
       r.status,
     );
     const thirdPartyReauthenticationReasons =
-      this.inquiryIsInThirdPartyPaymentFlow(r.status) &&
+      this.inquiryIsInThirdPartyPaymentFlow(r.status, r.authenticationReturnCase) &&
       r.thirdPartyReauthenticationReasons != null &&
       String(r.thirdPartyReauthenticationReasons).trim() !== ''
         ? String(r.thirdPartyReauthenticationReasons).trim()
@@ -1851,6 +1954,7 @@ export class InquiriesService {
 
     const thirdPartyPaymentProofUrls = this.inquiryIsInThirdPartyPaymentFlow(
       r.status,
+      r.authenticationReturnCase,
     )
       ? this.media.toUrlList(
           await this.media.findByOwner(MediaOwnerType.INQUIRY, r.id, {
@@ -1861,6 +1965,7 @@ export class InquiriesService {
       : [];
     const thirdPartyIssuePhotoUrls = this.inquiryIsInThirdPartyPaymentFlow(
       r.status,
+      r.authenticationReturnCase,
     )
       ? this.media.toUrlList(
           await this.media.findByOwner(MediaOwnerType.INQUIRY, r.id, {
@@ -1877,7 +1982,7 @@ export class InquiriesService {
     let thirdPartyReauthenticationNotes: string | null = null;
     if (
       linkedInvClient?.id &&
-      this.inquiryIsInThirdPartyPaymentFlow(r.status)
+      this.inquiryIsInThirdPartyPaymentFlow(r.status, r.authenticationReturnCase)
     ) {
       const authRow = await this.itemAuthRepo.findOne({
         where: { inventoryItemId: linkedInvClient.id },
@@ -1887,6 +1992,19 @@ export class InquiriesService {
       thirdPartyReauthenticationNotes =
         raw != null && String(raw).trim() !== '' ? String(raw).trim() : null;
     }
+    const clientSeesCoordinatorReturn =
+      r.status === InquiryStatus.AUTHENTICATED_RETURNED_TO_CONSIGNOR ||
+      r.status === InquiryStatus.FOR_AUTHENTICATION_PAYMENT_VERIFICATION ||
+      r.status === InquiryStatus.FOR_3RD_PARTY_AUTHENTICATION;
+    const coordinatorReturnPhotoUrls = clientSeesCoordinatorReturn
+      ? this.media.toUrlList(
+          await this.media.findByOwner(MediaOwnerType.INQUIRY, r.id, {
+            purpose: MediaPurpose.AUTH_RETURN,
+            metadata: { context: 'coordinator_to_consignor' },
+            orderBySort: true,
+          }),
+        )
+      : [];
     const clientSeesApprovedOffers =
       r.status !== InquiryStatus.PENDING &&
       r.status !== InquiryStatus.FOR_DIRECT_PURCHASE_APPROVAL;
@@ -1912,6 +2030,22 @@ export class InquiriesService {
       thirdPartyPaymentProofUrls,
       thirdPartyIssuePhotoUrls,
       thirdPartyReauthenticationNotes,
+      authenticationReturnCase: clientSeesCoordinatorReturn
+        ? (r.authenticationReturnCase ?? null)
+        : null,
+      coordinatorReturnReason: clientSeesCoordinatorReturn
+        ? r.coordinatorReturnReason != null &&
+          String(r.coordinatorReturnReason).trim() !== ''
+          ? String(r.coordinatorReturnReason).trim()
+          : null
+        : null,
+      coordinatorReturnPhotoUrls,
+      thirdPartyAuthenticationFee: clientSeesCoordinatorReturn
+        ? r.thirdPartyAuthenticationFee != null &&
+          String(r.thirdPartyAuthenticationFee).trim() !== ''
+          ? String(r.thirdPartyAuthenticationFee)
+          : null
+        : null,
     };
   }
 
@@ -1935,10 +2069,16 @@ export class InquiriesService {
     }
     await this.enforceInquiryMutationAccess(user, r);
     if (
-      r.status !== InquiryStatus.AUTHENTICATED_REQUESTED_FOR_REAUTHENTICATION
+      r.status !== InquiryStatus.AUTHENTICATED_RETURNED_TO_CONSIGNOR &&
+      r.status !== InquiryStatus.FOR_AUTHENTICATION_PAYMENT_VERIFICATION
     ) {
       throw new BadRequestException(
-        'Proof of payment can only be uploaded while reauthentication payment is pending',
+        'Proof of payment can only be uploaded while the consignor is completing 3rd-party authentication payment',
+      );
+    }
+    if (!authenticationReturnCaseHasThirdParty(r.authenticationReturnCase)) {
+      throw new BadRequestException(
+        'This inquiry is not waiting for 3rd-party authentication payment',
       );
     }
     for (const file of files) {
@@ -1964,6 +2104,40 @@ export class InquiriesService {
     r.updatedById = user.userId;
     const wasAwaiting = isPaymentAwaitingVerification(r.thirdPartyPaymentStatus);
     r.thirdPartyPaymentStatus = PAYMENT_STATUS_FOR_VERIFICATION;
+    if (r.status === InquiryStatus.AUTHENTICATED_RETURNED_TO_CONSIGNOR) {
+      r.status = InquiryStatus.FOR_AUTHENTICATION_PAYMENT_VERIFICATION;
+      const inv = await this.inventoryItemRepo.findOne({
+        where: { inquiryId },
+      });
+      if (inv) {
+        const beforeInv = cloneInventoryItemForAudit(inv);
+        inv.status = FOR_AUTHENTICATION_PAYMENT_VERIFICATION_INVENTORY_STATUS;
+        inv.updatedById = user.userId;
+        await this.inventoryItemRepo.save(inv);
+        await this.inventoryAudit.recordDiff(
+          inv.id,
+          beforeInv,
+          inv,
+          { userId: user.userId, label: await this.inquiryAudit.staffActorLabel(user.userId) },
+        );
+        const auth = await this.itemAuthRepo.findOne({
+          where: { inventoryItemId: inv.id },
+        });
+        if (auth) {
+          const beforeAuth = cloneAuthForAudit(auth);
+          auth.authenticationStatus =
+            FOR_AUTHENTICATION_PAYMENT_VERIFICATION_ITEM_AUTH_STATUS;
+          auth.updatedById = user.userId;
+          await this.itemAuthRepo.save(auth);
+          await this.inventoryAudit.recordAuthDiff(
+            inv.id,
+            beforeAuth,
+            auth,
+            { userId: user.userId, label: await this.inquiryAudit.staffActorLabel(user.userId) },
+          );
+        }
+      }
+    }
     await this.inquiriesRepo.save(r);
     const label = await this.inquiryAudit.staffActorLabel(user.userId);
     await this.inquiryAudit.recordDiff(inquiryId, before, r, {
@@ -1990,10 +2164,10 @@ export class InquiriesService {
       throw new NotFoundException('Inquiry not found');
     }
     if (
-      r0.status !== InquiryStatus.AUTHENTICATED_REQUESTED_FOR_REAUTHENTICATION
+      r0.status !== InquiryStatus.FOR_AUTHENTICATION_PAYMENT_VERIFICATION
     ) {
       throw new BadRequestException(
-        'Inquiry is not waiting for reauthentication payment',
+        'Inquiry is not waiting for authentication payment verification',
       );
     }
     const hasProof = await this.media.hasMedia(
@@ -2029,12 +2203,12 @@ export class InquiriesService {
           inventoryItemId: inv.id,
         });
         const before = cloneInquiryForAudit(r);
-        r.status = InquiryStatus.AUTHENTICATED_FOR_3RD_PARTY;
+        r.status = InquiryStatus.FOR_3RD_PARTY_AUTHENTICATION;
         r.thirdPartyPaymentStatus = PAYMENT_STATUS_CONFIRMED;
         r.updatedById = user.userId;
         await em.save(r);
         const beforeInv = cloneInventoryItemForAudit(inv);
-        inv.status = 'Authenticated: For 3rd party authentication';
+        inv.status = FOR_3RD_PARTY_AUTHENTICATION_INVENTORY_STATUS;
         inv.updatedById = user.userId;
         await em.save(inv);
         await this.inventoryAudit.recordDiff(
@@ -2046,7 +2220,8 @@ export class InquiriesService {
         );
         if (auth) {
           const beforeAuth = cloneAuthForAudit(auth);
-          auth.authenticationStatus = 'For 3rd party authentication';
+          auth.authenticationStatus =
+            FOR_3RD_PARTY_AUTHENTICATION_ITEM_AUTH_STATUS;
           auth.updatedById = user.userId;
           await em.save(auth);
           await this.inventoryAudit.recordAuthDiff(
@@ -2469,10 +2644,7 @@ export class InquiriesService {
     if (!r) {
       throw new NotFoundException('Inquiry not found');
     }
-    if (
-      r.status !== InquiryStatus.FOR_OFFER_CONFIRMATION &&
-      r.status !== InquiryStatus.AUTHENTICATED_NEW_OFFER
-    ) {
+    if (r.status !== InquiryStatus.FOR_OFFER_CONFIRMATION) {
       throw new BadRequestException(
         'The offer can only be confirmed while it is awaiting your confirmation',
       );
@@ -2542,8 +2714,7 @@ export class InquiriesService {
       }
     }
 
-    const isAuthenticatedNewOfferConfirm =
-      r.status === InquiryStatus.AUTHENTICATED_NEW_OFFER;
+    const isAuthenticatedNewOfferConfirm = false;
 
     if (r.isWalkIn) {
       const branch = r.walkInBranch?.trim();
@@ -2630,6 +2801,213 @@ export class InquiriesService {
       afterMedia,
     );
     this.notifyCoordinatorsConsignorConfirmedOffer(r);
+    return this.findOneForClient(user, inquiryId);
+  }
+
+  /**
+   * Consignor responds after the coordinator returned authentication results:
+   * agree to a new offer (signature + terms) and/or upload 3rd-party fee proof.
+   */
+  async submitCoordinatorReturnForClient(
+    user: JwtUser,
+    inquiryId: string,
+    payloadRaw: string | undefined,
+    signatureFile: MulterFile | undefined,
+    paymentFiles: MulterFile[] | undefined,
+  ): Promise<ClientInquiryDetail> {
+    const client = await this.clientsRepo.findOne({
+      where: { userId: user.userId },
+    });
+    if (!client) {
+      throw new NotFoundException('Client profile not found');
+    }
+    const r = await this.inquiriesRepo.findOne({
+      where: { id: inquiryId, consignorId: client.id },
+    });
+    if (!r) {
+      throw new NotFoundException('Inquiry not found');
+    }
+    if (r.status !== InquiryStatus.AUTHENTICATED_RETURNED_TO_CONSIGNOR) {
+      throw new BadRequestException(
+        'This inquiry is not waiting for your response after authentication',
+      );
+    }
+    const returnCase = r.authenticationReturnCase;
+    const hasRenegotiation = authenticationReturnCaseHasRenegotiation(returnCase);
+    const hasThirdParty = authenticationReturnCaseHasThirdParty(returnCase);
+    if (!hasRenegotiation && !hasThirdParty) {
+      throw new BadRequestException(
+        'This inquiry is missing the authentication return case',
+      );
+    }
+
+    let termsAccepted = false;
+    if (payloadRaw != null && payloadRaw.trim() !== '') {
+      try {
+        const payload = JSON.parse(payloadRaw) as { termsAccepted?: unknown };
+        termsAccepted = payload.termsAccepted === true;
+      } catch {
+        throw new BadRequestException('Invalid payload');
+      }
+    }
+
+    if (hasRenegotiation) {
+      if (!termsAccepted) {
+        throw new BadRequestException(
+          'Consignment terms and conditions must be accepted.',
+        );
+      }
+      if (!signatureFile?.buffer?.length) {
+        throw new BadRequestException('Signature image is required');
+      }
+      if (r.offerPrice == null || String(r.offerPrice).trim() === '') {
+        throw new BadRequestException('No offer is available to confirm');
+      }
+      if (!isClientPaymentProfileReadyForOffer(client)) {
+        throw new BadRequestException(
+          'Complete your preferred payment method on My profile before confirming this offer.',
+        );
+      }
+      const mime = signatureFile.mimetype?.toLowerCase() ?? '';
+      if (!ALLOWED_IMAGE_MIMES.has(mime)) {
+        throw new BadRequestException(
+          `Signature must be an image file (${signatureFile.mimetype || 'unknown'})`,
+        );
+      }
+    }
+
+    if (hasThirdParty) {
+      if (!paymentFiles?.length) {
+        throw new BadRequestException(
+          'Upload proof of payment for the authentication fee',
+        );
+      }
+      if (paymentFiles.length > 20) {
+        throw new BadRequestException('At most 20 images per request');
+      }
+      for (const file of paymentFiles) {
+        const mime = file.mimetype?.toLowerCase() ?? '';
+        if (!ALLOWED_IMAGE_MIMES.has(mime)) {
+          throw new BadRequestException(
+            `Unsupported image type: ${file.mimetype || 'unknown'}`,
+          );
+        }
+      }
+    }
+
+    const beforeMedia = await this.inquiryMediaAudit(inquiryId);
+    const before = cloneInquiryForAudit(r);
+
+    if (hasRenegotiation && signatureFile) {
+      const mime = signatureFile.mimetype?.toLowerCase() ?? '';
+      const ext = extFromMime(mime);
+      const signatureKey = `inquiries/${inquiryId}/offer-signature-${randomUUID()}.${ext}`;
+      await this.media.replaceSingle(
+        MediaOwnerType.INQUIRY,
+        inquiryId,
+        MediaPurpose.SIGNATURE,
+        signatureFile,
+        signatureKey,
+        { uploadedByUserId: user.userId },
+      );
+    }
+
+    if (hasThirdParty && paymentFiles?.length) {
+      await this.media.appendFiles(
+        MediaOwnerType.INQUIRY,
+        inquiryId,
+        MediaPurpose.THIRD_PARTY_PAYMENT,
+        paymentFiles,
+        (_i, file) => {
+          const mime = file.mimetype.toLowerCase();
+          return `inquiries/${inquiryId}/third-party-payment/${randomUUID()}.${extFromMime(mime)}`;
+        },
+        { uploadedByUserId: user.userId },
+      );
+    }
+
+    if (hasThirdParty) {
+      r.thirdPartyPaymentStatus = PAYMENT_STATUS_FOR_VERIFICATION;
+      r.status = InquiryStatus.FOR_AUTHENTICATION_PAYMENT_VERIFICATION;
+      await this.inquiriesRepo.save(r);
+      const inv = await this.inventoryItemRepo.findOne({
+        where: { inquiryId },
+      });
+      if (inv) {
+        const beforeInv = cloneInventoryItemForAudit(inv);
+        inv.status = FOR_AUTHENTICATION_PAYMENT_VERIFICATION_INVENTORY_STATUS;
+        await this.inventoryItemRepo.save(inv);
+        await this.inventoryAudit.recordDiff(
+          inv.id,
+          beforeInv,
+          inv,
+          this.inventoryAudit.customerActor(null),
+        );
+        const auth = await this.itemAuthRepo.findOne({
+          where: { inventoryItemId: inv.id },
+        });
+        if (auth) {
+          const beforeAuth = cloneAuthForAudit(auth);
+          auth.authenticationStatus =
+            FOR_AUTHENTICATION_PAYMENT_VERIFICATION_ITEM_AUTH_STATUS;
+          await this.itemAuthRepo.save(auth);
+          await this.inventoryAudit.recordAuthDiff(
+            inv.id,
+            beforeAuth,
+            auth,
+            this.inventoryAudit.customerActor(null),
+          );
+        }
+      }
+      await this.paymentVerification.notifyVerifiers({
+        title: `Verify authentication fee for Inquiry ${r.sku}`,
+        message: `A 3rd-party authentication fee proof for ${r.sku} is awaiting verification.`,
+        portalPath: `/portal/inquiries/${inquiryId}`,
+        inquiryId,
+      });
+    } else {
+      await this.inquiriesRepo.manager.transaction(async (em) => {
+        r.status = InquiryStatus.FOR_PROCESSING;
+        await em.save(r);
+        await this.inventoryService.finalizeInventoryAfterAuthenticatedNewOfferConfirm(
+          em,
+          r.id,
+          r.offerTransactionType,
+        );
+      });
+      const withContract = await this.populateContractDatesForInquiry(r.id);
+      r.contractStartDate = withContract.contractStartDate;
+      r.contractExpirationDate = withContract.contractExpirationDate;
+      const savedInquiry = await this.inquiriesRepo.findOne({
+        where: { id: inquiryId },
+      });
+      if (savedInquiry?.status === InquiryStatus.FOR_PROCESSING) {
+        const inv = await this.inventoryItemRepo.findOne({
+          where: { inquiryId },
+        });
+        if (inv) {
+          await this.media.copyOwnerMedia(
+            MediaOwnerType.INQUIRY,
+            inquiryId,
+            MediaOwnerType.INVENTORY_ITEM,
+            inv.id,
+            MediaPurpose.ITEM_PHOTO,
+          );
+        }
+      }
+      this.notifyCoordinatorsConsignorConfirmedOffer(r);
+    }
+
+    const afterMedia = await this.inquiryMediaAudit(inquiryId);
+    await this.inquiryAudit.recordDiff(
+      r.id,
+      before,
+      r,
+      this.inquiryAudit.consignorActor(user.userId),
+      undefined,
+      beforeMedia,
+      afterMedia,
+    );
     return this.findOneForClient(user, inquiryId);
   }
 
@@ -3156,12 +3534,22 @@ export class InquiriesService {
         'Cannot submit an offer for an inquiry with a pending pullout request',
       );
     }
-    if (r.status === InquiryStatus.AUTHENTICATED_RETURNED) {
+    if (r.status === InquiryStatus.AUTHENTICATED_RETURNED_TO_COORDINATOR) {
       throw new BadRequestException(
-        'Cannot submit an offer for an inquiry that is pending renegotiation after authentication',
+        'Cannot submit an offer while the inquiry is returned to the coordinator after authentication',
       );
     }
-    if (this.inquiryIsInThirdPartyPaymentFlow(r.status)) {
+    if (r.status === InquiryStatus.AUTHENTICATED_RETURNED_TO_CONSIGNOR) {
+      throw new BadRequestException(
+        'Cannot submit an offer while the inquiry is returned to the consignor after authentication',
+      );
+    }
+    if (r.status === InquiryStatus.FOR_AUTHENTICATION_PAYMENT_VERIFICATION) {
+      throw new BadRequestException(
+        'Cannot submit an offer while authentication payment is being verified',
+      );
+    }
+    if (this.inquiryIsInThirdPartyPaymentFlow(r.status, r.authenticationReturnCase)) {
       throw new BadRequestException(
         'Cannot submit an offer for an inquiry that is pending payment for 3rd party authentication',
       );
@@ -3183,18 +3571,13 @@ export class InquiriesService {
     const before = cloneInquiryForAudit(r);
     const beforeMedia = await this.inquiryMediaAudit(id);
     r.offerPrice = dto.offerPrice.toFixed(2);
-    /** Stay in post–auth renegotiation lane when the coordinator revises the offer. */
-    if (r.status === InquiryStatus.AUTHENTICATED_NEW_OFFER) {
-      // Price-only; keep the transaction type set before authentication return.
-    } else {
-      if (dto.transactionType === 'direct_purchase') {
-        throw new BadRequestException(
-          'Direct purchase requires CEO approval. Use Request Direct Purchase Approval.',
-        );
-      }
-      r.offerTransactionType = 'consignment';
-      r.status = InquiryStatus.FOR_OFFER_CONFIRMATION;
+    if (dto.transactionType === 'direct_purchase') {
+      throw new BadRequestException(
+        'Direct purchase requires CEO approval. Use Request Direct Purchase Approval.',
+      );
     }
+    r.offerTransactionType = 'consignment';
+    r.status = InquiryStatus.FOR_OFFER_CONFIRMATION;
     await this.media.deleteByOwner(
       MediaOwnerType.INQUIRY,
       id,
@@ -3418,9 +3801,10 @@ export class InquiriesService {
     return this.findOneForStaff(id);
   }
 
-  async submitAuthenticatedReturnNewOffer(
+  async returnInquiryToConsignor(
     id: string,
-    dto: SubmitAuthenticatedReturnNewOfferDto,
+    dto: ReturnInquiryToConsignorDto,
+    files: MulterFile[] | undefined,
     user: JwtUser,
   ): Promise<StaffInquiryDetail> {
     const r = await this.inquiriesRepo.findOne({
@@ -3434,21 +3818,114 @@ export class InquiriesService {
     if (InquiriesService.terminalInquiryStatuses.has(r.status)) {
       throw new BadRequestException('Cannot update this inquiry');
     }
-    if (r.status !== InquiryStatus.AUTHENTICATED_RETURNED) {
+    if (r.status !== InquiryStatus.AUTHENTICATED_RETURNED_TO_COORDINATOR) {
       throw new BadRequestException(
-        'A new offer can only be created while the inquiry is Authenticated: For renegotiation',
+        'The inquiry can only be returned to the consignor while it is Authenticated - Returned to Coordinator',
+      );
+    }
+    const returnCase = r.authenticationReturnCase;
+    if (!returnCase) {
+      throw new BadRequestException(
+        'This inquiry is missing the authentication return case',
+      );
+    }
+    const hasRenegotiation = authenticationReturnCaseHasRenegotiation(returnCase);
+    const hasThirdParty = authenticationReturnCaseHasThirdParty(returnCase);
+    if (!files?.length) {
+      throw new BadRequestException('At least one photo is required');
+    }
+    if (files.length > MAX_AUTH_RETURN_PHOTOS) {
+      throw new BadRequestException(
+        `At most ${MAX_AUTH_RETURN_PHOTOS} photos are allowed`,
+      );
+    }
+    for (const file of files) {
+      const mime = file.mimetype?.toLowerCase() ?? '';
+      if (!ALLOWED_IMAGE_MIMES.has(mime)) {
+        throw new BadRequestException(
+          `Unsupported image type: ${file.mimetype || 'unknown'}`,
+        );
+      }
+    }
+
+    let newOffer: string | null = null;
+    if (hasRenegotiation) {
+      newOffer = this.parsePositiveMoney(dto.newOfferPrice, 'New offer price');
+    }
+    let fee: string | null = null;
+    if (hasThirdParty) {
+      fee = this.parsePositiveMoney(
+        dto.authenticationFee,
+        'Authentication fee',
       );
     }
 
     const before = cloneInquiryForAudit(r);
     const beforeMedia = await this.inquiryMediaAudit(id);
-    r.offerPrice = dto.offerPrice.toFixed(2);
-    r.status = InquiryStatus.AUTHENTICATED_NEW_OFFER;
+    await this.media.deleteByOwner(
+      MediaOwnerType.INQUIRY,
+      id,
+      MediaPurpose.AUTH_RETURN,
+      { context: 'coordinator_to_consignor' },
+    );
+    await this.media.appendFiles(
+      MediaOwnerType.INQUIRY,
+      id,
+      MediaPurpose.AUTH_RETURN,
+      files,
+      (_i, file) => {
+        const mime = file.mimetype.toLowerCase();
+        return `inquiries/${id}/coordinator-to-consignor/${randomUUID()}.${extFromMime(mime)}`;
+      },
+      {
+        uploadedByUserId: user.userId,
+        metadata: { context: 'coordinator_to_consignor' },
+      },
+    );
+    r.coordinatorReturnReason = dto.reason;
+    if (newOffer) {
+      r.offerPrice = newOffer;
+    }
+    r.thirdPartyAuthenticationFee = fee;
+    r.status = InquiryStatus.AUTHENTICATED_RETURNED_TO_CONSIGNOR;
     await this.media.deleteByOwner(
       MediaOwnerType.INQUIRY,
       id,
       MediaPurpose.SIGNATURE,
     );
+
+    const inv = await this.inventoryItemRepo.findOne({
+      where: { inquiryId: id },
+    });
+    if (inv) {
+      const beforeInv = cloneInventoryItemForAudit(inv);
+      inv.status = AUTHENTICATED_RETURNED_TO_CONSIGNOR_INVENTORY_STATUS;
+      inv.updatedById = user.userId;
+      await this.inventoryItemRepo.save(inv);
+      const labelInv = await this.inquiryAudit.staffActorLabel(user.userId);
+      await this.inventoryAudit.recordDiff(
+        inv.id,
+        beforeInv,
+        inv,
+        { userId: user.userId, label: labelInv },
+      );
+      const auth = await this.itemAuthRepo.findOne({
+        where: { inventoryItemId: inv.id },
+      });
+      if (auth) {
+        const beforeAuth = cloneAuthForAudit(auth);
+        auth.authenticationStatus = RETURNED_TO_CONSIGNOR_ITEM_AUTH_STATUS;
+        auth.updatedById = user.userId;
+        await this.itemAuthRepo.save(auth);
+        await this.inventoryAudit.recordAuthDiff(
+          inv.id,
+          beforeAuth,
+          auth,
+          { userId: user.userId, label: labelInv },
+        );
+      }
+    }
+
     await this.inquiriesRepo.save(r);
     const label = await this.inquiryAudit.staffActorLabel(user.userId);
     const afterMedia = await this.inquiryMediaAudit(id);
@@ -3464,8 +3941,21 @@ export class InquiriesService {
       beforeMedia,
       afterMedia,
     );
-    this.notifyConsignorOfferEmail(r);
+    this.notifyConsignorAfterCoordinatorReturn(r);
     return this.findOneForStaff(id);
+  }
+
+  private parsePositiveMoney(raw: string | undefined, label: string): string {
+    const n = Number(
+      String(raw ?? '')
+        .trim()
+        .replace(/,/g, '')
+        .replace(/^\u20b1\s?/i, ''),
+    );
+    if (!Number.isFinite(n) || n <= 0) {
+      throw new BadRequestException(`Enter a valid ${label} greater than zero.`);
+    }
+    return n.toFixed(2);
   }
 
   async updateConsignmentPrice(
@@ -3733,7 +4223,7 @@ export class InquiriesService {
       throw new NotFoundException('Inquiry not found');
     }
     await this.enforceInquiryMutationAccess(user, r);
-    if (!this.inquiryIsInThirdPartyPaymentFlow(r.status)) {
+    if (!this.inquiryIsInThirdPartyPaymentFlow(r.status, r.authenticationReturnCase)) {
       throw new BadRequestException(
         'Reauthentication notes can only be updated while the inquiry is in the third-party reauthentication flow.',
       );
@@ -3853,9 +4343,6 @@ export class InquiriesService {
         'At least one valid issue photo is required.',
       );
     }
-    inquiry.priceRangeMin = null;
-    inquiry.priceRangeMax = null;
-    inquiry.returnReasons = null;
   }
 
   /**
@@ -3908,7 +4395,9 @@ export class InquiriesService {
     inquiry.returnReasons = body.returnReasons;
     inquiry.priceRangeMin = body.priceRangeMin;
     inquiry.priceRangeMax = body.priceRangeMax;
-    inquiry.status = InquiryStatus.AUTHENTICATED_RETURNED;
+    inquiry.authenticationReturnCase =
+      AuthenticationReturnCase.FOR_RENEGOTIATION;
+    inquiry.status = InquiryStatus.AUTHENTICATED_RETURNED_TO_COORDINATOR;
     await this.inquiriesRepo.save(inquiry);
   }
 }

@@ -67,12 +67,15 @@ import { ReturnToCoordinatorDto } from './dto/return-to-coordinator.dto';
 import { UpdateInventoryPricingDto } from './dto/update-inventory-pricing.dto';
 import { CreateItemPostingDto } from './dto/create-item-posting.dto';
 import { ScheduleItemPostingsDto } from './dto/schedule-item-postings.dto';
+import { AuthenticationReturnCase } from '../enums/authentication-return-case.enum';
 import { InquiryStatus } from '../enums/inquiry-status.enum';
 import { InquiriesService } from '../inquiries/inquiries.service';
+import { MARKETING_ADMIN_POSITION } from '../notifications/notification.constants';
 import {
-  CONSIGNMENT_COORDINATOR_POSITION,
-  MARKETING_ADMIN_POSITION,
-} from '../notifications/notification.constants';
+  AUTHENTICATED_RETURNED_TO_COORDINATOR_INVENTORY_STATUS,
+  FOR_3RD_PARTY_AUTHENTICATION_INVENTORY_STATUS,
+  RETURNED_TO_COORDINATOR_ITEM_AUTH_STATUS,
+} from './inventory-auth-status.constants';
 import { NotificationsService } from '../notifications/notifications.service';
 import { TasksService } from '../tasks/tasks.service';
 import { Client } from '../clients/entities/client.entity';
@@ -746,16 +749,7 @@ const UPDATE_TBH_PRICE_ALLOWED_INVENTORY_STATUSES = new Set<string>([
 ]);
 const MIN_PHOTOS_TO_FINISH_PHOTOSHOOT = 1;
 const MIN_SELECTED_PHOTOS_FOR_ITEM_POSTING = 1;
-const AUTHENTICATED_FOR_RENEGOTIATION_INVENTORY_STATUS =
-  'Authenticated: For renegotiation';
 const APPROVED_ITEM_AUTHENTICATION_STATUS = 'Approved';
-const FOR_RENEGOTIATION_ITEM_AUTHENTICATION_STATUS = 'For renegotiation';
-const AUTHENTICATED_REQUESTED_FOR_REAUTHENTICATION_INVENTORY_STATUS =
-  'Authenticated: Requested for Reauthentication';
-const AUTHENTICATED_FOR_THIRD_PARTY_INVENTORY_STATUS =
-  'Authenticated: For 3rd party authentication';
-const REQUESTED_FOR_REAUTHENTICATION_ITEM_AUTH_STATUS =
-  'Requested for Reauthentication';
 const AUTHENTICATION_REJECTED_INVENTORY_STATUS = 'Authenticated: Rejected';
 const REJECTED_ITEM_AUTHENTICATION_STATUS = 'Rejected';
 
@@ -1357,14 +1351,14 @@ export class InventoryService {
     }
     if (
       item.status !== FOR_AUTHENTICATION_INVENTORY_STATUS &&
-      item.status !== AUTHENTICATED_FOR_THIRD_PARTY_INVENTORY_STATUS
+      item.status !== FOR_3RD_PARTY_AUTHENTICATION_INVENTORY_STATUS
     ) {
       throw new BadRequestException(
-        `Only items in "${FOR_AUTHENTICATION_INVENTORY_STATUS}" or "${AUTHENTICATED_FOR_THIRD_PARTY_INVENTORY_STATUS}" status can be approved from authentication.`,
+        `Only items in "${FOR_AUTHENTICATION_INVENTORY_STATUS}" or "${FOR_3RD_PARTY_AUTHENTICATION_INVENTORY_STATUS}" status can be approved from authentication.`,
       );
     }
     const approvingThirdPartyAuthentication =
-      item.status === AUTHENTICATED_FOR_THIRD_PARTY_INVENTORY_STATUS;
+      item.status === FOR_3RD_PARTY_AUTHENTICATION_INVENTORY_STATUS;
     const auth = await this.enforceAuthenticatorAccess(inventoryItemId, actor, {
       createIfMissing: false,
     });
@@ -1396,7 +1390,7 @@ export class InventoryService {
         const inquiry = await this.inventoryRepo.manager.findOne(Inquiry, {
           where: { id: item.inquiryId },
         });
-        if (inquiry?.status === InquiryStatus.AUTHENTICATED_FOR_3RD_PARTY) {
+        if (inquiry?.status === InquiryStatus.FOR_3RD_PARTY_AUTHENTICATION) {
           inquiry.status = InquiryStatus.FOR_PROCESSING;
           inquiry.updatedById = actor.userId;
           await this.inventoryRepo.manager.save(inquiry);
@@ -1405,15 +1399,19 @@ export class InventoryService {
       await this.inquiriesService.populateContractDatesForInquiry(
         item.inquiryId,
       );
+      this.notifyAssignedCoordinatorForInventoryItem(
+        item,
+        `Inventory item ${item.sku} was approved by the authenticator.`,
+      );
     }
 
     return { status: item.status };
   }
 
   /**
-   * Records an authenticator request for paid 3rd party re-authentication: inquiry,
-   * inventory, and item_auth are updated in one transaction. Consignor pays next.
-   * Requires a linked inquiry.
+   * Records an authenticator request for paid 3rd party re-authentication.
+   * Item is returned to the assigned coordinator (consignor is not notified yet).
+   * Optional renegotiate flag also stores a suggested price range.
    */
   async markForThirdPartyAuthenticationForInventoryItem(
     inventoryItemId: string,
@@ -1439,6 +1437,32 @@ export class InventoryService {
     await this.enforceAuthenticatorAccess(inventoryItemId, actor, {
       createIfMissing: false,
     });
+
+    const renegotiate = dto.renegotiate === true;
+    let minStr: string | null = null;
+    let maxStr: string | null = null;
+    let returnReasons: string | null = null;
+    if (renegotiate) {
+      const reasons = (dto.returnReasons ?? '').trim();
+      if (reasons === '') {
+        throw new BadRequestException(
+          'Reasons for renegotiation are required when Renegotiate is on.',
+        );
+      }
+      returnReasons = reasons;
+      minStr = this.normalizeOptionalPriceField(dto.priceRangeMin);
+      maxStr = this.normalizeOptionalPriceField(dto.priceRangeMax);
+      if (minStr == null || maxStr == null) {
+        throw new BadRequestException(
+          'Suggested price range (minimum and maximum) is required when Renegotiate is on.',
+        );
+      }
+      if (Number(minStr) > Number(maxStr)) {
+        throw new BadRequestException(
+          'Suggested price range: minimum cannot be greater than maximum.',
+        );
+      }
+    }
 
     const { status, authenticationStatus } =
       await this.inventoryRepo.manager.transaction(
@@ -1478,7 +1502,13 @@ export class InventoryService {
           inquiry.thirdPartyReauthenticationReasons =
             dto.reauthenticationReasons;
           inquiry.status =
-            InquiryStatus.AUTHENTICATED_REQUESTED_FOR_REAUTHENTICATION;
+            InquiryStatus.AUTHENTICATED_RETURNED_TO_COORDINATOR;
+          inquiry.authenticationReturnCase = renegotiate
+            ? AuthenticationReturnCase.FOR_3RD_PARTY_WITH_RENEGOTIATION
+            : AuthenticationReturnCase.FOR_3RD_PARTY_AUTHENTICATION;
+          inquiry.priceRangeMin = minStr;
+          inquiry.priceRangeMax = maxStr;
+          inquiry.returnReasons = returnReasons;
 
           await this.inquiriesService.attachThirdPartyAuthRequestEvidence(
             inquiry,
@@ -1490,14 +1520,12 @@ export class InventoryService {
           await em.save(inquiry);
 
           const beforeAuth = cloneAuthForAudit(auth);
-          auth.authenticationStatus =
-            REQUESTED_FOR_REAUTHENTICATION_ITEM_AUTH_STATUS;
+          auth.authenticationStatus = RETURNED_TO_COORDINATOR_ITEM_AUTH_STATUS;
           auth.updatedById = actor.userId;
           await em.save(auth);
 
           const beforeInv = cloneInventoryItemForAudit(item);
-          item.status =
-            AUTHENTICATED_REQUESTED_FOR_REAUTHENTICATION_INVENTORY_STATUS;
+          item.status = AUTHENTICATED_RETURNED_TO_COORDINATOR_INVENTORY_STATUS;
           item.updatedById = actor.userId;
           await em.save(item);
 
@@ -1524,11 +1552,12 @@ export class InventoryService {
         },
       );
 
-    void this.inquiriesService
-      .onInquirySentForThirdPartyAuthentication(item0.inquiryId)
-      .catch((err: unknown) => {
-        this.logger.error('3rd party authentication notifications failed', err);
-      });
+    this.notifyAssignedCoordinatorForInventoryItem(
+      item0,
+      renegotiate
+        ? `Inquiry ${item0.sku} was requested for 3rd party authentication with renegotiation.`
+        : `Inquiry ${item0.sku} was requested for 3rd party authentication.`,
+    );
 
     return { status, authenticationStatus };
   }
@@ -1571,6 +1600,11 @@ export class InventoryService {
       auditActor,
     );
     await this.inventoryAudit.recordDiff(item.id, beforeInv, item, auditActor);
+
+    this.notifyAssignedCoordinatorForInventoryItem(
+      item,
+      `Inventory item ${item.sku} was declined by the authenticator.`,
+    );
 
     return {
       status: item.status,
@@ -1656,12 +1690,12 @@ export class InventoryService {
 
     const auditActor = await this.inventoryAudit.staffActor(actor.userId);
     const beforeInv = cloneInventoryItemForAudit(item);
-    item.status = AUTHENTICATED_FOR_RENEGOTIATION_INVENTORY_STATUS;
+    item.status = AUTHENTICATED_RETURNED_TO_COORDINATOR_INVENTORY_STATUS;
     item.updatedById = actor.userId;
     await this.inventoryRepo.save(item);
 
     const beforeAuth = cloneAuthForAudit(auth);
-    auth.authenticationStatus = FOR_RENEGOTIATION_ITEM_AUTHENTICATION_STATUS;
+    auth.authenticationStatus = RETURNED_TO_COORDINATOR_ITEM_AUTH_STATUS;
     auth.updatedById = actor.userId;
     await this.itemAuthRepo.save(auth);
     await this.inventoryAudit.recordDiff(item.id, beforeInv, item, auditActor);
@@ -1672,25 +1706,30 @@ export class InventoryService {
       auditActor,
     );
 
-    if (item.inquiryId) {
-      void this.notifications
-        .notify({
-          message: `An authenticator sent inventory item ${item.sku} back for renegotiation.`,
-          receiverRole: CONSIGNMENT_COORDINATOR_POSITION,
-          inquiryId: item.inquiryId,
-        })
-        .catch((err: unknown) => {
-          this.logger.error(
-            'Failed to notify coordinators of authentication renegotiation',
-            err,
-          );
-        });
-    }
+    this.notifyAssignedCoordinatorForInventoryItem(
+      item,
+      `An authenticator sent inventory item ${item.sku} back for renegotiation.`,
+    );
 
     return {
       status: item.status,
       authenticationStatus: auth.authenticationStatus,
     };
+  }
+
+  private notifyAssignedCoordinatorForInventoryItem(
+    item: Pick<InventoryItem, 'inquiryId' | 'sku'>,
+    message: string,
+  ): void {
+    if (!item.inquiryId) return;
+    void this.inquiriesService
+      .notifyAssignedCoordinator(item.inquiryId, message)
+      .catch((err: unknown) => {
+        this.logger.error(
+          `Failed to notify assigned coordinator for inventory item ${item.sku}`,
+          err,
+        );
+      });
   }
 
   async listAuthenticators(): Promise<{ id: string; displayName: string }[]> {

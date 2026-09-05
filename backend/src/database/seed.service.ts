@@ -49,6 +49,7 @@ export class SeedService implements OnModuleInit {
     await this.ensureInquiryDirectPurchaseSchema();
     await this.ensureInquiryDeclineReasonSchema();
     await this.ensureInquiryAssignedToSchema();
+    await this.ensureAuthenticationCoordinatorReturnSchema();
     await this.ensureDirectPurchasePaymentsSchema();
     await this.ensurePenaltyWaiveSchema();
     await this.ensureOrderAuditSchema();
@@ -116,6 +117,47 @@ export class SeedService implements OnModuleInit {
     } catch (err) {
       this.logger.warn(
         `Could not ensure inquiry assigned_to_id column: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+
+  private async ensureAuthenticationCoordinatorReturnSchema() {
+    try {
+      const enumTypes: Array<{ typname: string }> =
+        await this.employeesRepo.query(
+          `
+        SELECT DISTINCT t.typname
+        FROM pg_type t
+        JOIN pg_enum e ON t.oid = e.enumtypid
+        WHERE e.enumlabel = 'for_processing'
+        `,
+        );
+      const newValues = [
+        'authenticated_returned_to_coordinator',
+        'authenticated_returned_to_consignor',
+        'for_authentication_payment_verification',
+        'for_3rd_party_authentication',
+      ];
+      for (const row of enumTypes) {
+        const name = String(row.typname ?? '').trim();
+        if (!/^[a-zA-Z0-9_]+$/.test(name)) continue;
+        for (const value of newValues) {
+          await this.employeesRepo.query(
+            `ALTER TYPE "${name}" ADD VALUE IF NOT EXISTS '${value}'`,
+          );
+        }
+      }
+      await this.employeesRepo.query(`
+        ALTER TABLE inquiries
+          ADD COLUMN IF NOT EXISTS authentication_return_case varchar(64),
+          ADD COLUMN IF NOT EXISTS coordinator_return_reason text,
+          ADD COLUMN IF NOT EXISTS third_party_authentication_fee numeric(12,2)
+      `);
+    } catch (err) {
+      this.logger.warn(
+        `Could not ensure authentication coordinator-return schema: ${
           err instanceof Error ? err.message : String(err)
         }`,
       );

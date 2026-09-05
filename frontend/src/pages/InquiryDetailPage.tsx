@@ -38,6 +38,11 @@ import {
 } from "../lib/payment-status";
 import { orderPaymentStatusBadgeClass } from "../lib/order-payments";
 import { isCeoPosition } from "../lib/employee-position";
+import {
+  authenticationReturnCaseHasRenegotiation,
+  authenticationReturnCaseHasThirdParty,
+  authenticationReturnCaseLabel,
+} from "../lib/authentication-return-case";
 
 type TransactionType = "consignment" | "direct_purchase";
 
@@ -67,10 +72,13 @@ type AuthenticatedReturnDetail = {
     metricStatus: string | null;
     notes: string | null;
   }>;
+  authenticationReturnCase: string | null;
+  authenticatorNotes: string | null;
   priceRangeMin: string | null;
   priceRangeMax: string | null;
   returnReasons: string | null;
   returnPhotoUrls: string[];
+  thirdPartyReauthenticationReasons: string | null;
 };
 
 type InquiryDetail = {
@@ -128,6 +136,10 @@ type InquiryDetail = {
     images: Array<{ key: string; url: string }>;
   };
   authenticatedReturnDetail?: AuthenticatedReturnDetail;
+  authenticationReturnCase: string | null;
+  coordinatorReturnReason: string | null;
+  coordinatorReturnPhotoUrls: string[];
+  thirdPartyAuthenticationFee: string | null;
   /** When status is 3rd party authentication; from inquiry row. */
   thirdPartyReauthenticationReasons: string | null;
   thirdPartyPaymentStatus: string | null;
@@ -143,7 +155,6 @@ function canShowUpdateOfferButton(
   offerTransactionType: TransactionType | null,
 ): boolean {
   const s = status.trim().toLowerCase();
-  if (s === "authenticated_new_offer") return true;
   return (
     s === "for_offer_confirmation" && offerTransactionType !== "direct_purchase"
   );
@@ -173,11 +184,17 @@ function hasDualApprovedOffers(detail: {
   );
 }
 
-function isThirdPartyAuthPaymentFlowStatus(status: string): boolean {
+function isThirdPartyAuthPaymentFlowStatus(
+  status: string,
+  returnCase?: string | null,
+): boolean {
   const s = status.trim().toLowerCase();
+  if (s === "authenticated_returned_to_consignor") {
+    return authenticationReturnCaseHasThirdParty(returnCase);
+  }
   return (
-    s === "authenticated_requested_for_reauthentication" ||
-    s === "authenticated_for_3rd_party"
+    s === "for_authentication_payment_verification" ||
+    s === "for_3rd_party_authentication"
   );
 }
 
@@ -252,12 +269,20 @@ function yesNo(v: unknown): string {
   return v === true || v === "true" ? "Yes" : "No";
 }
 
-function isAuthenticatedReturnedStatus(status: string): boolean {
-  return status.trim().toLowerCase() === "authenticated_returned";
+function isAuthenticatedReturnedToCoordinatorStatus(status: string): boolean {
+  return (
+    status.trim().toLowerCase() === "authenticated_returned_to_coordinator"
+  );
 }
 
-function isAuthenticatedNewOfferStatus(status: string): boolean {
-  return status.trim().toLowerCase() === "authenticated_new_offer";
+function isAuthenticatedReturnedToConsignorStatus(status: string): boolean {
+  return status.trim().toLowerCase() === "authenticated_returned_to_consignor";
+}
+
+function isForAuthenticationPaymentVerificationStatus(status: string): boolean {
+  return (
+    status.trim().toLowerCase() === "for_authentication_payment_verification"
+  );
 }
 
 function authMetricVerdictLabel(v: string | null): string {
@@ -278,6 +303,161 @@ function formatSuggestedPriceRange(ar: AuthenticatedReturnDetail): string {
   }
   if (hasMin) return formatPhpDisplay(ar.priceRangeMin);
   return formatPhpDisplay(ar.priceRangeMax);
+}
+
+function AuthenticationResultsPanel({
+  detail,
+}: {
+  detail: InquiryDetail;
+}) {
+  const ar = detail.authenticatedReturnDetail;
+  if (!ar) return null;
+  const returnCase = ar.authenticationReturnCase ?? detail.authenticationReturnCase;
+
+  return (
+    <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50/80 p-4 text-sm dark:border-amber-900/50 dark:bg-amber-950/25">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-amber-900 dark:text-amber-200">
+        Authentication results
+      </h3>
+      <div className="mt-3 space-y-4 text-slate-800 dark:text-slate-200">
+        <div>
+          <p className="text-xs font-medium text-slate-600 dark:text-slate-400">
+            Case
+          </p>
+          <p className="mt-1 font-medium text-slate-900 dark:text-slate-100">
+            {authenticationReturnCaseLabel(returnCase)}
+          </p>
+        </div>
+        <div>
+          <p className="text-xs font-medium text-slate-600 dark:text-slate-400">
+            Authentication summary
+          </p>
+          {ar.authenticationSummary.length === 0 ? (
+            <p className="mt-1 text-slate-600 dark:text-slate-400">
+              No metric checklist entries with pass, fail, skip, or notes.
+            </p>
+          ) : (
+            <ul className="mt-2 list-outside list-disc space-y-2 pl-5">
+              {ar.authenticationSummary.map((row, idx) => (
+                <li key={`${row.metric}-${idx}`} className="pl-1">
+                  <span className="font-medium text-slate-900 dark:text-slate-100">
+                    {row.metric}
+                  </span>
+                  <span className="text-slate-600 dark:text-slate-400">
+                    {": "}
+                  </span>
+                  {row.metricStatus != null ? (
+                    <span
+                      className={
+                        row.metricStatus === "pass"
+                          ? "font-semibold text-emerald-700 dark:text-emerald-400"
+                          : row.metricStatus === "fail"
+                            ? "font-semibold text-red-700 dark:text-red-400"
+                            : "font-medium text-slate-800 dark:text-slate-200"
+                      }
+                    >
+                      {authMetricVerdictLabel(row.metricStatus)}
+                    </span>
+                  ) : null}
+                  {row.metricStatus != null && row.notes ? (
+                    <span className="text-slate-500 dark:text-slate-400">
+                      {", "}
+                    </span>
+                  ) : null}
+                  {row.notes ? (
+                    <span className="whitespace-pre-wrap text-slate-700 dark:text-slate-300">
+                      {row.notes}
+                    </span>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div>
+          <p className="text-xs font-medium text-slate-600 dark:text-slate-400">
+            Authenticator notes
+          </p>
+          {ar.authenticatorNotes ? (
+            <p className="mt-1 whitespace-pre-wrap text-slate-800 dark:text-slate-200">
+              {ar.authenticatorNotes}
+            </p>
+          ) : (
+            <p className="mt-1 text-slate-500 dark:text-slate-400">—</p>
+          )}
+        </div>
+        {authenticationReturnCaseHasRenegotiation(returnCase) ? (
+          <>
+            <div>
+              <p className="text-xs font-medium text-slate-600 dark:text-slate-400">
+                Suggested price range
+              </p>
+              <p className="mt-1 tabular-nums font-medium text-slate-900 dark:text-slate-100">
+                {formatSuggestedPriceRange(ar)}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs font-medium text-slate-600 dark:text-slate-400">
+                Reasons for renegotiation
+              </p>
+              {ar.returnReasons ? (
+                <p className="mt-1 whitespace-pre-wrap text-slate-800 dark:text-slate-200">
+                  {ar.returnReasons}
+                </p>
+              ) : (
+                <p className="mt-1 text-slate-500 dark:text-slate-400">—</p>
+              )}
+            </div>
+          </>
+        ) : null}
+        {authenticationReturnCaseHasThirdParty(returnCase) ? (
+          <div>
+            <p className="text-xs font-medium text-slate-600 dark:text-slate-400">
+              Reasons for 3rd-party authentication
+            </p>
+            {ar.thirdPartyReauthenticationReasons ? (
+              <p className="mt-1 whitespace-pre-wrap text-slate-800 dark:text-slate-200">
+                {ar.thirdPartyReauthenticationReasons}
+              </p>
+            ) : (
+              <p className="mt-1 text-slate-500 dark:text-slate-400">—</p>
+            )}
+          </div>
+        ) : null}
+        <div>
+          <p className="text-xs font-medium text-slate-600 dark:text-slate-400">
+            Flaw photos
+          </p>
+          {ar.returnPhotoUrls.length === 0 ? (
+            <p className="mt-1 text-slate-500 dark:text-slate-400">—</p>
+          ) : (
+            <ul className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {ar.returnPhotoUrls.map((url, i) => (
+                <li
+                  key={`${url}-${i}`}
+                  className="overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-600 dark:bg-slate-900"
+                >
+                  <a
+                    href={url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block"
+                  >
+                    <img
+                      src={url}
+                      alt={`Flaw photo ${i + 1}`}
+                      className="h-32 w-full object-cover"
+                      loading="lazy"
+                    />
+                  </a>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 const cardClass =
@@ -378,7 +558,7 @@ export function InquiryDetailPage() {
     | "dpReject"
     | "notes"
     | "reauthenticationNotes"
-    | "createNewOffer"
+    | "returnToConsignor"
     | "updateConsignmentPrice"
     | "renewContract"
     | "cancelContractRenewal"
@@ -400,9 +580,19 @@ export function InquiryDetailPage() {
   const dpRejectModalTitleId = useId();
   const notesModalTitleId = useId();
   const reauthNotesModalTitleId = useId();
-  const createNewOfferModalTitleId = useId();
-  const [createNewOfferModalOpen, setCreateNewOfferModalOpen] = useState(false);
-  const [createNewOfferPriceInput, setCreateNewOfferPriceInput] = useState("");
+  const returnToConsignorModalTitleId = useId();
+  const [returnToConsignorModalOpen, setReturnToConsignorModalOpen] =
+    useState(false);
+  const [returnToConsignorReason, setReturnToConsignorReason] = useState("");
+  const [returnToConsignorNewOffer, setReturnToConsignorNewOffer] =
+    useState("");
+  const [returnToConsignorFee, setReturnToConsignorFee] = useState("");
+  const [returnToConsignorPhotos, setReturnToConsignorPhotos] = useState<
+    ProofPaymentPreview[]
+  >([]);
+  const [returnToConsignorDropActive, setReturnToConsignorDropActive] =
+    useState(false);
+  const returnToConsignorInputId = useId();
   const [repricingModalOpen, setRepricingModalOpen] = useState(false);
   const [repricingOfferPriceInput, setRepricingOfferPriceInput] = useState("");
   const [repricingProof, setRepricingProof] =
@@ -525,14 +715,14 @@ export function InquiryDetailPage() {
   }, [reauthNotesModalOpen, actionBusy]);
 
   useEffect(() => {
-    if (!createNewOfferModalOpen) return;
+    if (!returnToConsignorModalOpen) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && actionBusy === null)
-        setCreateNewOfferModalOpen(false);
+        setReturnToConsignorModalOpen(false);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [createNewOfferModalOpen, actionBusy]);
+  }, [returnToConsignorModalOpen, actionBusy]);
 
   const closeRepricingModal = useCallback(() => {
     if (actionBusy === "updateConsignmentPrice") return;
@@ -1016,10 +1206,37 @@ export function InquiryDetailPage() {
     setNotesModalOpen(true);
   }, [canEditFeature, detail]);
 
-  const openCreateNewOfferModal = useCallback(() => {
+  const closeReturnToConsignorModal = useCallback(() => {
+    if (actionBusy === "returnToConsignor") return;
+    setReturnToConsignorPhotos((prev) => {
+      for (const p of prev) URL.revokeObjectURL(p.previewUrl);
+      return [];
+    });
+    setReturnToConsignorDropActive(false);
+    setReturnToConsignorReason("");
+    setReturnToConsignorNewOffer("");
+    setReturnToConsignorFee("");
+    setReturnToConsignorModalOpen(false);
+  }, [actionBusy]);
+
+  const openReturnToConsignorModal = useCallback(() => {
     if (!canEditInquiry || !detail?.authenticatedReturnDetail) return;
     setActionError(null);
-    setCreateNewOfferPriceInput(
+    setReturnToConsignorReason("");
+    setReturnToConsignorFee(
+      detail.thirdPartyAuthenticationFee != null &&
+        detail.thirdPartyAuthenticationFee !== ""
+        ? (() => {
+            const n = parsePhpStringToNumber(
+              String(detail.thirdPartyAuthenticationFee),
+            );
+            return n != null
+              ? n.toFixed(2)
+              : String(detail.thirdPartyAuthenticationFee);
+          })()
+        : "",
+    );
+    setReturnToConsignorNewOffer(
       detail.offerPrice != null && detail.offerPrice !== ""
         ? (() => {
             const n = parsePhpStringToNumber(String(detail.offerPrice));
@@ -1027,44 +1244,105 @@ export function InquiryDetailPage() {
           })()
         : "",
     );
-    setCreateNewOfferModalOpen(true);
-  }, [canEditFeature, detail]);
+    setReturnToConsignorPhotos((prev) => {
+      for (const p of prev) URL.revokeObjectURL(p.previewUrl);
+      return [];
+    });
+    setReturnToConsignorModalOpen(true);
+  }, [canEditInquiry, detail]);
 
-  const submitAuthenticatedReturnNewOffer = useCallback(
+  const addReturnToConsignorFiles = useCallback((list: FileList | File[]) => {
+    const images = Array.from(list).filter((f) => /^image\//u.test(f.type));
+    if (images.length === 0) return;
+    setReturnToConsignorPhotos((prev) => [
+      ...prev,
+      ...images.map((file) => ({
+        id: randomId(),
+        file,
+        previewUrl: URL.createObjectURL(file),
+      })),
+    ]);
+  }, []);
+
+  const submitReturnToConsignor = useCallback(
     async (e: FormEvent) => {
       e.preventDefault();
       if (!canEditInquiry || !id || !token || !detail?.authenticatedReturnDetail)
         return;
-      const price = parsePhpStringToNumber(createNewOfferPriceInput);
-      if (price == null || price <= 0) {
-        setActionError("Enter a valid offer price greater than zero.");
+      const reason = returnToConsignorReason.trim();
+      if (reason === "") {
+        setActionError("Enter a reason.");
         return;
       }
+      if (returnToConsignorPhotos.length === 0) {
+        setActionError("Add at least one photo.");
+        return;
+      }
+      const returnCase =
+        detail.authenticatedReturnDetail.authenticationReturnCase ??
+        detail.authenticationReturnCase;
+      const hasRenegotiation =
+        authenticationReturnCaseHasRenegotiation(returnCase);
+      const hasThirdParty = authenticationReturnCaseHasThirdParty(returnCase);
+      let newOfferPrice: string | undefined;
+      let authenticationFee: string | undefined;
+      if (hasRenegotiation) {
+        const price = parsePhpStringToNumber(returnToConsignorNewOffer);
+        if (price == null || price <= 0) {
+          setActionError("Enter a valid new offer price greater than zero.");
+          return;
+        }
+        newOfferPrice = price.toFixed(2);
+      }
+      if (hasThirdParty) {
+        const fee = parsePhpStringToNumber(returnToConsignorFee);
+        if (fee == null || fee <= 0) {
+          setActionError("Enter a valid authentication fee greater than zero.");
+          return;
+        }
+        authenticationFee = fee.toFixed(2);
+      }
       setActionError(null);
-      setActionBusy("createNewOffer");
+      setActionBusy("returnToConsignor");
       try {
+        const fd = new FormData();
+        fd.append("reason", reason);
+        if (newOfferPrice) fd.append("newOfferPrice", newOfferPrice);
+        if (authenticationFee) fd.append("authenticationFee", authenticationFee);
+        for (const p of returnToConsignorPhotos) {
+          fd.append("photos", p.file);
+        }
         const res = await apiFetch(
-          `/api/inquiries/${id}/authenticated-return-new-offer`,
-          {
-            method: "POST",
-            body: JSON.stringify({ offerPrice: price }),
-          },
+          `/api/inquiries/${id}/return-to-consignor`,
+          { method: "POST", body: fd },
           token,
         );
         if (!res.ok) throw new Error(await readApiErrorMessage(res));
         const data = (await res.json()) as InquiryDetail;
         setDetail(data);
         setAuditRows(null);
-        setCreateNewOfferModalOpen(false);
+        closeReturnToConsignorModal();
       } catch (err) {
         setActionError(
-          err instanceof Error ? err.message : "Could not save new offer",
+          err instanceof Error
+            ? err.message
+            : "Could not return inquiry to consignor",
         );
       } finally {
         setActionBusy(null);
       }
     },
-    [id, token, detail, createNewOfferPriceInput],
+    [
+      canEditInquiry,
+      id,
+      token,
+      detail,
+      returnToConsignorReason,
+      returnToConsignorPhotos,
+      returnToConsignorNewOffer,
+      returnToConsignorFee,
+      closeReturnToConsignorModal,
+    ],
   );
 
   const submitConsignmentPriceUpdate = useCallback(
@@ -1389,7 +1667,10 @@ export function InquiryDetailPage() {
   const form = detail?.itemSnapshot.form ?? {};
   const showThirdPartyActions =
     detail != null &&
-    isThirdPartyAuthPaymentFlowStatus(detail.status) &&
+    isThirdPartyAuthPaymentFlowStatus(
+      detail.status,
+      detail.authenticationReturnCase,
+    ) &&
     detail.linkedInventoryItemId != null;
   const showAvailableForPurchaseActions =
     detail != null &&
@@ -1406,9 +1687,7 @@ export function InquiryDetailPage() {
     isPaymentAwaitingVerification(detail.pulloutPaymentStatus);
   const showThirdPartyVerify =
     detail != null &&
-    isThirdPartyAuthPaymentFlowStatus(detail.status) &&
-    detail.status.trim().toLowerCase() ===
-      "authenticated_requested_for_reauthentication" &&
+    isForAuthenticationPaymentVerificationStatus(detail.status) &&
     isPaymentAwaitingVerification(detail.thirdPartyPaymentStatus) &&
     detail.thirdPartyPaymentProofUrls.length > 0;
   const showPrintContractAction =
@@ -1485,7 +1764,7 @@ export function InquiryDetailPage() {
       !declineConfirmOpen &&
       !notesModalOpen &&
       !reauthNotesModalOpen &&
-      !createNewOfferModalOpen &&
+      !returnToConsignorModalOpen &&
       !repricingModalOpen &&
       !renewContractModalOpen &&
       !pulloutModalOpen &&
@@ -1557,15 +1836,15 @@ export function InquiryDetailPage() {
                 </Link>
               ) : null}
               {canEditInquiry &&
-              isAuthenticatedReturnedStatus(detail.status) &&
+              isAuthenticatedReturnedToCoordinatorStatus(detail.status) &&
               detail.authenticatedReturnDetail ? (
                 <button
                   type="button"
                   disabled={actionBusy !== null}
-                  onClick={openCreateNewOfferModal}
+                  onClick={openReturnToConsignorModal}
                   className="rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-teal-700 disabled:opacity-50 dark:bg-teal-600 dark:hover:bg-teal-500"
                 >
-                  Create New Offer
+                  Return to Consignor
                 </button>
               ) : null}
               {canEditInquiry &&
@@ -1762,8 +2041,9 @@ export function InquiryDetailPage() {
                       ) : null}
                       {canEditInquiry &&
                       showThirdPartyActions &&
-                      detail.status.trim().toLowerCase() ===
-                        "authenticated_requested_for_reauthentication" ? (
+                      isForAuthenticationPaymentVerificationStatus(
+                        detail.status,
+                      ) ? (
                         <li role="none">
                           <button
                             type="button"
@@ -1895,6 +2175,10 @@ export function InquiryDetailPage() {
                 </p>
               )}
             </div>
+
+            {isAuthenticatedReturnedToCoordinatorStatus(detail.status) ? (
+              <AuthenticationResultsPanel detail={detail} />
+            ) : null}
 
             {detail.directPurchaseRequestedPrice != null ||
             detail.consignmentRequestedPrice != null ||
@@ -2125,62 +2409,21 @@ export function InquiryDetailPage() {
               </div>
             ) : null}
 
-            {isThirdPartyAuthPaymentFlowStatus(detail.status) ? (
+            {isThirdPartyAuthPaymentFlowStatus(
+              detail.status,
+              detail.authenticationReturnCase,
+            ) ? (
               <div className="mt-4 rounded-lg border border-sky-200 bg-sky-50/80 p-3 text-sm dark:border-sky-900/50 dark:bg-sky-950/25">
                 <h3 className="text-xs font-semibold uppercase tracking-wide text-sky-900 dark:text-sky-200">
-                  Requested for reauthentication
+                  3rd-party authentication fee
                 </h3>
-                <p className="mt-1 text-xs font-medium text-slate-600 dark:text-slate-400">
-                  Reauthentication reasons
-                </p>
-                {detail.thirdPartyReauthenticationReasons != null &&
-                detail.thirdPartyReauthenticationReasons.trim() !== "" ? (
-                  <p className="mt-2 whitespace-pre-wrap text-slate-800 dark:text-slate-200">
-                    {detail.thirdPartyReauthenticationReasons}
+                {detail.thirdPartyAuthenticationFee != null &&
+                detail.thirdPartyAuthenticationFee !== "" ? (
+                  <p className="mt-2 tabular-nums font-medium text-slate-900 dark:text-slate-100">
+                    {formatPhpDisplay(detail.thirdPartyAuthenticationFee)}
                   </p>
-                ) : (
-                  <p className="mt-2 text-slate-500 dark:text-slate-400">—</p>
-                )}
-                <p className="mt-4 text-xs font-medium text-slate-600 dark:text-slate-400">
-                  Notes
-                </p>
-                {detail.thirdPartyReauthenticationNotes != null &&
-                detail.thirdPartyReauthenticationNotes.trim() !== "" ? (
-                  <p className="mt-2 whitespace-pre-wrap text-slate-800 dark:text-slate-200">
-                    {detail.thirdPartyReauthenticationNotes}
-                  </p>
-                ) : (
-                  <p className="mt-2 text-slate-500 dark:text-slate-400">—</p>
-                )}
-                {detail.thirdPartyIssuePhotoUrls.length > 0 ? (
-                  <div className="mt-4">
-                    <p className="text-xs font-medium text-slate-600 dark:text-slate-400">
-                      Issue photos
-                    </p>
-                    <ul className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
-                      {detail.thirdPartyIssuePhotoUrls.map((url, i) => (
-                        <li
-                          key={`${url}-${i}`}
-                          className="overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900"
-                        >
-                          <a
-                            href={url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                          >
-                            <img
-                              src={url}
-                              alt={`Issue ${i + 1}`}
-                              className="aspect-square w-full object-cover"
-                              loading="lazy"
-                            />
-                          </a>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
                 ) : null}
-                <p className="mt-4 text-xs font-medium text-slate-600 dark:text-slate-400">
+                <p className="mt-3 text-xs font-medium text-slate-600 dark:text-slate-400">
                   Proof of payment
                 </p>
                 {detail.thirdPartyPaymentStatus ? (
@@ -2360,126 +2603,9 @@ export function InquiryDetailPage() {
               ) : null}
             </dl>
 
-            {(isAuthenticatedReturnedStatus(detail.status) ||
-              isAuthenticatedNewOfferStatus(detail.status)) &&
-            detail.authenticatedReturnDetail ? (
-              <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50/80 p-4 text-sm dark:border-amber-900/50 dark:bg-amber-950/25">
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-amber-900 dark:text-amber-200">
-                  Authentication return
-                </h3>
-                <div className="mt-3 space-y-4 text-slate-800 dark:text-slate-200">
-                  <div>
-                    <p className="text-xs font-medium text-slate-600 dark:text-slate-400">
-                      Authentication result summary
-                    </p>
-                    {detail.authenticatedReturnDetail.authenticationSummary
-                      .length === 0 ? (
-                      <p className="mt-1 text-slate-600 dark:text-slate-400">
-                        No metric checklist entries with pass, fail, skip, or
-                        notes.
-                      </p>
-                    ) : (
-                      <ul className="mt-2 list-outside list-disc space-y-2 pl-5">
-                        {detail.authenticatedReturnDetail.authenticationSummary.map(
-                          (row, idx) => (
-                            <li key={`${row.metric}-${idx}`} className="pl-1">
-                              <span className="font-medium text-slate-900 dark:text-slate-100">
-                                {row.metric}
-                              </span>
-                              <span className="text-slate-600 dark:text-slate-400">
-                                {": "}
-                              </span>
-                              {row.metricStatus != null ? (
-                                <span
-                                  className={
-                                    row.metricStatus === "pass"
-                                      ? "font-semibold text-emerald-700 dark:text-emerald-400"
-                                      : row.metricStatus === "fail"
-                                        ? "font-semibold text-red-700 dark:text-red-400"
-                                        : "font-medium text-slate-800 dark:text-slate-200"
-                                  }
-                                >
-                                  {authMetricVerdictLabel(row.metricStatus)}
-                                </span>
-                              ) : null}
-                              {row.metricStatus != null && row.notes ? (
-                                <span className="text-slate-500 dark:text-slate-400">
-                                  {", "}
-                                </span>
-                              ) : null}
-                              {row.notes ? (
-                                <span className="whitespace-pre-wrap text-slate-700 dark:text-slate-300">
-                                  {row.notes}
-                                </span>
-                              ) : null}
-                            </li>
-                          ),
-                        )}
-                      </ul>
-                    )}
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium text-slate-600 dark:text-slate-400">
-                      Suggested price range
-                    </p>
-                    <p className="mt-1 tabular-nums font-medium text-slate-900 dark:text-slate-100">
-                      {formatSuggestedPriceRange(
-                        detail.authenticatedReturnDetail,
-                      )}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium text-slate-600 dark:text-slate-400">
-                      Reasons for renegotiation
-                    </p>
-                    {detail.authenticatedReturnDetail.returnReasons ? (
-                      <p className="mt-1 whitespace-pre-wrap text-slate-800 dark:text-slate-200">
-                        {detail.authenticatedReturnDetail.returnReasons}
-                      </p>
-                    ) : (
-                      <p className="mt-1 text-slate-500 dark:text-slate-400">
-                        —
-                      </p>
-                    )}
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium text-slate-600 dark:text-slate-400">
-                      Flaw photos
-                    </p>
-                    {detail.authenticatedReturnDetail.returnPhotoUrls.length ===
-                    0 ? (
-                      <p className="mt-1 text-slate-500 dark:text-slate-400">
-                        —
-                      </p>
-                    ) : (
-                      <ul className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
-                        {detail.authenticatedReturnDetail.returnPhotoUrls.map(
-                          (url, i) => (
-                            <li
-                              key={`${url}-${i}`}
-                              className="overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-600 dark:bg-slate-900"
-                            >
-                              <a
-                                href={url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="block"
-                              >
-                                <img
-                                  src={url}
-                                  alt={`Flaw photo ${i + 1}`}
-                                  className="h-32 w-full object-cover"
-                                  loading="lazy"
-                                />
-                              </a>
-                            </li>
-                          ),
-                        )}
-                      </ul>
-                    )}
-                  </div>
-                </div>
-              </div>
+            {detail.authenticatedReturnDetail &&
+            !isAuthenticatedReturnedToCoordinatorStatus(detail.status) ? (
+              <AuthenticationResultsPanel detail={detail} />
             ) : null}
           </div>
 
@@ -3070,7 +3196,7 @@ export function InquiryDetailPage() {
               )
             : null}
 
-          {createNewOfferModalOpen &&
+          {returnToConsignorModalOpen &&
           detail?.authenticatedReturnDetail &&
           typeof document !== "undefined"
             ? createPortal(
@@ -3078,68 +3204,196 @@ export function InquiryDetailPage() {
                   className="fixed inset-0 z-[100] flex items-end justify-center p-4 sm:items-center"
                   role="dialog"
                   aria-modal="true"
-                  aria-labelledby={createNewOfferModalTitleId}
+                  aria-labelledby={returnToConsignorModalTitleId}
                 >
                   <button
                     type="button"
                     className="absolute inset-0 bg-slate-900/50"
-                    aria-label="Close new offer form"
+                    aria-label="Close return to consignor form"
                     onClick={() =>
-                      actionBusy === null && setCreateNewOfferModalOpen(false)
+                      actionBusy === null && closeReturnToConsignorModal()
                     }
                   />
-                  <div className="relative z-10 w-full max-w-md rounded-2xl border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+                  <div className="relative z-10 max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-900">
                     <h2
-                      id={createNewOfferModalTitleId}
+                      id={returnToConsignorModalTitleId}
                       className="text-base font-semibold text-slate-900 dark:text-slate-100"
                     >
-                      Create New Offer
+                      Return to Consignor
                     </h2>
+                    <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+                      The consignor will be emailed after you save.
+                    </p>
                     <form
-                      onSubmit={(e) =>
-                        void submitAuthenticatedReturnNewOffer(e)
-                      }
+                      onSubmit={(e) => void submitReturnToConsignor(e)}
                       className="mt-4 space-y-4"
                     >
-                      <div className="rounded-lg border border-slate-200 bg-slate-50/90 px-3 py-2.5 text-sm dark:border-slate-600 dark:bg-slate-950/60">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                          Suggested price range
-                        </p>
-                        <p className="mt-2 tabular-nums font-medium text-slate-900 dark:text-slate-100">
-                          {formatSuggestedPriceRange(
-                            detail.authenticatedReturnDetail,
-                          )}
-                        </p>
-                      </div>
-                      {actionError && createNewOfferModalOpen ? (
+                      {actionError && returnToConsignorModalOpen ? (
                         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
                           {actionError}
                         </p>
                       ) : null}
                       <div>
                         <label
-                          htmlFor="new-offer-price"
+                          htmlFor="return-to-consignor-reason"
                           className="block text-sm font-medium text-slate-700 dark:text-slate-300"
                         >
-                          New Offer Price (PHP)
+                          Reason
                         </label>
-                        <div className="mt-1">
-                          <PhpPriceInput
-                            id="new-offer-price"
-                            value={createNewOfferPriceInput}
-                            onChange={setCreateNewOfferPriceInput}
-                            disabled={actionBusy !== null}
-                            required
-                            className="w-full rounded-lg border border-slate-300 bg-white py-2 pr-3 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
-                            placeholder="0.00"
-                          />
-                        </div>
+                        <textarea
+                          id="return-to-consignor-reason"
+                          rows={4}
+                          value={returnToConsignorReason}
+                          onChange={(e) =>
+                            setReturnToConsignorReason(e.target.value)
+                          }
+                          disabled={actionBusy !== null}
+                          required
+                          className="mt-1 w-full resize-y rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
+                        />
                       </div>
+                      <div>
+                        <p className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+                          Photos
+                        </p>
+                        <input
+                          id={returnToConsignorInputId}
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          className="sr-only"
+                          onChange={(e) => {
+                            if (e.target.files?.length)
+                              addReturnToConsignorFiles(e.target.files);
+                            e.target.value = "";
+                          }}
+                        />
+                        <label
+                          htmlFor={returnToConsignorInputId}
+                          className={`${proofPaymentDropzoneClass} mt-2 ${returnToConsignorDropActive ? "border-violet-500 bg-violet-50 dark:border-violet-400 dark:bg-violet-950/50" : ""}`}
+                          onDragEnter={(e) => {
+                            e.preventDefault();
+                            setReturnToConsignorDropActive(true);
+                          }}
+                          onDragLeave={(e) => {
+                            e.preventDefault();
+                            if (
+                              !e.currentTarget.contains(
+                                e.relatedTarget as Node,
+                              )
+                            ) {
+                              setReturnToConsignorDropActive(false);
+                            }
+                          }}
+                          onDragOver={(e) => {
+                            e.preventDefault();
+                            e.dataTransfer.dropEffect = "copy";
+                          }}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setReturnToConsignorDropActive(false);
+                            if (e.dataTransfer.files?.length) {
+                              addReturnToConsignorFiles(e.dataTransfer.files);
+                            }
+                          }}
+                        >
+                          <span className="text-sm font-medium text-slate-800 dark:text-slate-100">
+                            Drop images here or click to choose
+                          </span>
+                          <span className="text-xs text-slate-500 dark:text-slate-400">
+                            PNG, JPG, or other image formats.
+                          </span>
+                        </label>
+                        {returnToConsignorPhotos.length > 0 ? (
+                          <ul className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                            {returnToConsignorPhotos.map((p) => (
+                              <li
+                                key={p.id}
+                                className="overflow-hidden rounded-lg border border-slate-200 bg-slate-50 dark:border-slate-600 dark:bg-slate-800"
+                              >
+                                <div className="relative aspect-square">
+                                  <img
+                                    src={p.previewUrl}
+                                    alt=""
+                                    className="h-full w-full object-cover"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setReturnToConsignorPhotos((prev) => {
+                                        const next = prev.filter(
+                                          (x) => x.id !== p.id,
+                                        );
+                                        URL.revokeObjectURL(p.previewUrl);
+                                        return next;
+                                      })
+                                    }
+                                    className="absolute right-1 top-1 rounded bg-slate-900/70 px-2 py-0.5 text-xs font-medium text-white hover:bg-slate-900"
+                                  >
+                                    Remove
+                                  </button>
+                                </div>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
+                      </div>
+                      {authenticationReturnCaseHasRenegotiation(
+                        detail.authenticatedReturnDetail
+                          .authenticationReturnCase ??
+                          detail.authenticationReturnCase,
+                      ) ? (
+                        <div>
+                          <label
+                            htmlFor="return-to-consignor-offer"
+                            className="block text-sm font-medium text-slate-700 dark:text-slate-300"
+                          >
+                            New offer price (PHP)
+                          </label>
+                          <div className="mt-1">
+                            <PhpPriceInput
+                              id="return-to-consignor-offer"
+                              value={returnToConsignorNewOffer}
+                              onChange={setReturnToConsignorNewOffer}
+                              disabled={actionBusy !== null}
+                              required
+                              className="w-full rounded-lg border border-slate-300 bg-white py-2 pr-3 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
+                              placeholder="0.00"
+                            />
+                          </div>
+                        </div>
+                      ) : null}
+                      {authenticationReturnCaseHasThirdParty(
+                        detail.authenticatedReturnDetail
+                          .authenticationReturnCase ??
+                          detail.authenticationReturnCase,
+                      ) ? (
+                        <div>
+                          <label
+                            htmlFor="return-to-consignor-fee"
+                            className="block text-sm font-medium text-slate-700 dark:text-slate-300"
+                          >
+                            Authentication fee (PHP)
+                          </label>
+                          <div className="mt-1">
+                            <PhpPriceInput
+                              id="return-to-consignor-fee"
+                              value={returnToConsignorFee}
+                              onChange={setReturnToConsignorFee}
+                              disabled={actionBusy !== null}
+                              required
+                              className="w-full rounded-lg border border-slate-300 bg-white py-2 pr-3 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
+                              placeholder="0.00"
+                            />
+                          </div>
+                        </div>
+                      ) : null}
                       <div className="flex flex-wrap justify-end gap-2 pt-2">
                         <button
                           type="button"
                           disabled={actionBusy !== null}
-                          onClick={() => setCreateNewOfferModalOpen(false)}
+                          onClick={() => closeReturnToConsignorModal()}
                           className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
                         >
                           Cancel
@@ -3149,7 +3403,9 @@ export function InquiryDetailPage() {
                           disabled={actionBusy !== null}
                           className="rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-teal-700 disabled:opacity-50 dark:bg-teal-600 dark:hover:bg-teal-500"
                         >
-                          {actionBusy === "createNewOffer" ? "Saving…" : "Save"}
+                          {actionBusy === "returnToConsignor"
+                            ? "Saving…"
+                            : "Save"}
                         </button>
                       </div>
                     </form>
@@ -3712,7 +3968,7 @@ export function InquiryDetailPage() {
                     <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
                       These notes appear under{" "}
                       <span className="font-medium">
-                        Requested for reauthentication
+                        3rd-party authentication
                       </span>{" "}
                       on this inquiry for your team and the consignor.
                     </p>

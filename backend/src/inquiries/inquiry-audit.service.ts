@@ -38,6 +38,9 @@ type AuditState = {
   offerSignaturePresent: boolean;
   notes: string | null;
   declineReason: string | null;
+  authenticationReturnCase: string | null;
+  coordinatorReturnReason: string | null;
+  thirdPartyAuthenticationFee: string | null;
   pulloutFee: string | null;
   pulloutReason: string | null;
   pulloutPaymentStatus: string | null;
@@ -76,6 +79,9 @@ export function cloneInquiryForAudit(r: Inquiry): Inquiry {
       declineReason: r.declineReason,
       assignedToId: r.assignedToId,
       itemSnapshot: r.itemSnapshot,
+      authenticationReturnCase: r.authenticationReturnCase,
+      coordinatorReturnReason: r.coordinatorReturnReason,
+      thirdPartyAuthenticationFee: r.thirdPartyAuthenticationFee,
       pulloutFee: r.pulloutFee,
       pulloutReason: r.pulloutReason,
       pulloutPaymentStatus: r.pulloutPaymentStatus,
@@ -143,6 +149,21 @@ function toAuditState(
       const t = String(r.declineReason).trim();
       return t === '' ? null : truncate(t);
     })(),
+    authenticationReturnCase: (() => {
+      if (r.authenticationReturnCase == null) return null;
+      const t = String(r.authenticationReturnCase).trim();
+      return t === '' ? null : t;
+    })(),
+    coordinatorReturnReason: (() => {
+      if (r.coordinatorReturnReason == null) return null;
+      const t = String(r.coordinatorReturnReason).trim();
+      return t === '' ? null : truncate(t);
+    })(),
+    thirdPartyAuthenticationFee:
+      r.thirdPartyAuthenticationFee != null &&
+      String(r.thirdPartyAuthenticationFee).trim() !== ''
+        ? String(r.thirdPartyAuthenticationFee)
+        : null,
     pulloutFee:
       r.pulloutFee != null && String(r.pulloutFee).trim() !== ''
         ? String(r.pulloutFee)
@@ -249,6 +270,21 @@ function diffStates(
   push('Offer signature', bSig, aSig);
   push('Staff notes', before.notes, after.notes);
   push('Decline reason', before.declineReason, after.declineReason);
+  push(
+    'Authentication return case',
+    before.authenticationReturnCase,
+    after.authenticationReturnCase,
+  );
+  push(
+    'Coordinator return reason',
+    before.coordinatorReturnReason,
+    after.coordinatorReturnReason,
+  );
+  push(
+    '3rd-party authentication fee',
+    before.thirdPartyAuthenticationFee,
+    after.thirdPartyAuthenticationFee,
+  );
   push('Pullout fee', before.pulloutFee, after.pulloutFee);
   push('Pullout reason', before.pulloutReason, after.pulloutReason);
   push(
@@ -368,6 +404,9 @@ export class InquiryAuditService {
       offerSignaturePresent: false,
       notes: null,
       declineReason: null,
+      authenticationReturnCase: null,
+      coordinatorReturnReason: null,
+      thirdPartyAuthenticationFee: null,
       pulloutFee: null,
       pulloutReason: null,
       pulloutPaymentStatus: null,
