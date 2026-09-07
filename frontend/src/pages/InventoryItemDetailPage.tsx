@@ -9,6 +9,7 @@ import { TablePaginationBar } from "../components/TablePaginationBar";
 import { usePortalAuth } from "../context/portal-auth";
 import { useClientPagination } from "../hooks/useClientPagination";
 import { apiFetch } from "../lib/api";
+import { useFeatureAccess } from "../lib/use-feature-access";
 import { branchLabel } from "../lib/consignment-schedule-labels";
 import { formatOfferTransactionLabel } from "../lib/format-offer-transaction-type";
 import { formatAuditTrailValue, formatPhpDisplay } from "../lib/format-php";
@@ -193,6 +194,7 @@ export function InventoryItemDetailPage() {
   const waitlistModalTitleId = useId();
   const addClientModalTitleId = useId();
   const { token } = usePortalAuth();
+  const { canView: canViewAuthentication } = useFeatureAccess("authentication");
   const [detail, setDetail] = useState<InventoryDetailForStaff | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -524,7 +526,8 @@ export function InventoryItemDetailPage() {
               Manage Shopify listing
             </Link>
           ) : null}
-          {detail.authenticationStatus.trim().toLowerCase() !== "pending" ? (
+          {canViewAuthentication &&
+          detail.authenticationStatus.trim().toLowerCase() !== "pending" ? (
             <Link
               to={`/portal/inventory/${detail.id}/authentication`}
               className={recordActionBtn}

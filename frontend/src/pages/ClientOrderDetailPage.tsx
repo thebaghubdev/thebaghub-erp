@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { OrderInstallmentSchedule } from "../components/OrderInstallmentSchedule";
 import { OrderPaymentsSection } from "../components/OrderPaymentsSection";
+import { BankTransferPaymentInstructions } from "../components/BankTransferPaymentInstructions";
 import { computeInstallmentVoucherAmountDue } from "../components/UseVoucherDialog";
 import { OrderStatusBadge } from "../components/OrderStatusBadge";
 import { SubmittedAtCell } from "../components/SubmittedAtCell";
@@ -516,6 +517,10 @@ export function ClientOrderDetailPage() {
           ) : null}
         </dl>
       </div>
+
+      {detail.status === "For Payment" ? (
+        <BankTransferPaymentInstructions />
+      ) : null}
 
       {showOrderPayments ? (
         <div className={cardClass}>

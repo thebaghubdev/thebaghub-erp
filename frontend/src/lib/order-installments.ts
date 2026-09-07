@@ -115,6 +115,7 @@ export {
   dueDateInputValue,
   formatDueDate,
   installmentStatusBadgeClass,
+  isInstallmentAwaitingVerification,
   isInstallmentPaid,
   isInstallmentUnpaid,
   isPenaltyWaivePending,

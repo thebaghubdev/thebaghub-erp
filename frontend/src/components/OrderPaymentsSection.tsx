@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { DatePickerField } from "./DatePickerField";
 import { HorizontalScrollMirror } from "./HorizontalScrollMirror";
@@ -114,7 +114,6 @@ export function OrderPaymentsSection({
   sectionTitle = "Payments",
   onUpdated,
 }: OrderPaymentsSectionProps) {
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [uploadBusy, setUploadBusy] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -157,9 +156,6 @@ export function OrderPaymentsSection({
       ),
     );
   }, [payments]);
-
-  const apiBase =
-    mode === "staff" ? `/api/orders/${orderId}` : `/api/client/orders/${orderId}`;
 
   const canUpload = !readOnly && token != null;
   const canEditPayments = mode === "staff" && !readOnly && token != null;
@@ -204,37 +200,6 @@ export function OrderPaymentsSection({
     orderTotalDraft,
     token,
   ]);
-
-  const uploadProof = useCallback(
-    async (file: File) => {
-      if (!token || !canUpload || mode !== "client") return;
-      setBusyKey("client-upload");
-      setError(null);
-      try {
-        const fd = new FormData();
-        fd.append("proof", file);
-        const res = await apiFetch(
-          `${apiBase}/payments`,
-          { method: "POST", body: fd },
-          token,
-        );
-        if (!res.ok) throw new Error(await readApiErrorMessage(res));
-        const data = (await res.json()) as OrderPaymentsUpdate & {
-          payments: OrderPaymentRow[];
-          remainingBalancePrice: string | null;
-          holdingPeriod: string | null;
-        };
-        onUpdated(applyPaymentsUpdate(data));
-      } catch (e) {
-        setError(
-          e instanceof Error ? e.message : "Could not upload proof of payment",
-        );
-      } finally {
-        setBusyKey(null);
-      }
-    },
-    [apiBase, canUpload, mode, onUpdated, token],
-  );
 
   const saveAmountPaid = useCallback(
     async (paymentId: string) => {
@@ -353,7 +318,6 @@ export function OrderPaymentsSection({
       : null;
 
   const markPaidBusy = markPaymentId != null && markPaymentBusy;
-  const clientUploadBusy = busyKey === "client-upload";
   const orderTotalBusy = busyKey === "order-total";
 
   return (
@@ -436,42 +400,17 @@ export function OrderPaymentsSection({
               </button>
             ) : null}
             {canUpload ? (
-              mode === "client" ? (
-                <>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*,application/pdf"
-                    className="sr-only"
-                    disabled={clientUploadBusy}
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      e.target.value = "";
-                      if (file) void uploadProof(file);
-                    }}
-                  />
-                  <button
-                    type="button"
-                    className={uploadBtnClass}
-                    disabled={clientUploadBusy}
-                    onClick={() => fileInputRef.current?.click()}
-                  >
-                    {clientUploadBusy ? "Uploading…" : "Upload proof of payment"}
-                  </button>
-                </>
-              ) : (
-                <button
-                  type="button"
-                  className={uploadBtnClass}
-                  disabled={uploadBusy}
-                  onClick={() => {
-                    setUploadError(null);
-                    setUploadDialogOpen(true);
-                  }}
-                >
-                  Upload proof of payment
-                </button>
-              )
+              <button
+                type="button"
+                className={uploadBtnClass}
+                disabled={uploadBusy}
+                onClick={() => {
+                  setUploadError(null);
+                  setUploadDialogOpen(true);
+                }}
+              >
+                Upload proof of payment
+              </button>
             ) : null}
           </div>
         ) : null}
@@ -644,24 +583,17 @@ export function OrderPaymentsSection({
                             </span>
                           )}
                           {showClientProofUpload ? (
-                            <label className="inline-flex cursor-pointer items-center">
-                              <input
-                                type="file"
-                                accept="image/*,application/pdf"
-                                className="sr-only"
-                                disabled={clientUploadBusy}
-                                onChange={(e) => {
-                                  const file = e.target.files?.[0];
-                                  e.target.value = "";
-                                  if (file) void uploadProof(file);
-                                }}
-                              />
-                              <span className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-800 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-800">
-                                {clientUploadBusy
-                                  ? "Uploading…"
-                                  : "Upload proof"}
-                              </span>
-                            </label>
+                            <button
+                              type="button"
+                              disabled={uploadBusy}
+                              onClick={() => {
+                                setUploadError(null);
+                                setUploadDialogOpen(true);
+                              }}
+                              className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-800"
+                            >
+                              Upload proof
+                            </button>
                           ) : null}
                         </div>
                       </td>
@@ -682,7 +614,7 @@ export function OrderPaymentsSection({
                               }}
                               className="shrink-0 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-800"
                             >
-                              Mark as paid
+                              Verify payment
                             </button>
                           ) : null}
                         </div>
@@ -733,7 +665,6 @@ export function OrderPaymentsSection({
         orderId={orderId}
         token={token}
         payment={markPaymentRow}
-        remainingBalancePrice={remainingBalancePrice}
         busy={markPaymentBusy}
         errorMessage={markPaymentError}
         onCancel={() => {
@@ -747,25 +678,24 @@ export function OrderPaymentsSection({
         onErrorChange={setMarkPaymentError}
       />
 
-      {mode === "staff" ? (
-        <UploadOrderPaymentDialog
-          open={uploadDialogOpen}
-          orderId={orderId}
-          token={token}
-          remainingBalancePrice={remainingBalancePrice}
-          busy={uploadBusy}
-          errorMessage={uploadError}
-          onCancel={() => {
-            if (!uploadBusy) setUploadDialogOpen(false);
-          }}
-          onUpdated={(update) => {
-            onUpdated(update);
-            setUploadDialogOpen(false);
-          }}
-          onBusyChange={setUploadBusy}
-          onErrorChange={setUploadError}
-        />
-      ) : null}
+      <UploadOrderPaymentDialog
+        open={uploadDialogOpen}
+        orderId={orderId}
+        token={token}
+        mode={mode}
+        remainingBalancePrice={remainingBalancePrice}
+        busy={uploadBusy}
+        errorMessage={uploadError}
+        onCancel={() => {
+          if (!uploadBusy) setUploadDialogOpen(false);
+        }}
+        onUpdated={(update) => {
+          onUpdated(update);
+          setUploadDialogOpen(false);
+        }}
+        onBusyChange={setUploadBusy}
+        onErrorChange={setUploadError}
+      />
 
       <UseVoucherDialog
         open={useVoucherOpen}

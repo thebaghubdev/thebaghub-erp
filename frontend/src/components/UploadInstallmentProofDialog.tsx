@@ -29,6 +29,7 @@ type UploadInstallmentProofDialogProps = {
   open: boolean;
   orderId: string;
   token: string | null;
+  mode?: "staff" | "client";
   installment: OrderInstallmentRow | null;
   busy: boolean;
   errorMessage: string | null;
@@ -92,6 +93,7 @@ export function UploadInstallmentProofDialog({
   open,
   orderId,
   token,
+  mode = "staff",
   installment,
   busy,
   errorMessage,
@@ -203,8 +205,12 @@ export function UploadInstallmentProofDialog({
       fd.append("amountPaid", amountPaid.trim());
       fd.append("paymentDate", paymentDate.trim());
       fd.append("modeOfPayment", persistedModeOfPayment);
+      const apiBase =
+        mode === "client"
+          ? `/api/client/orders/${orderId}`
+          : `/api/orders/${orderId}`;
       const res = await apiFetch(
-        `/api/orders/${orderId}/installments/${installment.installmentNumber}/proof`,
+        `${apiBase}/installments/${installment.installmentNumber}/proof`,
         { method: "POST", body: fd },
         token,
       );
@@ -223,6 +229,7 @@ export function UploadInstallmentProofDialog({
     amountPaid,
     busy,
     installment,
+    mode,
     onBusyChange,
     onCancel,
     onErrorChange,

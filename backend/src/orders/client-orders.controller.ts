@@ -143,6 +143,9 @@ export class ClientOrdersController {
     @Req() req: { user: JwtUser },
     @Param('id', ParseUUIDPipe) id: string,
     @Param('installmentNumber', ParseIntPipe) installmentNumber: number,
+    @Body('amountPaid') amountPaid: string | undefined,
+    @Body('paymentDate') paymentDate: string | undefined,
+    @Body('modeOfPayment') modeOfPayment: string | undefined,
     @UploadedFile() proof: MulterFile | undefined,
   ) {
     return this.ordersService.uploadInstallmentProofForClient(
@@ -150,6 +153,9 @@ export class ClientOrdersController {
       id,
       installmentNumber,
       proof,
+      amountPaid,
+      paymentDate,
+      modeOfPayment,
     );
   }
 
@@ -171,12 +177,18 @@ export class ClientOrdersController {
   uploadOrderPaymentProof(
     @Req() req: { user: JwtUser },
     @Param('id', ParseUUIDPipe) id: string,
+    @Body('amountPaid') amountPaid: string | undefined,
+    @Body('paymentDate') paymentDate: string | undefined,
+    @Body('modeOfPayment') modeOfPayment: string | undefined,
     @UploadedFile() proof: MulterFile | undefined,
   ) {
     return this.ordersService.uploadOrderPaymentProofForClient(
       req.user,
       id,
       proof,
+      amountPaid,
+      paymentDate,
+      modeOfPayment,
     );
   }
 }

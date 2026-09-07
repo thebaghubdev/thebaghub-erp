@@ -13,6 +13,7 @@ import {
   dueDateInputValue,
   formatDueDate,
   installmentStatusBadgeClass,
+  isInstallmentAwaitingVerification,
   isInstallmentPaid,
   isPenaltyWaivePending,
   isPenaltyWaived,
@@ -185,34 +186,6 @@ export function OrderInstallmentSchedule({
     [apiBase, mode, onUpdated, token],
   );
 
-  const uploadProof = useCallback(
-    async (installmentNumber: number, file: File) => {
-      if (!token) return;
-      const key = `proof-${installmentNumber}`;
-      setBusyKey(key);
-      setError(null);
-      try {
-        const fd = new FormData();
-        fd.append("proof", file);
-        const res = await apiFetch(
-          `${apiBase}/installments/${installmentNumber}/proof`,
-          { method: "POST", body: fd },
-          token,
-        );
-        if (!res.ok) throw new Error(await readApiErrorMessage(res));
-        const data = (await res.json()) as OrderInstallmentScheduleUpdate;
-        onUpdated(data);
-      } catch (e) {
-        setError(
-          e instanceof Error ? e.message : "Could not upload proof of payment",
-        );
-      } finally {
-        setBusyKey(null);
-      }
-    },
-    [apiBase, onUpdated, token],
-  );
-
   const markPaidBusy = markPaidInstallmentNumber != null && busyKey === "mark-paid";
   const markPaidInstallment =
     markPaidInstallmentNumber != null
@@ -293,7 +266,6 @@ export function OrderInstallmentSchedule({
               {installments.map((row) => {
                 const dueDateBusy = busyKey === `due-date-${row.installmentNumber}`;
                 const penaltyBusy = busyKey === `penalty-${row.installmentNumber}`;
-                const proofBusy = busyKey === `proof-${row.installmentNumber}`;
                 const isPaid = isInstallmentPaid(row.status);
                 const waivePending = isPenaltyWaivePending(row.penaltyWaiveStatus);
                 const waived = isPenaltyWaived(row.penaltyWaiveStatus);
@@ -301,7 +273,7 @@ export function OrderInstallmentSchedule({
                 const showMarkInstallmentPaid =
                   mode === "staff" &&
                   canVerifyPayments &&
-                  !isPaid &&
+                  isInstallmentAwaitingVerification(row.status) &&
                   !waivePending;
                 const canEditDueDate =
                   mode === "staff" && !readOnly && !isPaid;
@@ -473,42 +445,19 @@ export function OrderInstallmentSchedule({
                           <span className="text-sm text-slate-500">—</span>
                         )}
                         {showProofUpload ? (
-                          mode === "staff" ? (
-                            <button
-                              type="button"
-                              disabled={uploadProofBusy}
-                              onClick={() => {
-                                setUploadProofError(null);
-                                setUploadProofInstallmentNumber(
-                                  row.installmentNumber,
-                                );
-                              }}
-                              className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-800"
-                            >
-                              Upload proof
-                            </button>
-                          ) : (
-                            <label className="inline-flex cursor-pointer items-center">
-                              <input
-                                type="file"
-                                accept="image/*,application/pdf"
-                                className="sr-only"
-                                disabled={proofBusy}
-                                onChange={(e) => {
-                                  const file = e.target.files?.[0];
-                                  e.target.value = "";
-                                  if (file)
-                                    void uploadProof(
-                                      row.installmentNumber,
-                                      file,
-                                    );
-                                }}
-                              />
-                              <span className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-800 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-800">
-                                {proofBusy ? "Uploading…" : "Upload proof"}
-                              </span>
-                            </label>
-                          )
+                          <button
+                            type="button"
+                            disabled={uploadProofBusy}
+                            onClick={() => {
+                              setUploadProofError(null);
+                              setUploadProofInstallmentNumber(
+                                row.installmentNumber,
+                              );
+                            }}
+                            className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-800"
+                          >
+                            Upload proof
+                          </button>
                         ) : null}
                       </div>
                     </td>
@@ -526,9 +475,9 @@ export function OrderInstallmentSchedule({
                               setMarkPaidInstallmentNumber(row.installmentNumber);
                             }}
                             className="shrink-0 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-800"
-                          >
-                            Mark as paid
-                          </button>
+                            >
+                              Verify payment
+                            </button>
                         ) : null}
                       </div>
                     </td>
@@ -555,11 +504,12 @@ export function OrderInstallmentSchedule({
           </table>
         </HorizontalScrollMirror>
       </div>
-      {mode === "staff" && !readOnly ? (
+      {!readOnly ? (
         <UploadInstallmentProofDialog
           open={uploadProofInstallmentNumber != null}
           orderId={orderId}
           token={token}
+          mode={mode}
           installment={uploadProofInstallment}
           busy={uploadProofBusy}
           errorMessage={uploadProofError}

@@ -20,6 +20,7 @@ type UploadOrderPaymentDialogProps = {
   open: boolean;
   orderId: string;
   token: string | null;
+  mode?: "staff" | "client";
   remainingBalancePrice: string | null;
   busy: boolean;
   errorMessage: string | null;
@@ -83,6 +84,7 @@ export function UploadOrderPaymentDialog({
   open,
   orderId,
   token,
+  mode = "staff",
   busy,
   errorMessage,
   onCancel,
@@ -170,8 +172,12 @@ export function UploadOrderPaymentDialog({
       fd.append("amountPaid", amountPaid.trim());
       fd.append("paymentDate", paymentDate.trim());
       fd.append("modeOfPayment", persistedModeOfPayment);
+      const apiBase =
+        mode === "client"
+          ? `/api/client/orders/${orderId}`
+          : `/api/orders/${orderId}`;
       const res = await apiFetch(
-        `/api/orders/${orderId}/payments`,
+        `${apiBase}/payments`,
         { method: "POST", body: fd },
         token,
       );
@@ -197,6 +203,7 @@ export function UploadOrderPaymentDialog({
   }, [
     amountPaid,
     busy,
+    mode,
     persistedModeOfPayment,
     onBusyChange,
     onCancel,

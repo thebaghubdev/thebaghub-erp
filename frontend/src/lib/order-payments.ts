@@ -32,6 +32,36 @@ export const BANK_TRANSFER_ACCOUNT_OPTIONS = [
 export type BankTransferAccount =
   (typeof BANK_TRANSFER_ACCOUNT_OPTIONS)[number];
 
+export type BankTransferAccountDetails = {
+  label: BankTransferAccount;
+  accountName: string;
+  accountNumber: string;
+};
+
+export const BANK_TRANSFER_ACCOUNT_DETAILS: readonly BankTransferAccountDetails[] =
+  [
+    {
+      label: "BPI OPC",
+      accountName: "TBH Branded Lux Trading OPC",
+      accountNumber: "0221 000 366",
+    },
+    {
+      label: "BDO OPC",
+      accountName: "TBH Branded Lux Trading OPC",
+      accountNumber: "0107 2800 6101",
+    },
+    {
+      label: "BPI Personal",
+      accountName: "MAIA CRISELLE URRUTIA",
+      accountNumber: "8060 0016 19",
+    },
+    {
+      label: "BDO Personal",
+      accountName: "MAIA CRISELLE URRUTIA",
+      accountNumber: "0107 2000 8840",
+    },
+  ];
+
 const BANK_TRANSFER_MODE_PREFIX = "Bank transfer — ";
 
 export function isBankTransferPaymentMode(mode: string): boolean {

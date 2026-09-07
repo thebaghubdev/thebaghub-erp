@@ -3278,10 +3278,19 @@ export class OrdersService {
     orderId: string,
     installmentNumber: number,
     proofFile: MulterFile | undefined,
+    amountPaidRaw: string | undefined,
+    paymentDateRaw: string | undefined,
+    modeOfPaymentRaw: string | undefined,
   ): Promise<ClientOrderDetail> {
     if (!proofFile?.buffer?.length) {
       throw new BadRequestException('Proof file is required');
     }
+
+    const detailsDto = await this.parseMarkInstallmentPaidDto({
+      amountPaid: amountPaidRaw ?? '',
+      paymentDate: paymentDateRaw ?? '',
+      modeOfPayment: modeOfPaymentRaw ?? '',
+    });
 
     const client = await this.clientsRepo.findOne({
       where: { userId: user.userId },
@@ -3328,17 +3337,25 @@ export class OrdersService {
       },
     );
 
+    const amount = parseMoney(detailsDto.amountPaid);
+    const paymentDate = formatOrderDate(detailsDto.paymentDate);
     const proofUploadedAt = new Date();
     await this.installmentsRepo.update(
       { orderId, installmentNumber },
       {
         status: ORDER_INSTALLMENT_STATUS_FOR_PAYMENT_VERIFICATION,
+        amountPaid: amount != null ? formatMoney(amount) : null,
+        paymentDate,
+        modeOfPayment: detailsDto.modeOfPayment,
         proofUploadedAt,
         proofUploadedByUserId: user.userId,
         updatedById: user.userId,
       },
     );
     installment.status = ORDER_INSTALLMENT_STATUS_FOR_PAYMENT_VERIFICATION;
+    installment.amountPaid = amount != null ? formatMoney(amount) : null;
+    installment.paymentDate = paymentDate;
+    installment.modeOfPayment = detailsDto.modeOfPayment;
     installment.proofUploadedAt = proofUploadedAt;
     await this.orderAudit.recordInstallmentDiff(
       orderId,
@@ -3390,6 +3407,9 @@ export class OrdersService {
     user: JwtUser,
     orderId: string,
     proofFile: MulterFile | undefined,
+    amountPaidRaw: string | undefined,
+    paymentDateRaw: string | undefined,
+    modeOfPaymentRaw: string | undefined,
   ): Promise<ClientOrderDetail> {
     const client = await this.clientsRepo.findOne({
       where: { userId: user.userId },
@@ -3406,7 +3426,13 @@ export class OrdersService {
       throw new NotFoundException('Order not found');
     }
 
-    await this.createOrderPaymentWithProof(order, user, proofFile);
+    const detailsDto = await this.parseMarkOrderPaymentPaidDto({
+      amountPaid: amountPaidRaw ?? '',
+      paymentDate: paymentDateRaw ?? '',
+      modeOfPayment: modeOfPaymentRaw ?? '',
+    });
+
+    await this.createOrderPaymentWithProof(order, user, proofFile, detailsDto);
     await this.notifyPaymentVerificationNeeded({
       order,
     });
